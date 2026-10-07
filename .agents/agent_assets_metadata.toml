@@ -382,3 +382,17 @@ mtime_ms = 1791345585014
 storage_uri = "gcs://replit-rams-assets-kirk/rams/assets/repl:3ca2376d-c3dc-490a-a375-6b2f97f7c281/ca031304-15ac-4cd9-aa51-c2f49c15ecaf/0daec48f-9c72-4edf-a27a-43998f1ce715"
 storage_version_token = "1791345631991217"
 content_type = "text/html"
+
+[[outputs]]
+id = "ppKXYh58V_atxDicA4cyU"
+uri = "file://.local/reviews/local-readonly-worker-v1-independent-review.md"
+type = "text"
+title = "Independent worker-plan review"
+description = "Exact-revision review: rejection with six required corrections, code references, and verification criteria."
+logical_id = "ba1347c5-5669-41ae-9ed5-a40f4747415e"
+content_hash = "sha256:b0d537c87da5d159a25b75431045ba2c4910bdc14a60cd174da90aa26df75558"
+size = 12135
+mtime_ms = 1791402257788
+storage_uri = "gcs://replit-rams-assets-kirk/rams/assets/repl:3ca2376d-c3dc-490a-a375-6b2f97f7c281/ba1347c5-5669-41ae-9ed5-a40f4747415e/061bffc8-6667-4c82-a87e-b81183a80a47"
+storage_version_token = "1791402305338284"
+content_type = "text/markdown"
