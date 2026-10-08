@@ -212,3 +212,10 @@ boundaries when designing source continuity.
 
 **How to apply:** Apply this distinction whenever tool-result delivery is used to authorize a later action, not just document review.
 
+
+**Complete assembled context:** Audit the input a persistent agent actually receives, not just its persona prompt.
+
+**Why:** On 2026-10-07 the founder confirmed this approach after the source-delivery investigation: identity instructions, startup procedures, retrieved memories, tools and shortened history all affect grounding. Persistence alone does not establish what is present in a model call.
+
+**How to apply:** Inspect the full assembled input and its retrieval/truncation/continuation boundaries before attributing a failure to persona wording or proposing a prompt rewrite.
+
