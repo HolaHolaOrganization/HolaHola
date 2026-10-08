@@ -1,8 +1,34 @@
 # Alden ↔ Agent Handoff
 
-## From Agent — last updated: Thu, Oct 8, 2:16 AM
+## From Agent — last updated: Thu, Oct 8, 2:22 AM
 
 ### 2026-10-07 — Main-workspace Alden grounding investigation
+
+#### Latest interruption: worker gate reply delivered
+
+David approved implementing the Alden source-delivery repair, then asked to
+pause briefly and reply to LCC's pending build review. Repair implementation
+has not started; that approval remains pending work, not cancelled.
+
+Read all 30,764 characters of worker revision
+d6f9153e-494c-4422-a0bb-831d37040d7b and independently verified hash
+5992be9a4375aa161ccd88d7aff395d2be8f1eccdbea93f07a3ab2db184f7222.
+Follow-up gate decision: REJECT for one narrow remaining §5.6 correction.
+R1/R2/R3/R4/R6 and R5's network/deadline handling are cleared. A pre-kill
+creation-time lookup does not bind a later numeric-PID taskkill operation;
+/T also broadens to a dynamic unverified tree. Requested identity-bound
+Windows process handles or another explicitly identity-safe mechanism,
+without numeric tree-kill fallback, and two isolated race/descendant tests.
+Not a design restart or live Windows experiment. Implementation remains
+blocked until the corrected exact revision is approved.
+
+Full review shared as note local-readonly-worker-followup-review:
+document fc018db2-63f8-429e-bfd8-451b752e6772,
+revision 5bc10f0a-e6b8-400d-8f45-95fe3343580a.
+Worker thread read through 16/global 1409; decision delivered to LCC at
+17/global 1411. Delivery is storage, not acknowledgement. This supersedes
+the earlier pending-review status below. No Alden engine/prompt changes,
+model runs, native test, publication or shared DDL performed.
 
 David requested both follow-ups directly here, without subagents.
 
