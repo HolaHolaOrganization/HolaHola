@@ -172,6 +172,7 @@ commands.splice(safetyInsertion, 0,
   // disposableTarget() pattern as the file above, so no extra gate wiring is
   // needed.
   'npx tsx --test server/scripts/test-alden-shared-spec-review-discovery.test.ts',
+  'npx tsx --test server/scripts/test-alden-review-source.test.ts',
 
   // Task 1658's listReviewerQueue open_eligible case made a fully open
   // pending review discoverable by every eligible reviewer at once, so two

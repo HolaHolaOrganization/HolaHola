@@ -5,6 +5,8 @@ import { ALDEN_TOOLS, executeAldenTool, toAnthropicAldenTools } from "./alden-fu
 import { buildAldenWorkspaceContext } from "./alden-workspace-context";
 import { aldenActivity } from "./alden-activity-emitter";
 import { aldenCoordinationReadReceipt, serializeAldenToolResult } from "./alden-tool-result";
+import { AldenReviewReadSession, type AldenReviewSourceReference } from "./alden-review-source";
+import { loadAldenReviewSourceReferences } from "./alden-review-source-context";
 import { costTracker } from "./cost-tracker";
 import { getUserDb } from "../db";
 import { aldenConfig, aldenEngineSwitches } from "@shared/schema";
@@ -112,6 +114,8 @@ interface AldenChatParams {
   learningContext?: LearningContext;
   conversationId?: string;
   engineOverride?: AldenEngine;
+  reviewSourceReferences?: AldenReviewSourceReference[];
+  reviewSourceEngine?: AldenEngine;
 }
 
 interface ContinuationInfo {
@@ -125,6 +129,8 @@ interface AldenChatResponse {
   toolsUsed: string[];
   coordinationReadReceipts?: NonNullable<ReturnType<typeof aldenCoordinationReadReceipt>>[];
   continuation?: ContinuationInfo;
+  reviewSourceReferences?: AldenReviewSourceReference[];
+  reviewSourceEngine?: AldenEngine;
 }
 
 const MAX_AGENT_ROUNDS = 10;
@@ -155,8 +161,11 @@ async function generateAldenResponseAnthropic(params: AldenChatParams): Promise<
   const { userMessage, conversationHistory = [], founderName = 'David', timezone, learningContext, conversationId } = params;
   const toolsUsed: string[] = [];
   const coordinationReadReceipts: NonNullable<ReturnType<typeof aldenCoordinationReadReceipt>>[] = [];
+  let reviewReadSession = new AldenReviewReadSession();
 
   try {
+    reviewReadSession = new AldenReviewReadSession((params.reviewSourceEngine === "anthropic" ? params.reviewSourceReferences : undefined)
+      ?? await loadAldenReviewSourceReferences("anthropic", conversationId));
     const claude = getAnthropicClient();
     const systemPrompt = buildAldenSystemPrompt({ founderName, timezone, engine: 'anthropic' });
     const anthropicTools = toAnthropicAldenTools();
@@ -200,7 +209,7 @@ async function generateAldenResponseAnthropic(params: AldenChatParams): Promise<
       messages.push({ role: msg.role === 'user' ? 'user' : 'assistant', content });
     }
 
-    messages.push({ role: 'user', content: userMessage });
+    messages.push({ role: 'user', content: [reviewReadSession.rereadContext, userMessage].filter(Boolean).join("\n\n") });
 
     let aldenResponse: string | null = null;
     let pendingContinuation: ContinuationInfo | undefined;
@@ -215,6 +224,7 @@ async function generateAldenResponseAnthropic(params: AldenChatParams): Promise<
         tools: anthropicTools,
         messages,
       });
+      reviewReadSession.acknowledgeDelivery();
 
       totalInputTokens += resp.usage?.input_tokens ?? 0;
       totalOutputTokens += resp.usage?.output_tokens ?? 0;
@@ -237,10 +247,11 @@ async function generateAldenResponseAnthropic(params: AldenChatParams): Promise<
         aldenActivity.push({ type: 'tool_start', name: tu.name, timestamp: new Date().toISOString() });
 
         try {
-          const toolResult = await executeAldenTool(tu.name, (tu.input as Record<string, any>) || {}, { conversationId, engine: 'anthropic' });
+          const toolResult = await executeAldenTool(tu.name, (tu.input as Record<string, any>) || {}, { conversationId, engine: 'anthropic', reviewReadSession });
           aldenActivity.push({ type: 'tool_result', name: tu.name, success: true, timestamp: new Date().toISOString() });
 
           const truncatedResult = serializeAldenToolResult(tu.name, toolResult.data);
+          reviewReadSession.stageDelivery(tu.name, truncatedResult);
           const receipt = aldenCoordinationReadReceipt(tu.name, toolResult.data, (tu.input as Record<string, unknown>) || {});
           if (receipt) coordinationReadReceipts.push(receipt);
 
@@ -266,6 +277,7 @@ async function generateAldenResponseAnthropic(params: AldenChatParams): Promise<
           tools: anthropicTools,
           messages,
         });
+        reviewReadSession.acknowledgeDelivery();
         totalInputTokens += wrapResp.usage?.input_tokens ?? 0;
         totalOutputTokens += wrapResp.usage?.output_tokens ?? 0;
         aldenResponse = wrapResp.content.filter((b): b is Anthropic.TextBlock => b.type === 'text').map(b => b.text).join('\n') || null;
@@ -283,6 +295,7 @@ async function generateAldenResponseAnthropic(params: AldenChatParams): Promise<
           system: systemPrompt,
           messages,
         });
+        reviewReadSession.acknowledgeDelivery();
         totalInputTokens += wrapUp.usage?.input_tokens ?? 0;
         totalOutputTokens += wrapUp.usage?.output_tokens ?? 0;
         aldenResponse = wrapUp.content.filter((b): b is Anthropic.TextBlock => b.type === 'text').map(b => b.text).join('\n') || "I've been researching but ran into my context limit. Ask me again to continue.";
@@ -296,12 +309,14 @@ async function generateAldenResponseAnthropic(params: AldenChatParams): Promise<
 
     aldenActivity.push({ type: 'response_complete', timestamp: new Date().toISOString() });
 
-    return { response: aldenResponse, toolsUsed, coordinationReadReceipts, continuation: pendingContinuation };
+    return { response: aldenResponse, toolsUsed, coordinationReadReceipts, continuation: pendingContinuation,
+      reviewSourceReferences: reviewReadSession.sourceReferences, reviewSourceEngine: "anthropic" };
   } catch (error: any) {
     console.error('[Alden Chat/Claude] Error:', error.message);
     return {
       response: "Something went wrong on my end. Let me try to recover — ask me again in a moment.",
       toolsUsed,
+      reviewSourceReferences: reviewReadSession.sourceReferences, reviewSourceEngine: "anthropic",
     };
   }
 }
@@ -310,8 +325,11 @@ async function generateAldenResponseGemini(params: AldenChatParams): Promise<Ald
   const { userMessage, conversationHistory = [], founderName = 'David', timezone, learningContext, conversationId } = params;
   const toolsUsed: string[] = [];
   const coordinationReadReceipts: NonNullable<ReturnType<typeof aldenCoordinationReadReceipt>>[] = [];
+  let reviewReadSession = new AldenReviewReadSession();
 
   try {
+    reviewReadSession = new AldenReviewReadSession((params.reviewSourceEngine === "gemini" ? params.reviewSourceReferences : undefined)
+      ?? await loadAldenReviewSourceReferences("gemini", conversationId));
     const ai = getGeminiClient();
     const systemPrompt = buildAldenSystemPrompt({ founderName, timezone, engine: 'gemini' });
 
@@ -381,7 +399,7 @@ async function generateAldenResponseGemini(params: AldenChatParams): Promise<Ald
     });
 
     // Send the actual user message
-    let response = await chat.sendMessage({ message: userMessage });
+    let response = await chat.sendMessage({ message: [reviewReadSession.rereadContext, userMessage].filter(Boolean).join("\n\n") });
     let aldenResponse: string | null = null;
     let pendingContinuation: ContinuationInfo | undefined;
     let totalInputTokens = 0;
@@ -393,6 +411,7 @@ async function generateAldenResponseGemini(params: AldenChatParams): Promise<Ald
 
     // ── Agentic tool-use loop ─────────────────────────────────────────────────
     for (let round = 0; round < MAX_AGENT_ROUNDS; round++) {
+      reviewReadSession.acknowledgeDelivery();
       const functionCalls = response.functionCalls;
 
       // No more tool calls — extract the text response and exit
@@ -413,10 +432,11 @@ async function generateAldenResponseGemini(params: AldenChatParams): Promise<Ald
         aldenActivity.push({ type: 'tool_start', name: toolName, timestamp: new Date().toISOString() });
 
         try {
-          const toolResult = await executeAldenTool(toolName, toolArgs, { conversationId, engine: 'gemini' });
+          const toolResult = await executeAldenTool(toolName, toolArgs, { conversationId, engine: 'gemini', reviewReadSession });
           aldenActivity.push({ type: 'tool_result', name: toolName, success: true, timestamp: new Date().toISOString() });
 
           const truncatedResult = serializeAldenToolResult(toolName, toolResult.data);
+          reviewReadSession.stageDelivery(toolName, truncatedResult);
           const receipt = aldenCoordinationReadReceipt(toolName, toolResult.data, toolArgs);
           if (receipt) coordinationReadReceipts.push(receipt);
 
@@ -479,12 +499,15 @@ async function generateAldenResponseGemini(params: AldenChatParams): Promise<Ald
       console.log(`[Alden Chat] Continuation queued: "${pendingContinuation.phaseTitle}" → "${pendingContinuation.nextPrompt.substring(0, 60)}..."`);
     }
 
-    return { response: aldenResponse, toolsUsed, coordinationReadReceipts, continuation: pendingContinuation };
+    reviewReadSession.acknowledgeDelivery();
+    return { response: aldenResponse, toolsUsed, coordinationReadReceipts, continuation: pendingContinuation,
+      reviewSourceReferences: reviewReadSession.sourceReferences, reviewSourceEngine: "gemini" };
   } catch (error: any) {
     console.error('[Alden Chat] Error:', error.message);
     return {
       response: "Something went wrong on my end. Let me try to recover — ask me again in a moment.",
       toolsUsed,
+      reviewSourceReferences: reviewReadSession.sourceReferences, reviewSourceEngine: "gemini",
     };
   }
 }

@@ -52,6 +52,7 @@ import { listAldenCoordinationInbox, readAldenCoordinationMessage } from "./alde
 import { OPERATIONS_CATALOG, toPublicOperationManifest } from "./operations-catalog";
 import { applyHandoffSection, shareAldenHandoffNote } from "./alden-handoff-shared-spec";
 import { listAldenSharedSpecReviews, readAldenSharedSpecReview, claimAldenSharedSpecReview, decideAldenSharedSpecReview } from "./alden-shared-spec-review";
+import { buildAldenReviewSourcePage, type AldenReviewReadSession } from "./alden-review-source";
 
 // Was hardcoded to '/home/runner/workspace' -- a Replit-only container path.
 // Once production ran on Render (post-DNS-swap), every file/shell tool here
@@ -851,12 +852,13 @@ export const ALDEN_TOOLS: AldenTool[] = [
   },
   {
     name: "read_shared_spec_review",
-    description: "Read a shared-spec review by id: the document it targets (title, kind, path, state), the full revision markdown, and the review's own state (pending/approved/rejected/cancelled). Shared-spec is Postgres-backed — an unapproved revision's content lives only here, not in any file your read_file tool can see. Use this before claim_shared_spec_review or decide_shared_spec_review.",
-    gemini_description: "Read a shared-spec review by id — returns the target document's title/kind/path/state, the full revision markdown you're being asked to review, and the review's own state. Use before claim_shared_spec_review or decide_shared_spec_review; a pending revision's content isn't visible through read_file.",
+    description: "Read a shared-spec review in bounded source pages. Start at offset 0, then use nextOffset until null. Each page names the exact revision and full-source hash. The decision tool requires contiguous delivery of the complete source in this conversation turn; decisions fail closed without it. On later turns or phases, re-read the exact source rather than relying on prior summaries. An unapproved revision lives in shared-spec, not read_file.",
+    gemini_description: "Read the exact shared-spec review source in pages. Begin at offset 0; follow nextOffset until null. Pages include revisionId and contentSha256. The decision tool requires all source pages delivered in this turn. Re-read on subsequent turns/phases; previous summaries are not source. Pending revisions are in shared-spec, not read_file.",
     input_schema: {
       type: "object" as const,
       properties: {
         review_id: { type: "string" as const, description: "The shared-spec review id." },
+        offset: { type: "integer" as const, description: "UTF-16 source offset: start at 0, then use the previous page's nextOffset." },
       },
       required: ["review_id"],
     },
@@ -875,12 +877,14 @@ export const ALDEN_TOOLS: AldenTool[] = [
   },
   {
     name: "decide_shared_spec_review",
-    description: "Approve or reject a shared-spec review you have already claimed, under your own identity (actor: alden). Your rationale is stored permanently on the review record. Approving the current revision of a live-instruction document (e.g. docs/shared-agent-instructions.md) commits and publishes it immediately.",
-    gemini_description: "Approve or reject a shared-spec review you've claimed, as yourself. Give a clear rationale — it's stored permanently on the review. Approving a live-instruction document's current revision publishes it immediately.",
+    description: "Approve or reject a claimed review as alden after all exact-source pages have been delivered in this turn. Supply revision_id and content_sha256 from those pages; mismatched identity or incomplete delivery refuses the decision. Delivery does not prove understanding. Your rationale is stored permanently. Approving a live-instruction document's current revision commits and publishes it immediately.",
+    gemini_description: "Decide a claimed review as yourself after reading all source pages this turn. Repeat their revisionId as revision_id and contentSha256 as content_sha256. Missing coverage or a mismatch refuses the decision. Delivery is not understanding. Rationale is permanent; approving a current live-instruction revision publishes it immediately.",
     input_schema: {
       type: "object" as const,
       properties: {
         review_id: { type: "string" as const, description: "The shared-spec review id to decide." },
+        revision_id: { type: "string" as const, description: "Exact revisionId from the delivered source pages." },
+        content_sha256: { type: "string" as const, description: "Exact full-source contentSha256 from the delivered source pages." },
         decision: { type: "string" as const, enum: ["approve", "reject"], description: "Your decision." },
         rationale: { type: "string" as const, description: "Why you're approving or rejecting — stored on the review record." },
         evidence_references: {
@@ -889,7 +893,7 @@ export const ALDEN_TOOLS: AldenTool[] = [
           description: "Optional citations backing your rationale (file paths, prior conversation or message ids, etc).",
         },
       },
-      required: ["review_id", "decision", "rationale"],
+      required: ["review_id", "revision_id", "content_sha256", "decision", "rationale"],
     },
   },
 ];
@@ -913,7 +917,7 @@ export function toAnthropicAldenTools(
 export async function executeAldenTool(
   toolName: string,
   args: Record<string, any>,
-  context?: { conversationId?: string; engine?: 'anthropic' | 'gemini' }
+  context?: { conversationId?: string; engine?: 'anthropic' | 'gemini'; reviewReadSession?: AldenReviewReadSession }
 ): Promise<{ data: any; sideEffects?: Record<string, any> }> {
   try {
     switch (toolName) {
@@ -3195,18 +3199,8 @@ export async function executeAldenTool(
         const reviewId = String(args.review_id || '').trim();
         if (!reviewId) return { data: { error: 'review_id is required' } };
         try {
-          const { review, document, revision } = await readAldenSharedSpecReview(reviewId);
-          return {
-            data: {
-              review,
-              document: {
-                id: document.id, title: document.title, kind: document.kind,
-                gitPath: document.gitPath, state: document.state,
-                liveInstructionDocument: document.liveInstructionDocument,
-              },
-              markdown: revision.markdown,
-            },
-          };
+          const snapshot = await readAldenSharedSpecReview(reviewId);
+          return { data: buildAldenReviewSourcePage(snapshot, args.offset ?? 0) };
         } catch (e: any) {
           return { data: { error: e.message } };
         }
@@ -3235,6 +3229,9 @@ export async function executeAldenTool(
         if (!decision) return { data: { error: 'decision must be "approve" or "reject"' } };
         if (!rationale) return { data: { error: 'rationale is required' } };
         try {
+          if (!context?.reviewReadSession) throw new Error("review_read_context_required");
+          const snapshot = await readAldenSharedSpecReview(reviewId);
+          context.reviewReadSession.assertComplete(snapshot, args.revision_id, args.content_sha256);
           const review = await decideAldenSharedSpecReview({ reviewId, decision, rationale, evidenceReferences });
           console.log(`[Alden Tool] decide_shared_spec_review: ${decision} ${reviewId}`);
           return { data: { decided: true, review } };

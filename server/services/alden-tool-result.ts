@@ -3,16 +3,17 @@ import { createHash } from "node:crypto";
 // Coordination pages/chunks have their own bounded, structured transport.
 // Never turn their valid JSON into an incomplete string.
 export const ALDEN_TOOL_RESULT_LIMIT = 12_000;
-const COMPLETE_RESULT_TOOLS = new Set([
+const COORDINATION_RESULT_TOOLS = new Set([
   "list_coordination_inbox",
   "read_coordination_message",
 ]);
+const COMPLETE_RESULT_TOOLS = new Set([...COORDINATION_RESULT_TOOLS, "read_shared_spec_review"]);
 
 export function serializeAldenToolResult(name: string, data: unknown): string {
   const result = JSON.stringify(data);
   if (COMPLETE_RESULT_TOOLS.has(name)) {
     if (result.length > ALDEN_TOOL_RESULT_LIMIT) {
-      throw new Error("coordination_tool_result_too_large: no content or paging token was delivered");
+      throw new Error(`${COORDINATION_RESULT_TOOLS.has(name) ? "coordination" : "review_source"}_tool_result_too_large: no content or paging token was delivered`);
     }
     return result;
   }
@@ -29,7 +30,7 @@ export function isCompleteAldenResultTool(name: string): boolean {
 // Evidence for the authenticated priority-task caller, not model-authored
 // assertions. Never include message text, credentials or signed window tokens.
 export function aldenCoordinationReadReceipt(name: string, data: any, args: Record<string, unknown> = {}) {
-  if (!COMPLETE_RESULT_TOOLS.has(name) || !data) return null;
+  if (!COORDINATION_RESULT_TOOLS.has(name) || !data) return null;
   const tokenHash = (value: unknown) => typeof value === "string"
     ? createHash("sha256").update(value.trim(), "utf8").digest("hex") : null;
   const request = name === "list_coordination_inbox"

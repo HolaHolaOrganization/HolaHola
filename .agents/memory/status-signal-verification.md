@@ -205,3 +205,10 @@ source coverage but could not recover the exact historical payload; keep that
 causal uncertainty explicit. Preserve credential-sensitive tool-persistence
 boundaries when designing source continuity.
 
+
+**Delivery boundary:** A model can issue a read and a decision in the same tool batch, before it has seen the read result. A successful fetch or serializer in that batch is therefore not evidence the model received the source. Require the later provider response before granting decision coverage; retain only source pointers across turns, not coverage or credential-bearing tool results.
+
+**Why:** Repairing the observed long-document truncation exposed this separate optimistic-batching gap. Source completeness can be established mechanically; comprehension and review quality cannot.
+
+**How to apply:** Apply this distinction whenever tool-result delivery is used to authorize a later action, not just document review.
+

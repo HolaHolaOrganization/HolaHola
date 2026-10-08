@@ -1,3 +1,21 @@
+## 2026-10-07 — Alden source-delivery repair
+
+Approved repair implemented directly in the main workspace. Review source is
+now paged as bounded valid JSON, with immutable IDs/hash and explicit offsets.
+Both providers grant contiguous read coverage only after responding to the
+source-containing batch; read+decide in one batch cannot bypass the gate.
+Decisions recheck exact identity and coverage before the existing effect path.
+Safe source references survive turns/phases through engine-scoped message
+context; raw tool-result and credential persistence remain prohibited.
+
+15 new tests, 15 existing transport tests, four decision-guard assertions and
+typecheck passed. App restarted and the public landing page rendered.
+System health: All checks passed — safe to mark done.
+Alden consult and completed Gemini actual-code approval recorded. No engine
+switch, schema change, publication or Windows run. Delivery is not proof of
+understanding. Details:
+docs/superpowers/verification/2026-10-07-alden-source-delivery-repair.md.
+
 ## 2026-10-07 — Alden source-delivery investigation and native reporting gate
 
 Read-only main-workspace investigation reproduced a source-delivery defect:

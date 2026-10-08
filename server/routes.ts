@@ -169,6 +169,7 @@ const validateEditorOrAgent = (req: any): boolean => {
 };
 import { supportPersonaService } from "./services/support-persona-service";
 import { generateAldenResponse } from "./services/alden-persona-service";
+import { serializeAldenReviewContext, type AldenReviewSourceReference } from "./services/alden-review-source";
 import { founderCollabService } from "./services/founder-collaboration-service";
 import { founderCollabWSBroker } from "./services/founder-collab-ws-broker";
 import { notifyConversationUpdated } from "./services/founder-chat-sync";
@@ -17617,7 +17618,10 @@ Return ONLY valid JSON, no markdown, no explanation.`;
       // Alden can call request_continuation to move through phases automatically.
       // Each phase gets a fresh 10-round budget. Max 5 phases per user message.
       const MAX_PHASES = 5;
-      const phases: Array<{ phaseTitle?: string; response: string; toolsUsed: string[] }> = [];
+      const phases: Array<{ phaseTitle?: string; response: string; toolsUsed: string[];
+        reviewSourceReferences?: AldenReviewSourceReference[]; reviewSourceEngine?: "anthropic" | "gemini" }> = [];
+      let reviewSourceReferences: AldenReviewSourceReference[] | undefined;
+      let reviewSourceEngine: "anthropic" | "gemini" | undefined;
       let runningHistory = [...(conversationHistory || [])];
       let currentPrompt = message;
       let phaseTitle: string | undefined;
@@ -17630,9 +17634,14 @@ Return ONLY valid JSON, no markdown, no explanation.`;
           conversationHistory: runningHistory,
           founderName,
           timezone,
+          reviewSourceReferences,
+          reviewSourceEngine,
         });
 
-        phases.push({ phaseTitle, response: result.response, toolsUsed: result.toolsUsed });
+        reviewSourceReferences = result.reviewSourceReferences;
+        reviewSourceEngine = result.reviewSourceEngine;
+        phases.push({ phaseTitle, response: result.response, toolsUsed: result.toolsUsed,
+          reviewSourceReferences, reviewSourceEngine });
 
         if (!result.continuation) break;
 
@@ -17654,7 +17663,7 @@ Return ONLY valid JSON, no markdown, no explanation.`;
       try {
         const { getSharedDb: _getDb } = await import('./db');
         const { aldenConversations, aldenMessages } = await import('@shared/schema');
-        const { and, isNull, gt } = await import('drizzle-orm');
+        const { and, isNull, gt, desc } = await import('drizzle-orm');
         const _db = _getDb();
 
         // Find or create an active session (within last 4 hours)
@@ -17662,6 +17671,7 @@ Return ONLY valid JSON, no markdown, no explanation.`;
         const [activeConv] = await _db.select({ id: aldenConversations.id })
           .from(aldenConversations)
           .where(and(isNull(aldenConversations.endedAt), gt(aldenConversations.startedAt, cutoff)))
+          .orderBy(desc(aldenConversations.startedAt))
           .limit(1);
 
         let convId: string;
@@ -17679,7 +17689,8 @@ Return ONLY valid JSON, no markdown, no explanation.`;
         const speakerRole = req.session?.authProvider === 'ai-browser' ? 'luca' : 'david';
         const messagesToLog = [
           { conversationId: convId, role: speakerRole, content: message, isSignificant: false },
-          ...phases.map(p => ({ conversationId: convId, role: 'alden', content: p.response, isSignificant: false })),
+          ...phases.map(p => ({ conversationId: convId, role: 'alden', content: p.response, isSignificant: false,
+            context: p.reviewSourceEngine ? serializeAldenReviewContext(p.reviewSourceEngine, p.reviewSourceReferences) : null })),
         ];
         await _db.insert(aldenMessages).values(messagesToLog);
         console.log(`[Alden Log] Saved ${phases.length} phase(s) to conversation ${convId}`);
@@ -17710,7 +17721,7 @@ Return ONLY valid JSON, no markdown, no explanation.`;
 
       const { generateAldenResponse, getAldenEngine } = await import('./services/alden-persona-service');
       const { aldenConversations, aldenMessages } = await import('@shared/schema');
-      const { isNull, gt, and: _and } = await import('drizzle-orm');
+      const { isNull, gt, desc: _desc, and: _and } = await import('drizzle-orm');
       const _db = getSharedDb();
 
       const callerLabel = isReplitAgentRequest(req) ? 'luca' : 'david';
@@ -17741,6 +17752,7 @@ Return ONLY valid JSON, no markdown, no explanation.`;
             response: result.response,
             toolsUsed: result.toolsUsed,
             coordinationReadReceipts: result.coordinationReadReceipts ?? [],
+            reviewSourceReferences: result.reviewSourceReferences ?? [],
           };
         })
       );
@@ -17752,6 +17764,7 @@ Return ONLY valid JSON, no markdown, no explanation.`;
         const [activeConv] = await _db.select({ id: aldenConversations.id })
           .from(aldenConversations)
           .where(_and(isNull(aldenConversations.endedAt), gt(aldenConversations.startedAt, cutoff)))
+          .orderBy(_desc(aldenConversations.startedAt))
           .limit(1);
         if (activeConv) {
           convId = activeConv.id;
@@ -17771,6 +17784,7 @@ Return ONLY valid JSON, no markdown, no explanation.`;
             role: enginesToRun.length > 1 ? `alden-${r.engine}` : 'alden',
             content: r.response,
             isSignificant: false,
+            context: serializeAldenReviewContext(r.engine, r.reviewSourceReferences),
           })),
         ];
         await _db.insert(aldenMessages).values(rows);

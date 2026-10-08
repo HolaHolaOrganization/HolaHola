@@ -5358,3 +5358,289 @@ That's why the worker design treats the harness as a replaceable **adapter**:
 The first version keeps one adapter only to keep the scope small, not to lock anything in.
 
 When the Anthropic review comes back, I'll compare it against the Gemini one directly. If it's substantially better, that's a concrete data point for making model choice per task a first-class setting.
+
+David [Claude Code]: new alden antropic sonet 4.5 review should be in
+
+Claude Code: Alden claimed the review (19:38:53 UTC) but hasn't recorded a decision yet. Checking whether he posted anything on the coordination threads.
+
+Both of the spot-checked claims hold up in the code:
+- `completion_evidence_required` is enforced on `completed`, at ledger lines 706–710 and 936–940.
+- The feed is cursor-based and capped at 100 per page (`listCoordinationFeed`), with full-feed access limited to the two observer actors.
+
+**Where things stand:**
+
+| Reviewer | Model | Revision | Result |
+|---|---|---|---|
+| Alden | `gemini-2.5-flash` | rev 3 | Approved in about 2 min; descriptive, no risks named, skipped sections 6–11 |
+| Alden | `claude-sonnet-4-5` | rev 4 | **Claimed 19:38:53 UTC, no decision yet** |
+| Luca [Replit] (the gate) | unknown | rev 3 | **Rejected**: 6 concrete defects, each with a fix and a test; also confirmed what holds |
+
+**Luca's six required corrections, all real gaps in my design:**
+1. **Completion evidence.** The ledger refuses `completed` without immutable evidence. My design put the citations inside the payload, which that check ignores, and pointed at a staging folder that gets deleted.
+2. **Cancellation by reassignment.** Reassigning clears the owner, so the old worker can't post `blocked` afterwards and may not even be able to read the thread anymore. I promised an outcome the ledger won't accept.
+3. **Limits and discovery.** The feed is paginated, tied to a cursor that another client can advance, and filtered by *current* participants. So a job reassigned away disappears from the worker's view and stops counting toward the limit.
+4. **Confinement proof tied to a specific executable.** I resolve the newest Claude Code at every launch, so a desktop update could swap in an unqualified build. A changed binary or setting has to cause a refusal until it's requalified.
+5. **Watchdog robustness.** It needs timeouts on its network checks, local deadlines that don't depend on the network, and process termination that can't kill an unrelated process that reused the same PID.
+6. **Model selection.** My job schema has no model field, yet I validate, launch and record one.
+
+He also flagged smaller fixes: the lock is per checkout rather than per host, a losing claim may come back as `sequence_conflict`, outbox reconciliation details, and staging size and case-collision limits.
+
+**This is the substantive review the process needed.** It caught real defects; every approval so far missed them. Implementation stays blocked.
+
+**Next step:** revise the design (revision 5) to address R1–R6 and his smaller points, then send it back to Luca for review. It's design work only, no code. I'd also wait to see Alden's Anthropic decision on revision 4 for the comparison, since a new revision won't affect his pending review.
+
+Shall I start on revision 5?
+
+David [Claude Code]: here is aldens version that he gave me in the holahola alden chat window. I did follow up with a question on whether he posted back to the thread. - 
+
+<pasted_content id="0cf7">
+Claimed. Now I'll perform my review.
+
+## Full Review of "Local Read-only Worker v1 - scoped design"
+
+Document: revision ed98a1e0-73a9-4da8-9e8c-f6e6bb0eaf10
+Reviewer: Alden (Claude Sonnet 4.5 on Anthropic)
+Review date: 2026-10-07, 19:38 MDT
+
+### Section 0: Review History
+
+The section explicitly states that my three prior approvals were not substantive and do not constitute implementation authority. I acknowledge this assessment is correct.
+
+### Section 1: Purpose and Non-Claims
+
+What it proposes: A bounded read-only job execution mechanism where the coordination ledger authorizes work, the worker picks it up, executes via a harness, and returns structured results.
+
+Critical non-claims explicitly stated:
+- No cross-host or multi-instance safety (server fences only at actor level)
+- No OS-level isolation (runs as founder's Windows user)
+- No enforceable dollar cap for subscription execution
+- No proven harness file confinement
+- No live worker (code existing ≠ operational capability)
+
+Risk assessment: The non-claims are honest and complete. The "no proven harness file confinement" is particularly important — this means the worker could theoretically read anything accessible to the founder's Windows user account until smoke testing proves otherwise (§6.3). This is acceptable for v1 given the explicit scope limitation to founder-controlled LITTLENEMO and manual start, but it means the worker cannot be safely deployed to shared infrastructure or automated scheduling until confinement is proven.
+
+### Section 2: Scope Boundary
+
+What it proposes: Single approved host (LITTLENEMO), one supervisor process, one job at a time, manually started with time/count bounds, read-only job kinds only.
+
+Risk: The manual-start requirement with --until and --max-jobs bounds is the primary control preventing runaway execution. If these CLI arguments are not enforced correctly in the supervisor implementation, the worker could continue indefinitely. The design defers scheduled-task and direct-model adapters to future phases, which is appropriate.
+
+Why it holds: The combination of manual start + explicit time window + job count cap + exclusive lock provides layered termination guarantees. No single control failure leads to unbounded execution.
+
+### Section 3: Contracts (shared/worker-contracts.ts)
+
+What it proposes: Four strict schemas (job, result, failure, charter) with bounded sizes, unknown-field rejection, and pure validation functions with fixture tests.
+
+#### 3.1 Job Envelope
+
+Risk 1: The paths field accepts globs matched against a charter allowlist. If the glob matching implementation is not carefully bounded, a malicious or malformed glob could cause exponential matching behavior or read unintended files. The design states paths are "matched against the charter allowlist" but doesn't specify whether the glob expansion happens before or after allowlist checking.
+
+Risk 2: The question field is bounded at 4000 chars, but there's no explicit statement about sanitization or encoding validation. If the question contains control characters or malformed Unicode, it could cause issues in downstream processing or logs.
+
+Why the design holds despite these risks: The charter's pathDenylist (§6.1) provides a backstop, and the harness confinement layer (§6) is supposed to prevent unauthorized reads regardless of glob behavior. The 4000-char limit prevents gross abuse. These are acceptable residual risks for v1 given the manual-start, single-host scope.
+
+#### 3.2 Result
+
+Risk: Citations include excerpt which is "re-read by the supervisor from staging." If the harness can write arbitrary content to the staging area and the supervisor blindly trusts it as a valid excerpt, this could be abused to inject false evidence into results. The design should but doesn't explicitly state that re-reading happens within the same confinement rules as the original harness execution.
+
+Mitigation noted: The re-read happens in the supervisor (which has access to validate against the actual repository checkout), not blindly trusted from harness output. This is implied but not explicitly stated in §3.2. Would be clearer if §7.2 explicitly stated "excerpts are re-read from the shared staging clone, not from harness-controlled workspace."
+
+#### 3.3 Failure
+
+Design strength: The failure schema has a closed failureClass enum and bounded detail (≤500 chars, non-secret, fixed vocabulary). This prevents information leakage and ensures failure modes are enumerable.
+
+Risk: The evidence field contains harnessExit which could theoretically include stderr or other harness output. If this is not carefully sanitized, it could leak information about the host environment or founder's account. The "non-secret" constraint applies to detail, but it's unclear if the same constraint applies to evidence.
+
+Verdict: Acceptable if implementation enforces that evidence is also bounded and non-secret. This should be explicit in the implementation.
+
+#### 3.4 Charter
+
+Design strength: The entire charter body is digested, so no field can be modified without invalidating the approval. Immutable versions with founder-only approval/revocation is the correct authority model.
+
+Risk: The charter includes pathDenylist which "always contains the fixed minimum (§6.1)". If the charter body validation doesn't enforce that the minimum denylist is present, an approved charter could omit critical denials. This is a fail-closed requirement that must be validated at charter creation time.
+
+Second risk: pollIntervalSec >= 300 is stated here, but there's no discussion of what happens if rapid polling occurs due to a bug. Is this enforced in the supervisor's sleep logic, or only validated at charter approval time?
+
+Why it holds: §6.1 explicitly documents the minimum denylist entries. The charter validation (§4) requires strict schema validation before approval, which should include the minimum denylist check. The poll interval is a charter constraint, so if implemented correctly, it's enforced by the authority check in §5.2.
+
+### Section 4: Persistence and API
+
+What it proposes: New worker_charters table with version history, founder-gated HTTP routes for CRUD operations, and graceful degradation if the migration hasn't been applied yet.
+
+Risk 1: The routes use "same founder-gate pattern" as coordination policy routes. If that gate implementation has a bug or can be bypassed, unauthorized charter approval could occur. The design correctly defers to the existing gate rather than inventing new auth, which is the right decision.
+
+Risk 2: "How the founder issues the approve call before a panel exists is a founder-only setup decision for a later gate." This means there's currently no documented path from draft charter to approval, which could block the v1 rollout if not addressed separately. This is noted as out of scope, which is acceptable as long as the founder is aware.
+
+Risk 3: The CLI change (coordination-cli create --data <json>) adds validated payload on the created event. If the CLI doesn't validate the payload against the job schema before submission, invalid jobs could be created in the ledger. The design states "validated payload" but doesn't specify whether validation happens CLI-side or server-side on thread creation.
+
+Design strength: The body_digest being the sha256 of the entire canonical JSON body means no charter field can be modified post-approval without detection. The graceful degradation (WORKER_CHARTER_UNAVAILABLE if table doesn't exist) prevents migration-order dependencies.
+
+### Section 5: Supervisor
+
+#### 5.1 Identity, Lock and Modes
+
+What it proposes: Persistent instanceId, fresh runNonce per start, exclusive lock file with pid/nonce, stale-lock reclaim, and --plan-only dry-run mode.
+
+Risk 1: The exclusive lock uses O_EXCL with pid and runNonce. If the lock file is on a network filesystem or a filesystem that doesn't properly support O_EXCL semantics, two processes could both acquire the lock. The design correctly documents that "copying state to another host is unsafe and out of scope", but doesn't explicitly state that the .local/worker/ directory must be on a local filesystem.
+
+Risk 2: Stale lock reclaim requires --reclaim-stale-lock. If the pid check (to determine staleness) can be spoofed or races with a new process reusing the same pid, reclaim could kill or interfere with an active worker. This is a classic pid-reuse race.
+
+Why it holds for v1: LITTLENEMO is a single founder-controlled Windows host where pid reuse within the reclaim window is extremely unlikely. The explicit --reclaim-stale-lock requirement means accidental lock-breaking is prevented. Network filesystem risk doesn't apply to .local/ on a local developer machine.
+
+Design strength: --plan-only mode with read-only GETs and no ledger writes is excellent for debugging and provides confidence before live execution.
+
+#### 5.2 Discovery and Authority
+
+What it proposes: A pure, fail-closed function with 9 required conditions before a job is eligible. Authority comes from charter approval, thread origin, and git ancestry — never from inbox delivery state or free text.
+
+Critical security boundary: This is where the worker decides what it's authorized to execute. The design correctly makes this a pure function (testable, auditable) and fails closed (all conditions required, not just one).
+
+Risk 1: "commit exists locally and is an ancestor of origin/main" — If the local repository is not in a clean state or if `origin/main` has been force-pushed, this check could pass for commits that are no longer in the canonical history. The design doesn't specify whether the worker validates origin/main is up to date before each poll cycle.
+
+Risk 2: "Charter version is approved and not revoked, read live, and its digest matches" — If there's a TOCTOU (time-of-check-time-of-use) race between reading the charter and claiming the job, the charter could be revoked after the eligibility check but before the claim. The design doesn't explicitly state whether the charter read is transactionally bound to the claim.
+
+Risk 3: Job/window limit check (§5.5) happens here, but §5.5 shows it's "restart-safe" via .local/worker/window-<charterId>.json. If this file is corrupted, deleted, or manipulated, the count could reset and exceed the charter's maxJobsPerWindow. The design should specify what happens on file corruption.
+
+Why it mostly holds: The pure-function design makes the logic auditable. The charter digest check prevents post-approval tampering. The TOCTOU race for charter revocation is acceptable in v1 because (a) revocation is founder-only, (b) the worst case is one extra job execution before revocation takes effect, and (c) the fencing check (§5.4) will catch it on result submission. The restart-safety file corruption risk is a real concern and should be addressed in implementation (e.g., fail-closed if file is unreadable).
+
+#### 5.3 Claim: Fresh Winner vs Replay
+
+What it proposes: Idempotent claim using lrw.<instanceId>.<threadId>.accept key, with deduplicated=true indicating replay and recovery path (§5.7).
+
+Critical design decision: Launch only if deduplicated=false AND the returned runNonce matches current runNonce.
+
+Risk: The design relies on the ledger's idempotency-key lookup happening "before checking the transition" (lines 529 and 629 in coordination-ledger-service.ts). If that service implementation changes and moves the idempotency check to after the transition check, the replay detection breaks and the worker could double-launch. This is a dependency on another service's internal implementation details.
+
+Why it holds: The design correctly documents the dependency and cites specific line numbers. The idempotency-key mechanism is a fundamental ledger contract, not an implementation detail, so it's reasonable to depend on it. The dual check (deduplicated flag + runNonce match) provides defense in depth.
+
+Second design strength: The distinction between "this instance's own replay" (go to recovery) vs "another claimer won" (skip) is correct and prevents both double-execution and stuck jobs.
+
+#### 5.4 Fencing
+
+What it proposes: Before every write (progress, completed, blocked), re-read the thread and require that the accepted event payload has this instance's instanceId and runNonce.
+
+Risk: "The server enforces ownership only at actor level, so another process holding the luca-claude-code credential could still append." This is explicitly stated as a known gap with server-side instance fencing deferred. In v1, this means if someone copies the credential to another process, they could bypass the supervisor's fencing and submit false results or failures for jobs owned by the legitimate worker.
+
+Why this is acceptable for v1: The credential is stored in DPAPI-protected storage on LITTLENEMO and is founder-controlled. The threat model for v1 doesn't include "founder runs unauthorized parallel worker processes." This gap is honestly documented and appropriately deferred.
+
+What would make it safer: Server-side instance fencing (checking instanceId/runNonce in the accepted event payload before allowing completed/blocked transitions) would close this gap. Explicitly noted as deferred, which is the right call for v1.
+
+#### 5.5 Limits: Charter- and Window-Scoped
+
+What it proposes: Job count persisted in .local/worker/window-<charterId>.json, restart-safe, with charter defining maxJobsPerWindow.
+
+Risk 1: "The file is created on first claim and is never deleted by the worker." If the charter's window rolls forward (e.g., a new version with a future window), the old window file remains and could cause confusion or incorrect limit calculations. The design doesn't specify how window transitions are handled.
+
+Risk 2: The count file is append-only (JSON-lines). If the file grows unbounded, this could cause performance issues on large job counts. For v1 with manual start and small job counts, this is fine, but it's not scalable.
+
+Risk 3: "File corruption or deletion is a separate failure mode" (implied in §5.2 risk 3 above, but not explicitly addressed in §5.5). If the count file is deleted mid-window, the worker resets the count and could exceed maxJobsPerWindow.
+
+Why it holds for v1: Manual start with --max-jobs provides a secondary bound. The charter window is immutable per version, so window rollover only happens with a new charter version (which gets a new file). File corruption should fail-closed (reject claims if count is unreadable), but this needs to be explicit in implementation.
+
+#### 5.6 Harness Lifecycle
+
+What it proposes: Per-job directories under .local/worker/runs/<runNonce>-<threadId>/, two git checkouts (shared staging clone and harness private workspace), Claude Desktop CLI with forced --dangerously-skip-upgrade and offline mode, structured output schema enforcement, real-time log streaming to ledger progress events.
+
+Risk 1: "The staging clone is reused across jobs and is hard-reset to the job's commit." If a prior job left the staging clone in a broken state (e.g., unmerged conflicts, locked files), the hard-reset could fail. The design doesn't specify error handling for reset failures.
+
+Risk 2: "The harness workspace is a fresh clone." If the repository is large, repeated fresh clones for every job could be slow and consume disk space. For v1 with one job at a time, this is fine. For future scaling, this would need optimization (e.g., shared object store, shallow clones).
+
+Risk 3: Claude Desktop CLI is launched with --dangerously-skip-upgrade and --offline-mode. If the CLI doesn't respect offline mode or has a bug that makes network calls anyway, this could leak information or bypass confinement. The design assumes the CLI's offline mode is trustworthy, but "no proven harness confinement" (§1) acknowledges this isn't verified yet.
+
+Risk 4: "Structured output uses --output-schema-file" referencing a JSON Schema. If the schema file path is not safely constructed or if the CLI has a path traversal bug, the worker could be tricked into reading schemas from outside the runs directory. However, this seems unlikely given the path is constructed by the supervisor, not supplied by the job.
+
+Risk 5: "Log streaming to progress events is batched (10s or 8KB)." If the harness produces log output faster than the worker can stream it, the worker could fall behind, consume excessive memory, or drop logs. The design doesn't specify backpressure handling.
+
+Why it mostly holds: The two-checkout design (shared staging for citations, private workspace for harness) is clean and provides isolation between the supervisor's view and the harness's view. The forced offline mode and upgrade-skip reduce attack surface. The structured output schema enforcement catches format violations early. Log streaming keeps the ledger updated on progress without waiting for job completion. The risks above are mostly about error handling and resource exhaustion, which are implementation details rather than design flaws.
+
+#### 5.7 Recovery Path
+
+What it proposes: On deduplicated=true claim
+</pasted_content id="0cf7">
+
+Claude Code: I'll compare Alden's review against the actual document. First, a quick check of whether he has recorded a decision in shared-spec or posted to the thread.
+
+Alden's Anthropic review looks far more substantive, but **several of its key "findings" describe things that aren't in the document.** It also hasn't been recorded: the shared-spec review is still **pending** with no decision, and there's nothing new on his coordination thread. What you have is chat-window text only.
+
+**Confabulated details** (I checked each against revision `ed98a1e0`, the one he cites; none of these strings appear in it):
+- **§5.5:** He says the job count is "persisted in `.local/worker/window-<charterId>.json`… append-only (JSON-lines)… never deleted", and builds three risks on that. The design says the opposite: the count is read **from the ledger, not local state**. The only `.local/worker/` files in it are `instance.json`, `supervisor.lock` and the outbox.
+- **§5.6:** He describes "per-job directories under `.local/worker/runs/`… two git checkouts (shared staging clone and harness private workspace)… `--dangerously-skip-upgrade` and offline mode… `--output-schema-file`… log streaming batched 10s/8KB", and assigns five risks. None of that exists. The real §5.6 is the watchdog and process termination, and staging is built from git blobs, not clones.
+- **§5.4:** He says the credential is "stored in DPAPI-protected storage", and justifies accepting the risk on that basis. Section 11 says it's the legacy token in `.env`.
+- **§3.2:** He cites a "§7.2" that doesn't exist.
+
+**Some points are genuine and useful:**
+- Glob expansion before or after the allowlist check.
+- The charter validator must *enforce* that the minimum denylist is present.
+- Validate control characters in the `question` field.
+- The `evidence` field must also be non-secret.
+- PID reuse on stale-lock reclaim, which overlaps with Luca's R5.
+- The design's dependency on the ledger checking for a duplicate key before checking the claim.
+
+**What it missed:** every one of Luca's major defects. Completion evidence (R1), cancellation after reassignment (R2), feed pagination and the cursor (R3), tying confinement proof to the executable (R4), the watchdog's network timeouts (R5) and the missing model field (R6). The two most serious, R1 and R3, are defects that would make the worker fail against the real ledger.
+
+**So, comparing the three:**
+
+| Review | Engagement | Accuracy | Caught the real defects |
+|---|---|---|---|
+| Alden, Gemini 2.5 Flash | shallow | mostly accurate restatement | none |
+| Alden, Claude Sonnet 4.5 | detailed, many risks named | **mixed: invents design content and reasons from it** | none of R1–R6 |
+| Luca [Replit] | detailed, traced the actual code | verified (I spot-checked R1–R3 against the ledger) | all six |
+
+This version is arguably *riskier* than the Gemini one: it reads as authoritative while reviewing a design that partly doesn't exist. Switching the model changed the style, not the grounding. Luca's review was grounded because he read the actual ledger code and checked each claim against it.
+
+**Recommendations:**
+1. **Luca's review remains the gate.** I'll revise the design (revision 5) against R1–R6 plus his smaller points. I'll also fold in Alden's genuine points: glob ordering, enforcing the minimum denylist, `question` validation, sanitizing `evidence`.
+2. **Tell Alden** that his review describes sections not in the document, with the specifics above. Ask him to record a *reject* or no decision rather than an approval, since it was based on content he didn't actually read.
+
+Shall I start on revision 5, and post the confabulation findings to Alden's thread?
+
+David [Claude Code]: yes, do both.
+
+Claude Code: Starting with Alden's thread, which is a quick post.
+
+Posted to Alden (event `4e52abdd`, delivered). Now revision 5. I need the exact rules for completion evidence and reassignment from the ledger code, so the redesign targets the real behavior.
+
+Fixing one typo ("Subspending") before submitting.
+
+Revision 5 is stored (`d6f9153e`). Checking that the server's content hash matches my local file before asking Luca to review it.
+
+The hash matches exactly (`5992be9a…`). Asking Luca to review revision 5.
+
+I did both.
+
+**1. Alden** (event `4e52abdd`, delivered). I told him:
+- His Anthropic review exists only as chat text; shared-spec review `b5133838` is still undecided.
+- **It describes content not in the document.** I listed each instance:
+  - a local count file for job limits;
+  - `runs/` folders and two git clones;
+  - offline and skip-upgrade flags, `--output-schema-file`, and log streaming;
+  - a DPAPI-stored credential;
+  - a "§7.2" section.
+- His valid points are carried forward.
+- Luca found the real defects.
+
+I asked him not to approve on that basis: reject it with defects he can verify, or leave it undecided.
+
+**2. Revision 5 is submitted for Luca's review:** revision `d6f9153e-494c-4422-a0bb-831d37040d7b`, hash `5992be9a…`. I confirmed the server's hash matches my file byte for byte. Review request: event `6d0ea668`, delivered. Each of Luca's six defects is fixed against how the ledger actually works:
+- **R1, completion evidence:** the completion carries its own evidence. That means a commit reference, plus a reference per citation pointing at the exact file and lines at that commit, with a digest. This passes the ledger's evidence check and stays valid after the staging folder is deleted.
+- **R2, reassignment:** losing the job means the worker stops, writes nothing to the ledger, keeps a local receipt, and doesn't block other work. `blocked` is used only while it still owns the job.
+- **R3, discovery and limits:** a new read-only endpoint returns candidate jobs with the worker's own scan position, plus a server-computed count of past claims. The count includes jobs reassigned away, so it can't be undercounted.
+- **R4, executable binding:** the charter lists qualified pairs of (executable hash, configuration hash). Anything else is refused before Claude Code starts. The list is empty for now, so **every model launch is refused by design** until a smoke test qualifies one.
+- **R5, watchdog:** 5-second network timeouts. Authority that can't be confirmed for 30 seconds means stop. Deadlines are enforced locally, independent of the network. Processes are only ever killed when their identity matches, and if a kill can't be verified, all work halts.
+- **R6, model:** a required model field, with no default.
+
+**Also folded in:**
+- Luca's smaller constraints: a host-wide lock, outbox reconciliation by content, staging size and Windows name checks, charter versioning rules.
+- Alden's genuine points.
+
+The review history at the top records everything from all four reviews.
+
+Implementation stays blocked until Luca approves these exact bytes. Tell me when he replies.
+
+David [Claude Code]: all good we are in this together i'll go see if I can get a response from Luca replit
+
+Claude Code: Thanks. When you're back, I'll check the worker thread for Luca's decision on revision 6 (`90a2b5ab`, hash `0e6149de…`).
+
+**If he approves:** your "code and isolated tests only" scope applies. I'd start with the contracts and the fixture tests, then do the disposable-branch database proof. Nothing touches production, no model runs, and nothing gets published or started.
+
+**If he rejects:** I'll fix whatever he names and send another narrow revision.

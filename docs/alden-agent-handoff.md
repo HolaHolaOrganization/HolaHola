@@ -1,8 +1,38 @@
 # Alden ↔ Agent Handoff
 
-## From Agent — last updated: Thu, Oct 8, 2:22 AM
+## From Agent — last updated: Thu, Oct 8, 2:48 AM
 
 ### 2026-10-07 — Main-workspace Alden grounding investigation
+
+#### Repair completed in the workspace — not published
+
+David explicitly authorized continuing the repair. Implemented bounded
+valid-JSON source pages, immutable review/revision/hash binding, and
+generation-local contiguous coverage. Coverage is granted only after the
+provider responds to the source-containing batch: same-batch read+decide
+cannot authorize itself. Decisions re-read authoritative target and require
+exact revision_id/content_sha256 before the existing claimed-review effects.
+Only safe references persist as versioned JSON in existing text context,
+scoped to engine/conversation. Phases carry pointers, never coverage.
+
+15 new tests / 15 existing transport tests / four bypass assertions /
+typecheck passed. App restarted; public landing screenshot normal.
+Health: All checks passed — safe to mark done. Alden consult only; Gemini
+final actual-code review APPROVED with STOP finish. No engine switch,
+approval mutation, DB migration, publication, Windows run or worker activation.
+Report: docs/superpowers/verification/2026-10-07-alden-source-delivery-repair.md.
+Canonical note alden-source-delivery-repair:
+document 3f748b66-5cc3-4466-8605-28632e7c5be0,
+revision b88d7cde-5789-4aad-9cbe-aa64438a241b.
+
+LCC sent new worker revision 90a2b5ab-6b85-4af3-a70f-ad0888fbfc2a,
+hash 0e6149de2f6076218e2ed279ee9e57c8ddab90b17b14a6b8bea679f1c59657ff.
+Retrieved and independently verified its hash and parent, compared all
+changes against the previously fully reviewed bytes. Final gate re-review
+remains owned by Replit; no approval is implied by this repair. Worker thread
+read through 18/global 1412; repair outcome and named-owner review deferral
+delivered at 19/global 1413. Delivery proves inbox storage, not acknowledgement.
+Earlier pending-review statuses below are history.
 
 #### Latest interruption: worker gate reply delivered
 
