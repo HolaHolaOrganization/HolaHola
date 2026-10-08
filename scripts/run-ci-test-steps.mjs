@@ -230,6 +230,7 @@ commands.splice(safetyInsertion, 0,
   'npx tsx --test server/services/coordination-v2-host-reauthorization-contract.test.ts',
   'npx tsx --test server/services/coordination-v2-host-reauthorization-validation.test.ts',
   'npx tsx --test server/scripts/test-coordination-v2-host-reauthorization-static.test.ts',
+  'npx tsx --test server/scripts/test-coordination-diagnostic-results.test.ts',
 
   // Episode/capture/inbox lifecycle guards. The plain mode of
   // detect-episode-dialogue-loss.ts degrades to an informational no-op when

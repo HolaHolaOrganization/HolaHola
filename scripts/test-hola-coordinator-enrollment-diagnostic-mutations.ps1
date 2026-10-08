@@ -8,6 +8,13 @@ param(
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version 2.0
 
+function Write-MutationResult {
+    param([string]$Id, [ValidateSet('PASS', 'FAIL', 'SKIP')][string]$Status, [string[]]$Checks)
+    $record = [ordered]@{ case = $Id; status = $Status; checks = @($Checks) }
+    Write-Host ('[coordinator-v2] diagnostic-result ' + (ConvertTo-Json -InputObject $record -Depth 4 -Compress))
+}
+$phase = if ($VerifyChildTimeout) { 'timeout' } else { 'mutation' }
+
 function Invoke-DiagnosticChild {
     param([string]$Engine, [string]$Command, [string]$Name, [int]$TimeoutSeconds)
     $start = New-Object System.Diagnostics.ProcessStartInfo
@@ -119,11 +126,17 @@ try {
         } catch {
             if ($_.Exception.Message -cne 'Diagnostic child timed out: synthetic-sleeping-child' -or
                 $_.Exception.Data['OwnedChildStopped'] -ne $true) {
+                Write-MutationResult 'timeout/owned-child' 'FAIL' @('bounded-deadline', 'owned-child-stopped', 'safe-diagnostic')
                 throw 'Synthetic child timeout did not stop its owned child with a safe diagnostic'
             }
             $caughtTimeout = $true
         }
-        if (-not $caughtTimeout) { throw 'Synthetic sleeping child unexpectedly completed' }
+        if (-not $caughtTimeout) {
+            Write-MutationResult 'timeout/owned-child' 'FAIL' @('bounded-deadline')
+            throw 'Synthetic sleeping child unexpectedly completed'
+        }
+        Write-MutationResult 'timeout/owned-child' 'PASS' @('bounded-deadline', 'owned-child-stopped', 'safe-diagnostic')
+        Write-MutationResult 'timeout/mutation-suite' 'SKIP' @('timeout-only-invocation')
     } else {
     foreach ($mutation in $mutations) {
         $directory = Join-Path $root $mutation.name
@@ -151,20 +164,32 @@ try {
         # The owned process captures stderr directly, so a NativeCommandError
         # cannot preempt inspection of the child's intended assertion failure.
         foreach ($mode in $modes) {
+            $id = 'mutation/' + $mutation.name + '/' + $mode
             $command = $bootstrap
             if ($mode -ceq 'preserved-array-parser') { $command += $preservedArrayParser }
             $command += '& ''' + $copy.Replace("'", "''") + ''' -SkipMutationChecks'
-            $result = Invoke-DiagnosticChild -Engine $engine -Command $command `
-                -Name ($mutation.name + '/' + $mode) -TimeoutSeconds $ChildTimeoutSeconds
+            try {
+                $result = Invoke-DiagnosticChild -Engine $engine -Command $command `
+                    -Name ($mutation.name + '/' + $mode) -TimeoutSeconds $ChildTimeoutSeconds
+            } catch {
+                Write-MutationResult $id 'FAIL' @('child-completed-within-deadline')
+                throw
+            }
             $output = $result.Output
             $exitCode = $result.ExitCode
             if ($null -eq $mutation.failure) {
                 if ($exitCode -ne 0 -or -not $output.Contains('Synthetic safe enrollment and recovery diagnostic checks passed')) {
+                    Write-MutationResult $id 'FAIL' @('control-exit-zero', 'control-baseline-complete')
                     throw ('Unmodified synthetic diagnostic fixture failed: ' + $mode)
                 }
+                $checks = @('control-exit-zero', 'control-baseline-complete')
             } elseif ($exitCode -eq 0 -or -not $output.Contains($mutation.failure)) {
+                Write-MutationResult $id 'FAIL' @('mutation-exit-nonzero', 'intended-assertion-rejected')
                 throw ('Diagnostic mutation did not fail its intended assertion: ' + $mutation.name + '/' + $mode)
+            } else {
+                $checks = @('mutation-exit-nonzero', 'intended-assertion-rejected')
             }
+            Write-MutationResult $id 'PASS' $checks
             Write-Host ('[coordinator-v2] Synthetic mutation proof passed: ' + $mutation.name + '/' + $mode)
         }
     }
@@ -173,9 +198,20 @@ try {
     if ([IO.Directory]::Exists($root)) { [IO.Directory]::Delete($root, $true) }
 }
 if ($VerifyChildTimeout) {
-    if ([IO.Directory]::Exists($root)) { throw 'Synthetic timeout temporary directory was not removed' }
+    if ([IO.Directory]::Exists($root)) {
+        Write-MutationResult 'timeout/owned-temp-cleanup' 'FAIL' @('owned-root-removed')
+        throw 'Synthetic timeout temporary directory was not removed'
+    }
+    Write-MutationResult 'timeout/owned-temp-cleanup' 'PASS' @('owned-root-removed')
     Write-Host '[coordinator-v2] Synthetic child timeout, safe diagnostic, and cleanup proof passed'
+} else {
+    Write-MutationResult 'mutation/owned-temp-cleanup' 'PASS' @('owned-root-removed')
 }
 if ([IO.File]::ReadAllText($sourcePath) -cne $source -or [IO.File]::ReadAllText($fixturePath) -cne $fixture) {
+    Write-MutationResult ($phase + '/source-preservation') 'FAIL' @('original-source-unchanged', 'original-fixture-unchanged')
     throw 'Original diagnostic source or fixture changed during mutation proof'
+}
+Write-MutationResult ($phase + '/source-preservation') 'PASS' @('original-source-unchanged', 'original-fixture-unchanged')
+if (-not $VerifyChildTimeout) {
+    Write-MutationResult 'mutation-suite' 'PASS' @('all-requested-mutation-and-control-runs-completed')
 }

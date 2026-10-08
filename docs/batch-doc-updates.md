@@ -1,3 +1,22 @@
+## 2026-10-07 — Individually identified synthetic diagnostic results
+
+The enrollment/recovery fixture now emits bounded `diagnostic-result` JSON
+records naming each case and each assertion's PASS/FAIL outcome. Mutation
+refusals, unmodified controls, child timeout, source preservation and owned
+cleanup also have named results. Explicitly omitted mutation sections report
+SKIP; they cannot produce a complete-suite PASS.
+
+The existing assertions, negative mutations, failure messages and native
+Windows entrypoint remain intact. Results contain fixed fixture IDs/outcomes,
+not response bodies, exception text, secret sentinels or host credentials.
+Three executable reporting tests are registered in consolidated CI: exact
+baseline inventory, explicit skipping, and a deliberately failing assertion.
+Linux PowerShell 7.4.2 verified 224 baseline cases / 935 assertions and all seven
+mutation/control runs. This is NOT a native Windows 5.1 verification of the
+modified scripts. The earlier native receipt remains unchanged.
+
+Details: `docs/superpowers/verification/2026-10-07-diagnostic-result-reporting.md`.
+
 ## 2026-10-06 — Direct-workspace diagnostic timeout and expiry-fixture repair
 
 - Implemented both requested fixes in the main workspace, without delegation

@@ -179,3 +179,22 @@ terminal output.
 unverified, prepare an independently reviewed bootstrap-independent reporting
 design, not a remote shell or a new coordinator session. Preserve the preference
 for a freshly verified existing route if a later acknowledgement arrives.
+
+## Review grounding requires source comparison
+
+**Rule:** A substantive-looking review and a formal approval are not proof that
+the reviewer analyzed the submitted bytes. Verify purported quotations,
+section references and described mechanisms against the immutable revision.
+
+**Why:** On 2026-10-07, an Alden review described local JSON job counters, two
+clones, offline CLI flags and DPAPI storage that were absent from the exact
+worker design. The design actually required ledger-derived counters. Increased
+length, an engine change and more section headings did not establish grounding.
+The primary archived review and independently hashed revision confirmed the
+mismatch; its psychological cause was not established.
+
+**How to apply:** Before accepting review authority, compare concrete claims
+with source excerpts. Keep valid observations separate from invented premises.
+Reject an ungrounded approval without claiming to know which other project or
+context supplied the invented details.
+

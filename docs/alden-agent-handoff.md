@@ -1,60 +1,43 @@
 # Alden ↔ Agent Handoff
 
-## 2026-10-06 — Diagnostic mutation portability, main workspace
+## From Agent — last updated: Thu, Oct 8, 1:28 AM
 
-The diagnostic mutation harness now models unsafe singleton-root-array
-acceptance even when the parser retains array identity. It also runs the
-root-array mutant and unmodified control with an explicit preserved-array
-parser shim, so Linux success cannot silently depend on scalarization.
-The launcher, allowlists, malformed-input assertions, and security guards
-are unchanged. Sixteen focused static checks and seven Linux synthetic
-executions passed. Native Windows CI on the corrected commit is still a
-required release gate; Linux fixtures are not LITTLENEMO acceptance.
-Source synchronization/preparation alone never authorizes Render deployment,
-runtime publication, or enrolled-host recovery execution.
+### 2026-10-07 — Direct-workspace diagnostic-result reporting
 
-## From Agent — last updated: Tue, Oct 6, 7:09 PM
+David asked Replit to handle the proposed per-check diagnostic reporting work
+directly. The two synthetic PowerShell fixtures now emit named PASS/FAIL/SKIP
+JSON records, including per-assertion baseline outcomes, mutations, controls,
+timeout, source preservation and owned cleanup. Original assertions and
+failure messages remain intact. An explicit skip cannot report overall success.
+No coordinator implementation, credential/DPAPI access, enrollment, policy,
+publication or model run was added.
 
-2026-10-06 — Main-session messaging repair, publication pending.
+Verification: 224 baseline cases / 935 assertions and seven mutation/control
+runs passed on Linux PowerShell 7.4.2. Three new executable reporting tests,
+17 existing static checks, typecheck, runner syntax and diff checks passed.
+The new test is registered in scripts/run-ci-test-steps.mjs. System health
+returned no failures and two warnings: app-route checks skipped because the
+application is stopped; these routes are unrelated to this CLI-only change.
+The old Windows receipt is unchanged and proves only its original bytes.
 
-David approved working through the five-step messaging repair here. Task 1701
-remains separate and incomplete: native offline Authenticode fixture approval,
-independent pins and receipts are still missing. No reauthorization, signing,
-trust/policy/mark change, installation retry or publication was performed.
+Details: docs/superpowers/verification/2026-10-07-diagnostic-result-reporting.md.
 
-The source tool-result cutoffs can discard inbox message bodies and paging
-metadata. Development now caps Alden inbox pages at five, budgets previews by
-escaped JSON size, retains the genuine service window, and exposes the exact
-event body through participant-authorized bounded read_coordination_message
-chunks. Both providers and background worker use non-slicing coordination
-transport; priority-task responses include non-secret execution receipts.
+Alden review comparison: retrieved his actual Anthropic review from the
+conversation archive and independently hashed its named worker revision.
+Its local window-count file, runs/ clones, offline/upgrade flags and DPAPI
+claims are absent from those bytes; section 5.5 explicitly derives counts
+from the ledger. This confirms ungrounded descriptions, not the cause or
+which other project he may have mixed in.
 
-The new hermetic suite exercises tokens, escaped text, Unicode chunk
-reassembly, authorization denial and exact-event lookup; registered in both
-CI entrypoints. Both Alden providers actually executed inbox and first-chunk
-read tools in development for original event 8540fde3 (global sequence 1312).
-These are development probes, not published acceptance or native receipts.
-Production still reports commit 912016b987260f105c030431b4aebd511ee3d815.
-
-Next: finish final checks, request separate source/runtime publication approval,
-then verify original report retrieval and reply on thread e0bc86eb directly
-with LCC as the participant who can independently inspect it. Do not infer
-historical incident cause from a successful bounded read.
-
-Final verification status: all 15 hermetic transport tests and whitespace
-checks passed; provider projection guard passed. After timeout/workspace
-interruptions and a 2 GiB heap-exhaustion failure, the final full tsc --noEmit
-with a 4 GiB heap cap passed (exit 0). The app serves HTTP 200 and renders.
-Final receipt instrumentation is confirmed in the running app. Anthropic
-read the original 7169-character report in eight contiguous chunks ending
-complete=true. Both providers advanced inbox pages. The final Gemini probe's
-submitted-token hash matched the returned prior token hash; one earlier
-signature rejection remains unattributed because its input was not captured.
-Token validation remains unchanged. Publication still requires separate
-approval and exact release-scope checks; no source commit or publish performed.
-LCC inventory/hash request is stored as event
-6e2f3dd0-fc56-4f8d-a427-6ba207e7572f at thread sequence 17/global 1333;
-adapter delivery state was not_applicable, and no acknowledgement was seen.
+The newer worker revision d6f9153e-494c-4422-a0bb-831d37040d7b, hash
+5992be9a4375aa161ccd88d7aff395d2be8f1eccdbea93f07a3ab2db184f7222,
+is awaiting a separate exact-byte gate review. No approval was issued for it
+in this reporting change; implementation remains blocked. Linked worker
+thread read through sequence 14 / global 1406; comparison and explicit review
+deferral delivered at sequence 15 / global 1408. Native evidence thread read
+through sequence 7 / global 1385; scoped reporting-change receipt delivered at
+sequence 8 / global 1407. Neither changes the merged task's state nor authorizes
+a native rerun. Inbox delivery proves storage, not collaborator acknowledgement.
 ## From Agent — historical recovery pause diagnostics — Oct 3, 2026
 
 Capture health and Markdown status now explain historical recovery pauses by
