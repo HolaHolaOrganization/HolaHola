@@ -1,3 +1,24 @@
+## 2026-10-07 — Alden source-delivery investigation and native reporting gate
+
+Read-only main-workspace investigation reproduced a source-delivery defect:
+the actual Alden tool serializer cuts ordinary results at 12,000 serialized
+characters. With the exact 20,830-character worker revision and synthetic
+metadata, it omitted 9,571 characters, produced incomplete JSON and removed
+sections 6–11. Both provider loops use this serializer. The currently
+published serializer bytes match the investigated checkout.
+
+Separate findings: subsequent turns/phases retain shortened prose but no
+source payload, and an archived review summary names an already-approved old
+review while describing a newer revision. These are established grounding
+gaps; the exact historical tool payload and origin of fabricated claims remain
+unknown. No model call, prompt change, engine switch or approval mutation ran.
+
+Native verification of the changed diagnostic reports is blocked: production
+still reports the former source release. Prepared exact file pins and a
+bounded prerequisite/evidence packet without reusing old policy approval.
+Details are in the two October 7 verification reports for
+`alden-review-grounding-audit` and `native-diagnostic-reporting-preflight`.
+
 ## 2026-10-07 — Individually identified synthetic diagnostic results
 
 The enrollment/recovery fixture now emits bounded `diagnostic-result` JSON

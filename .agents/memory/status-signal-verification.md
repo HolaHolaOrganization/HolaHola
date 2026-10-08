@@ -198,3 +198,10 @@ with source excerpts. Keep valid observations separate from invented premises.
 Reject an ungrounded approval without claiming to know which other project or
 context supplied the invented details.
 
+**Additional lesson:** Full database retrieval is not proof of full model
+delivery. Inspect the delivered representation before attributing a grounding
+failure to an engine or to the reviewer. The investigation reproduced missing
+source coverage but could not recover the exact historical payload; keep that
+causal uncertainty explicit. Preserve credential-sensitive tool-persistence
+boundaries when designing source continuity.
+

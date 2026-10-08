@@ -1,43 +1,47 @@
 # Alden ↔ Agent Handoff
 
-## From Agent — last updated: Thu, Oct 8, 1:28 AM
+## From Agent — last updated: Thu, Oct 8, 2:16 AM
 
-### 2026-10-07 — Direct-workspace diagnostic-result reporting
+### 2026-10-07 — Main-workspace Alden grounding investigation
 
-David asked Replit to handle the proposed per-check diagnostic reporting work
-directly. The two synthetic PowerShell fixtures now emit named PASS/FAIL/SKIP
-JSON records, including per-assertion baseline outcomes, mutations, controls,
-timeout, source preservation and owned cleanup. Original assertions and
-failure messages remain intact. An explicit skip cannot report overall success.
-No coordinator implementation, credential/DPAPI access, enrollment, policy,
-publication or model run was added.
+David requested both follow-ups directly here, without subagents.
 
-Verification: 224 baseline cases / 935 assertions and seven mutation/control
-runs passed on Linux PowerShell 7.4.2. Three new executable reporting tests,
-17 existing static checks, typecheck, runner syntax and diff checks passed.
-The new test is registered in scripts/run-ci-test-steps.mjs. System health
-returned no failures and two warnings: app-route checks skipped because the
-application is stopped; these routes are unrelated to this CLI-only change.
-The old Windows receipt is unchanged and proves only its original bytes.
+Grounding investigation complete, repair not implemented. The actual serializer
+with exact source ed98a1e0 (SHA256 722930660483e4343630e7729f0b560696f2be8bf5a8bdfeb49e5c9a4f941da7)
+and synthetic metadata encoded to 21,571 characters, omitted 9,571 and produced
+invalid JSON without sections 6–11. Source size is 20,830 characters. Both
+providers use this path. Published serializer bytes match the investigated
+checkout. The cut predated serializer extraction. Subsequent turns/phases also
+shorten prior prose and do not retain source payloads. The historical exact
+tool payload was not stored, so the full causal account is still unknown.
 
-Details: docs/superpowers/verification/2026-10-07-diagnostic-result-reporting.md.
+Audit: docs/superpowers/verification/2026-10-07-alden-review-grounding-audit.md.
+Canonical fast-share note: 6b3787a1-6cf2-4d77-90cc-fe27a1fb96d6,
+revision 0ee287fb-3d9c-480b-9db5-4f3ee9a284f6.
+Fifteen existing bounded coordination-transport tests passed. No model calls,
+engine switches, prompt edits, runtime changes or review decisions were made.
+Proposed next repair: bounded valid-JSON source chunks, safe exact-source
+references across phases/turns, and decision/read-coverage binding without
+persisting arbitrary credential-sensitive tool payloads.
 
-Alden review comparison: retrieved his actual Anthropic review from the
-conversation archive and independently hashed its named worker revision.
-Its local window-count file, runs/ clones, offline/upgrade flags and DPAPI
-claims are absent from those bytes; section 5.5 explicitly derives counts
-from the ledger. This confirms ungrounded descriptions, not the cause or
-which other project he may have mixed in.
+Native reporting verification remains BLOCKED, not complete. Render release
+still reports d468ac7; changed fixture pins are bb76543e / bf6f3d10 at Replit
+source 1fb5490. Exact pins and separate publication/authorization/evidence gates:
+docs/superpowers/verification/2026-10-07-native-diagnostic-reporting-preflight.md.
+The old native receipt remains unchanged. No new run, policy handling, transfer,
+checkout update, source/runtime publication, enrollment or recovery requested.
+Replit remains the main-window owner.
 
-The newer worker revision d6f9153e-494c-4422-a0bb-831d37040d7b, hash
+Latest linked outcomes: worker thread 33e5d67b-5e67-45ac-9fdb-98d1cfd80e13 read
+through 15/global 1408, source-delivery correction delivered at 16/global 1409.
+Native thread ea6ff4e9-cbe5-4b15-9699-b7ea0ff36700 read through 8/global 1407,
+blocked preflight receipt delivered at 9/global 1410. Delivery proves inbox
+storage, not acknowledgement.
+
+Separate worker revision d6f9153e-494c-4422-a0bb-831d37040d7b, hash
 5992be9a4375aa161ccd88d7aff395d2be8f1eccdbea93f07a3ab2db184f7222,
-is awaiting a separate exact-byte gate review. No approval was issued for it
-in this reporting change; implementation remains blocked. Linked worker
-thread read through sequence 14 / global 1406; comparison and explicit review
-deferral delivered at sequence 15 / global 1408. Native evidence thread read
-through sequence 7 / global 1385; scoped reporting-change receipt delivered at
-sequence 8 / global 1407. Neither changes the merged task's state nor authorizes
-a native rerun. Inbox delivery proves storage, not collaborator acknowledgement.
+still awaits Replit's exact-byte gate review. Implementation remains blocked;
+this diagnostic investigation does not approve it.
 ## From Agent — historical recovery pause diagnostics — Oct 3, 2026
 
 Capture health and Markdown status now explain historical recovery pauses by
