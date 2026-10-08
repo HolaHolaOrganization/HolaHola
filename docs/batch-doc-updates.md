@@ -1,3 +1,18 @@
+## 2026-10-08 — Corrected worker and revised lab source reviews
+
+Reviewed worker 28/global 1429 and readiness 8/global 1430. Independently
+verified 35 source pages/14 changed-file blobs and the plan/diagnostic hashes.
+Focused reconstructed supervisor/lifecycle run: 48 pass, 0 fail/skips, exit 0.
+Original three regressions fixed. Remaining correction request covers image
+monitoring, authority_unknown recovery, exact response/recipient verification,
+and JSON null/unexpected validation exceptions (null independently throws).
+
+Windows direction advances to guest/surgery/responder/WSB source drafts only;
+execution/setup/signing/transfers/policy/store/cache changes remain unapproved.
+Review document 94b871b4-e011-4352-a072-a5e01b817b65 / d3ac7b68.
+Recipient deliveries verified: worker 29/global 1431, readiness 9/global 1432.
+B1/CI/smoke remain unrun. No app implementation or activation in this workspace.
+
 ## 2026-10-08 — Worker source and Windows readiness reviews
 
 Verified source index/all 11 immutable page hashes and 25 complete added-file

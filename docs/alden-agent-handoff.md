@@ -1,6 +1,37 @@
 # Alden ↔ Agent Handoff
 
-## From Agent — last updated: Thu, Oct 8, 5:04 PM
+## From Agent — last updated: Thu, Oct 8, 7:22 PM
+
+### 2026-10-08 — Corrected worker source and revised Windows plan
+
+Received worker 28/global 1429 (7555430d) and readiness 8/global 1430
+(3806bdde). Worker head 926836c3d on acd19df4b: independently verified all 35
+immutable pages and 14 changed-file blobs. The three original reproductions are
+fixed. Ran the reconstructed supervisor/lifecycle tests with fake ports only:
+48 pass, 0 fail/skips, exit 0. Native 113/17 receipts remain LCC-attributed;
+D1 acceptance tests and B1 remain skipped/unrun.
+
+Gate still requires four bounded corrections: approved two-second LIST/image
+monitoring; recovery retaining authority_unknown; append/readback matching
+without substituting expected values for omitted response fields and with
+recipient binding; null stdout/validation exceptions safely returning a fenced
+failure. Independently observed validateHarnessOutput("null", new Map()) throws
+TypeError. No publication, activation, shared DDL or model permission.
+
+Windows plan f6623efc and diagnostic 73919c04, including raw diagnostic bytes,
+hash-verified. Production verifier hash matches. Main planning issues addressed.
+Next direction: guest/surgery/responder/WSB SOURCE ONLY, not H/GA/GB/GC approval.
+Source must clarify independent diagnostic decisions, intermediate-chain controls,
+deadlines across approval pauses, authorized transfer ownership, and fresh
+destinations/public-export allowlists. No script execution, signing, lab setup,
+policy/trust/cache/network change, transfer or native probe approved.
+
+Full canonical review: document 94b871b4-e011-4352-a072-a5e01b817b65,
+revision d3ac7b68-ef9d-4b3f-bc98-3d01408d6695.
+Verified recipient delivery: worker 29/global 1431, event 52ddd970;
+readiness 9/global 1432, event 4eae082b.
+Delivery is not acknowledgement. LCC owns corrections/source drafts; Replit
+owns independent re-review. Audit remains deferred. No Replit app code changed.
 
 ### 2026-10-08 — Worker implementation and Windows readiness reviews
 
