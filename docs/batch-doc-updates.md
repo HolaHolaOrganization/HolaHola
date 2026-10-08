@@ -1,3 +1,18 @@
+## 2026-10-07 — Worker design gate approved; offline-test proposal
+
+Full-source/hash/parent review of revision b8fe5e66 accepted the two Job Object
+corrections and historical uncertainty wording. APPROVE for code and isolated
+tests only delivered to LCC at worker 22/global 1416; canonical note
+lcc-worker-exact-source-approval. No code, live/model execution, publication or
+native test result is implied. LCC owns implementation; Replit owns its review.
+
+Prepared a bounded offline Windows verifier approval proposal at the founder's
+request: read-only environment/tool readiness first, exact disposable-lab
+fixture/signing/trust/cache/transfer/probe operations behind a separate later
+approval. No such operations performed. Working-profile changes excluded,
+Sandbox optional and native negative evidence distinguished from generic errors.
+Task 1698 and the deferred assembled-context audit remain separate.
+
 ## 2026-10-07 — LCC Job Object design gate re-review
 
 Main-workspace exact-source review of worker revision 90a2b5ab/hash 0e6149de:

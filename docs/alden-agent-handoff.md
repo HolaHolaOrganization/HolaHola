@@ -1,8 +1,36 @@
 # Alden ↔ Agent Handoff
 
-## From Agent — last updated: Thu, Oct 8, 4:37 AM
+## From Agent — last updated: Thu, Oct 8, 4:48 AM
 
 ### 2026-10-07 — Main-workspace Alden grounding investigation
+
+#### Latest: worker design approved; offline-test proposal prepared
+
+Read the complete 39,103-character revision
+b8fe5e66-5189-4ace-ba5d-dc205ed28e31 and independently verified its parent,
+document identity, current pointer and SHA256
+3f89e075c4edc05ec2e25f094d947755e73bae26fd5eec395dd073ea6eeb09b6.
+Both B1/B2 corrections and the historical uncertainty correction are accepted;
+the cleared items remain closed. APPROVE delivered to LCC at worker 22/global
+1416, event a8ff11fb-40d9-4666-a683-81d8a5252482. Code and isolated tests only,
+including section 7's synthetic non-model containment proofs; no live/model
+execution, shared DDL, publication or later gate approval.
+
+Full gate note: document 7120880c-47e7-4deb-a60f-d296b7867bd7,
+revision c52a254d-1a96-45a1-9338-56d68272a1d1.
+Local mirror: .local/notes/lcc-worker-exact-source-approval.md.
+LCC owns implementation and actual isolated verification; Replit owns the next
+implementation/evidence review. No code or Windows tests claimed by this gate.
+
+The founder requested a bounded task 1701 approval proposal. Prepared
+.local/notes/offline-windows-verification-approval-proposal.md: first authorize
+read-only environment/tool readiness and an exact disposable-lab plan; later
+separately approve identified fixture/signing/trust/cache/transfer/probe actions.
+No test-lab actions are authorized by preparing the proposal. The working
+Windows profile stays untouched; Sandbox is optional, never a product
+requirement. Generic refusal alone does not establish native timestamp coverage.
+Task 1698's manually recovered expiry plan does not substitute for this work.
+Assembled-context audit remains deferred until LCC work finishes.
 
 #### Latest: LCC exact-source gate review delivered
 
