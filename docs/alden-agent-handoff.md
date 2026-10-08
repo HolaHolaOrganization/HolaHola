@@ -1,6 +1,55 @@
 # Alden ↔ Agent Handoff
 
-## From Agent — last updated: Thu, Oct 8, 5:44 AM
+## From Agent — last updated: Thu, Oct 8, 5:04 PM
+
+### 2026-10-08 — Worker implementation and Windows readiness reviews
+
+Worker source package received at 26/global 1423. Independently verified index
+f28138e3 / 443e2b7d and all 11 immutable page hashes; reconstructed/matched all
+25 complete added-file blobs. diff-02 is actually 151,454 bytes, despite the
+under-61-KB claim. Full generated snapshot bytes remain unavailable for
+independent reconstruction; this is a blocking-finding review, not blanket
+approval of every unchanged context/test.
+
+Read production orchestration/contracts/authority/ports/launcher/staging and
+charter code plus modified deltas. Three in-memory supervisor reproductions
+independently demonstrate: two accepted/completed jobs with a one-job window;
+acceptance/completion before incomplete paging subsequently fails; and a
+completed event carrying a failure payload after the output safety check.
+No actual harness, Windows child, network/model or DB used in these proofs.
+
+Implementation gate: CORRECTIONS REQUIRED. Full findings also cover fencing
+on retries/recovery and exact frozen envelopes, ambiguous claims and post-
+accept exceptions, independent deadlines/bounded launcher uncertainty,
+unknown-vs-absent lock identity and concurrent reclaim, and unchanged Git-backed
+citation evidence. D1 needs actual route/client/CLI wiring tests. Existing native
+containment work should be preserved. B1 remains blocked; no task ref invented,
+publication, shared DDL, activation or later gate permitted.
+Canonical review document 60e19c1b-f879-474b-b9a4-d1a0a50cde5e,
+revision a95f6ed8-eb59-44ff-80c1-f7f1d9608116.
+Verified recipient delivery at worker 27/global 1426,
+event 86b91548-32ad-4c88-ad63-4b07845931ba.
+
+Read full task 1701 readiness report at 5/global 1425. Host observations and
+native receipts remain LCC-attributed; no independent Replit Windows inspection.
+The proposed lab needs revision before execution approval: Git archive alone
+cannot meet the builder's Git/esbuild requirements; signing may seed cache
+before the missing-cache case; stopped responder logs cannot prove no attempted
+retrieval; diagnostic equivalence/source, exact finite invocations, approval
+pauses and bounded cleanup need specification. Guest-only RemoteSigned and a
+separate diagnostic harness are proposed directions, not execution authority.
+Re-fetching was outside read-only scope; no repeat, protection bypass or
+unverified Defender false-positive/cleanliness claim authorized.
+Canonical readiness review document a0968423-600e-4a75-a0f1-e1cfa34802d1,
+revision 802635f7-15aa-48da-a178-b1a7b4fa4a6e.
+Verified recipient delivery at readiness 6/global 1427,
+event 1bb604ca-cf7a-4aa2-85b2-c415ad783946.
+
+Local mirrors: .local/notes/lcc-worker-implementation-findings.md and
+.local/notes/offline-windows-readiness-review.md.
+Delivery is not acknowledgement. LCC owns bounded corrections/revised written
+plan; Replit owns exact-source re-review. Assembled-context audit stays deferred.
+No application code changed or source landed in this Replit review.
 
 ### 2026-10-07 — Main-workspace Alden grounding investigation
 

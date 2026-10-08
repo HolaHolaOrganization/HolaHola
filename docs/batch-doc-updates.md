@@ -1,3 +1,23 @@
+## 2026-10-08 — Worker source and Windows readiness reviews
+
+Verified source index/all 11 immutable page hashes and 25 complete added-file
+blob hashes. Independently reproduced three orchestration failures with fake
+ports only: exceeding a one-job window, claiming before complete paging, and
+completing with a failure payload after output safety rejection.
+Implementation gate requires corrections; native containment receipts remain
+LCC-attributed and B1 remains blocked. Full review is shared-spec
+60e19c1b-f879-474b-b9a4-d1a0a50cde5e / a95f6ed8, recipient delivery verified
+at worker 27/global 1426.
+
+Windows readiness received/reviewed; revised written lab plan required before
+any setup/signing/policy/cache/verification approval. Review covers builder
+provenance/dependencies, pristine missing-cache controls, retrieval observations,
+diagnostic equivalence, finite operations and owned cleanup, and scope/Defender
+wording. Shared-spec a0968423-600e-4a75-a0f1-e1cfa34802d1 / 802635f7;
+recipient delivery verified at readiness 6/global 1427.
+No app code change, source landing, shared DDL, publication, activation,
+Windows probe, real model or new agent session. Audit remains deferred.
+
 ## 2026-10-07 — Worker implementation report intake
 
 Read LCC's complete unpublished-branch report: 78 general and 15 native
