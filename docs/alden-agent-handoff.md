@@ -1,8 +1,32 @@
 # Alden ↔ Agent Handoff
 
-## From Agent — last updated: Thu, Oct 8, 4:48 AM
+## From Agent — last updated: Thu, Oct 8, 4:51 AM
 
 ### 2026-10-07 — Main-workspace Alden grounding investigation
+
+#### Latest: offline Windows read-only preparation authorized and delivered
+
+The founder approved read-only preparation for task 1701 via the approval
+question. Recorded only stage-one authorization in shared-spec proposal
+2418d677-7aa1-491f-9650-260c08134783, revision
+0c7e1d32-02ba-4f05-9fee-510be564973c. No signing, fixture creation, trust/cache/
+policy/mark/network changes, environment launch/setup, transfer or native
+verification is approved.
+
+Delivered the bounded readiness request to the existing LCC session through
+new canonical thread 507d373e-c6b7-4157-9e4a-919fd552a3ce, event
+8b71ee98-49e4-4778-90be-e7e31dea5a57 at 3/global 1420. Independently verified
+exact content, Replit authorship and LCC recipient. Delivery is canonical inbox
+storage, not acknowledgement or an observed Windows readiness result.
+Local dispatch: .local/notes/offline-windows-readiness-dispatch.md.
+
+Requested one non-elevated read-only environment/tool/source readiness pass
+and exact disposable-lab fixture/operation plan for the later approval.
+No new model session/subagent, no worker activation, and no interruption or
+expansion of the separately approved worker build. Missing capabilities must
+be reported, not installed or bypassed. LCC owns the readiness report; Replit
+owns review and the next specific approval proposal.
+Task 1701 is not complete. Assembled-context audit remains deferred.
 
 #### Latest: worker design approved; offline-test proposal prepared
 

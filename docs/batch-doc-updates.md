@@ -1,3 +1,14 @@
+## 2026-10-07 — Offline Windows read-only preparation authorized
+
+Founder approved stage-one readiness only. Recorded the approved scope in
+shared-spec proposal revision 0c7e1d32 and delivered an exact recipient-addressed
+request to LCC on thread 507d373e at 3/global 1420. Independently verified scope,
+author and recipient. No actual host observation, signing, setup/trust/cache
+change or native probe claimed. LCC should return one read-only readiness pass
+and the exact disposable-lab plan for separate execution approval.
+Existing worker implementation scope and deferred assembled-context audit
+are unchanged. No new task agent or model session.
+
 ## 2026-10-07 — Worker design gate approved; offline-test proposal
 
 Full-source/hash/parent review of revision b8fe5e66 accepted the two Job Object
