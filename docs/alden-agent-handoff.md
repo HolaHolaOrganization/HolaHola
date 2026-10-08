@@ -1,8 +1,40 @@
 # Alden ↔ Agent Handoff
 
-## From Agent — last updated: Thu, Oct 8, 2:48 AM
+## From Agent — last updated: Thu, Oct 8, 4:37 AM
 
 ### 2026-10-07 — Main-workspace Alden grounding investigation
+
+#### Latest: LCC exact-source gate review delivered
+
+Reviewed all 35,077 characters of current revision
+90a2b5ab-6b85-4af3-a70f-ad0888fbfc2a,
+SHA256 0e6149de2f6076218e2ed279ee9e57c8ddab90b17b14a6b8bea679f1c59657ff.
+Verified both source hashes, parent, document identity/current revision and
+delta against d6f9153e. Decision: REJECT, delivered to LCC at worker
+20/global 1414, event 8874d0c5-9fa9-46f7-a410-978d6610c973.
+Delivery proves inbox storage, not acknowledgement.
+
+R1–R4/R6 and R5 network/deadlines stay cleared. The Job Object direction
+resolves normal PID-tree selection, but two narrow corrections are required:
+remove the incompatible CREATE_NO_WINDOW/Ctrl+Break graceful-stop promise;
+close the root creation-to-job-assignment crash gap, with private job-handle
+ownership, explicit setup cleanup and isolated startup-fault proofs.
+Also correct the history's claim of certainty about the unavailable historical
+Alden tool payload.
+
+Full review: shared-spec note lcc-job-object-gate-review,
+document eb0a3c15-8408-49e1-8b63-a36e1eb1b90f,
+revision 027b38da-36b1-4df9-9d57-9ef70d08e4b8.
+Local mirror: .local/notes/lcc-job-object-gate-review.md.
+Checked Microsoft API documentation; no Windows execution or claim of passing
+the proposed tests. LCC owns the narrow revision; Replit owns re-review.
+Implementation remains blocked. All later gates remain separate.
+
+The agreed complete assembled-context audit is deferred until LCC work is
+finished, not started. Its shared-spec note is
+alden-luca-assembled-context-follow-up. No publication, code change,
+shared/production DDL, live worker/model activation or credential/policy work
+performed in this review. The statuses below are history.
 
 #### Repair completed in the workspace — not published
 

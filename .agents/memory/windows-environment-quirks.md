@@ -273,3 +273,12 @@ LCC reported on 2026-10-07 that its Windows PowerShell tool injected PSExecution
 
 **How to apply:** Inspect inherited process policy separately from saved scopes and download provenance. Stop rather than silently using the tool's Bypass setting. Any clean-child environment adjustment and one-invocation RemoteSigned option require explicit authorization; verify the effective policy for the authorized child and its descendants. Do not infer authority for saved policy changes, organizational-policy overrides, unblocking, trust changes, or live recovery.
 
+
+## Job Object startup and console cancellation
+
+Job containment and cancellation must hold from process creation, not just after a successful launch. A suspended root is not contained until it belongs to the job; launcher death before assignment can leave it outside kill-on-close. The last-handle guarantee also requires private, non-inheritable job-handle ownership. Console cancellation is a separate contract: a no-console launch cannot simply promise group Ctrl+Break delivery.
+
+**Why:** The 2026-10-07 Windows worker design review found these API-contract gaps after a Job Object had correctly replaced unsafe PID/tree selection. This was source/API verification, not a claim that a Windows test had run.
+
+**How to apply:** Check startup failure, launcher death and resume failure as well as normal termination. Require native identity-bound containment/cleanup and isolated evidence that no running or suspended owned process survives and unrelated processes are untouched. Do not substitute a PID lookup, broadcast signal or successful setup test for those guarantees.
+

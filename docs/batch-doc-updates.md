@@ -1,3 +1,14 @@
+## 2026-10-07 — LCC Job Object design gate re-review
+
+Main-workspace exact-source review of worker revision 90a2b5ab/hash 0e6149de:
+REJECT delivered to LCC at worker 20/global 1414. The prior cleared items
+remain closed. Remaining narrow gaps are the no-console Ctrl+Break promise
+and root creation before job assignment, including startup-crash cleanup.
+Required corrections and isolated proof cases are in shared-spec note
+lcc-job-object-gate-review. Microsoft API contracts checked; no Windows test
+or implementation performed. LCC owns correction; Replit owns final review.
+Assembled-context audit remains deferred until LCC work is finished.
+
 ## 2026-10-07 — Alden source-delivery repair
 
 Approved repair implemented directly in the main workspace. Review source is
