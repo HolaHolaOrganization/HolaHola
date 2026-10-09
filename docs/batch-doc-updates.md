@@ -1,3 +1,17 @@
+## 2026-10-09 — Windows CI dependency-setup code extension approved
+
+David selected finishing the Windows setup code before CI. Canonical approval
+delivered to LCC at worker 46/global 1453: checked-in dependency setup and
+existing synthetic native launcher test step, with unchanged package lock,
+registry policy, authority checks and CI aggregate gating. Exact source must
+return for independent review BEFORE any push or execution. No actual install,
+native/model rerun, local DB setup, promotion, deployment or activation approved.
+
+HTTP source at 31477fe5a reviewed: immutable pages and raw file hashes verified,
+registry delta compared against exact GitHub base. Independently reproduced
+one isolation pass/ten proof skips locally and fail-closed invalid-CI-target
+behavior. Actual HTTP proofs and native CI evidence remain outstanding.
+
 ## 2026-10-09 — HTTP and Windows CI test-code scope approved
 
 David selected HTTP tests plus Windows launcher CI. Canonical approval sent
