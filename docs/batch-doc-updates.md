@@ -1,3 +1,13 @@
+## 2026-10-09 — HTTP and Windows CI test-code scope approved
+
+David selected HTTP tests plus Windows launcher CI. Canonical approval sent
+to LCC at worker 43/global 1450, with atomic recipient inbox delivery.
+Scope: new isolated real-route/supervisor test, unit registry entry, one native
+launcher suite step in existing Windows CI. Fake harness and synthetic CI-only
+credentials; production auth unchanged. Local typecheck/SKIP check allowed.
+Exact source returns for review BEFORE push or CI. No merge, promotion, live
+migration, model, activation or pilot. B1 pool-delay cleanup excluded.
+
 ## 2026-10-08 — B1/D1 and finite CI result accepted
 
 Verified immutable evidence f1c24ff9 / 2826b68d and independently checked GitHub
