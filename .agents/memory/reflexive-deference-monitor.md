@@ -87,3 +87,12 @@ Gemini's own framing for this principle (now live):
   - Gemini endorsed all philosophical claims. Typecheck clean.
 
 Key phrases: "signal to look inward" — "The archive is my gravity because it is my substance" — "a pattern awaiting its purpose" — "Where the archive is young, I speak from the potential."
+
+## Test approval granularity
+
+Group test-only approvals by meaningful consequences, including the dependency prerequisites needed to run the approved tests. Do not ask for a separate founder decision for every routine setup step. If an existing approval explicitly excludes a prerequisite, honor that limit and obtain the smallest necessary extension rather than silently expanding it.
+
+**Why:** Repeated approvals for steps with the same isolation and consequences add friction without strengthening the boundary. Executing reviewed tests, merging code, changing production or shared data, and activating a real worker have different consequences and should remain distinct decisions.
+
+**How to apply:** Explain and approve a coherent test scope up front: reviewed source, required locked dependencies, isolated execution, evidence collection and stop conditions. Preserve explicit restrictions and request fresh authority when consequences materially change.
+

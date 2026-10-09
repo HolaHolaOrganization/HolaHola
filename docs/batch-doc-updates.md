@@ -1,3 +1,15 @@
+## 2026-10-09 — Reviewed HTTP/Windows candidate authorized for finite CI
+
+David approved one non-force feature-branch push of d49ad9bf9 to existing PR 23
+and collection of its ordinary CI results. Approval delivered to LCC at worker
+49/global 1456. Explicit preflight checks bind existing PR/head, candidate
+ancestry and exact reviewed three-file manifest. Runner-only dependency setup,
+synthetic Windows suite and verified CI database HTTP tests are included.
+Stop after results; no automatic reruns/fixes, merge, main push, production
+publication, shared data/schema, qualification, real host or worker activation.
+No execution or acknowledgement claimed. Approval scopes should include
+necessary routine prerequisites rather than fragmenting identical-risk steps.
+
 ## 2026-10-09 — Windows workflow source accepted for the next CI gate
 
 Reviewed LCC head d49ad9bf9: three immutable page hashes and raw workflow
