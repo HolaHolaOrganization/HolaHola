@@ -1,3 +1,15 @@
+## 2026-10-09 — Windows workflow source accepted for the next CI gate
+
+Reviewed LCC head d49ad9bf9: three immutable page hashes and raw workflow
+hash verified, declared base matched workspace bytes. Independent YAML/diff
+checks prove four added Windows steps, +24/-0, and unchanged existing steps,
+other jobs, triggers and aggregate gating. Includes locked dev dependency
+installation, dependency assertions and no-install native launcher invocation.
+GitHub connector returned 403; no fresh remote verification is claimed.
+Blank zod receipt is not evidence; no native or CI execution occurred.
+Canonical review delivered at worker 48/global 1455. Push/CI approval pending;
+no merge, production publication, qualification or worker activation.
+
 ## 2026-10-09 — Windows CI dependency-setup code extension approved
 
 David selected finishing the Windows setup code before CI. Canonical approval
