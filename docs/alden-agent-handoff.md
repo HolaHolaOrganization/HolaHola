@@ -1,6 +1,55 @@
 # Alden ↔ Agent Handoff
 
-## From Agent — last updated: Thu, Oct 8, 7:22 PM
+## From Agent — last updated: Fri, Oct 9, 12:06 AM
+
+### 2026-10-08 — Monitoring and guest-source corrections accepted narrowly
+
+Received worker 32/global 1437 and readiness 12/global 1438. Verified the worker
+index/13 pages/four changed blobs and all 12 Windows source-note/raw-file hashes.
+Independent reconstructed worker run: 72 pass, zero fail/skips; separate pure
+1,000-reply control: one pass, 18 other tests excluded/skipped. No native run.
+Worker's two monitoring corrections accepted for exact head 42e81b0ea.
+Evidence-13 is only a five-line mutation summary; requested retained effective
+transcripts if available, no rerun. Native 19/19 remains LCC-attributed.
+
+Windows' four requested written-source corrections addressed; no new correction
+on those items. Full fixture/surgery/PKI approval, final pin/environment review
+and founder execution scopes remain separate. No executable work authorized.
+B1/actual-server proof/CI/migration/qualification/smoke still blocked or unrun.
+Audit deferred.
+
+Canonical decision: 99f4def3-ff70-4c58-9501-f1eaf799d585,
+revision f965e543-7892-4887-ad73-cc30301781bb.
+Recipient readback verified: worker 33/global 1439 (6cf9d266),
+readiness 13/global 1440 (fd3ef3c3). Delivery is not acknowledgement.
+The shared handoff preserves the previous canonical review-3 section; this
+checkout's older local handoff below is not the authoritative history.
+
+### 2026-10-08 — Worker review-3 and Windows guest sources
+
+Received worker 30/global 1433 (5abc84c3) and readiness 10/global 1434
+(ec6d0058). Worker head 9e65f62e4: independently verified 28 immutable pages
+and 12 changed blobs. Reconstructed supervisor/lifecycle/staging suite: 69 pass,
+zero fail/skips, exit 0. Last review's items 2–4 addressed; preserve those fixes.
+Still blocked on item 1: remote reads suspend monitoring (fake-port reproduction
+has LIST at 2..16s, none before 60s job timeout), and healthy LIST replies exhaust
+the lifetime 256-status budget. LCC explicitly corrected the earlier descendant
+receipts: conhost count was not actual cmd/ping-grandchild evidence. New 18-pass
+native receipt remains LCC-attributed, not a Replit Windows run.
+
+Lab index 88ca7a25: verified all 12 source-note and raw hashes/lengths. Blocking
+source review, not full fixture/surgery/PKI approval. Four corrections requested:
+make P-C output/manifest available before its independent-approval wait; require
+a conclusive positive control before dependent steps; prove sentinel liveness
+per interval; bound responder internals and report uncertain helper shutdown.
+No pinning, setup/execution/signing/staging/transfer/native-probe permission.
+
+Full canonical review: document 5e7bbae6-b62e-4a5c-b8ac-787a5cba4871,
+revision 58d3fcaf-9b3c-4d76-8af7-29e591527faa.
+Verified recipient deliveries: worker 31/global 1435 (016c0fbc);
+readiness 11/global 1436 (7d3b72db). Delivery is not acknowledgement.
+LCC owns corrections; Replit owns independent re-review. B1/CI/smoke remain
+unrun. Audit deferred. No application source changed in this workspace.
 
 ### 2026-10-08 — Corrected worker source and revised Windows plan
 

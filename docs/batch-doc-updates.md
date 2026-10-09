@@ -1,3 +1,15 @@
+## 2026-10-08 — Focused monitoring and Windows correction decisions
+
+Worker index/13 pages/four changed blobs and lab index/12 note/raw hashes verified.
+Independent reconstructed worker tests: 72/72, zero skips. Separate pure sink
+control: one pass, 18 other tests excluded/skipped; not a native run. Accepted the
+two exact monitoring corrections. Native 19/19 and mutation summary remain
+attributed; requested retained effective mutation transcripts, not a rerun.
+Windows' four source corrections addressed; full fixture/PKI review and final
+pinning/environment/execution approvals not granted. No new executable work.
+Decision 99f4def3 / f965e543; verified deliveries worker 33/global 1439,
+readiness 13/global 1440. No app source change, publication or activation.
+
 ## 2026-10-08 — Corrected worker and revised lab source reviews
 
 Reviewed worker 28/global 1429 and readiness 8/global 1430. Independently
