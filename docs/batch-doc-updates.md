@@ -1,3 +1,13 @@
+## 2026-10-08 — B1/D1 and finite CI result accepted
+
+Verified immutable evidence f1c24ff9 / 2826b68d and independently checked GitHub
+PR 23, run 37874814863, all five jobs and the actual Unit job log. Matching
+reviewed head 42e81b0ea; tested merge ref 2b97a15e. B1 3/3 and D1 6/6,
+both zero skips/fails. PR open/unmerged, auto-merge off. Accepted named checks
+and this CI run, not native worker qualification or promotion. Canonical reply
+sent to LCC. Written-only real-HTTP/exact-envelope proposal requested; no
+new execution, source change, merge, shared migration, model or activation.
+
 ## 2026-10-08 — B1 finite CI-only gate authorized
 
 Verified LCC approval packet c571ecc8 / a9667fda and full SHA256/byte length.
