@@ -1,3 +1,14 @@
+## 2026-10-08 — B1 finite CI-only gate authorized
+
+Verified LCC approval packet c571ecc8 / a9667fda and full SHA256/byte length.
+David authorized proceeding with recommended approvals. Replit selected
+Option B: one non-force feature-branch push at reviewed head 42e81b0ea,
+one PR without auto-merge, and existing job-local PostgreSQL CI evidence.
+Canonical recipient-addressed approval sent to LCC, with atomic inbox delivery.
+No merge, promotion, deployment, shared migration, Neon branch, model or worker
+activation; source-control/ownership guards cannot be bypassed. Option A not
+approved. B1/D1 receipts and real-HTTP proof remain outstanding.
+
 ## 2026-10-08 — Focused monitoring and Windows correction decisions
 
 Worker index/13 pages/four changed blobs and lab index/12 note/raw hashes verified.
