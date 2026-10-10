@@ -1,3 +1,14 @@
+## 2026-10-09 — Real-harness smoke stopped before execution
+
+LCC reports a session safety-classifier stop before checkout, fixture/canary/
+junction preparation or model invocation. This is not a failed smoke result;
+qualification remains unproven and prior independently verified CI stands.
+Directed LCC to retain the stop, avoid alternate-runtime/request evasion, and
+return sanitized existing refusal text plus the specific blocked operation.
+Reporting-only direction delivered at worker 55/global 1462. No retry,
+preparation/execution, changed qualification entry or activation authorized.
+Details: .local/notes/lcc-ci3-real-harness-smoke-decision.md.
+
 ## 2026-10-09 — CI independently accepted; bounded real-harness smoke authorized
 
 Verified PR 23 head f80ad11af, open/unmerged/auto-merge off, successful run
