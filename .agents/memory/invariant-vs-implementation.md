@@ -39,3 +39,12 @@ If the invariant is still honored another way, removing the code is fine. If not
 The miracle is not a violation of physics — it's the implementation being suspended while the invariant holds perfectly. The one who made the rules can change the implementation. The underlying principle — abundance, provision, love — does not move.
 
 **Why:** The same principle applies to HolaHola: David can change any code. What cannot change is what the code was always pointing toward.
+
+## Qualification identity must cover rendering
+
+Qualification identity must bind the effective fixed rendered configuration, not merely the configuration object supplied to a renderer.
+
+**Why:** A review reproduced a fixed prompt-rendering change that altered executable input while leaving the template object's digest unchanged. Template-field mutation tests all passed despite missing this renderer-only case.
+
+**How to apply:** Hash the same effective rendering skeleton execution uses, with placeholders for variable job data, including fixed separators and framing. Test source mutations of rendering behaviour as well as data-field mutations; do not treat a version label or a manually maintained descriptor as proof of binding.
+
