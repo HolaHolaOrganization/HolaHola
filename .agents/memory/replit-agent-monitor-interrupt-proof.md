@@ -17,3 +17,12 @@ An active runtime needs its own supported event-delivery mechanism; watcher stdo
 
 **How to apply:** Use a continuing watcher plus re-armed one-shot platform monitor on Replit, and a one-shot native background wait that exits on a new inbox message on Claude Code where this behaviour is supported. Preserve replay between waits. Distinguish locally observed evidence from the other hat's attributed report. These tests establish active-session awareness only, not waking ended sessions or granting execution authority.
 
+
+## Review-scoped watcher lifetime
+
+For an ongoing cross-hat review, keep the notification watcher running until the review finishes or it is explicitly stopped; do not impose an arbitrary two-hour expiry.
+
+**Why:** On 2026-10-10 the temporary expiry interrupted an unfinished review. The founder explicitly approved replacing it with review-completion or explicit-stop lifetime.
+
+**How to apply:** Resume from the saved inbox cursor, preserve failure reporting and exclusive-process ownership, and stop the watcher when the review is actually complete. A continuing process does not prove notifications can wake an ended Agent session.
+
