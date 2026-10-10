@@ -1,3 +1,21 @@
+## 2026-10-09 — CI independently accepted; bounded real-harness smoke authorized
+
+Verified PR 23 head f80ad11af, open/unmerged/auto-merge off, successful run
+38010494722 and all five jobs. Downloaded actual Unit/Windows logs: tested merge
+97cca4401 into 36614989d; B1 3/3, D1 6/6, real-HTTP 11/11 and Windows 19/19,
+zero failures/skips in these suites. Reviewed the two test-only fixes and
+hash-verified immutable CI evidence. Anonymous charter refusal remains an
+explicit coverage gap, not a passed claim.
+
+David supports real testing absent blockers. Delivered bounded standalone
+qualification smoke approval to LCC at worker 53/global 1460: exact reviewed
+source/adapter/installed harness pins, owned synthetic canaries, positive
+read-denial evidence and verified cleanup. At most two Sonnet subscription
+invocations, each capped at 600 seconds; no silent configuration changes.
+No execution/qualification result claimed. No live charter, activation,
+merge/publication, shared DDL/data or certificate-lab authority added.
+Details: .local/notes/lcc-ci3-real-harness-smoke-decision.md.
+
 ## 2026-10-09 — Reviewed HTTP/Windows candidate authorized for finite CI
 
 David approved one non-force feature-branch push of d49ad9bf9 to existing PR 23
