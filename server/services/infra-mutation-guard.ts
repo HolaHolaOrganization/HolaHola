@@ -1,10 +1,9 @@
 import { TaskOwnershipService, type TaskOwnershipResult } from './task-ownership-service';
 
 /**
- * Scope note: `scripts/cross-tool-promote.ts` and `scripts/neon-branch.ts`
- * were evaluated and intentionally remain ungated. They are documented
- * caller-agnostic, stateless tools whose safety boundary is GitHub branch
- * protection / the Neon workflow rather than ownership of this checkout.
+ * Scope note: cross-tool-promote supplies a fresh server-backed proof probe at
+ * both mutation boundaries. Other callers must supply their own verified probe;
+ * the default deliberately denies rather than inferring authority from files.
  */
 
 /**

@@ -2,6 +2,8 @@ import { createHash, randomUUID } from 'node:crypto';
 import { link, mkdir, open, readFile, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { TASK_APPROVAL_DEFAULT_MS, TASK_APPROVAL_MAX_MS } from '../../shared/task-ownership-policy';
+import { saveOwnershipChallengeHandle } from './task-ownership-discovery';
+import { promotionContextDigest, type PromotionCandidate } from './promotion-candidate';
 
 type Binding = {
   taskRef: string;
@@ -9,10 +11,12 @@ type Binding = {
   artifactSha256: string;
   publicKey: string;
   keyFingerprint: string;
+  promotion?: PromotionCandidate;
 };
 type Payload = {
   taskRef: string; intendedActor: string; artifactSha256: string;
   publicKey: string; keyFingerprint: string; idempotencyKey: string; ttlMs: number;
+  contextDigest?: string;
 };
 type Attempt = {
   version: 1; endpoint: string; previousChallengeId: string | null; payload: Payload;
@@ -92,6 +96,7 @@ export async function requestOwnershipAttempt(input: {
   const { command, binding, client } = input;
   validateTaskRef(binding.taskRef);
   const endpoint = ownershipEndpoint(input.endpoint);
+  const contextDigest = binding.promotion ? promotionContextDigest(binding.promotion) : undefined;
   if (!/^[a-f0-9]{64}$/.test(binding.artifactSha256) || !/^[a-f0-9]{64}$/.test(binding.keyFingerprint) ||
       !/^luca-[a-z0-9-]+$/.test(binding.actor) || !binding.publicKey) {
     throw new Error('Invalid ownership attempt binding.');
@@ -115,12 +120,15 @@ export async function requestOwnershipAttempt(input: {
   const directory = join(input.workspace, '.local', 'task-ownership-attempts',
     hash(JSON.stringify([endpoint, binding.actor, binding.taskRef])));
   await mkdir(directory, { recursive: true, mode: 0o700 });
-  const statePath = join(directory, previousChallengeId ? `renew-${previousChallengeId}.json` : 'begin.json');
+  const statePath = join(directory, previousChallengeId ? `renew-${previousChallengeId}${contextDigest ? `-${contextDigest}` : ''}.json`
+    : contextDigest ? `begin-${contextDigest}.json` : 'begin.json');
   const payload: Payload = {
     taskRef: binding.taskRef, intendedActor: binding.actor,
     artifactSha256: binding.artifactSha256, publicKey: binding.publicKey,
     keyFingerprint: binding.keyFingerprint, ttlMs,
-    idempotencyKey: previousChallengeId ? `renew:${binding.taskRef}:${randomUUID()}` : `${binding.taskRef}:${binding.keyFingerprint}`,
+    idempotencyKey: previousChallengeId ? `renew:${binding.taskRef}:${randomUUID()}`
+      : `${binding.taskRef}:${binding.keyFingerprint}${contextDigest ? `:promotion:${contextDigest}` : ''}`,
+    ...(contextDigest ? { contextDigest } : {}),
   };
   const saved = await saveAttempt(statePath, { version: 1, endpoint, previousChallengeId, payload });
   if (saved?.version !== 1 || saved.endpoint !== endpoint || saved.previousChallengeId !== previousChallengeId ||
@@ -141,10 +149,17 @@ export async function requestOwnershipAttempt(input: {
   const status = command === 'renew'
     ? boundStatus(await client.status(result.challengeId), result.challengeId, binding)
     : undefined;
+  await saveOwnershipChallengeHandle(input.workspace, {
+    version: 1, endpoint, actor: binding.actor, taskRef: binding.taskRef,
+    artifactSha256: binding.artifactSha256, keyFingerprint: binding.keyFingerprint,
+    challengeId: result.challengeId,
+    ...(binding.promotion ? { promotion: binding.promotion } : {}),
+  });
   return {
     challengeId: result.challengeId, taskRef: binding.taskRef, fingerprint: binding.keyFingerprint,
     expiresAt: result.expiresAt, ...(status ? { status: status.status, receipt: status.receipt ?? null } : {}),
     approvalPath: 'HolaHola → Command Center (/admin) → System → Ownership',
     retry: previousChallengeId ? `renew --challenge-id ${previousChallengeId}` : 'begin',
+    ...(binding.promotion ? { promotion: binding.promotion, contextDigest } : {}),
   };
 }

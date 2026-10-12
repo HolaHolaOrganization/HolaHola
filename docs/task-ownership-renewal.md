@@ -12,6 +12,11 @@ Approve only after checking the task scope and artifact digest. Approval issues
 a receipt; the builder must then prove possession of the bound private key.
 An expired challenge cannot be approved.
 
+Source promotion obtains a fresh proof automatically at its own mutation
+boundaries; a separate manual `prove` is optional for diagnosis. See
+[automatic promotion ownership](automatic-promotion-ownership.md) for
+configuration and existing-approval compatibility.
+
 ## Explicit renewal
 
 ```sh

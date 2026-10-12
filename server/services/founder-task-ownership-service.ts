@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { ownershipProofPayload } from "./task-ownership-proof-payload";
 import { and, desc, eq, gt, isNull, lte, sql } from "drizzle-orm";
 import { db } from "../db";
 import {
@@ -248,19 +249,7 @@ export async function issueProofNonce(receiptId: string, actor: string) {
     eq(taskOwnershipReceipts.intendedActor, actor), eq(taskOwnershipReceipts.status, "active"), gt(taskOwnershipReceipts.expiresAt, new Date())));
   if (!receipt) error("RECEIPT_NOT_ACTIVE");
   const [nonce] = await db.insert(taskOwnershipProofNonces).values({ receiptId, nonce: crypto.randomBytes(32).toString("base64url"), expiresAt: new Date(Date.now() + NONCE_TTL) }).returning();
-  const signedPayload = {
-    nonce: nonce.nonce,
-    nonceId: nonce.id,
-    receiptId: receipt.id,
-    challengeId: receipt.challengeId,
-    taskRef: receipt.taskRef,
-    artifactSha256: receipt.artifactSha256,
-    intendedActor: receipt.intendedActor,
-    publicKey: receipt.publicKey,
-    keyFingerprint: receipt.keyFingerprint,
-    payloadDigest: receipt.payloadDigest,
-    expiresAt: receipt.expiresAt.toISOString(),
-  };
+  const signedPayload = ownershipProofPayload(receipt, nonce);
   return { nonceId: nonce.id, expiresAt: nonce.expiresAt, signedPayload };
 }
 
@@ -281,10 +270,7 @@ export async function verifyProof(nonceId: string, signature: string, actor: str
       await tx.insert(taskOwnershipProofAttempts).values({ nonceId, receiptId: receipt.id, success: false, errorCode: "RECEIPT_NOT_ACTIVE" });
       return { ok: false as const, errorCode: "RECEIPT_NOT_ACTIVE" };
     }
-    const payload = canonical({ nonce: nonce.nonce, nonceId, receiptId: receipt.id, challengeId: receipt.challengeId,
-      taskRef: receipt.taskRef, artifactSha256: receipt.artifactSha256, intendedActor: receipt.intendedActor,
-      publicKey: receipt.publicKey, keyFingerprint: receipt.keyFingerprint, payloadDigest: receipt.payloadDigest,
-      expiresAt: receipt.expiresAt.toISOString() });
+    const payload = canonical(ownershipProofPayload(receipt, nonce));
     let success = false;
     try {
       const publicKey = crypto.createPublicKey({
@@ -310,10 +296,11 @@ export async function verifyProof(nonceId: string, signature: string, actor: str
           artifactSha256: receipt.artifactSha256,
           intendedActor: receipt.intendedActor,
            proofPayloadDigest,
+           ...(receipt.contextDigest ? { contextDigest: receipt.contextDigest } : {}),
         }
       : { ok: false as const, errorCode: "SIGNATURE_INVALID" };
   });
-  if (!result.ok) error(result.errorCode);
+  if (result.ok !== true) return error(result.errorCode);
   return result;
 }
 

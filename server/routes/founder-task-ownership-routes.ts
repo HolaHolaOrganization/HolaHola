@@ -222,7 +222,8 @@ export function registerFounderTaskOwnershipRoutes(app: Application): void {
         // Gate 3 grants require broker provenance.  Fixed/legacy actor tokens
         // may continue to verify ownership, but can never mint authority.
         if (
-          req.coordinationAuthType !== "broker"
+          req.body?.standalone === true
+          || req.coordinationAuthType !== "broker"
           || !isGate3BrokerCredential(req.coordinationCredential)
         ) {
           res.json(proof);
