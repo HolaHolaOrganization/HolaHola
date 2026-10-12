@@ -1,18 +1,23 @@
 import { TaskOwnershipService } from '../services/task-ownership-service';
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
-import { ensureTaskAgentKey } from '../services/task-ownership-key-custody';
+import { ensureTaskAgentKey, loadTaskAgentKey } from '../services/task-ownership-key-custody';
 import { TaskOwnershipHttpClient, proveStandaloneTaskOwnership } from '../services/task-ownership-client';
+import { approvalWindow, requestOwnershipAttempt, validateTaskRef } from '../services/task-ownership-attempt';
+import { localPromotionCandidate, remotePromotionHead } from '../services/promotion-candidate';
 
 const MACHINE_PREFIX = 'TASK_OWNERSHIP_RESULT_JSON:';
 
 function option(name: string): string | undefined {
   const index = process.argv.indexOf(name);
-  return index >= 0 ? process.argv[index + 1] : undefined;
+  if (index < 0) return undefined;
+  const value = process.argv[index + 1];
+  if (!value || value.startsWith('--')) throw new Error(`${name} requires a value.`);
+  return value;
 }
 
 function usage(): never {
-  console.error('Usage: task-ownership-cli.ts <begin|status|prove|diagnostic> --task-ref <ref> [--app-url <url>]');
+  console.error('Usage: task-ownership-cli.ts <begin|renew|status|prove|diagnostic> --task-ref <ref> --actor <actor> [--app-url <url>] [--challenge-id <expired-id> --approval-minutes <1-30>] [--receipt-id <receipt-id>] [--promote-branch <branch> --promote-commit <40-hex>]');
   process.exit(64);
 }
 
@@ -44,7 +49,8 @@ function clientFor(appUrl: string, actor: string): TaskOwnershipHttpClient {
 async function main(): Promise<void> {
   const command = process.argv[2] || 'diagnostic';
   const taskRef = option('--task-ref') || usage();
-  if (command === 'begin') {
+  validateTaskRef(taskRef);
+  if (command === 'begin' || command === 'renew') {
     const appUrl = option('--app-url') || process.env.APP_URL;
     if (!appUrl) throw new Error('A server URL is required via --app-url or APP_URL.');
     const actor = option('--actor');
@@ -52,18 +58,31 @@ async function main(): Promise<void> {
     const root = process.cwd();
     const artifactPath = `${root}/.local/tasks/task-${taskRef}.md`;
     const artifact = await readFile(artifactPath);
-    const key = await ensureTaskAgentKey(taskRef);
+    const branch = option('--promote-branch');
+    const commit = option('--promote-commit');
+    if ((branch === undefined) !== (commit === undefined)) {
+      throw new Error('--promote-branch and --promote-commit must be provided together.');
+    }
+    const promotion = branch && commit ? localPromotionCandidate(root, branch, commit) : undefined;
+    if (promotion && remotePromotionHead(root, promotion.branch) !== promotion.candidateCommit) {
+      throw new Error('Publish the exact candidate branch before requesting promotion approval.');
+    }
+    if (command === 'begin' && option('--approval-minutes') !== undefined) {
+      throw new Error('--approval-minutes is only supported by renew; begin preserves its original request.');
+    }
+    const key = command === 'renew' ? await loadTaskAgentKey(taskRef) : await ensureTaskAgentKey(taskRef);
     const client = clientFor(appUrl, actor);
-    const response: any = await client.challenge({
-      taskRef,
-      intendedActor: actor,
-      artifactSha256: createHash('sha256').update(artifact).digest('hex'),
-      publicKey: key.publicKey,
-      keyFingerprint: key.fingerprint,
-      idempotencyKey: `${taskRef}:${key.fingerprint}`,
+    const response = await requestOwnershipAttempt({
+      command, workspace: root, endpoint: appUrl, client,
+      previousChallengeId: option('--challenge-id'),
+      ttlMs: command === 'renew' ? approvalWindow(option('--approval-minutes')) : undefined,
+      binding: {
+        taskRef, actor, artifactSha256: createHash('sha256').update(artifact).digest('hex'),
+        publicKey: key.publicKey, keyFingerprint: key.fingerprint,
+        ...(promotion ? { promotion } : {}),
+      },
     });
-    if (!response || typeof response.challengeId !== 'string') throw new Error('Malformed challenge response.');
-    console.log(JSON.stringify({ challengeId: response.challengeId, taskRef, fingerprint: key.fingerprint }));
+    console.log(JSON.stringify(response));
     return;
   }
   if (command === 'status') {

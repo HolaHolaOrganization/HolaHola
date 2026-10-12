@@ -65,6 +65,7 @@ test('dispatchCrossToolPromote calls the GitHub Actions dispatch endpoint exactl
   try {
     await dispatchCrossToolPromote('feature-branch', '1470', 'job-1', {
       probeOwnership: async () => ownershipResult('main_session'),
+      expectedSha: 'a'.repeat(40),
       fetchImpl,
     });
     assert.equal(calls.length, 1);
@@ -72,7 +73,7 @@ test('dispatchCrossToolPromote calls the GitHub Actions dispatch endpoint exactl
     assert.equal(calls[0].method, 'POST');
     assert.deepEqual(JSON.parse(String(calls[0].body)), {
       ref: 'main',
-      inputs: { branch: 'feature-branch', jobId: 'job-1' },
+      inputs: { branch: 'feature-branch', jobId: 'job-1', expectedSha: 'a'.repeat(40) },
     });
   } finally {
     if (originalToken === undefined) delete process.env.GITHUB_ACTIONS_DISPATCH_TOKEN;
@@ -120,6 +121,7 @@ test('dispatchCrossToolPromote proceeds for isolated_agent ownership too', async
   try {
     await dispatchCrossToolPromote('feature-branch', '1470', 'job-2', {
       probeOwnership: async () => ownershipResult('isolated_agent'),
+      expectedSha: 'a'.repeat(40),
       fetchImpl,
     });
     assert.equal(fetchCalls, 1);

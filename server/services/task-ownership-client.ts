@@ -10,7 +10,7 @@ export interface OwnershipHttp {
 /** Founder-approved ownership only; this carries no runtime execution authority. */
 export type StandaloneOwnershipProofResult = {
   ok: true; verified: true; receiptId: string; taskRef: string;
-  intendedActor: string; artifactSha256: string; proofPayloadDigest: string;
+  intendedActor: string; artifactSha256: string; proofPayloadDigest: string; contextDigest?: string;
 };
 
 export type OwnershipProofResult = StandaloneOwnershipProofResult & {
@@ -47,6 +47,8 @@ function fetchHttp(baseUrl: string, coordinationToken: string): OwnershipHttp {
              'x-coordination-token': coordinationToken,
            },
           body: init.body === undefined ? undefined : JSON.stringify(init.body),
+          redirect: 'error',
+          signal: AbortSignal.timeout(15_000),
         });
       } catch {
         throw new Error('Task ownership endpoint unavailable.');
@@ -65,7 +67,8 @@ export function canonicalProofBytes(payload: unknown): Buffer {
 async function requestOwnershipProof(
   client: TaskOwnershipHttpClient, taskRef: string, actor: string, receiptId: string,
   validateNonce?: (nonceResponse: any) => void,
-): Promise<{ result: any; signedPayloadDigest: string }> {
+  standalone = false,
+): Promise<{ result: any; signedPayloadDigest: string; receiptExpiresAt: string }> {
   const key: TaskAgentKey = await loadTaskAgentKey(taskRef);
   const nonceResponse: any = await client.proofNonce(receiptId);
   if (
@@ -87,8 +90,13 @@ async function requestOwnershipProof(
     bytes,
     await readFile(key.privateKeyPath, 'utf8'),
   ).toString('base64url');
-  const result = await client.proof({ nonceId: nonceResponse.nonceId, signature });
-  return { result, signedPayloadDigest: createHash('sha256').update(bytes).digest('hex') };
+  const result = await client.proof({
+    nonceId: nonceResponse.nonceId, signature, ...(standalone ? { standalone: true } : {}),
+  });
+  return {
+    result, signedPayloadDigest: createHash('sha256').update(bytes).digest('hex'),
+    receiptExpiresAt: nonceResponse.signedPayload.expiresAt,
+  };
 }
 
 /** Gate3 runtime callers must still receive an execution grant. */
@@ -106,9 +114,13 @@ export async function proveTaskOwnership(client: TaskOwnershipHttpClient, taskRe
 export async function proveStandaloneTaskOwnership(
   client: TaskOwnershipHttpClient, taskRef: string, actor: string, receiptId: string,
   artifactSha256: string,
+  expectedContextDigest?: string,
 ): Promise<StandaloneOwnershipProofResult> {
   if (!/^[0-9a-f]{64}$/.test(artifactSha256)) throw new Error('Invalid task artifact digest.');
-  const { result, signedPayloadDigest } = await requestOwnershipProof(
+  if (expectedContextDigest !== undefined && !/^[0-9a-f]{64}$/.test(expectedContextDigest)) {
+    throw new Error('Invalid promotion context digest.');
+  }
+  const { result, signedPayloadDigest, receiptExpiresAt } = await requestOwnershipProof(
     client, taskRef, actor, receiptId, nonce => {
       const payload = nonce.signedPayload;
       const receiptExpiry = Date.parse(payload.expiresAt);
@@ -116,16 +128,21 @@ export async function proveStandaloneTaskOwnership(
       if (!nonce.nonceId || payload.nonceId !== nonce.nonceId
           || typeof payload.nonce !== 'string' || !payload.nonce
           || payload.artifactSha256 !== artifactSha256
+          || (expectedContextDigest !== undefined && payload.contextDigest !== expectedContextDigest)
           || typeof payload.expiresAt !== 'string' || typeof nonce.expiresAt !== 'string'
           || !Number.isFinite(receiptExpiry) || receiptExpiry <= Date.now()
           || !Number.isFinite(nonceExpiry) || nonceExpiry <= Date.now()) {
         throw new Error('Malformed or expired ownership proof nonce.');
       }
     },
+    true,
   );
   if (!result || result.ok !== true || result.verified !== true
+      || Date.parse(receiptExpiresAt) <= Date.now()
       || result.taskRef !== taskRef || result.intendedActor !== actor
       || result.receiptId !== receiptId || result.artifactSha256 !== artifactSha256
+      || (expectedContextDigest !== undefined &&
+          (result.contextDigest !== expectedContextDigest || result.grant !== undefined))
       || result.proofPayloadDigest !== signedPayloadDigest) {
     throw new Error('Malformed or mismatched standalone ownership proof response.');
   }
@@ -133,5 +150,6 @@ export async function proveStandaloneTaskOwnership(
   return {
     ok: true, verified: true, receiptId, taskRef,
     intendedActor: actor, artifactSha256, proofPayloadDigest: signedPayloadDigest,
+    ...(expectedContextDigest !== undefined ? { contextDigest: expectedContextDigest } : {}),
   };
 }
