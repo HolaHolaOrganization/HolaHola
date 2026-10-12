@@ -29,6 +29,7 @@ import { registerAgentNoteReplyRoute } from "./routes/agent-note-reply-route";
 import { registerLucaObserverRoute } from "./routes/luca-observer-route";
 import { registerTeamRoomRoutes } from "./routes/team-room-routes";
 import { registerFounderTaskOwnershipRoutes } from "./routes/founder-task-ownership-routes";
+import { registerSharedTaskRegistryRoutes } from "./routes/shared-task-registry-routes";
 import { registerReleaseCutoverAttestationRoutes } from "./routes/release-cutover-attestation-routes";
 import { registerHolaHolaSharedSpecApi } from "./adapters/hola-hola-shared-spec-bootstrap";
 import {
@@ -679,6 +680,7 @@ export async function registerRoutes(app: Application): Promise<void> {
   registerCoordinationV2HostAdminRoutes(app);
   registerCoordinationV2RuntimeBootstrapRoutes(app);
   registerFounderTaskOwnershipRoutes(app);
+  registerSharedTaskRegistryRoutes(app);
   registerReleaseCutoverAttestationRoutes(app);
   registerObservationBenchFounderRoutes(app, [
     loadAuthenticatedUser(storage),

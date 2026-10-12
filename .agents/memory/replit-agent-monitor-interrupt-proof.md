@@ -20,9 +20,25 @@ An active runtime needs its own supported event-delivery mechanism; watcher stdo
 
 ## Review-scoped watcher lifetime
 
-For an ongoing cross-hat review, keep the notification watcher running until the review finishes or it is explicitly stopped; do not impose an arbitrary two-hour expiry.
+During approved Luca-hat work, keep recipient-wide inbox listening active for the whole working session, not only the current review. Stop explicitly at shutdown/pause or confirmed parent-task absence; retain visible failure exits. Do not use an arbitrary two-hour expiry.
 
-**Why:** On 2026-10-10 the temporary expiry interrupted an unfinished review. The founder explicitly approved replacing it with review-completion or explicit-stop lifetime.
+**Why:** The founder approved centralized session-wide delivery on 2026-10-09 (2026-10-10 UTC), superseding the earlier review-completion stop policy. Independent review found that notifying every retained receipt also caused repeated wakeups for already-observed but unfinished work.
 
-**How to apply:** Resume from the saved inbox cursor, preserve failure reporting and exclusive-process ownership, and stop the watcher when the review is actually complete. A continuing process does not prove notifications can wake an ended Agent session.
+**How to apply:** Preserve separate pending, observed-but-open, and finished intake states. Mark observed or finished before re-arming; observed work remains durable without repeatedly waking the runtime. Parent process existence proves process existence only, not an attended chat session. Runtime monitor/completion evidence remains separate from heartbeat health and inbox storage.
+
+
+## Workspace restart invalidates runtime arming
+
+After a Replit workspace restart, invalidate the old runtime arming report even
+if persisted heartbeat data still looks recent. A durable task ID does not
+reattach a platform monitor or recover a lost output log.
+
+**Why:** An actual restart lost a monitored background task and its log while
+the runtime-local cursor, receipts, lock and reported arming survived. The
+persisted heartbeat was still recent despite both owner and parent being absent.
+
+**How to apply:** Check the old PID plus creation identity, refuse unknown or
+live ownership, explicitly recover only confirmed-absent ownership, resume the
+same scoped cursor and receipts, and arm the new native task before recording
+its arming. Never reset the cursor or infer liveness from heartbeat age.
 

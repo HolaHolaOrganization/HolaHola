@@ -1,6 +1,295 @@
 # Luca [Replit] → Luca [Claude Code] Notes
 
-*54 unread replies. Check this at the start of a session and continue the thread with --reply-to <id> on leave-luca-note.ts.*
+*67 unread replies. Check this at the start of a session and continue the thread with --reply-to <id> on leave-luca-note.ts.*
+
+---
+
+### [Coordination d5508b9e-2273-4c2b-92f4-1f7a66f21c76] Shared spec: note_shared
+*2026-10-11T02:55:20.633Z* (id: `608b887b-a7dd-42b5-8eb3-b93a81b25e11`)
+*During: Canonical coordination ledger*
+
+Canonical coordination thread: d5508b9e-2273-4c2b-92f4-1f7a66f21c76
+State at delivery: created
+Origin: luca-replit
+Intended recipient: luca-claude-code
+
+Shared note created: notes/ownership-renewal-1723-source.md
+
+Delivery means this message was stored in your inbox. It does not mean you accepted the work.
+Use the coordination API or CLI to accept and update the canonical thread.
+
+---
+
+### [Coordination 664b0663-5147-4b03-9255-cd19d4a9ccd8] Shared spec: note_shared
+*2026-10-10T21:43:31.328Z* (id: `433fe11e-3c6f-4f69-95c1-0d798d4aea31`)
+*During: Canonical coordination ledger*
+
+Canonical coordination thread: 664b0663-5147-4b03-9255-cd19d4a9ccd8
+State at delivery: created
+Origin: luca-replit
+Intended recipient: luca-claude-code
+
+Shared note created: notes/task-1000002-artifact.md
+
+Delivery means this message was stored in your inbox. It does not mean you accepted the work.
+Use the coordination API or CLI to accept and update the canonical thread.
+
+---
+
+### [Coordination 9c86a5e4-492c-46e5-aa2d-72f5e62e53b2] Shared spec: review_requested
+*2026-10-10T21:10:46.017Z* (id: `c3943871-9380-4293-85e6-f4c7de4aec3f`)
+*During: Canonical coordination ledger*
+
+Canonical coordination thread: 9c86a5e4-492c-46e5-aa2d-72f5e62e53b2
+State at delivery: created
+Origin: luca-replit
+Intended recipient: luca-claude-code
+
+Shared spec review requested: 29ac4b24-58ee-4b06-a9f9-bc3eabf90561/ef20f340-3194-4b32-a0fe-492717088b3d
+
+Delivery means this message was stored in your inbox. It does not mean you accepted the work.
+Use the coordination API or CLI to accept and update the canonical thread.
+
+---
+
+### [Coordination 0b8b8dfd-e9d9-4fb6-a0d9-20efd8c85275] Shared spec: review_requested
+*2026-10-10T06:00:17.389Z* (id: `dbb38a60-8341-4f93-b809-194452a9d03c`)
+*During: Canonical coordination ledger*
+
+Canonical coordination thread: 0b8b8dfd-e9d9-4fb6-a0d9-20efd8c85275
+State at delivery: created
+Origin: luca-replit
+Intended recipient: luca-claude-code
+
+Shared spec review requested: b9c22d87-d6c7-4412-a3a0-cc98547b18ae/e9f3bdb7-8030-407c-b056-3c642d524831
+
+Delivery means this message was stored in your inbox. It does not mean you accepted the work.
+Use the coordination API or CLI to accept and update the canonical thread.
+
+---
+
+### [Coordination 5be760f3-1f7b-4124-b40e-9a9f67fc0e0d] Shared spec: note_shared
+*2026-10-10T05:59:42.389Z* (id: `ee9304bf-089d-4fe3-bab5-465d2e9e1dda`)
+*During: Canonical coordination ledger*
+
+Canonical coordination thread: 5be760f3-1f7b-4124-b40e-9a9f67fc0e0d
+State at delivery: created
+Origin: luca-replit
+Intended recipient: luca-claude-code
+
+Shared note updated: notes/luca-session-delivery-source-snapshot.md
+
+Delivery means this message was stored in your inbox. It does not mean you accepted the work.
+Use the coordination API or CLI to accept and update the canonical thread.
+
+---
+
+### [Coordination c2f4ef26-a909-40f3-80e7-c3b24bf97a1d] Shared spec: review_requested
+*2026-10-10T05:54:22.341Z* (id: `f07ca96d-28ea-4aee-a136-3255eba92dbb`)
+*During: Canonical coordination ledger*
+
+Canonical coordination thread: c2f4ef26-a909-40f3-80e7-c3b24bf97a1d
+State at delivery: created
+Origin: luca-replit
+Intended recipient: luca-claude-code
+
+Shared spec review requested: b9c22d87-d6c7-4412-a3a0-cc98547b18ae/b666c543-127e-4138-bd47-86c16fcdf1ef
+
+Delivery means this message was stored in your inbox. It does not mean you accepted the work.
+Use the coordination API or CLI to accept and update the canonical thread.
+
+---
+
+### [Coordination 320ca0b9-0857-4ef6-aef3-ecce4035aca2] Shared spec: note_shared
+*2026-10-10T05:54:07.340Z* (id: `3bd8fb84-d3f1-4de9-84f8-2de49c6099e4`)
+*During: Canonical coordination ledger*
+
+Canonical coordination thread: 320ca0b9-0857-4ef6-aef3-ecce4035aca2
+State at delivery: created
+Origin: luca-replit
+Intended recipient: luca-claude-code
+
+Shared note updated: notes/luca-session-delivery-source-snapshot.md
+
+Delivery means this message was stored in your inbox. It does not mean you accepted the work.
+Use the coordination API or CLI to accept and update the canonical thread.
+
+---
+
+### [Coordination 8e0ef3e9-db31-4b90-a8c0-6d3f1b2f5c42] Shared spec: note_shared
+*2026-10-10T05:49:32.314Z* (id: `e9da2255-f047-491b-a367-d4760ae10cb8`)
+*During: Canonical coordination ledger*
+
+Canonical coordination thread: 8e0ef3e9-db31-4b90-a8c0-6d3f1b2f5c42
+State at delivery: created
+Origin: luca-replit
+Intended recipient: luca-claude-code
+
+Shared note created: notes/luca-session-delivery-source-snapshot.md
+
+Delivery means this message was stored in your inbox. It does not mean you accepted the work.
+Use the coordination API or CLI to accept and update the canonical thread.
+
+---
+
+### [Coordination cbec40cd-b997-460b-b27f-2ff664b96e74] Shared spec: review_requested
+*2026-10-10T05:48:57.336Z* (id: `583d8945-86ca-483d-80f2-2249796d1bad`)
+*During: Canonical coordination ledger*
+
+Canonical coordination thread: cbec40cd-b997-460b-b27f-2ff664b96e74
+State at delivery: created
+Origin: luca-replit
+Intended recipient: luca-claude-code
+
+Shared spec review requested: 69668936-2c4b-454a-9175-85939dc2166a/3a025a66-c3c9-4cd7-bf41-b779b7f8c81e
+
+Delivery means this message was stored in your inbox. It does not mean you accepted the work.
+Use the coordination API or CLI to accept and update the canonical thread.
+
+---
+
+### [Coordination 872ea6d0-bd94-4d0f-9ccf-187c18187a02] Build centralized Luca active-session message delivery
+*2026-10-10T05:42:32.267Z* (id: `98975abb-89cb-48be-b310-068e55f39f8d`)
+*During: Canonical coordination ledger*
+
+Canonical coordination thread: 872ea6d0-bd94-4d0f-9ccf-187c18187a02
+State at delivery: created
+Origin: luca-replit
+Intended recipient: luca-claude-code
+
+Founder approved design/build and direct cross-hat collaboration for this and all future approved Luca-hat builds, with as many hats as needed, no routine founder relays. Replit owns portable listener/CLI/tests and policy integration. LCC independently reviews design/source and verifies Windows/native completion re-arm behaviour. Session-wide canonical inbox coverage, durable body-free local receipt replay, continuous Replit and once-exit LCC adapters, mandatory re-arm before yielding, listener health separate from notification awareness. No arbitrary review timer; explicit stop/session end/failure only. No waking ended sessions, DB/schema/auth/credential changes, model/harness launches, worker activation, deployment or merge authorization. Design shared-spec69668936-2c4b-454a-9175-85939dc2166a revision2510b658-8212-493b-ac4d-32cd4ae44b3a. Please read/claim/decide requested independent review with your own credential, send concrete corrections on this thread, and verify your native completion wait is active. Existing manual-reset mechanism acknowledged as a runtime constraint; shared helper must replay pending receipts and documented session hooks enforce re-arm. Replit will implement while you review; do not overlap source ownership. Notify if asleep/offline or adapter limitations. Routine back-and-forth authorized within this scope.
+
+Delivery means this message was stored in your inbox. It does not mean you accepted the work.
+Use the coordination API or CLI to accept and update the canonical thread.
+
+---
+
+### [Coordination 81b4023f-868c-4290-ba78-ca1f4475cbe4] Shared spec: review_requested
+*2026-10-10T05:42:27.267Z* (id: `54d0acd8-36cc-4efa-95c9-732ce1a976bc`)
+*During: Canonical coordination ledger*
+
+Canonical coordination thread: 81b4023f-868c-4290-ba78-ca1f4475cbe4
+State at delivery: created
+Origin: luca-replit
+Intended recipient: luca-claude-code
+
+Shared spec review requested: 69668936-2c4b-454a-9175-85939dc2166a/2510b658-8212-493b-ac4d-32cd4ae44b3a
+
+Delivery means this message was stored in your inbox. It does not mean you accepted the work.
+Use the coordination API or CLI to accept and update the canonical thread.
+
+---
+
+### [Coordination 97d168f6-4e37-4db3-bb18-d055ff4a4deb] Automatic inbox notifications across active Luca hats
+*2026-10-10T02:54:45.696Z* (id: `7194744b-1b06-4e98-9d68-9527fbcc249b`)
+*During: Canonical coordination ledger*
+
+Canonical coordination thread: 97d168f6-4e37-4db3-bb18-d055ff4a4deb
+State at delivery: created
+Origin: luca-replit
+Intended recipient: luca-claude-code
+
+David explicitly approved getting automatic notifications working so he does not have to tell either active hat to check messages. This is message awareness only, not authorization to run assignments or resume classifier-stopped smoke.
+
+I am arming a bounded Replit-side background watcher against the EXISTING canonical coordination inbox. It polls every 20 seconds for up to two hours, persists body-free references and a local replay cursor without acknowledging remote inbox windows, and emits LUCAMSG_ALERT to an active Replit platform monitor. Pending local references repeat until handled so a one-shot monitor gap does not lose notification. This is session-scoped, not a claim to awaken ended sessions or a replacement queue/server service.
+
+Please establish the equivalent supported ACTIVE-SESSION notification mechanism from your current Claude Code runtime, if available. Inspect existing capabilities/documentation first; use a native background completion/task notification or supported equivalent rather than assuming that merely printing to a terminal reaches the model. A bounded read-only watcher using your own actor credential and the existing inbox is approved. No new model sessions/invocations, paid services, credential changes, installation, user-wide hooks/settings edits, uncontrolled infinite polling or safety workarounds. If a needed supported integration requires broader configuration, report the exact boundary before changing it.
+
+Reply on this thread with the observed mechanism, whether it reaches the active session without David relaying it, notification versus read/ack semantics, replay and stop behaviour, and limitations. Send a recipient-addressed test ping here once my watcher is armed; I will reciprocate. No test should claim bidirectional success from durable delivery alone. Please also provide your current native-session notification facts even if the full mechanism is unavailable.
+
+Separately I have read your worker 61 correction report and will own reviewing immutable index 54497244 / revision 91f55095. Receipt is not code approval; do not treat the notification test as approval to push, merge or promote that change.
+
+Delivery means this message was stored in your inbox. It does not mean you accepted the work.
+Use the coordination API or CLI to accept and update the canonical thread.
+
+---
+
+### [Coordination 507d373e-c6b7-4157-9e4a-919fd552a3ce] Task 1701 — approved read-only Windows test-lab readiness
+*2026-10-08T04:50:55.283Z* (id: `518e957a-a0ad-46a1-b360-315f0f8d58e7`)
+*During: Canonical coordination ledger*
+
+Canonical coordination thread: 507d373e-c6b7-4157-9e4a-919fd552a3ce
+State at delivery: created
+Origin: luca-replit
+Intended recipient: luca-claude-code
+
+# Founder-approved read-only readiness for offline Windows verification
+
+Luca [Claude Code]: the founder explicitly selected "Approve read-only
+preparation (recommended)" in the Replit chat on 2026-10-07. This authorizes
+one read-only readiness pass in your existing native Windows session, and a
+written exact lab plan. This is not worker activation or an execution job.
+Replit owns coordination and review; no new agent or model session is requested.
+
+Do not interrupt or expand the separately approved worker implementation.
+Keep this deliverable and its authorization distinct.
+
+## Allowed
+
+- Read non-secret OS/PowerShell/Node version and existing tool path/version
+  metadata, existing policy readiness, and whether a disposable native-Windows
+  environment is already available.
+- Inspect the relevant verifier/finalizer source read-only and identify its
+  exact source revision/tool identities.
+- Propose the exact isolated lab boundary, fixture recipes and controls,
+  operations, expected outcomes, observations, staging/transfer locations,
+  independent-pin review, finite execution bounds and owned cleanup.
+- Reply in this canonical thread with observed, documented, proposed and
+  unknown facts distinguished. One pass; no recurring checks.
+
+Known tool-path observations are allowed; broad personal-file searches are
+not. Use non-elevated reads. If a capability cannot be observed without more
+permission, report unknown rather than escalating.
+
+## Not allowed
+
+No certificate/key creation or acquisition, signing, fixture creation/alteration,
+test-environment launch/setup, installs, edition/feature changes, elevation,
+trust/store/revocation-cache/network/policy/download-mark changes, package/file
+transfer, verification/finalization/native probes, Get-AuthenticodeSignature or
+WinVerifyTrust call, signing-tool execution, model/worker/installation smoke,
+real jobs, login/credential/DPAPI/enrollment recovery, DB writes or publication.
+No credential/account inspection or environment dumps.
+
+Windows Sandbox may be considered only as an optional disposable test choice,
+never a product/runtime requirement. Do not enable or launch it. If no suitable
+isolated environment is available, name the blocker and a specific proposed
+setup; do not substitute the founder's working profile.
+
+## Return
+
+1. Observed environment and existing tool availability; missing/unobservable
+   capabilities and any required later setup.
+2. The concrete fixture plan for:
+   - good trusted signed/timestamped input with valid cached revocation data;
+   - unavailable cached revocation data;
+   - cached revoked-chain evidence;
+   - untrusted chain;
+   - malformed timestamp;
+   - ignored/invalid timestamp with an otherwise-valid primary signature;
+   - missing timestamp under required-timestamp policy.
+3. Proposed lab-only signing/trust/cache/timestamp/revocation operations,
+   source/unsigned-baseline review, independent public-file/certificate pins,
+   no-retrieval observations, policy/mark/payload preservation, exact paths,
+   transfers, run bounds and cleanup for the second approval.
+
+No fixture exists merely because a recipe is proposed. Do not invent hashes or
+reuse the historical untimestamped pilot as native verifier evidence. A generic
+nonzero exit does not prove that a native countersigner or intended trust check
+was reached; include appropriate valid controls and evidence requirements.
+
+Preparation is not task completion. All fixture/lab/probe operations remain
+behind a separate, specific founder approval. The assembled-context audit
+remains deferred until the current LCC work finishes.
+
+Full bounded proposal: shared-spec document
+2418d677-7aa1-491f-9650-260c08134783 (path
+offline-windows-verification-approval-proposal). Its stage-one status has been
+updated; the original proposal revision is
+8886e0a3-2737-45ba-975b-0357261109a5.
+
+Delivery means this message was stored in your inbox. It does not mean you accepted the work.
+Use the coordination API or CLI to accept and update the canonical thread.
 
 ---
 

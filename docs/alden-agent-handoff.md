@@ -1,340 +1,238 @@
+## Luca session-wide delivery — 2026-10-10 UTC
+
+Approved multi-hat build; independent design approval69668936/3a025a66/f61491b6. Portable listener and guide built in Replit main workspace:38 tests pass, typecheck0, system-health0 (two stopped-dev-app route warnings). LCC native earlier source29/29 plus live once0 and parent-gone71; final F1-corrected exact snapshot09121901/9023f2cc awaits LCC final recheck. Live shared instructions review74840586 includes transitional prior-watcher fallback; not approved yet. Do not claim final-source native coverage or Git main landing until verified. Build thread872ea6d0-bd94-4d0f-9ccf-187c18187a02 read through10/global1522; direct status request10 recipient delivery verified. Active Replit listenerkhlUwt3E, local state.local/coordination-listeners/luca-replit, one-shot monitor armed; receipt1508 observed/open, not hot-looping. No arbitrary review/two-hour expiry, no remote ack, no ended-session wake claim, legacy coverage incomplete. No main publication, merge/deploy, credential/config change, model/harness launch or unrelated worker activation authorized. Guide docs/luca-session-notifications.md; source server/scripts/coordination-listener.ts. Closure/archival and cold-host identity checks remain separate proposed follow-ups.
+
 # Alden ↔ Agent Handoff
 
-## From Agent — last updated: Fri, Oct 9, 12:06 AM
+## Registry bootstrap staging verification — 2026-10-11
 
-### 2026-10-08 — Monitoring and guest-source corrections accepted narrowly
+Task1000002 only, no subagents.64 focused tests pass; typecheck/build0.
+Current actual disposable PostgreSQL suite4/4,0 skipped, including private
+namespace migration/backfill, concurrency, old-writer lock orders, lifecycle
+retry, rollback/disconnect/restart, outstanding10/daily20 and exhaustion.
+Branch creation/deletion both used actual founder-approved fresh key proof;
+cleanup verified. No shared migration or publication.69 persisted identities
+unchanged;16 session digests/2 artifact hashes verified read-only.
 
-Received worker 32/global 1437 and readiness 12/global 1438. Verified the worker
-index/13 pages/four changed blobs and all 12 Windows source-note/raw-file hashes.
-Independent reconstructed worker run: 72 pass, zero fail/skips; separate pure
-1,000-reply control: one pass, 18 other tests excluded/skipped. No native run.
-Worker's two monitoring corrections accepted for exact head 42e81b0ea.
-Evidence-13 is only a five-line mutation summary; requested retained effective
-transcripts if available, no rerun. Native 19/19 remains LCC-attributed.
+LCC independently approved original source/native registry7/7. Windows
+ownership25 baseline failures and native typecheck17 baseline errors retained.
+Final health/F2 addition (canonical Gemini token-name alignment) plus raw TAP
+and public receipts: shared-spec document df714fa5-5661-4104-8fc8-e9ac128574c9,
+revision256697e3-577b-43d1-906f-62b7bc4230e4, JSON SHA
+b8954bd50958d64bae9150604f0c154bed19d4d7a2feb62eaecc0cf3f9671406.
+Review request build thread40/global1566; final approval not yet received.
+Shared health0 failures/1 acknowledged registry-not-rolled-out warning.
+Actual rolled-out health check was blocked by receipt expiry before branch
+creation, not passed. No resource from that attempt remains.
+Migration0065 collision with worker0065 is a release blocker; second lander
+regenerates/re-proves. Source completion must not imply live activation.
+UI1724 remains untouched and requires a separate frozen scope/approval/proof.
 
-Windows' four requested written-source corrections addressed; no new correction
-on those items. Full fixture/surgery/PKI approval, final pin/environment review
-and founder execution scopes remain separate. No executable work authorized.
-B1/actual-server proof/CI/migration/qualification/smoke still blocked or unrun.
-Audit deferred.
+## From Agent — last updated: Sun, Oct 11, 3:47 PM
 
-Canonical decision: 99f4def3-ff70-4c58-9501-f1eaf799d585,
-revision f965e543-7892-4887-ad73-cc30301781bb.
-Recipient readback verified: worker 33/global 1439 (6cf9d266),
-readiness 13/global 1440 (fd3ef3c3). Delivery is not acknowledgement.
-The shared handoff preserves the previous canonical review-3 section; this
-checkout's older local handoff below is not the authoritative history.
+## Direct notification reliability follow-ups — 2026-10-10 UTC
 
-### 2026-10-08 — Worker review-3 and Windows guest sources
+David requested both proposed follow-ups implemented in the main session,
+not via sub-agents. No subagent was assigned or launched.
 
-Received worker 30/global 1433 (5abc84c3) and readiness 10/global 1434
-(ec6d0058). Worker head 9e65f62e4: independently verified 28 immutable pages
-and 12 changed blobs. Reconstructed supervisor/lifecycle/staging suite: 69 pass,
-zero fail/skips, exit 0. Last review's items 2–4 addressed; preserve those fixes.
-Still blocked on item 1: remote reads suspend monitoring (fake-port reproduction
-has LIST at 2..16s, none before 60s job timeout), and healthy LIST replies exhaust
-the lifetime 256-status budget. LCC explicitly corrected the earlier descendant
-receipts: conhost count was not actual cmd/ping-grandchild evidence. New 18-pass
-native receipt remains LCC-attributed, not a Replit Windows run.
+Implemented persistent Windows process-query reader with bounded cold/warm
+budgets, correlated/serialized integer requests, no CIM/JSON-cmdlet autoloading,
+unknown-on-failure, no PID cache and owned-helper cleanup. Implemented read-only
+closure/archive observer CLI, atomic operator markers, exact identity/ownership
+binding and conservative evidence outcomes; no Desktop/model session launched.
+Guide: docs/luca-session-notifications.md.
 
-Lab index 88ca7a25: verified all 12 source-note and raw hashes/lengths. Blocking
-source review, not full fixture/surgery/PKI approval. Four corrections requested:
-make P-C output/manifest available before its independent-approval wait; require
-a conclusive positive control before dependent steps; prove sentinel liveness
-per interval; bound responder internals and report uncertain helper shutdown.
-No pinning, setup/execution/signing/staging/transfer/native-probe permission.
+57 focused tests pass, zero failures/skips; typecheck0 and whitespace clean.
+Actual PowerShell protocol and disposable-parent -> listener71/lock cleanup
+verified on Linux. LCC's authenticated review (build thread sequence13) now
+reports57/57 on Windows11, byte-equal old CIM identities, first-query261ms and
+ten warm queries5ms total, native parent-gone71/lock cleanup and no orphan helper.
+Locally verified all13 files against reviewed snapshotbca30648/hash03cc2445.
+The extreme slow-CI cold startup was not reproduced. Actual Desktop close/archive
+remain unverified; those require founder action, not killing a live session.
 
-Full canonical review: document 5e7bbae6-b62e-4a5c-b8ac-787a5cba4871,
-revision 58d3fcaf-9b3c-4d76-8af7-29e591527faa.
-Verified recipient deliveries: worker 31/global 1435 (016c0fbc);
-readiness 11/global 1436 (7d3b72db). Delivery is not acknowledgement.
-LCC owns corrections; Replit owns independent re-review. B1/CI/smoke remain
-unrun. Audit deferred. No application source changed in this workspace.
+Founder explicitly approved R1 implementation here. Atomic complete-record
+guard/recovery-marker publication and9 regression tests are implemented directly
+in main; final66 tests pass, typecheck0, no skips. LCC approved intermediate
+bfe6a319 and reports65/65 native Windows including all six actual process deaths.
+Final cleanup collision safety refinement adds ownsTemporary tracking and a
+staging-open EEXIST test. LCC independently approved final5e29bf01 at sequence18,
+reporting66/66 native Windows including collision and actual process deaths.
+Legacy empty guards remain fail-closed; staging remnants never authorize recovery.
+Final exact source5e29bf01/hash06f6e7d2 is approved under a fresh final decision.
+Locally verified all14 manifest files and CI-registration hash match those bytes.
+R1 implementation/review complete; Desktop close/archive and publication/landing
+remain separate and unexecuted. No intermediate approval was transferred.
 
-### 2026-10-08 — Corrected worker source and revised Windows plan
+Landing update: LCC's authenticated sequence20 reports David authorized code-only
+landing and LCC claims candidate0c81d21b/lcc/session-delivery-listener. Promotion
+is blocked on a real project-task artifact and verified ownership. No matching
+artifact is present here; do not invent a ref or reuse an unrelated task.
+Reply21 confirms no competing Replit promotion. Receipt1534 is observed/open.
+LCC's candidate CI insertion and17 type errors need independent evidence; requested
+same-install parent comparison before asserting pre-existing failures. LCC
+sequence22 now reports parent36614989d and candidate0c81d21b both have identical
+17-error lists using the same install/TypeScript5.6.3. Recorded as LCC's native
+comparison, not an independent local rerun or successful CI result. Gates remain
+required. New receipt1536 is handled; original1534 remains observed/open.
+No source promotion or shared-instruction resync invoked; no SYNCED/FAILED
+executor result exists. Instruction hand-copy was stopped in LCC; not rerouted here.
 
-Received worker 28/global 1429 (7555430d) and readiness 8/global 1430
-(3806bdde). Worker head 926836c3d on acd19df4b: independently verified all 35
-immutable pages and 14 changed-file blobs. The three original reproductions are
-fixed. Ran the reconstructed supervisor/lifecycle tests with fake ports only:
-48 pass, 0 fail/skips, exit 0. Native 113/17 receipts remain LCC-attributed;
-D1 acceptance tests and B1 remain skipped/unrun.
+New sequence23/global1537: LCC reports David approved listener-only bootstrap
+reservation1000001 and shared task registry direction. This supersedes the prior
+question about finding a Replit project-task ref; it is an explicit cross-hat
+bootstrap, not a fabricated platform task. LCC reports artifact hash9886f203 and
+challenge9cc82af6-fc13-443b-a549-c0d8fca4d4f0 for actorluca-claude-code.
+Founder approval, prove and successful promotion are not inferred. No reuse.
+Requested its exact frozen bytes via a shared-spec note before local verification.
 
-Gate still requires four bounded corrections: approved two-second LIST/image
-monitoring; recovery retaining authority_unknown; append/readback matching
-without substituting expected values for omitted response fields and with
-recipient binding; null stdout/validation exceptions safely returning a fenced
-failure. Independently observed validateHarnessOutput("null", new Map()) throws
-TypeError. No publication, activation, shared DDL or model permission.
+Registry design-only draft is ready: document29ac4b24-58ee-4b06-a9f9-bc3eabf90561,
+revisionef20f340-3194-4b32-a0fe-492717088b3d,
+review3db6f2b4-c7eb-4340-81c8-0e51c0587020, hash79dc5fa9.
+Reply24/global1540 delivered to LCC. LCC sequence25/global1541 approved exact
+revisionef20f340; verified recorded claimant/decision actor and SHA79dc5fa9.
+Verified bootstrap note55d0702f/fab98aa3 raw1174 bytes/hash9886f203 locally.
+N1-N5 carried into note7238dd4a/108624a1, delivered reply26/global1546:
+founder approval context follow-up, allocation bounds, caller inventory, shared
+byte publication with fresh native regression review, read-only persisted digests.
+Receipts1537/1541 fully processed locally; original landing1534 remains open.
+David explicitly retained1000001 in the latest landing form; reply27/global1547
+delivered. He then approved registry workspace build + reservation1000002.
+Frozen exact bootstrap artifact: f11ab3a9-6ad0-4fbf-bf37-f24e4bbe38c4 /
+18239618-4183-47f5-a841-575feda468ef, SHA4ec3630c,3931 bytes.
+No existing legacy artifact publication at1000002 in read-only preflight.
+Ownership requestda1d6344-b012-4318-a991-8b25406a06b3 for actorluca-replit is pending,
+expiry2026-10-10T21:53:28.887Z, receipt null. Implementation remains blocked before
+founder approval/prove. Reply28/global1550 delivered reservation/artifact/gate to
+LCC. Listener source/1000001 unchanged; no new registry source/schema edits.
+LCC sequence29/global1551 reported1000001 challenge expired and CLI begin returning
+the same dead challenge. Code confirms fixed taskRef:fingerprint idempotency key.
+Reply30/global1552 delivered: preserve exact-retry server contract; renewal is a
+separate reviewed CLI/new-attempt flow, not permission to bypass founder approval
+or patch ownership under1000002. Follow-ups proposed1721 (renewal) and1722 (founder
+scope visibility); neither implemented. Receipt1551 intake processed locally.
+At2026-10-10T21:49:00Z,1000002 challenge remains pending with null receipt, expires
+21:53:28.887Z. Founder UI approval/prove is the immediate build blocker.
+Earlier project-task-reference question is superseded by bootstrap1000001.
+Replit authors; LCC independently reviews. Canonical immutable global registry,
+frozen compatibility projection, DB-level race protection and fail-closed collision
+handling proposed.1000000+ is policy, not a platform guarantee;1000002 only proposed.
+Alden consult timed out30s without a returned response; no approval claimed.
+No implementation, migration, publication, instruction sync or credential change.
 
-Windows plan f6623efc and diagnostic 73919c04, including raw diagnostic bytes,
-hash-verified. Production verifier hash matches. Main planning issues addressed.
-Next direction: guest/surgery/responder/WSB SOURCE ONLY, not H/GA/GB/GC approval.
-Source must clarify independent diagnostic decisions, intermediate-chain controls,
-deadlines across approval pauses, authorized transfer ownership, and fresh
-destinations/public-export allowlists. No script execution, signing, lab setup,
-policy/trust/cache/network change, transfer or native probe approved.
+Exact source note09121901 revisionbca30648 supersedes9023f2cc, includes13 files
+and CI diff/hash. Older review/native receipts do not cover changed bytes.
+Live instruction review74840586 was independently approved by LCC for exact
+revisione9f3bdb7, verified against the shared-spec record. This approves the
+transitional operating instructions only, not follow-up sourcebca30648 or native
+Windows acceptance. No source publication, merge/deploy, saved settings or
+credential changes.
 
-Full canonical review: document 94b871b4-e011-4352-a072-a5e01b817b65,
-revision d3ac7b68-ef9d-4b3f-bc98-3d01408d6695.
-Verified recipient delivery: worker 29/global 1431, event 52ddd970;
-readiness 9/global 1432, event 4eae082b.
-Delivery is not acknowledgement. LCC owns corrections/source drafts; Replit
-owns independent re-review. Audit remains deferred. No Replit app code changed.
+Current Replit listenermQ1FkeY8 resumed preserved cursor1536 and observed/open
+receipt1534 after workspace restart losthERt98ye. Confirmed old owner and parent
+absent through native identity queries before explicit recover-lock.
+Brief replacementfDbst-ry stopped72/lock released after detecting implicit shell
+exec. Current launch includes trailing exit-status capture/exit so the shell
+waits for Node; verified distinct owner289/parent278, both identities present.
+No source code changed; old task-reference question resolved by retained1000001.
+Monitor accepted, arming recorded,
+parent state and heartbeat separate. This is not an ended-session wake claim.
 
-### 2026-10-08 — Worker implementation and Windows readiness reviews
 
-Worker source package received at 26/global 1423. Independently verified index
-f28138e3 / 443e2b7d and all 11 immutable page hashes; reconstructed/matched all
-25 complete added-file blobs. diff-02 is actually 151,454 bytes, despite the
-under-61-KB claim. Full generated snapshot bytes remain unavailable for
-independent reconstruction; this is a blocking-finding review, not blanket
-approval of every unchanged context/test.
+# Ownership renewal implementation — main-window handoff
 
-Read production orchestration/contracts/authority/ports/launcher/staging and
-charter code plus modified deltas. Three in-memory supervisor reproductions
-independently demonstrate: two accepted/completed jobs with a one-job window;
-acceptance/completion before incomplete paging subsequently fails; and a
-completed event carrying a failure payload after the output safety check.
-No actual harness, Windows child, network/model or DB used in these proofs.
+The founder explicitly approved the two follow-ups for this main Replit window,
+without subagents. Renewal was implemented here after approved challenge
+ce0f3043-fc5e-4b6a-bed9-9fc459b23e2e / active receipt
+1deecd41-8e02-4a0b-b139-37d4fa6bd90d and exact-artifact/key proof for1723.
+Artifact SHA-256:7bad9327e0c872b0392c00719b2108b6121ae6ec1499531fb5aea98c38d33598.
 
-Implementation gate: CORRECTIONS REQUIRED. Full findings also cover fencing
-on retries/recovery and exact frozen envelopes, ambiguous claims and post-
-accept exceptions, independent deadlines/bounded launcher uncertainty,
-unknown-vs-absent lock identity and concurrent reclaim, and unchanged Git-backed
-citation evidence. D1 needs actual route/client/CLI wiring tests. Existing native
-containment work should be preserved. B1 remains blocked; no task ref invented,
-publication, shared DDL, activation or later gate permitted.
-Canonical review document 60e19c1b-f879-474b-b9a4-d1a0a50cde5e,
-revision a95f6ed8-eb59-44ff-80c1-f7f1d9608116.
-Verified recipient delivery at worker 27/global 1426,
-event 86b91548-32ad-4c88-ad63-4b07845931ba.
+The explicit renew command preserves all identity bindings, defaulting to the
+existing30-minute limit. Immutable per-predecessor local records precede POST;
+concurrent and interrupted submissions converge on one result. Exact retries
+preserve pending/approved/rejected/expired results. Pending/approved/rejected
+predecessors or any receipt are refused. Custody keys never regenerate during
+renewal. Legacy begin key and server exact-retry semantics remain intact.
 
-Read full task 1701 readiness report at 5/global 1425. Host observations and
-native receipts remain LCC-attributed; no independent Replit Windows inspection.
-The proposed lab needs revision before execution approval: Git archive alone
-cannot meet the builder's Git/esbuild requirements; signing may seed cache
-before the missing-cache case; stopped responder logs cannot prove no attempted
-retrieval; diagnostic equivalence/source, exact finite invocations, approval
-pauses and bounded cleanup need specification. Guest-only RemoteSigned and a
-separate diagnostic harness are proposed directions, not execution authority.
-Re-fetching was outside read-only scope; no repeat, protection bypass or
-unverified Defender false-positive/cleanliness claim authorized.
-Canonical readiness review document a0968423-600e-4a75-a0f1-e1cfa34802d1,
-revision 802635f7-15aa-48da-a178-b1a7b4fa4a6e.
-Verified recipient delivery at readiness 6/global 1427,
-event 1bb604ca-cf7a-4aa2-85b2-c415ad783946.
+Authenticated status includes public actor/artifact/key fields, not nonce data.
+Older deployed status contracts fail closed; this source is not published.
+No shared schema/migration, source promotion or runtime deployment occurred.
 
-Local mirrors: .local/notes/lcc-worker-implementation-findings.md and
-.local/notes/offline-windows-readiness-review.md.
-Delivery is not acknowledgement. LCC owns bounded corrections/revised written
-plan; Replit owns exact-source re-review. Assembled-context audit stays deferred.
-No application code changed or source landed in this Replit review.
+Verification:55 focused tests pass,0 fail,0 skip; actual CLI subprocess tests
+included. Typecheck passes before/after. System-health summary:
+"All checks passed — safe to mark done."
+Dev restarted once; authenticated status binding verified, landing page renders.
+No full-suite green claim: prior Validation suite output includes failures.
+The scanner failure concerns pre-existing listener files, not changed here.
+Native verification update from LCC, received in32/global1556:
+SOURCE APPROVED for the exact snapshot. All new renewal cases passed natively.
+The combined Windows command reported82 tests,57 passed and25 failed; unchanged
+main produced28 tests,3 passed and the identical25 failing test names. Failures
+come from the existing proof harness setting TMPDIR but not TEMP/TMP. No combined
+Windows entrypoint success is claimed, and no silent fixture-failure waiver is
+given. Native typecheck has17 errors identical to its baseline, zero additions;
+the main Replit checkout's before/after typecheck passes. All9 local snapshot
+hashes still match. No source change was made to the pre-existing proof fixture.
 
-### 2026-10-07 — Main-workspace Alden grounding investigation
+Exact source note:8be63ef9-76e7-4dda-a476-78fe069557dc /
+062e9d4c-5343-46c6-b043-e9d4d38bdc29.
+Snapshot SHA-256:92b1686026f10ad90dbb46f1a73870a2644f290609a15758e11e9d0655868f5f.
+Listener code and reviewed CI registration untouched; renewal tests are imported
+by the existing ownership-client CI entrypoint.
 
-#### Latest: worker implementation report received; exact-source review pending
+1724 is not implemented: canonical registry metadata does not exist yet. No
+unverified task labels will be promoted as canonical scope. Registry1000002
+remains a distinct, frozen, approved workspace design with expired ownership;
+fresh approval/proof is required before its source implementation.
+Listener1000001 remains LCC-only; no publication or landing is inferred.
+Linked thread872ea6d0-bd94-4d0f-9ccf-187c18187a02 read through30/global1552.
+Reply31/global1555 delivered the exact-source review/native request to LCC.
+Delivered means inbox storage, not seen, approval or successful verification.
+LCC independently replied32/global1556 with source approval and native findings.
+An attributed acknowledgement was delivered on33. The old production API still
+fails closed; the running dev API has public bindings and reads the same shared
+approval DB. A bounded dev-API replacement may be approved through the existing
+production UI without source publication; awaiting founder authorization before
+requesting1000002. No request has been issued.
+Original observed landing receipt1534 remains open.
 
-Read LCC's complete worker implementation report at 24/global 1421. Reported
-HEAD acd19df4b513d4ea751bc962f138942f8a6207b4 on an unpublished local branch:
-78 general tests and 15 native synthetic containment tests pass. These are
-LCC's reported results, not independently verified by Replit. Disposable DB
-proof, CI, qualification/model smoke and migration application remain unrun.
-The report is not the task 1701 readiness response; that thread remains at 3.
+## Workspace restart recovery — 2026-10-11
 
-Requested complete immutable source/diff and commands/retained test evidence.
-Git object lookup timed out even with lazy fetching disabled; source absence
-is not established, and no exact implementation source has been reviewed here.
-D1's route/client payload correction and D2–D7 remain source-review items.
-Keep B1 blocked pending genuine scoped task ownership; no invented task ref,
-shared DB test, push-for-CI, publication or activation requested.
+The platform reported prior listener mQ1FkeY8 lost and its log unavailable.
+Restored Start application once. Listener stale lock recovered with its own
+confirmed-absent check; resumed unchanged source and durable cursor1556 under
+new background task ldseHPxd. READY and recent-heartbeat/parent-present verified.
+Both old local observed receipts remain open; no delivery or landing is inferred.
 
-Canonical intake: document 73bd8119-f27c-4dc6-89d1-c215f65a9d18,
-revision a51083b5-0a1e-4b1e-8089-9f99c107af46.
-Exact recipient-addressed reply verified at worker 25/global 1422,
-event 40698212-c6ab-4a40-a7a1-059458c5c0b0. Delivery is not acknowledgement.
-Local mirror: .local/notes/lcc-worker-implementation-review-intake.md.
-Implementation approval remains pending exact source/evidence; task 1701 is
-read-only readiness only; assembled-context audit remains deferred.
+Existence-only checks at Node's actual os.tmpdir custody root found neither
+1000002 nor1723 private-key file. No contents were accessed, no key generated or
+rotated, no renewal requested, and no source changed. The prior question about
+renewing1000002 is no longer sufficient: same-key renewal requires recovery of
+the original custody file. A new-key/fresh-request path needs explicit founder
+authorization and fresh approval/proof; it must never be described as same-key
+renewal. Registry and1724 remain blocked.
 
-#### Latest: offline Windows read-only preparation authorized and delivered
+## Explicit replacement-custody authorization — 2026-10-11
 
-The founder approved read-only preparation for task 1701 via the approval
-question. Recorded only stage-one authorization in shared-spec proposal
-2418d677-7aa1-491f-9650-260c08134783, revision
-0c7e1d32-02ba-4f05-9fee-510be564973c. No signing, fixture creation, trust/cache/
-policy/mark/network changes, environment launch/setup, transfer or native
-verification is approved.
-
-Delivered the bounded readiness request to the existing LCC session through
-new canonical thread 507d373e-c6b7-4157-9e4a-919fd552a3ce, event
-8b71ee98-49e4-4778-90be-e7e31dea5a57 at 3/global 1420. Independently verified
-exact content, Replit authorship and LCC recipient. Delivery is canonical inbox
-storage, not acknowledgement or an observed Windows readiness result.
-Local dispatch: .local/notes/offline-windows-readiness-dispatch.md.
-
-Requested one non-elevated read-only environment/tool/source readiness pass
-and exact disposable-lab fixture/operation plan for the later approval.
-No new model session/subagent, no worker activation, and no interruption or
-expansion of the separately approved worker build. Missing capabilities must
-be reported, not installed or bypassed. LCC owns the readiness report; Replit
-owns review and the next specific approval proposal.
-Task 1701 is not complete. Assembled-context audit remains deferred.
-
-#### Latest: worker design approved; offline-test proposal prepared
-
-Read the complete 39,103-character revision
-b8fe5e66-5189-4ace-ba5d-dc205ed28e31 and independently verified its parent,
-document identity, current pointer and SHA256
-3f89e075c4edc05ec2e25f094d947755e73bae26fd5eec395dd073ea6eeb09b6.
-Both B1/B2 corrections and the historical uncertainty correction are accepted;
-the cleared items remain closed. APPROVE delivered to LCC at worker 22/global
-1416, event a8ff11fb-40d9-4666-a683-81d8a5252482. Code and isolated tests only,
-including section 7's synthetic non-model containment proofs; no live/model
-execution, shared DDL, publication or later gate approval.
-
-Full gate note: document 7120880c-47e7-4deb-a60f-d296b7867bd7,
-revision c52a254d-1a96-45a1-9338-56d68272a1d1.
-Local mirror: .local/notes/lcc-worker-exact-source-approval.md.
-LCC owns implementation and actual isolated verification; Replit owns the next
-implementation/evidence review. No code or Windows tests claimed by this gate.
-
-The founder requested a bounded task 1701 approval proposal. Prepared
-.local/notes/offline-windows-verification-approval-proposal.md: first authorize
-read-only environment/tool readiness and an exact disposable-lab plan; later
-separately approve identified fixture/signing/trust/cache/transfer/probe actions.
-No test-lab actions are authorized by preparing the proposal. The working
-Windows profile stays untouched; Sandbox is optional, never a product
-requirement. Generic refusal alone does not establish native timestamp coverage.
-Task 1698's manually recovered expiry plan does not substitute for this work.
-Assembled-context audit remains deferred until LCC work finishes.
-
-#### Latest: LCC exact-source gate review delivered
-
-Reviewed all 35,077 characters of current revision
-90a2b5ab-6b85-4af3-a70f-ad0888fbfc2a,
-SHA256 0e6149de2f6076218e2ed279ee9e57c8ddab90b17b14a6b8bea679f1c59657ff.
-Verified both source hashes, parent, document identity/current revision and
-delta against d6f9153e. Decision: REJECT, delivered to LCC at worker
-20/global 1414, event 8874d0c5-9fa9-46f7-a410-978d6610c973.
-Delivery proves inbox storage, not acknowledgement.
-
-R1–R4/R6 and R5 network/deadlines stay cleared. The Job Object direction
-resolves normal PID-tree selection, but two narrow corrections are required:
-remove the incompatible CREATE_NO_WINDOW/Ctrl+Break graceful-stop promise;
-close the root creation-to-job-assignment crash gap, with private job-handle
-ownership, explicit setup cleanup and isolated startup-fault proofs.
-Also correct the history's claim of certainty about the unavailable historical
-Alden tool payload.
-
-Full review: shared-spec note lcc-job-object-gate-review,
-document eb0a3c15-8408-49e1-8b63-a36e1eb1b90f,
-revision 027b38da-36b1-4df9-9d57-9ef70d08e4b8.
-Local mirror: .local/notes/lcc-job-object-gate-review.md.
-Checked Microsoft API documentation; no Windows execution or claim of passing
-the proposed tests. LCC owns the narrow revision; Replit owns re-review.
-Implementation remains blocked. All later gates remain separate.
-
-The agreed complete assembled-context audit is deferred until LCC work is
-finished, not started. Its shared-spec note is
-alden-luca-assembled-context-follow-up. No publication, code change,
-shared/production DDL, live worker/model activation or credential/policy work
-performed in this review. The statuses below are history.
-
-#### Repair completed in the workspace — not published
-
-David explicitly authorized continuing the repair. Implemented bounded
-valid-JSON source pages, immutable review/revision/hash binding, and
-generation-local contiguous coverage. Coverage is granted only after the
-provider responds to the source-containing batch: same-batch read+decide
-cannot authorize itself. Decisions re-read authoritative target and require
-exact revision_id/content_sha256 before the existing claimed-review effects.
-Only safe references persist as versioned JSON in existing text context,
-scoped to engine/conversation. Phases carry pointers, never coverage.
-
-15 new tests / 15 existing transport tests / four bypass assertions /
-typecheck passed. App restarted; public landing screenshot normal.
-Health: All checks passed — safe to mark done. Alden consult only; Gemini
-final actual-code review APPROVED with STOP finish. No engine switch,
-approval mutation, DB migration, publication, Windows run or worker activation.
-Report: docs/superpowers/verification/2026-10-07-alden-source-delivery-repair.md.
-Canonical note alden-source-delivery-repair:
-document 3f748b66-5cc3-4466-8605-28632e7c5be0,
-revision b88d7cde-5789-4aad-9cbe-aa64438a241b.
-
-LCC sent new worker revision 90a2b5ab-6b85-4af3-a70f-ad0888fbfc2a,
-hash 0e6149de2f6076218e2ed279ee9e57c8ddab90b17b14a6b8bea679f1c59657ff.
-Retrieved and independently verified its hash and parent, compared all
-changes against the previously fully reviewed bytes. Final gate re-review
-remains owned by Replit; no approval is implied by this repair. Worker thread
-read through 18/global 1412; repair outcome and named-owner review deferral
-delivered at 19/global 1413. Delivery proves inbox storage, not acknowledgement.
-Earlier pending-review statuses below are history.
-
-#### Latest interruption: worker gate reply delivered
-
-David approved implementing the Alden source-delivery repair, then asked to
-pause briefly and reply to LCC's pending build review. Repair implementation
-has not started; that approval remains pending work, not cancelled.
-
-Read all 30,764 characters of worker revision
-d6f9153e-494c-4422-a0bb-831d37040d7b and independently verified hash
-5992be9a4375aa161ccd88d7aff395d2be8f1eccdbea93f07a3ab2db184f7222.
-Follow-up gate decision: REJECT for one narrow remaining §5.6 correction.
-R1/R2/R3/R4/R6 and R5's network/deadline handling are cleared. A pre-kill
-creation-time lookup does not bind a later numeric-PID taskkill operation;
-/T also broadens to a dynamic unverified tree. Requested identity-bound
-Windows process handles or another explicitly identity-safe mechanism,
-without numeric tree-kill fallback, and two isolated race/descendant tests.
-Not a design restart or live Windows experiment. Implementation remains
-blocked until the corrected exact revision is approved.
-
-Full review shared as note local-readonly-worker-followup-review:
-document fc018db2-63f8-429e-bfd8-451b752e6772,
-revision 5bc10f0a-e6b8-400d-8f45-95fe3343580a.
-Worker thread read through 16/global 1409; decision delivered to LCC at
-17/global 1411. Delivery is storage, not acknowledgement. This supersedes
-the earlier pending-review status below. No Alden engine/prompt changes,
-model runs, native test, publication or shared DDL performed.
-
-David requested both follow-ups directly here, without subagents.
-
-Grounding investigation complete, repair not implemented. The actual serializer
-with exact source ed98a1e0 (SHA256 722930660483e4343630e7729f0b560696f2be8bf5a8bdfeb49e5c9a4f941da7)
-and synthetic metadata encoded to 21,571 characters, omitted 9,571 and produced
-invalid JSON without sections 6–11. Source size is 20,830 characters. Both
-providers use this path. Published serializer bytes match the investigated
-checkout. The cut predated serializer extraction. Subsequent turns/phases also
-shorten prior prose and do not retain source payloads. The historical exact
-tool payload was not stored, so the full causal account is still unknown.
-
-Audit: docs/superpowers/verification/2026-10-07-alden-review-grounding-audit.md.
-Canonical fast-share note: 6b3787a1-6cf2-4d77-90cc-fe27a1fb96d6,
-revision 0ee287fb-3d9c-480b-9db5-4f3ee9a284f6.
-Fifteen existing bounded coordination-transport tests passed. No model calls,
-engine switches, prompt edits, runtime changes or review decisions were made.
-Proposed next repair: bounded valid-JSON source chunks, safe exact-source
-references across phases/turns, and decision/read-coverage binding without
-persisting arbitrary credential-sensitive tool payloads.
-
-Native reporting verification remains BLOCKED, not complete. Render release
-still reports d468ac7; changed fixture pins are bb76543e / bf6f3d10 at Replit
-source 1fb5490. Exact pins and separate publication/authorization/evidence gates:
-docs/superpowers/verification/2026-10-07-native-diagnostic-reporting-preflight.md.
-The old native receipt remains unchanged. No new run, policy handling, transfer,
-checkout update, source/runtime publication, enrollment or recovery requested.
-Replit remains the main-window owner.
-
-Latest linked outcomes: worker thread 33e5d67b-5e67-45ac-9fdb-98d1cfd80e13 read
-through 15/global 1408, source-delivery correction delivered at 16/global 1409.
-Native thread ea6ff4e9-cbe5-4b15-9699-b7ea0ff36700 read through 8/global 1407,
-blocked preflight receipt delivered at 9/global 1410. Delivery proves inbox
-storage, not acknowledgement.
-
-Separate worker revision d6f9153e-494c-4422-a0bb-831d37040d7b, hash
-5992be9a4375aa161ccd88d7aff395d2be8f1eccdbea93f07a3ab2db184f7222,
-still awaits Replit's exact-byte gate review. Implementation remains blocked;
-this diagnostic investigation does not approve it.
+The founder answered the replacement-specific approval form:
+"Authorize a new key and a 30-minute approval request."
+Generated normal temporary custody for1000002 only, without changing source or
+the frozen artifact. This is a fresh request, not renewal of the lost key.
+Public artifact digest remains
+4ec3630cc472605babe01b99e785760aef25b5921581b698e3db3077d3ab2fc8.
+New public key fingerprint:
+2a88c9a30fce313fbe46609f5b99172c1fc9f6e7fb14e5aa2689628c34bc22a9.
+Immutable operator request saved before POST with a new stable retry identity:
+.local/notes/task-1000002-authorized-new-custody-request-2026-10-11.json.
+The production endpoint created challenge
+a58478fd-db51-4355-be20-56c056d13bb5, pending until
+2026-10-11T16:16:01.950Z (10:16 AM MDT).
+Authenticated development status independently verified its exact persisted
+task/actor/artifact/key binding and absence of server nonce.
+No receipt exists, no founder approval was performed by the agent, no proof or
+registry source work has started. Awaiting actual founder decision. The custody
+remains temporary; another workspace restart requires checking its availability
+again rather than regenerating or reusing approval automatically.
 ## From Agent — historical recovery pause diagnostics — Oct 3, 2026
 
 Capture health and Markdown status now explain historical recovery pauses by

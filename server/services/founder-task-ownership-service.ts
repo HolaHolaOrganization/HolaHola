@@ -6,10 +6,11 @@ import {
   taskOwnershipDecisionEvents, taskOwnershipProofAttempts,
 } from "@shared/schema";
 import { canonicalJson } from "./task-ownership-service";
+import { TASK_APPROVAL_DEFAULT_MS, TASK_APPROVAL_MAX_MS } from "../../shared/task-ownership-policy";
 export { canonicalJson };
 
-const CHALLENGE_TTL = 10 * 60_000;
-const MAX_CHALLENGE_TTL = 30 * 60_000;
+const CHALLENGE_TTL = TASK_APPROVAL_DEFAULT_MS;
+const MAX_CHALLENGE_TTL = TASK_APPROVAL_MAX_MS;
 const GATE3_AUTHORITY_TTL = 20 * 60_000;
 const NONCE_TTL = 90_000;
 const error = (code: string): never => {
@@ -99,7 +100,11 @@ export async function getChallenge(id: string, actor: string) {
   if (!row) error("CHALLENGE_NOT_FOUND");
   const [receipt] = await db.select({ id: taskOwnershipReceipts.id, status: taskOwnershipReceipts.status })
     .from(taskOwnershipReceipts).where(eq(taskOwnershipReceipts.challengeId, id));
-  return { id: row.id, taskRef: row.taskRef, status: row.status, expiresAt: row.expiresAt, receipt: receipt ?? null };
+  return {
+    id: row.id, taskRef: row.taskRef, status: row.status, expiresAt: row.expiresAt,
+    intendedActor: row.intendedActor, artifactSha256: row.artifactSha256,
+    keyFingerprint: row.keyFingerprint, receipt: receipt ?? null,
+  };
 }
 
 export async function listChallenges() {

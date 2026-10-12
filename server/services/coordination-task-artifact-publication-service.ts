@@ -25,7 +25,7 @@ import type { CoordinationTaskMetadata } from './coordination-task-metadata-serv
 const MAX_ARTIFACT_BYTES = 256 * 1024; // must match coordination-v2-preparation-material-service's cap
 
 export class CoordinationTaskArtifactPublicationError extends Error {
-  readonly code: 'TASK_ARTIFACT_PUBLISH_INVALID' | 'TASK_ARTIFACT_PUBLISH_DATABASE_UNAVAILABLE';
+  readonly code: 'TASK_ARTIFACT_PUBLISH_INVALID' | 'TASK_ARTIFACT_PUBLISH_DATABASE_UNAVAILABLE' | 'TASK_ARTIFACT_PUBLISH_CONFLICT' | 'TASK_ARTIFACT_REGISTRATION_REQUIRED';
   constructor(code: CoordinationTaskArtifactPublicationError['code']) {
     super(code);
     this.name = 'CoordinationTaskArtifactPublicationError';
@@ -79,11 +79,19 @@ export async function publishCoordinationTaskArtifact(input: {
     return { taskRef: row.taskRef, taskArtifactSha256: row.taskArtifactSha256, updatedAt: row.updatedAt.toISOString() };
   } catch (error) {
     if (error instanceof CoordinationTaskArtifactPublicationError) throw error;
+    const cause = (error as { cause?: { message?: string }; message?: string });
+    const message = cause.cause?.message || cause.message || '';
+    if (/TASK_ARTIFACT_FROZEN|TASK_REFERENCE_IMMUTABLE/.test(message)) {
+      throw new CoordinationTaskArtifactPublicationError('TASK_ARTIFACT_PUBLISH_CONFLICT');
+    }
+    if (/TASK_REGISTRY_IMPORT_REQUIRED/.test(message)) {
+      throw new CoordinationTaskArtifactPublicationError('TASK_ARTIFACT_REGISTRATION_REQUIRED');
+    }
     throw new CoordinationTaskArtifactPublicationError('TASK_ARTIFACT_PUBLISH_DATABASE_UNAVAILABLE');
   }
 }
 
-/** Read-only lookup used by the publish CLI to report current DB state before overwriting it. */
+/** Read-only lookup before publication; frozen registered rows cannot be overwritten. */
 export async function readCoordinationTaskArtifactPublicationState(taskRef: string): Promise<{
   taskArtifactSha256: string; publishedBy: string; updatedAt: string;
 } | undefined> {

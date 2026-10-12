@@ -396,3 +396,31 @@ mtime_ms = 1791402257788
 storage_uri = "gcs://replit-rams-assets-kirk/rams/assets/repl:3ca2376d-c3dc-490a-a375-6b2f97f7c281/ba1347c5-5669-41ae-9ed5-a40f4747415e/061bffc8-6667-4c82-a87e-b81183a80a47"
 storage_version_token = "1791402305338284"
 content_type = "text/markdown"
+
+[[outputs]]
+id = "OZNhkPCcEvIhTQ37Uw9fF"
+uri = "file://.local/notes/shared-task-registry-design.md"
+type = "text"
+title = "Shared task registry — independently reviewed design"
+description = "LCC approved this exact design. Workspace implementation, bootstrap ownership and live migration remain separate approval gates."
+logical_id = "7194afc3-790c-4baf-be6b-52d04533a6ec"
+content_hash = "sha256:79dc5fa9c57ebff90fe3377d3f4acc0ae2049c4d5620189f02edaf740dce7b81"
+size = 12219
+mtime_ms = 1791666630585
+storage_uri = "gcs://replit-rams-assets-kirk/rams/assets/repl:3ca2376d-c3dc-490a-a375-6b2f97f7c281/7194afc3-790c-4baf-be6b-52d04533a6ec/2b2f0c12-ad2a-43b0-8742-79d167419626"
+storage_version_token = "1791667080569105"
+content_type = "text/markdown"
+
+[[outputs]]
+id = "H0gTfDOa8HZ7iWinPm3AK"
+uri = "file://.local/tasks/task-1000002.md"
+type = "text"
+title = "Task 1000002 — frozen registry build scope"
+description = "Exact artifact shared with LCC. SHA-256 starts 4ec3630c. Awaiting founder Task Ownership approval for luca-replit before implementation."
+logical_id = "87bf72a8-a396-461c-9e19-8e1c2ac2dccc"
+content_hash = "sha256:4ec3630cc472605babe01b99e785760aef25b5921581b698e3db3077d3ab2fc8"
+size = 3931
+mtime_ms = 1791668589028
+storage_uri = "gcs://replit-rams-assets-kirk/rams/assets/repl:3ca2376d-c3dc-490a-a375-6b2f97f7c281/87bf72a8-a396-461c-9e19-8e1c2ac2dccc/7aa9723d-eece-47a6-989b-06862d01eb33"
+storage_version_token = "1791668739177967"
+content_type = "text/markdown"

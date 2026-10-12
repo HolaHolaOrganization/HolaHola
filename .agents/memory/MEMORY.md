@@ -154,5 +154,6 @@
 - [NPM override reproducibility](npm-override-reproducibility.md) — Floating overrides can break clean CI while local installs pass; inspect dependency-tool declaration drift.
 - [Coordination inbox evidence boundaries](coordination-inbox-evidence-boundaries.md) — A fresh attributed forward can unblock review; successful bounded receipt/read/reply does not explain historical invisibility.
 - [Guard self-check lessons](guard-self-check-lessons.md) — Grouped pointers: sibling detectors, asymmetric mutations, scanner fixture races, and self-matching text scans.
-- [Main workspace implementation](main-workspace-implementation.md) — For now, no subagents: implementation, review, testing and investigation stay in the main workspace until the founder changes this rule.
+- [Main workspace implementation](main-workspace-implementation.md) — Approved designs allow direct multi-hat implementation and review; routine exchanges do not require founder relays.
 - [Windows validation environment](windows-validation-environment.md) — Sandbox is optional for disposable testing, never a Windows product or runtime requirement.
+- [Task-number range assumptions](task-number-range-assumptions.md) — A project allocation floor is not an external platform ID ceiling; preserve imported references and reject collisions.

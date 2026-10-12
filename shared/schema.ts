@@ -8907,9 +8907,10 @@ export const releaseCutoverAttestations = pgTable("release_cutover_attestations"
  * source that PostgresCoordinationTaskMetadataRegistry reads from, so
  * preparation can resolve a task's bytes in production the same way it does
  * in development. One row per taskRef; republishing a task (e.g. after
- * editing the local file) updates the row in place rather than versioning it
- * -- the artifact is a workflow input being transported off disk, not a
- * governed policy that needs its own draft/approve/audit lifecycle.
+ * editing the local file) historically updated this transport in place.
+ * Shared-registry rollout backfills it and installs database enforcement:
+ * registered artifacts allow exact no-op retries only; changed scope requires
+ * a new reference with a supersedes link. Transport is not ownership evidence.
  */
 export const coordinationV2TaskArtifacts = pgTable("coordination_v2_task_artifacts", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -10079,6 +10080,60 @@ export const insertCoordinationThreadSchema = createInsertSchema(coordinationThr
   latestGlobalSequence: true,
   createdAt: true,
   updatedAt: true,
+});
+
+/** Insert-only task identity. Registry status never conveys execution authority. */
+export const sharedTaskDefinitions = pgTable("shared_task_definitions", {
+  taskRef: varchar("task_ref", { length: 32 }).primaryKey(),
+  repositoryIdentity: varchar("repository_identity", { length: 512 }).notNull(),
+  startingCommit: varchar("starting_commit", { length: 64 }).notNull(),
+  sourceKind: varchar("source_kind", { length: 24 }).notNull(),
+  creatorActor: varchar("creator_actor", { length: 128 }),
+  sourceThread: varchar("source_thread", { length: 255 }),
+  supersedes: varchar("supersedes", { length: 32 }),
+  definition: jsonb("definition").notNull(),
+  artifactBase64: text("artifact_base64").notNull(),
+  artifactSha256: varchar("artifact_sha256", { length: 64 }).notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, t => [
+  check("shared_task_ref_format", sql`${t.taskRef} ~ '^[1-9][0-9]{0,31}$'`),
+  check("shared_task_source_kind", sql`${t.sourceKind} IN ('hat','replit','bootstrap','legacy')`),
+  check("shared_task_sha_format", sql`${t.artifactSha256} ~ '^[a-f0-9]{64}$'`),
+]);
+export const sharedTaskLifecycle = pgTable("shared_task_lifecycle", {
+  taskRef: varchar("task_ref", { length: 32 }).primaryKey().references(() => sharedTaskDefinitions.taskRef),
+  state: varchar("state", { length: 24 }).notNull().default("proposed"),
+  version: integer("version").notNull().default(1),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, t => [
+  check("shared_task_state", sql`${t.state} IN ('proposed','active','blocked','completed','cancelled')`),
+  check("shared_task_version", sql`${t.version} > 0`),
+]);
+export const sharedTaskEvents = pgTable("shared_task_events", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  taskRef: varchar("task_ref", { length: 32 }).notNull().references(() => sharedTaskDefinitions.taskRef),
+  version: integer("version").notNull(),
+  actor: varchar("actor", { length: 128 }).notNull(),
+  state: varchar("state", { length: 24 }).notNull(),
+  reason: text("reason").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, t => [uniqueIndex("shared_task_event_version").on(t.taskRef, t.version)]);
+export const sharedTaskRequests = pgTable("shared_task_requests", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  operation: varchar("operation", { length: 16 }).notNull(),
+  actor: varchar("actor", { length: 128 }).notNull(),
+  requestKey: varchar("request_key", { length: 128 }).notNull(),
+  requestDigest: varchar("request_digest", { length: 64 }).notNull(),
+  taskRef: varchar("task_ref", { length: 32 }).notNull().references(() => sharedTaskDefinitions.taskRef),
+}, t => [uniqueIndex("shared_task_request_identity").on(t.operation, t.actor, t.requestKey)]);
+export const sharedTaskReservations = pgTable("shared_task_reservations", {
+  taskRef: varchar("task_ref", { length: 32 }).primaryKey(),
+  actor: varchar("actor", { length: 128 }).notNull(),
+  artifactSha256: varchar("artifact_sha256", { length: 64 }).notNull(),
+});
+export const sharedTaskRegistryGate = pgTable("shared_task_registry_gate", {
+  id: integer("id").primaryKey(),
+  ready: boolean("ready").notNull().default(false),
 });
 export const insertCoordinationEventSchema = createInsertSchema(coordinationEvents).omit({
   id: true,

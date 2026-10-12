@@ -25,3 +25,21 @@ shared-spec live-instruction-document seeding script, where one literal key
 reused across two `createDocument()` calls (for two different documents)
 collided on the second call.
 
+
+## Founder-authorized renewal bootstrap
+
+An expired ownership challenge can block the repair of the renewal client itself.
+Treat a founder-authorized, bounded fresh request through the existing API as a
+separate operator action, not permission to weaken the ownership gate.
+
+**Why:** The repair was unable to start after both the original bootstrap request
+and the repair task's request expired. An explicitly authorized replacement
+request with the same artifact, actor and custody key allowed ordinary founder
+approval and proof to proceed; it did not authorize an automatic approval.
+
+**How to apply:** Ask for that bounded operator authorization when the renewal
+client is itself blocked. Persist its new request identity before transmitting,
+preserve the exact bound artifact and existing key, and require fresh founder
+approval/proof before source edits. Never rotate keys, change scope, or alter
+the server's exact-retry contract to escape the block.
+

@@ -1,3 +1,4 @@
+import './shared-task-registry-health.test';
 import assert from 'node:assert/strict';
 import { createHash, createPublicKey, generateKeyPairSync, verify } from 'node:crypto';
 import { spawn } from 'node:child_process';
@@ -8,6 +9,14 @@ import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { after, before, test } from 'node:test';
 import { canonicalJson } from './task-ownership-service';
+// The existing CI entrypoint also runs the renewal suites. Keep the separately
+// reviewed listener/CI payload unchanged while its source landing is pending.
+import './task-ownership-attempt.test';
+import './task-ownership-renewal-cli.test';
+// Registry coverage joins this existing CI entrypoint without modifying the
+// pending listener's independently reviewed suite-registration payload.
+import './shared-task-registry.test';
+import './shared-task-registry-cli.test';
 
 // All keys, task artifacts, and child-process state belong to this private fixture.
 const root = mkdtempSync(join(tmpdir(), 'ownership-client-'));

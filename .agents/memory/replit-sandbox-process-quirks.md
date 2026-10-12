@@ -187,3 +187,36 @@ Installing a PowerShell runtime does not establish that it can execute fixtures 
 
 **How to apply:** Separate runtime availability, synthetic fixture execution and native Windows PowerShell 5.1 verification. Never infer the latter from either package installation or Linux execution; it remains behind its separately authorized Windows path.
 
+
+## Implicit shell exec invalidates parent binding
+
+A noninteractive shell can implicitly exec its last command. Passing its `$$`
+to that last Node command may therefore record Node itself as the parent,
+even without an explicit `exec`.
+
+**Why:** The actual ownership record showed equal listener and parent PIDs
+under the original background launch. Keeping a trailing exit-status capture
+and shell exit produced two distinct, creation-verified live processes.
+
+**How to apply:** When a listener must track its waiting shell, launch Node
+followed by `listener_exit=$?; exit "$listener_exit"`. Verify owner and parent
+PIDs differ and both creation identities are present before reporting a valid
+wrapper-bound launch. This still does not establish attended chat-session state.
+
+
+## Restart loss of temporary ownership custody
+
+Workspace restarts can discard the temporary ownership-key custody directory
+while durable challenge rows and local request records remain.
+
+**Why:** After a reported workspace restart, the message-listener process/log
+was lost and the previously used ownership private-key files were absent at
+Node's current temp-directory custody path. The surviving request record could
+not supply the missing private key.
+
+**How to apply:** After a restart, check key-file existence before promising a
+renewal or proof. Do not read or display private key contents during diagnosis,
+and never regenerate a missing key as a retry workaround. Recover original
+custody if available, or obtain explicit authorization for new custody and a
+fresh founder-approved request; that is not renewal of the old key binding.
+

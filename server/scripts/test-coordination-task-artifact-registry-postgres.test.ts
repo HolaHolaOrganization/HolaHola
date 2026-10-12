@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
+import './test-shared-task-registry-postgres.test';
 
 // Same disposable-gate hard-fail guard as the other Coordinator V2 PostgreSQL
 // parity tests (see test-coordinator-v2-schema-postgres.test.ts): a stray
@@ -47,7 +48,7 @@ test('this file hard-fails under the gate instead of silently skipping DB covera
 
 const sha256 = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex');
 
-test('Postgres task-artifact registry round-trips a publish, upserts on republish, and rejects a tampered pair', async (context) => {
+test('Postgres task-artifact transport preserves a registered artifact and refuses revised bytes', async (context) => {
   const url = disposableTarget();
   if (!url) {
     context.skip('run through the Neon migration gate');
@@ -102,6 +103,16 @@ test('Postgres task-artifact registry round-trips a publish, upserts on republis
     );
     assert.equal(await registry.resolve(taskRef), undefined, 'rejected publish must not have written a row');
 
+    // The migration gate installs frozen-registry enforcement. A legacy
+    // publisher may retry an exact registered artifact, never create an
+    // unregistered reference or revise it in place. This is disposable only.
+    const { sharedTaskDefinitions } = await import('@shared/schema');
+    const { db } = await import('../db');
+    await db.insert(sharedTaskDefinitions).values({
+      taskRef,repositoryIdentity:metadataV1.repositoryIdentity,startingCommit:metadataV1.startingCommit,
+      sourceKind:'legacy',creatorActor:null,sourceThread:null,definition:{provenance:'synthetic CI fixture'},
+      artifactBase64:Buffer.from(artifactV1).toString('base64'),artifactSha256:metadataV1.taskArtifactSha256,
+    });
     const published = await publishCoordinationTaskArtifact({
       metadata: metadataV1, artifact: artifactV1, publishedBy: 'ci-test',
     });
@@ -122,15 +133,15 @@ test('Postgres task-artifact registry round-trips a publish, upserts on republis
     assert.equal(withArtifact.metadata.taskArtifactSha256, metadataV1.taskArtifactSha256);
     assert.deepEqual(Buffer.from(withArtifact.artifact), Buffer.from(artifactV1));
 
-    // Republishing (e.g. after editing the local task file) upserts in place --
-    // one current row per taskRef, not a version history.
+    // Changed scope moves to a new task/supersedes; same-ref overwrite is forbidden.
     const artifactV2 = new TextEncoder().encode('# Task\n\nRevised plan after review.');
     const metadataV2 = { ...metadataV1, taskArtifactSha256: sha256(artifactV2) };
-    await publishCoordinationTaskArtifact({ metadata: metadataV2, artifact: artifactV2, publishedBy: 'ci-test-2' });
+    await assert.rejects(publishCoordinationTaskArtifact({ metadata: metadataV2, artifact: artifactV2, publishedBy: 'ci-test-2' }),
+      (err:any)=>err.code==='TASK_ARTIFACT_PUBLISH_CONFLICT');
 
     const resolvedV2 = await registry.resolve(taskRef);
-    assert.equal(resolvedV2?.taskArtifactSha256, metadataV2.taskArtifactSha256);
-    assert.deepEqual(Buffer.from(await registry.readArtifact(taskRef)), Buffer.from(artifactV2));
+    assert.equal(resolvedV2?.taskArtifactSha256, metadataV1.taskArtifactSha256);
+    assert.deepEqual(Buffer.from(await registry.readArtifact(taskRef)), Buffer.from(artifactV1));
   } finally {
     await closeDbConnections();
   }

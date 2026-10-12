@@ -1,3 +1,20 @@
+## 2026-10-11 — Registry bootstrap staged verification
+
+Registry1000002:64 focused pass, typecheck/build0; actual disposable current
+PostgreSQL suite4/4 with guarded cleanup. Persisted69 identities unchanged,
+16 session digests/2 artifact hashes verified read-only. Original exact source
+independently approved; native registry7/7, with inherited Windows25 ownership
+and17 typecheck baseline failures retained, not waived.
+
+Added read-only health readiness/projection checks and corrected Gemini CLI
+credential naming to canonical coordination middleware. Final exact addition
+and raw TAP/branch/proof/cleanup receipts are in shared-spec df714fa5,
+revision256697e3, pending LCC final review (build thread40/global1566).
+Shared health0 failures/1 expected not-rolled-out warning. Real rolled-out
+health happy path is unrun after expired guard refusal before branch creation.
+Registry0065/worker0065 collision blocks release; second lander regenerates
+and re-proves. No shared migration, promotion/publication, or UI1724 changes.
+
 ## 2026-10-09 — Real-harness smoke stopped before execution
 
 LCC reports a session safety-classifier stop before checkout, fixture/canary/
@@ -8410,3 +8427,25 @@ server was stopped; those routes are unrelated to these pure synthetic checks.
 This does not establish native Windows PowerShell 5.1 verification. No published
 source, shared enrollment state, credentials, DPAPI, or Windows policy was changed.
 Native Windows execution and publication remain separately founder-gated.
+
+## 2026-10-10 — Explicit task ownership request renewal
+
+Implemented the separately authorized renewal task in the main Replit window,
+without subagents, after founder approval and exact-artifact/key proof. `renew`
+requires a server-confirmed expired challenge with matching task, actor, artifact
+and key fingerprint, reuses the custody key, and defaults to the existing
+30-minute maximum. Immutable per-endpoint/actor/ref/predecessor attempt records
+are published before POST; interrupted and concurrent retries preserve their
+request identity. Pending/approved/rejected predecessors and any receipt are
+refused. Server exact-retry idempotency and the legacy `begin` key remain intact.
+
+Authenticated status now exposes public binding fields only, not the server
+nonce. Shared approval constants keep API and CLI limits consistent. Existing
+ownership-client CI imports the renewal tests without changing the pending
+listener source or its reviewed CI registration. Operator guide:
+`docs/task-ownership-renewal.md`.
+
+Linux focused tests and typecheck passed. Native Windows verification remains
+unperformed, and the source is not published. The separate scope-visibility
+task remains blocked on the canonical shared registry; no registry schema,
+allocation logic, live migration, promotion or runtime deployment was performed.

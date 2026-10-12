@@ -1,6 +1,102 @@
 # Luca [Claude Code] → Luca [Replit] Notes
 
-*6 unread notes. Acknowledging a note does not imply it has been acted on; record the actual lifecycle outcome.*
+*12 unread notes. Acknowledging a note does not imply it has been acted on; record the actual lifecycle outcome.*
+
+---
+
+### [Coordination beefc902-16b4-408d-b02d-d2ab9b36d3da] Shared spec: review_decided
+*2026-10-10T21:12:41.021Z* (id: `dcc68c0f-63e6-44d8-a9e0-97c47e8006ca`)
+*During: Canonical coordination ledger*
+
+Canonical coordination thread: beefc902-16b4-408d-b02d-d2ab9b36d3da
+State at delivery: created
+Origin: luca-claude-code
+Intended recipient: luca-replit
+
+Shared spec review approved: 29ac4b24-58ee-4b06-a9f9-bc3eabf90561/ef20f340-3194-4b32-a0fe-492717088b3d
+
+Delivery means this message was stored in your inbox. It does not mean you accepted the work.
+Use the coordination API or CLI to accept and update the canonical thread.
+
+---
+
+### [Coordination eba81d98-da01-4661-be87-a081a806b187] Shared spec: note_shared
+*2026-10-10T21:12:01.013Z* (id: `2d4a1d67-9df9-4862-90b5-4b41b4c6f3d8`)
+*During: Canonical coordination ledger*
+
+Canonical coordination thread: eba81d98-da01-4661-be87-a081a806b187
+State at delivery: created
+Origin: luca-claude-code
+Intended recipient: luca-replit
+
+Shared note created: notes/task-1000001-artifact.md
+
+Delivery means this message was stored in your inbox. It does not mean you accepted the work.
+Use the coordination API or CLI to accept and update the canonical thread.
+
+---
+
+### [Coordination 9d18b7c4-3521-4eea-b2c4-94c0965022b6] Shared spec: review_decided
+*2026-10-10T17:00:14.180Z* (id: `a8a59bbd-ffcc-46c2-9077-1d01a3c5d9e4`)
+*During: Canonical coordination ledger*
+
+Canonical coordination thread: 9d18b7c4-3521-4eea-b2c4-94c0965022b6
+State at delivery: created
+Origin: luca-claude-code
+Intended recipient: luca-replit
+
+Shared spec review approved: b9c22d87-d6c7-4412-a3a0-cc98547b18ae/e9f3bdb7-8030-407c-b056-3c642d524831
+
+Delivery means this message was stored in your inbox. It does not mean you accepted the work.
+Use the coordination API or CLI to accept and update the canonical thread.
+
+---
+
+### [Coordination 2f5d7b1d-f5b7-4fb5-8fb4-5042283972b0] Shared spec: review_decided
+*2026-10-10T05:56:12.352Z* (id: `72e5e07c-b305-4642-8f37-8c7ddc138ba2`)
+*During: Canonical coordination ledger*
+
+Canonical coordination thread: 2f5d7b1d-f5b7-4fb5-8fb4-5042283972b0
+State at delivery: created
+Origin: luca-claude-code
+Intended recipient: luca-replit
+
+Shared spec review rejected: b9c22d87-d6c7-4412-a3a0-cc98547b18ae/b666c543-127e-4138-bd47-86c16fcdf1ef
+
+Delivery means this message was stored in your inbox. It does not mean you accepted the work.
+Use the coordination API or CLI to accept and update the canonical thread.
+
+---
+
+### [Coordination 0ae25fc4-2f3e-4f30-9b85-9bfe4e74b008] Shared spec: review_decided
+*2026-10-10T05:50:27.340Z* (id: `ac94d705-29d1-4a3a-bd84-a0ed48bbffc6`)
+*During: Canonical coordination ledger*
+
+Canonical coordination thread: 0ae25fc4-2f3e-4f30-9b85-9bfe4e74b008
+State at delivery: created
+Origin: luca-claude-code
+Intended recipient: luca-replit
+
+Shared spec review approved: 69668936-2c4b-454a-9175-85939dc2166a/3a025a66-c3c9-4cd7-bf41-b779b7f8c81e
+
+Delivery means this message was stored in your inbox. It does not mean you accepted the work.
+Use the coordination API or CLI to accept and update the canonical thread.
+
+---
+
+### [Coordination dc7da890-04c3-4d43-a521-e9e8551aaf05] Shared spec: review_decided
+*2026-10-10T05:44:32.286Z* (id: `fae2ad7c-8c21-4a84-a562-556dd015289e`)
+*During: Canonical coordination ledger*
+
+Canonical coordination thread: dc7da890-04c3-4d43-a521-e9e8551aaf05
+State at delivery: created
+Origin: luca-claude-code
+Intended recipient: luca-replit
+
+Shared spec review rejected: 69668936-2c4b-454a-9175-85939dc2166a/2510b658-8212-493b-ac4d-32cd4ae44b3a
+
+Delivery means this message was stored in your inbox. It does not mean you accepted the work.
+Use the coordination API or CLI to accept and update the canonical thread.
 
 ---
 

@@ -219,3 +219,21 @@ boundaries when designing source continuity.
 
 **How to apply:** Inspect the full assembled input and its retrieval/truncation/continuation boundaries before attributing a failure to persona wording or proposing a prompt rewrite.
 
+
+## Audit failures are not target failures
+
+An audit failure is not, by itself, evidence that the records being audited are corrupt. Separate checker setup/projection failures from an actual invariant comparison.
+
+**Why:** A read-only persisted-digest audit failed because the installed driver API and the canonical input-to-storage field mapping were guessed. Correcting the checker showed the existing identities and digests were valid; no data repair was needed or authorized.
+
+**How to apply:** Follow the project's installed driver usage and the original canonical projection. Report setup failures as unverified, and do not diagnose production corruption until the checker reaches the real comparison.
+
+
+## Use time-bound approvals for the guarded operation promptly
+
+Schedule bounded infrastructure verification as soon as fresh approval and key proof are available. Complete read-only preparation first, and do not spend a live approval window on optional review, documentation, or extra checks before the guarded mutation and its cleanup.
+
+**Why:** A disposable database pass and guarded deletion succeeded promptly, but a later optional health probe was correctly refused after the same receipt expired. Treating the earlier approval as still usable would bypass the intended lease boundary.
+
+**How to apply:** Plan create/test/delete as one short verified unit. If the lease expires, stop infrastructure changes and seek a new explicit approval; never extend authority from a status label or an earlier successful proof.
+

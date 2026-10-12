@@ -282,3 +282,63 @@ Job containment and cancellation must hold from process creation, not just after
 
 **How to apply:** Check startup failure, launcher death and resume failure as well as normal termination. Require native identity-bound containment/cleanup and isolated evidence that no running or suspended owned process survives and unrelated processes are untouched. Do not substitute a PID lookup, broadcast signal or successful setup test for those guarantees.
 
+
+## Native descendant evidence and PATHEXT
+
+Native Windows descendant tests must assert the intended descendant identities, not merely a process count. Include PATHEXT when building a minimal environment for cmd-launched executable lookup.
+
+**Why:** A native test passed using the PowerShell root and its console host while the intended cmd/ping descendant had failed to launch because PATHEXT was absent. Passing counts falsely supported the claimed descendant-termination evidence; the author later corrected those receipts.
+
+**How to apply:** Require the actual expected descendant image identities before testing containment or termination. Treat console-host membership separately and disclose historical receipts that did not prove the stated topology.
+
+
+## Persistent PowerShell first-query readiness
+
+Readiness for a persistent PowerShell helper must account for first-query
+dependency loading, not just process startup. Keep simple process-identity
+protocol parsing independent of optional cmdlet/module autoloading.
+
+**Why:** A real PowerShell check in the Linux workspace emitted readiness and
+received the request, then stalled before its first ConvertFrom-Json completed.
+Mocked IPC tests had not exposed that delay. A primitive integer protocol and
+.NET-only replies subsequently passed a real process-present, process-absent
+and warm-identity-stability exchange.
+
+**How to apply:** Exercise the actual helper language as well as mocked child
+events. Treat startup, first query and warm queries separately. This Linux
+observation is not a Windows timing claim; native Windows cold-host acceptance
+and compatibility with stored creation identities still need native evidence.
+
+
+## Exclusive ownership publication completeness
+
+Exclusive file creation does not establish complete identity metadata. Publish
+ownership authority only after the record is fully written and its handle is
+closed; preserve atomic no-overwrite semantics.
+
+**Why:** An authenticated native Windows review reproduced process interruption
+between exclusive open and write for both guard types. The resulting empty file
+correctly failed identity-based recovery and required manual intervention.
+
+**How to apply:** Abrupt-death tests must exercise visibility boundaries, not only
+successful writes or caught exceptions. A non-authoritative staging remnant must
+not grant recovery authority. New complete-publication guarantees do not justify
+automatically deleting unknown or empty legacy ownership records.
+
+
+## Hermetic Node temp-directory fixtures
+
+On Windows, Node's os.tmpdir() uses TEMP and TMP, not TMPDIR. A hermetic CLI
+fixture that places custody files in a private directory but supplies only
+TMPDIR can look in the real user temp directory instead.
+
+**Why:** An independent native run reproduced the same proof-harness failures
+on unchanged source and the renewal snapshot. The new renewal fixture passed
+because it already supplied all three variables; missing custody files were
+test isolation failures, not evidence of broken product key handling.
+
+**How to apply:** For synthetic child-process tests that rely on os.tmpdir(),
+set TEMP, TMP and TMPDIR to the same private fixture directory, while continuing
+to exclude ambient credentials and DB URLs. Verify native results separately;
+baseline equality establishes no regression, not a passing test entrypoint.
+
