@@ -160,6 +160,11 @@ jobs:
           test -x "$POSTGRES_BINDIR/postgres"
           echo "$POSTGRES_BINDIR" >> "$GITHUB_PATH"
 
+      # Same as ci.yml's unit job: test-alden-coordination-e2e.test.ts exercises
+      # Alden's search_code rg path, which needs ripgrep on the runner.
+      - name: Install ripgrep
+        run: sudo apt-get install -y ripgrep
+
       - name: Install dependencies
         run: npm ci --include=dev
 
