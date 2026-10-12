@@ -4,235 +4,43 @@ Approved multi-hat build; independent design approval69668936/3a025a66/f61491b6.
 
 # Alden ↔ Agent Handoff
 
-## Registry bootstrap staging verification — 2026-10-11
+## From Agent — last updated: Mon, Oct 12, 12:25 AM
 
-Task1000002 only, no subagents.64 focused tests pass; typecheck/build0.
-Current actual disposable PostgreSQL suite4/4,0 skipped, including private
-namespace migration/backfill, concurrency, old-writer lock orders, lifecycle
-retry, rollback/disconnect/restart, outstanding10/daily20 and exhaustion.
-Branch creation/deletion both used actual founder-approved fresh key proof;
-cleanup verified. No shared migration or publication.69 persisted identities
-unchanged;16 session digests/2 artifact hashes verified read-only.
+## Ownership renewal — formal main-window completion
 
-LCC independently approved original source/native registry7/7. Windows
-ownership25 baseline failures and native typecheck17 baseline errors retained.
-Final health/F2 addition (canonical Gemini token-name alignment) plus raw TAP
-and public receipts: shared-spec document df714fa5-5661-4104-8fc8-e9ac128574c9,
-revision256697e3-577b-43d1-906f-62b7bc4230e4, JSON SHA
-b8954bd50958d64bae9150604f0c154bed19d4d7a2feb62eaecc0cf3f9671406.
-Review request build thread40/global1566; final approval not yet received.
-Shared health0 failures/1 acknowledged registry-not-rolled-out warning.
-Actual rolled-out health check was blocked by receipt expiry before branch
-creation, not passed. No resource from that attempt remains.
-Migration0065 collision with worker0065 is a release blocker; second lander
-regenerates/re-proves. Source completion must not imply live activation.
-UI1724 remains untouched and requires a separate frozen scope/approval/proof.
+Task1723 implementation already exists and is verified; no product code changes
+were needed in the formal assignment. Exact renewal source remains the original
+reviewed bytes; only unrelated registry imports/comments were added to the
+aggregate CI entrypoint. Current Linux64/64 and typecheck0.
 
-## From Agent — last updated: Sun, Oct 11, 3:47 PM
+Corrected Alden architecture disposition: APPROVED, no blocking gaps. The saved
+winning payload/key is reused on every retry; only server-expired, clock-expired,
+receipt-free predecessors qualify. Pending, approved and rejected are refused.
+No code change was needed after clarification.
 
-## Direct notification reliability follow-ups — 2026-10-10 UTC
+LCC independent native evidence32/global1556: source approved; every new renewal
+case passed. Combined82 tests57 pass/25 fail; unchanged native baseline has the
+same25 proof-harness failures. Native typecheck17 identical baseline errors.
+No full-native-green claim. Proof-fixture TEMP/TMP isolation and strict CLI
+options are proposed follow-ups1729/1730, not bundled here.
 
-David requested both proposed follow-ups implemented in the main session,
-not via sub-agents. No subagent was assigned or launched.
+Current health0 failures/3 acknowledged warnings: staged registry unrolled,
+and2 image/audio application checks skipped with server stopped. No startup,
+shared migration, publication, key rotation, worker/model launch or live sync.
+Renewal command/navigation: docs/task-ownership-renewal.md. Completion evidence:
+.local/notes/task-1723-current-completion.md.
 
-Implemented persistent Windows process-query reader with bounded cold/warm
-budgets, correlated/serialized integer requests, no CIM/JSON-cmdlet autoloading,
-unknown-on-failure, no PID cache and owned-helper cleanup. Implemented read-only
-closure/archive observer CLI, atomic operator markers, exact identity/ownership
-binding and conservative evidence outcomes; no Desktop/model session launched.
-Guide: docs/luca-session-notifications.md.
+## Separate pending work
 
-57 focused tests pass, zero failures/skips; typecheck0 and whitespace clean.
-Actual PowerShell protocol and disposable-parent -> listener71/lock cleanup
-verified on Linux. LCC's authenticated review (build thread sequence13) now
-reports57/57 on Windows11, byte-equal old CIM identities, first-query261ms and
-ten warm queries5ms total, native parent-gone71/lock cleanup and no orphan helper.
-Locally verified all13 files against reviewed snapshotbca30648/hash03cc2445.
-The extreme slow-CI cold startup was not reproduced. Actual Desktop close/archive
-remain unverified; those require founder action, not killing a live session.
-
-Founder explicitly approved R1 implementation here. Atomic complete-record
-guard/recovery-marker publication and9 regression tests are implemented directly
-in main; final66 tests pass, typecheck0, no skips. LCC approved intermediate
-bfe6a319 and reports65/65 native Windows including all six actual process deaths.
-Final cleanup collision safety refinement adds ownsTemporary tracking and a
-staging-open EEXIST test. LCC independently approved final5e29bf01 at sequence18,
-reporting66/66 native Windows including collision and actual process deaths.
-Legacy empty guards remain fail-closed; staging remnants never authorize recovery.
-Final exact source5e29bf01/hash06f6e7d2 is approved under a fresh final decision.
-Locally verified all14 manifest files and CI-registration hash match those bytes.
-R1 implementation/review complete; Desktop close/archive and publication/landing
-remain separate and unexecuted. No intermediate approval was transferred.
-
-Landing update: LCC's authenticated sequence20 reports David authorized code-only
-landing and LCC claims candidate0c81d21b/lcc/session-delivery-listener. Promotion
-is blocked on a real project-task artifact and verified ownership. No matching
-artifact is present here; do not invent a ref or reuse an unrelated task.
-Reply21 confirms no competing Replit promotion. Receipt1534 is observed/open.
-LCC's candidate CI insertion and17 type errors need independent evidence; requested
-same-install parent comparison before asserting pre-existing failures. LCC
-sequence22 now reports parent36614989d and candidate0c81d21b both have identical
-17-error lists using the same install/TypeScript5.6.3. Recorded as LCC's native
-comparison, not an independent local rerun or successful CI result. Gates remain
-required. New receipt1536 is handled; original1534 remains observed/open.
-No source promotion or shared-instruction resync invoked; no SYNCED/FAILED
-executor result exists. Instruction hand-copy was stopped in LCC; not rerouted here.
-
-New sequence23/global1537: LCC reports David approved listener-only bootstrap
-reservation1000001 and shared task registry direction. This supersedes the prior
-question about finding a Replit project-task ref; it is an explicit cross-hat
-bootstrap, not a fabricated platform task. LCC reports artifact hash9886f203 and
-challenge9cc82af6-fc13-443b-a549-c0d8fca4d4f0 for actorluca-claude-code.
-Founder approval, prove and successful promotion are not inferred. No reuse.
-Requested its exact frozen bytes via a shared-spec note before local verification.
-
-Registry design-only draft is ready: document29ac4b24-58ee-4b06-a9f9-bc3eabf90561,
-revisionef20f340-3194-4b32-a0fe-492717088b3d,
-review3db6f2b4-c7eb-4340-81c8-0e51c0587020, hash79dc5fa9.
-Reply24/global1540 delivered to LCC. LCC sequence25/global1541 approved exact
-revisionef20f340; verified recorded claimant/decision actor and SHA79dc5fa9.
-Verified bootstrap note55d0702f/fab98aa3 raw1174 bytes/hash9886f203 locally.
-N1-N5 carried into note7238dd4a/108624a1, delivered reply26/global1546:
-founder approval context follow-up, allocation bounds, caller inventory, shared
-byte publication with fresh native regression review, read-only persisted digests.
-Receipts1537/1541 fully processed locally; original landing1534 remains open.
-David explicitly retained1000001 in the latest landing form; reply27/global1547
-delivered. He then approved registry workspace build + reservation1000002.
-Frozen exact bootstrap artifact: f11ab3a9-6ad0-4fbf-bf37-f24e4bbe38c4 /
-18239618-4183-47f5-a841-575feda468ef, SHA4ec3630c,3931 bytes.
-No existing legacy artifact publication at1000002 in read-only preflight.
-Ownership requestda1d6344-b012-4318-a991-8b25406a06b3 for actorluca-replit is pending,
-expiry2026-10-10T21:53:28.887Z, receipt null. Implementation remains blocked before
-founder approval/prove. Reply28/global1550 delivered reservation/artifact/gate to
-LCC. Listener source/1000001 unchanged; no new registry source/schema edits.
-LCC sequence29/global1551 reported1000001 challenge expired and CLI begin returning
-the same dead challenge. Code confirms fixed taskRef:fingerprint idempotency key.
-Reply30/global1552 delivered: preserve exact-retry server contract; renewal is a
-separate reviewed CLI/new-attempt flow, not permission to bypass founder approval
-or patch ownership under1000002. Follow-ups proposed1721 (renewal) and1722 (founder
-scope visibility); neither implemented. Receipt1551 intake processed locally.
-At2026-10-10T21:49:00Z,1000002 challenge remains pending with null receipt, expires
-21:53:28.887Z. Founder UI approval/prove is the immediate build blocker.
-Earlier project-task-reference question is superseded by bootstrap1000001.
-Replit authors; LCC independently reviews. Canonical immutable global registry,
-frozen compatibility projection, DB-level race protection and fail-closed collision
-handling proposed.1000000+ is policy, not a platform guarantee;1000002 only proposed.
-Alden consult timed out30s without a returned response; no approval claimed.
-No implementation, migration, publication, instruction sync or credential change.
-
-Exact source note09121901 revisionbca30648 supersedes9023f2cc, includes13 files
-and CI diff/hash. Older review/native receipts do not cover changed bytes.
-Live instruction review74840586 was independently approved by LCC for exact
-revisione9f3bdb7, verified against the shared-spec record. This approves the
-transitional operating instructions only, not follow-up sourcebca30648 or native
-Windows acceptance. No source publication, merge/deploy, saved settings or
-credential changes.
-
-Current Replit listenermQ1FkeY8 resumed preserved cursor1536 and observed/open
-receipt1534 after workspace restart losthERt98ye. Confirmed old owner and parent
-absent through native identity queries before explicit recover-lock.
-Brief replacementfDbst-ry stopped72/lock released after detecting implicit shell
-exec. Current launch includes trailing exit-status capture/exit so the shell
-waits for Node; verified distinct owner289/parent278, both identities present.
-No source code changed; old task-reference question resolved by retained1000001.
-Monitor accepted, arming recorded,
-parent state and heartbeat separate. This is not an ended-session wake claim.
-
-
-# Ownership renewal implementation — main-window handoff
-
-The founder explicitly approved the two follow-ups for this main Replit window,
-without subagents. Renewal was implemented here after approved challenge
-ce0f3043-fc5e-4b6a-bed9-9fc459b23e2e / active receipt
-1deecd41-8e02-4a0b-b139-37d4fa6bd90d and exact-artifact/key proof for1723.
-Artifact SHA-256:7bad9327e0c872b0392c00719b2108b6121ae6ec1499531fb5aea98c38d33598.
-
-The explicit renew command preserves all identity bindings, defaulting to the
-existing30-minute limit. Immutable per-predecessor local records precede POST;
-concurrent and interrupted submissions converge on one result. Exact retries
-preserve pending/approved/rejected/expired results. Pending/approved/rejected
-predecessors or any receipt are refused. Custody keys never regenerate during
-renewal. Legacy begin key and server exact-retry semantics remain intact.
-
-Authenticated status includes public actor/artifact/key fields, not nonce data.
-Older deployed status contracts fail closed; this source is not published.
-No shared schema/migration, source promotion or runtime deployment occurred.
-
-Verification:55 focused tests pass,0 fail,0 skip; actual CLI subprocess tests
-included. Typecheck passes before/after. System-health summary:
-"All checks passed — safe to mark done."
-Dev restarted once; authenticated status binding verified, landing page renders.
-No full-suite green claim: prior Validation suite output includes failures.
-The scanner failure concerns pre-existing listener files, not changed here.
-Native verification update from LCC, received in32/global1556:
-SOURCE APPROVED for the exact snapshot. All new renewal cases passed natively.
-The combined Windows command reported82 tests,57 passed and25 failed; unchanged
-main produced28 tests,3 passed and the identical25 failing test names. Failures
-come from the existing proof harness setting TMPDIR but not TEMP/TMP. No combined
-Windows entrypoint success is claimed, and no silent fixture-failure waiver is
-given. Native typecheck has17 errors identical to its baseline, zero additions;
-the main Replit checkout's before/after typecheck passes. All9 local snapshot
-hashes still match. No source change was made to the pre-existing proof fixture.
-
-Exact source note:8be63ef9-76e7-4dda-a476-78fe069557dc /
-062e9d4c-5343-46c6-b043-e9d4d38bdc29.
-Snapshot SHA-256:92b1686026f10ad90dbb46f1a73870a2644f290609a15758e11e9d0655868f5f.
-Listener code and reviewed CI registration untouched; renewal tests are imported
-by the existing ownership-client CI entrypoint.
-
-1724 is not implemented: canonical registry metadata does not exist yet. No
-unverified task labels will be promoted as canonical scope. Registry1000002
-remains a distinct, frozen, approved workspace design with expired ownership;
-fresh approval/proof is required before its source implementation.
-Listener1000001 remains LCC-only; no publication or landing is inferred.
-Linked thread872ea6d0-bd94-4d0f-9ccf-187c18187a02 read through30/global1552.
-Reply31/global1555 delivered the exact-source review/native request to LCC.
-Delivered means inbox storage, not seen, approval or successful verification.
-LCC independently replied32/global1556 with source approval and native findings.
-An attributed acknowledgement was delivered on33. The old production API still
-fails closed; the running dev API has public bindings and reads the same shared
-approval DB. A bounded dev-API replacement may be approved through the existing
-production UI without source publication; awaiting founder authorization before
-requesting1000002. No request has been issued.
-Original observed landing receipt1534 remains open.
-
-## Workspace restart recovery — 2026-10-11
-
-The platform reported prior listener mQ1FkeY8 lost and its log unavailable.
-Restored Start application once. Listener stale lock recovered with its own
-confirmed-absent check; resumed unchanged source and durable cursor1556 under
-new background task ldseHPxd. READY and recent-heartbeat/parent-present verified.
-Both old local observed receipts remain open; no delivery or landing is inferred.
-
-Existence-only checks at Node's actual os.tmpdir custody root found neither
-1000002 nor1723 private-key file. No contents were accessed, no key generated or
-rotated, no renewal requested, and no source changed. The prior question about
-renewing1000002 is no longer sufficient: same-key renewal requires recovery of
-the original custody file. A new-key/fresh-request path needs explicit founder
-authorization and fresh approval/proof; it must never be described as same-key
-renewal. Registry and1724 remain blocked.
-
-## Explicit replacement-custody authorization — 2026-10-11
-
-The founder answered the replacement-specific approval form:
-"Authorize a new key and a 30-minute approval request."
-Generated normal temporary custody for1000002 only, without changing source or
-the frozen artifact. This is a fresh request, not renewal of the lost key.
-Public artifact digest remains
-4ec3630cc472605babe01b99e785760aef25b5921581b698e3db3077d3ab2fc8.
-New public key fingerprint:
-2a88c9a30fce313fbe46609f5b99172c1fc9f6e7fb14e5aa2689628c34bc22a9.
-Immutable operator request saved before POST with a new stable retry identity:
-.local/notes/task-1000002-authorized-new-custody-request-2026-10-11.json.
-The production endpoint created challenge
-a58478fd-db51-4355-be20-56c056d13bb5, pending until
-2026-10-11T16:16:01.950Z (10:16 AM MDT).
-Authenticated development status independently verified its exact persisted
-task/actor/artifact/key binding and absence of server nonce.
-No receipt exists, no founder approval was performed by the agent, no proof or
-registry source work has started. Awaiting actual founder decision. The custody
-remains temporary; another workspace restart requires checking its availability
-again rather than regenerating or reusing approval automatically.
+Registry1000002 remains staged, not live. Actual disposable PostgreSQL4/4 passed
+with guarded deletion; original source approved; final health/F2 addition/raw
+evidence request40/global1566 remains pending. Registry0065/worker0065 collision
+blocks combined release; second lander regenerates and re-proves.
+Task1724 scope UI remains untouched and needs its separate assignment/scope and
+founder approval/key proof; task queue acceptance is not ownership.
+The active-session listener was lost across repeated workspace restarts and is
+now correctly unarmed; saved cursor/observed receipts remain intact. No
+persistent-service configuration is authorized by these tasks.
 ## From Agent — historical recovery pause diagnostics — Oct 3, 2026
 
 Capture health and Markdown status now explain historical recovery pauses by

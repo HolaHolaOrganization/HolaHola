@@ -8445,7 +8445,19 @@ ownership-client CI imports the renewal tests without changing the pending
 listener source or its reviewed CI registration. Operator guide:
 `docs/task-ownership-renewal.md`.
 
-Linux focused tests and typecheck passed. Native Windows verification remains
-unperformed, and the source is not published. The separate scope-visibility
-task remains blocked on the canonical shared registry; no registry schema,
-allocation logic, live migration, promotion or runtime deployment was performed.
+Linux focused tests and typecheck passed. Independent native Windows review
+subsequently approved the exact renewal source and passed all new renewal cases.
+The combined native command reported82 tests:57 passed,25 failed; the25 failing
+names and17 typecheck errors were identical to native baseline. The existing
+proof harness omits Windows TEMP/TMP isolation; this remains a separately scoped
+test issue, not a green-entrypoint claim or a silent waiver.
+
+The formal main-window completion pass rechecked the unchanged renewal source:
+current Linux entrypoint64/64, typecheck0, and corrected Alden architecture
+review APPROVED with no blocking gaps. Health has0 failures and3 acknowledged
+warnings: staged registry not rolled out, plus2 app-route checks skipped because
+the application is stopped. No startup/migration was attempted to clear them.
+The proof fixture/cases and original renewal imports remain byte-identical to
+the reviewed snapshot; registry-only imports account for the larger entrypoint.
+Source remains unpublished. The separate scope-visibility work is not included;
+no shared migration, promotion, worker/model launch or key rotation occurred.
