@@ -114,6 +114,11 @@ test("PostgreSQL founder-attested ownership protocol is durable and immutable", 
   assert.equal(replay.challengeId, challenge.challengeId);
   await codeOf(ownership.createChallenge({ ...base, artifactSha256: "b".repeat(64), idempotencyKey: `idem-${suffix}` }), "IDEMPOTENCY_CONFLICT");
   await codeOf(ownership.getChallenge(challenge.challengeId, "luca-other"), "CHALLENGE_NOT_FOUND");
+  const boundStatus = await ownership.getChallenge(challenge.challengeId, actor);
+  assert.equal(boundStatus.intendedActor, actor);
+  assert.equal(boundStatus.artifactSha256, artifact);
+  assert.equal(boundStatus.keyFingerprint, fingerprint);
+  assert.equal('serverNonce' in boundStatus, false);
 
   // Two founders racing to approve one task converge on one active receipt.
   const approvals = await Promise.allSettled([

@@ -8,6 +8,10 @@ import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { after, before, test } from 'node:test';
 import { canonicalJson } from './task-ownership-service';
+// The existing CI entrypoint also runs the renewal suites. Keep the separately
+// reviewed listener/CI payload unchanged while its source landing is pending.
+import './task-ownership-attempt.test';
+import './task-ownership-renewal-cli.test';
 
 // All keys, task artifacts, and child-process state belong to this private fixture.
 const root = mkdtempSync(join(tmpdir(), 'ownership-client-'));
