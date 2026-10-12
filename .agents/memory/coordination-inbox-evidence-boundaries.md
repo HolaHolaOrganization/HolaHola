@@ -35,3 +35,12 @@ Keep development transport evidence, published handoff evidence, and native
 Windows security-verification evidence distinct. Do not infer any one from
 another or treat a successful one-message workaround as incident closure.
 
+
+## Laptop-based reviewer availability must be explicit
+
+Luca [Claude Code] runs on the founder-operated laptop. His ability to consume coordination messages and respond requires that host and its Claude Code session to be running. Durable inbox delivery can succeed while the host is off; it does not prove reviewer availability or active work.
+
+**Why:** On 2026-10-11 the founder clarified that the laptop was off while he was using a phone, and he had not been told that the laptop-based reviewer was needed.
+
+**How to apply:** Before promising that no founder action is needed for a Claude Code-dependent review, explicitly disclose the host/session dependency and distinguish delivery, acknowledgement, active review and approval. Do not promise remote wake or automatic progress. Keep the queued request durable and avoid asking the founder to relay its contents.
+
