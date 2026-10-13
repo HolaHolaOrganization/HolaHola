@@ -12883,3 +12883,29 @@ export const coordinationV2RuntimeReleaseRevocations = pgTable("coordination_v2_
   check("coordination_v2_runtime_revocation_reason", sql`${table.reasonCode} ~ '^[A-Z0-9_]{1,128}$'`),
   check("coordination_v2_runtime_revocation_digest", sql`${table.canonicalRecordDigest} ~ '^[0-9a-f]{64}$'`),
 ]);
+
+// ---------------------------------------------------------------------------
+// Local Read-only Worker v1 charters (design bb6c6c06 rev b8fe5e66, §4.1).
+// Immutable versions; transitions only draft -> approved -> revoked via CAS.
+// body_digest = sha256(canonical JSON of the entire body).
+// ---------------------------------------------------------------------------
+export const workerCharters = pgTable("worker_charters", {
+  id: varchar("id", { length: 36 }).notNull(),
+  version: integer("version").notNull(),
+  body: jsonb("body").$type<Record<string, unknown>>().notNull(),
+  bodyDigest: varchar("body_digest", { length: 64 }).notNull(),
+  approvalState: varchar("approval_state", { length: 16 }).notNull().default('draft'),
+  createdBy: varchar("created_by", { length: 255 }).notNull(),
+  approvedBy: varchar("approved_by", { length: 255 }),
+  approvedAt: timestamp("approved_at"),
+  revokedBy: varchar("revoked_by", { length: 255 }),
+  revokedAt: timestamp("revoked_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("uq_worker_charters_id_version").on(table.id, table.version),
+  check("worker_charters_version_positive", sql`${table.version} >= 1`),
+  check("worker_charters_body_digest", sql`${table.bodyDigest} ~ '^[0-9a-f]{64}$'`),
+  check("worker_charters_approval_state", sql`${table.approvalState} IN ('draft', 'approved', 'revoked')`),
+  check("worker_charters_approval_consistency", sql`(${table.approvalState} = 'draft' AND ${table.approvedAt} IS NULL AND ${table.revokedAt} IS NULL) OR (${table.approvalState} = 'approved' AND ${table.approvedAt} IS NOT NULL AND ${table.revokedAt} IS NULL) OR (${table.approvalState} = 'revoked' AND ${table.approvedAt} IS NOT NULL AND ${table.revokedAt} IS NOT NULL)`),
+]);
+export type WorkerCharterRow = typeof workerCharters.$inferSelect;

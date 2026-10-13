@@ -664,6 +664,15 @@ export async function registerRoutes(app: Application): Promise<void> {
   // Founder onboarding routes need the session and Passport middleware above.
   registerRuntimeOnboardingRoutes(app);
   registerCoordinationPolicyRoutes(app);
+  // Local Read-only Worker v1 charters + read-only job discovery. A missing
+  // worker_charters table only affects these routes (WORKER_CHARTER_SCHEMA_UNAVAILABLE).
+  {
+    const { registerWorkerCharterRoutes, defaultWorkerCharterFounderGate } = await import("./routes/worker-charter-routes");
+    registerWorkerCharterRoutes(app, {
+      founderGate: await defaultWorkerCharterFounderGate(),
+      coordinationAuthMiddleware: requireCoordinationAuth,
+    });
+  }
   // Explicit Postgres wiring, not the DB-free default exported from
   // coordination-task-metadata-service.ts: production must resolve a task's
   // artifact bytes without depending on the gitignored .local/tasks/ path

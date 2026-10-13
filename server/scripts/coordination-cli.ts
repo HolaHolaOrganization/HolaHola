@@ -5,6 +5,7 @@ import {
 } from '../services/coordination-actor-client';
 import { FileCoordinationCliCredentialCache } from '../services/coordination-cli-credential-cache';
 import { isDirectCliInvocation } from './lib/cli-entrypoint';
+import { validateCreatePayload } from '../../shared/worker-contracts';
 import {
   COORDINATION_ACTOR_IDS,
   type CoordinationEvidenceReference,
@@ -67,7 +68,7 @@ const OPTIONS_BY_COMMAND: Record<string, ReadonlySet<string>> = {
   show: new Set(['url', 'id', 'after-sequence']),
   create: new Set([
     'url', 'title', 'description', 'recipient', 'priority', 'source-reference',
-    'idempotency-key',
+    'idempotency-key', 'data',
   ]),
   accept: new Set(['url', 'id', 'expected-sequence', 'idempotency-key', 'content', 'evidence', 'data', 'causal-parent-event-id']),
   progress: new Set(['url', 'id', 'expected-sequence', 'idempotency-key', 'content', 'evidence', 'data', 'causal-parent-event-id']),
@@ -288,6 +289,15 @@ async function main(): Promise<void> {
         ?? (() => fail('--global-sequence is required'))(),
     );
   } else if (command === 'create') {
+    // --data: structured created-event payload. Only hh.worker.job.v1 is accepted;
+    // this local check is a convenience, the server re-validates as authority.
+    const rawData = optionalJson(options, 'data');
+    let createPayload: Record<string, unknown> | undefined;
+    if (rawData !== undefined) {
+      const checked = validateCreatePayload(rawData, new Date().toISOString());
+      if (!checked.ok) fail(`--data rejected: ${checked.reason}`);
+      createPayload = rawData as Record<string, unknown>;
+    }
     result = await client.create({
       title: required(options, 'title'),
       description: required(options, 'description'),
@@ -296,6 +306,7 @@ async function main(): Promise<void> {
       ...(optionalJson(options, 'source-reference') !== undefined
         ? { sourceReference: optionalJson(options, 'source-reference') as CoordinationEvidenceReference }
         : {}),
+      ...(createPayload ? { payload: createPayload } : {}),
       idempotencyKey: required(options, 'idempotency-key'),
     });
   } else if (command === 'reply-and-verify') {
