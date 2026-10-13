@@ -118,6 +118,20 @@ commands.splice(safetyInsertion, 0,
   'npx tsx --test server/scripts/test-coordination-v2-runtime-expired-recovery-static.test.ts',
   'npx tsx --test server/scripts/test-coordination-v2-windows-runtime-bootstrap-static.test.ts',
 
+  // Local Read-only Worker v1 (design bb6c6c06 rev b8fe5e66): contracts, pure
+  // decisions, supervisor wiring and routes run everywhere; the Job Object
+  // launcher and Windows state-store cases report SKIPPED off Windows.
+  'npx tsx --test shared/worker-contracts.test.ts server/services/local-worker/paths.test.ts server/services/local-worker/authority.test.ts server/services/local-worker/lifecycle.test.ts server/services/local-worker/adapter.test.ts server/services/local-worker/staging.test.ts server/services/local-worker/supervisor.test.ts server/services/local-worker/ports.test.ts server/routes/worker-charter-routes.test.ts',
+  'npx tsx --test --test-concurrency=1 server/services/local-worker/job-launcher.test.ts',
+  // Real-ledger + charter-table proof; runs only against the verified job-local CI database.
+  'npx tsx --test --test-concurrency=1 server/scripts/test-local-worker-postgres.test.ts',
+  // D1: structured create-payload wiring through the real route/auth, client and CLI;
+  // acceptance cases run only against the verified job-local CI database.
+  'npx tsx --test --test-concurrency=1 server/scripts/test-worker-job-create-wiring.test.ts',
+  // Real-HTTP / exact-envelope proof: the real supervisor and production HTTP port against the
+  // production coordination and charter routes; runs only on the verified job-local CI database.
+  'npx tsx --test --test-concurrency=1 server/scripts/test-local-worker-real-http.test.ts',
+
   // Coordination CLI cross-invocation credential cache: lets a runtime run
   // more than one coordination-cli.ts command per bootstrap instead of
   // needing an operator-reissued bootstrap for every single command.

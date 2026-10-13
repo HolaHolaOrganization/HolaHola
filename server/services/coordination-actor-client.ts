@@ -116,6 +116,8 @@ export type CoordinationThreadCreate = {
   intendedRecipient: Exclude<CoordinationActorId, 'coordination-system'>;
   priority?: 'low' | 'normal' | 'high' | 'urgent';
   sourceReference?: CoordinationEvidenceReference;
+  /** Structured created-event payload; the server accepts only a valid hh.worker.job.v1. */
+  payload?: Record<string, unknown>;
   idempotencyKey: string;
 };
 
@@ -539,6 +541,7 @@ export class CoordinationActorClient {
         intendedRecipient: input.intendedRecipient,
         ...(input.priority ? { priority: input.priority } : {}),
         ...(input.sourceReference ? { sourceReference: input.sourceReference } : {}),
+        ...(input.payload ? { payload: input.payload } : {}),
       },
       idempotencyKey: input.idempotencyKey,
     });

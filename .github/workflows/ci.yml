@@ -238,6 +238,41 @@ jobs:
         shell: powershell
         run: .\scripts\test-hola-coordinator-clock-preflight.ps1
 
+      # Local Read-only Worker native Job Object launcher suite (synthetic
+      # cmd/ping processes only; no model, no harness qualification). Same
+      # dependency policy as the Linux jobs: validate the checked-in lockfile's
+      # registry URLs, install exactly that lockfile including dev dependencies
+      # (tsx), and refuse to let npx fetch a missing runner.
+      - name: Validate package lock registry URLs
+        shell: pwsh
+        run: npm run test:package-lock-registry
+
+      - name: Install dependencies
+        shell: pwsh
+        run: npm ci --include=dev
+
+      - name: Verify local test runtime dependencies
+        shell: pwsh
+        run: |
+          if (-not (Test-Path -LiteralPath 'node_modules\.bin\tsx.cmd')) { throw 'tsx is not installed from the lockfile' }
+          node --input-type=module -e "const { z } = await import('zod'); if (typeof z?.object !== 'function') throw new Error('zod did not resolve'); console.log('[ci] zod resolves from the application import path');"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Run Local Read-only Worker native Job Object launcher tests
+        shell: pwsh
+        run: npx --no-install tsx --test --test-concurrency=1 server/services/local-worker/job-launcher.test.ts
+
+      - name: Run Local Read-only Worker native Windows state store tests
+        shell: pwsh
+        run: |
+          npx --no-install tsx --test --test-concurrency=1 --test-reporter=tap server/services/local-worker/ports.test.ts | Tee-Object -Variable tap
+          $code = $LASTEXITCODE
+          if ($code -ne 0) { Write-Error "[ci] ports.test.ts exited with $code"; exit $code }
+          # The Windows-gated state-store tests must actually run here, not skip.
+          $summary = $tap | Select-String -Pattern '^# skipped (\d+)$' | Select-Object -Last 1
+          $skipped = if ($summary) { $summary.Matches[0].Groups[1].Value } else { 'missing' }
+          if ($skipped -ne '0') { Write-Error "[ci] ports.test.ts skipped count was '$skipped', expected 0"; exit 1 }
+
   test:
     if: ${{ always() }}
     needs:

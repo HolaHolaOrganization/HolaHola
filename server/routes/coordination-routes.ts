@@ -19,6 +19,7 @@ import {
   listCoordinationInbox,
 } from '../services/coordination-inbox-service';
 import { recordOnboardedRuntimeLedgerRead } from '../services/runtime-onboarding-service';
+import { validateCreatePayload } from '../../shared/worker-contracts';
 import type {
   CoordinationActorId,
   CoordinationEventType,
@@ -273,6 +274,14 @@ export function registerCoordinationRoutes(app: Application): void {
         if (!intendedRecipient) {
           throw new CoordinationError('intendedRecipient is required', 400, 'invalid_request');
         }
+        // Only a strictly valid Local Read-only Worker job may ride on thread creation;
+        // any other structured payload is refused (no reserved-kind injection).
+        let payload: Record<string, unknown> | undefined;
+        if (req.body?.payload !== undefined) {
+          const checked = validateCreatePayload(req.body.payload, new Date().toISOString());
+          if (!checked.ok) throw new CoordinationError(`Unsupported create payload: ${checked.reason}`, 400, 'invalid_payload');
+          payload = checked.value as unknown as Record<string, unknown>;
+        }
         const result = await createCoordinationThread({
           actor: actorFrom(req),
           intendedRecipient,
@@ -282,6 +291,7 @@ export function registerCoordinationRoutes(app: Application): void {
           content: req.body?.content,
           idempotencyKey: idempotencyKey(req),
           sourceReference: req.body?.sourceReference,
+          ...(payload ? { payload } : {}),
         });
         res.status(result.deduplicated ? 200 : 201).json({
           achievedState: 'stored',
