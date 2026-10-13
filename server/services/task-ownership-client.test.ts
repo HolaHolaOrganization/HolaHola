@@ -1,3 +1,4 @@
+import './shared-task-registry-health.test';
 import assert from 'node:assert/strict';
 import { createHash, createPublicKey, generateKeyPairSync, verify } from 'node:crypto';
 import { spawn } from 'node:child_process';
@@ -12,6 +13,8 @@ import { canonicalJson } from './task-ownership-service';
 // reviewed listener/CI payload unchanged while its source landing is pending.
 import './task-ownership-attempt.test';
 import './task-ownership-renewal-cli.test';
+import './shared-task-registry.test';
+import './shared-task-registry-cli.test';
 
 // All keys, task artifacts, and child-process state belong to this private fixture.
 const root = mkdtempSync(join(tmpdir(), 'ownership-client-'));

@@ -8,6 +8,7 @@
  */
 
 import pg from "pg";
+import { readSharedTaskRegistryHealth } from "../services/shared-task-registry-health";
 import {
   formatSyntheticFixtureAlert,
   refreshSyntheticFixtureAlert,
@@ -832,6 +833,8 @@ async function main() {
   console.log(`${BOLD}╚══════════════════════════════════════════════╝${RESET}`);
 
   await checkTables();
+  const registryHealth = await readSharedTaskRegistryHealth((statement, parameters) => pool.query(statement, parameters));
+  ({ pass, warn, fail })[registryHealth.status]("Shared task registry", registryHealth.detail);
   await checkSharedSpecWorkspace();
   await checkSyntheticFixtureBoundary();
   await checkSeededData();

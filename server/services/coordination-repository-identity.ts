@@ -1,8 +1,7 @@
 /**
  * Canonical repository identity used by every Coordinator V2 authority.
- * GitHub repository names are case-insensitive; accepting mixed case would
- * create two textual authorities for the same remote, so mixed-case paths
- * mixed-case paths are rejected to avoid ambiguous authority strings.
+ * GitHub owner/repository components are case-insensitive. Normalize them at
+ * this boundary; never rewrite persisted or signed records.
  */
 export function normalizeCoordinationRepositoryIdentity(value: unknown): string {
   if (typeof value !== 'string' || value.length === 0 || value !== value.trim()
@@ -24,16 +23,14 @@ export function normalizeCoordinationRepositoryIdentity(value: unknown): string 
     if (parsed.protocol === 'ssh:' && parsed.username !== 'git') throw new Error('REPOSITORY_IDENTITY_INVALID');
     path = parsed.pathname.slice(1);
   }
-  if (path.endsWith('.git')) path = path.slice(0, -4);
+  if (path.toLowerCase().endsWith('.git')) path = path.slice(0, -4);
   if (path.endsWith('.') || path.includes('..')) throw new Error('REPOSITORY_IDENTITY_INVALID');
-  const parts = path.split('/');
   const normalizedParts = path.split('/');
   if (normalizedParts.length !== 2 || !normalizedParts[0] || !normalizedParts[1]
-    || path !== path.toLowerCase()
-    || !normalizedParts.every((part) => /^[a-z0-9][a-z0-9_.-]*$/.test(part))) {
+    || !normalizedParts.every((part) => /^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/.test(part))) {
     throw new Error('REPOSITORY_IDENTITY_INVALID');
   }
-  return `github:${normalizedParts[0]}/${normalizedParts[1]}`;
+  return `github:${normalizedParts[0].toLowerCase()}/${normalizedParts[1].toLowerCase()}`;
 }
 
 export function sameCoordinationRepositoryIdentity(left: unknown, right: unknown): boolean {
