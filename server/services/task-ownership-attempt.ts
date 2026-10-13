@@ -127,7 +127,10 @@ export async function requestOwnershipAttempt(input: {
     artifactSha256: binding.artifactSha256, publicKey: binding.publicKey,
     keyFingerprint: binding.keyFingerprint, ttlMs,
     idempotencyKey: previousChallengeId ? `renew:${binding.taskRef}:${randomUUID()}`
-      : `${binding.taskRef}:${binding.keyFingerprint}${contextDigest ? `:promotion:${contextDigest}` : ''}`,
+      // The server caps idempotency keys at 128 characters, which the fingerprint plus a
+      // promotion digest would exceed; hash them together into one fixed-length suffix.
+      : contextDigest ? `${binding.taskRef}:promotion:${hash(`${binding.keyFingerprint}:${contextDigest}`)}`
+        : `${binding.taskRef}:${binding.keyFingerprint}`,
     ...(contextDigest ? { contextDigest } : {}),
   };
   const saved = await saveAttempt(statePath, { version: 1, endpoint, previousChallengeId, payload });
