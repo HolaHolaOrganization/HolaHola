@@ -59,6 +59,8 @@ type ClientOptions = {
   fetchImpl?: RuntimeOnboardingFetch;
   /** Only test harnesses should set this, never CLI-derived user input. */
   allowInsecureHttpForTests?: boolean;
+  /** Whole-call bound for readObservation, request through body; default 30 s. */
+  observationTimeoutMs?: number;
 };
 
 export type RuntimeOpenAIResponsesPolicy = {
@@ -72,6 +74,8 @@ const RUNTIME_OPENAI_MCP_SERVER_LABEL = 'holahola-coordination';
 const OBSERVER_PATH = '/api/admin/luca/observe';
 const OBSERVER_CAPABILITY = 'observation:read';
 const OBSERVER_RESPONSE_MAX_BYTES = 1024 * 1024;
+const OBSERVER_DEFAULT_TIMEOUT_MS = 30_000;
+const OBSERVER_MAX_TIMEOUT_MS = 120_000;
 const OBSERVER_STATUSES = new Set(['active', 'db_only', 'no_active_session']);
 const CONVERSATION_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -80,6 +84,35 @@ export type RuntimeObservationResult = {
   status: 'active' | 'db_only' | 'no_active_session';
   observation: Record<string, unknown>;
 };
+
+async function readBoundedText(response: Response, maxBytes: number): Promise<string> {
+  const declared = response.headers.get('content-length');
+  if (declared !== null && /^\d+$/.test(declared.trim()) && Number(declared) > maxBytes) {
+    await response.body?.cancel().catch(() => undefined);
+    throw new Error('onboarding_observe_response_too_large');
+  }
+  if (!response.body) return '';
+  // Content-Length may be absent or wrong, so the limit is enforced on the bytes
+  // actually received and the stream is cancelled as soon as it is exceeded.
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let received = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    received += value.byteLength;
+    if (received > maxBytes) {
+      await reader.cancel().catch(() => undefined);
+      throw new Error('onboarding_observe_response_too_large');
+    }
+    chunks.push(value);
+  }
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(Buffer.concat(chunks));
+  } catch {
+    throw new Error('onboarding_observe_response_invalid');
+  }
+}
 
 /**
  * The observer route falls back to the most recently active session when the
@@ -268,6 +301,7 @@ export class RuntimeOnboardingClient {
   private readonly fetchImpl: RuntimeOnboardingFetch;
   private readonly invitationId: string | undefined;
   private readonly credentialRenewalSkewMs = 60_000;
+  private readonly observationTimeoutMs: number;
 
   constructor(options: ClientOptions) {
     if (!/^[a-z][a-z0-9-]{1,63}$/.test(options.actor)) throw new Error('onboarding_actor_invalid');
@@ -280,6 +314,11 @@ export class RuntimeOnboardingClient {
     this.invitationId = options.invitationId;
     this.store = options.store;
     this.fetchImpl = options.fetchImpl ?? fetch;
+    const timeout = options.observationTimeoutMs ?? OBSERVER_DEFAULT_TIMEOUT_MS;
+    if (!Number.isSafeInteger(timeout) || timeout <= 0 || timeout > OBSERVER_MAX_TIMEOUT_MS) {
+      throw new Error('onboarding_observe_timeout_invalid');
+    }
+    this.observationTimeoutMs = timeout;
   }
 
   private async request(path: string, body: Record<string, unknown>, bearer?: string): Promise<Record<string, unknown>> {
@@ -642,19 +681,31 @@ export class RuntimeOnboardingClient {
       throw new Error('onboarding_observe_capability_missing');
     }
 
-    const response = await this.fetchImpl(new Request(target.toString(), {
-      method: 'GET',
-      headers: { accept: 'application/json', 'x-coordination-token': credential.accessToken },
-      cache: 'no-store',
-      redirect: 'error',
-    }));
-    if (response.redirected || (response.url && response.url !== target.toString())) {
-      throw new Error('onboarding_observe_response_invalid');
-    }
-    if (!response.ok) throw new Error(`onboarding_observe_failed:${response.status}`);
-    const raw = await response.text();
-    if (Buffer.byteLength(raw, 'utf8') > OBSERVER_RESPONSE_MAX_BYTES) {
-      throw new Error('onboarding_observe_response_too_large');
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.observationTimeoutMs);
+    let raw: string;
+    try {
+      const response = await this.fetchImpl(new Request(target.toString(), {
+        method: 'GET',
+        headers: { accept: 'application/json', 'x-coordination-token': credential.accessToken },
+        cache: 'no-store',
+        redirect: 'error',
+        signal: controller.signal,
+      }));
+      if (response.redirected || (response.url && response.url !== target.toString())) {
+        await response.body?.cancel().catch(() => undefined);
+        throw new Error('onboarding_observe_response_invalid');
+      }
+      if (!response.ok) {
+        await response.body?.cancel().catch(() => undefined);
+        throw new Error(`onboarding_observe_failed:${response.status}`);
+      }
+      raw = await readBoundedText(response, OBSERVER_RESPONSE_MAX_BYTES);
+    } catch (error) {
+      if (controller.signal.aborted) throw new Error('onboarding_observe_timeout');
+      throw error;
+    } finally {
+      clearTimeout(timer);
     }
     let value: unknown;
     try {
@@ -670,17 +721,21 @@ export class RuntimeOnboardingClient {
     if (typeof status !== 'string' || !OBSERVER_STATUSES.has(status)) {
       throw new Error('onboarding_observe_response_invalid');
     }
-    // A session for any other conversation means the target was not honoured;
-    // never hand it back as the selected conversation.
+    // Every conversation the payload names must be the selected one, whatever
+    // its status; a contradictory payload is refused rather than relabelled.
+    const matches = (claimed: unknown) => typeof claimed === 'string' && claimed.toLowerCase() === selected;
+    const hasTopLevel = Object.prototype.hasOwnProperty.call(observation, 'conversationId');
+    const hasSession = Object.prototype.hasOwnProperty.call(observation, 'session');
     const session = observation.session;
-    const returnedConversation = status === 'active'
-      ? observation.conversationId
-      : status === 'db_only'
-        ? (typeof session === 'object' && session !== null
-          ? (session as Record<string, unknown>).conversationId
-          : undefined)
-        : selected;
-    if (typeof returnedConversation !== 'string' || returnedConversation.toLowerCase() !== selected) {
+    if (hasTopLevel && !matches(observation.conversationId)) {
+      throw new Error('onboarding_observe_conversation_mismatch');
+    }
+    if (hasSession && (typeof session !== 'object' || session === null || Array.isArray(session)
+      || !matches((session as Record<string, unknown>).conversationId))) {
+      throw new Error('onboarding_observe_conversation_mismatch');
+    }
+    if ((status === 'active' && !hasTopLevel) || (status === 'db_only' && !hasSession)
+      || (status === 'no_active_session' && hasSession)) {
       throw new Error('onboarding_observe_conversation_mismatch');
     }
     return {

@@ -75,10 +75,36 @@ async function storeWithCredential(options: {
   return store;
 }
 
-function client(store: RuntimeOnboardingStore, fetchImpl: RuntimeOnboardingFetch, at = endpoint) {
+function client(
+  store: RuntimeOnboardingStore,
+  fetchImpl: RuntimeOnboardingFetch,
+  at = endpoint,
+  observationTimeoutMs?: number,
+) {
   return new RuntimeOnboardingClient({
     endpoint: at, actor, runtimeId, store, fetchImpl, allowInsecureHttpForTests: true,
+    ...(observationTimeoutMs === undefined ? {} : { observationTimeoutMs }),
   });
+}
+
+/** A body streamed in chunks; records how much was pulled and whether it was cancelled. */
+function streamedBody(chunk: string, count: number) {
+  const bytes = new TextEncoder().encode(chunk);
+  const state = { pulled: 0, cancelled: false };
+  const stream = new ReadableStream<Uint8Array>({
+    pull(controller) {
+      if (state.pulled >= count) {
+        controller.close();
+        return;
+      }
+      state.pulled += 1;
+      controller.enqueue(bytes);
+    },
+    cancel() {
+      state.cancelled = true;
+    },
+  });
+  return { stream, state };
 }
 
 function json(body: unknown, status = 200): Response {
@@ -122,9 +148,16 @@ test('a response for any other conversation is refused rather than returned as t
   for (const reply of [
     { status: 'active', conversationId: other },
     { status: 'active' },
+    { status: 'active', conversationId: selected, session: { conversationId: other } },
     { status: 'db_only', session: { conversationId: other } },
     { status: 'db_only', session: null },
+    { status: 'db_only', session: [selected] },
     { status: 'db_only' },
+    { status: 'db_only', conversationId: other, session: { conversationId: selected } },
+    { status: 'no_active_session', conversationId: other },
+    { status: 'no_active_session', conversationId: null },
+    { status: 'no_active_session', session: { conversationId: other, exchangeCount: 9 } },
+    { status: 'no_active_session', session: { conversationId: selected } },
   ]) {
     await assert.rejects(
       client(store, async () => json(reply)).readObservation(selected),
@@ -215,6 +248,7 @@ test('error, redirected, oversized and malformed responses are refused with safe
     { reply: () => json([selected]), code: /^Error: onboarding_observe_response_invalid$/ },
     { reply: () => json({ status: 'something_else', conversationId: selected }), code: /^Error: onboarding_observe_response_invalid$/ },
     { reply: () => new Response(`{"status":"active","pad":"${'x'.repeat(1024 * 1024)}"}`), code: /^Error: onboarding_observe_response_too_large$/ },
+    { reply: () => new Response(new Uint8Array([0x7b, 0xff, 0x7d])), code: /^Error: onboarding_observe_response_invalid$/ },
     {
       reply: () => {
         const redirected = json({ status: 'active', conversationId: selected });
@@ -238,6 +272,84 @@ test('error, redirected, oversized and malformed responses are refused with safe
   assert.equal(safeFailureCode(new Error('onboarding_observe_failed:403')), 'onboarding_observe_failed');
   assert.equal(safeFailureCode(new Error('onboarding_observe_conversation_mismatch')), 'onboarding_observe_conversation_mismatch');
   assert.equal(safeFailureCode(new Error('onboarding_observe_capability_missing')), 'onboarding_observe_capability_missing');
+});
+
+test('declared oversize Content-Length is refused before the body is read', async () => {
+  const store = await storeWithCredential();
+  const { stream, state } = streamedBody('x', 10);
+  await assert.rejects(
+    client(store, async () => new Response(stream, {
+      headers: { 'content-type': 'application/json', 'content-length': String(2 * 1024 * 1024) },
+    })).readObservation(selected),
+    /^Error: onboarding_observe_response_too_large$/,
+  );
+  assert.equal(state.pulled <= 1, true, `pulled ${state.pulled}`);
+  assert.equal(state.cancelled, true);
+});
+
+test('over-limit bodies with missing or understated Content-Length stop reading at the limit', async () => {
+  const chunk = 'x'.repeat(64 * 1024);
+  for (const contentLength of [undefined, '100', 'not-a-number']) {
+    const store = await storeWithCredential();
+    // 64 chunks of 64 KiB = 4 MiB offered; the limit is 1 MiB.
+    const { stream, state } = streamedBody(chunk, 64);
+    const headers: Record<string, string> = { 'content-type': 'application/json' };
+    if (contentLength !== undefined) headers['content-length'] = contentLength;
+    await assert.rejects(
+      client(store, async () => new Response(stream, { headers })).readObservation(selected),
+      /^Error: onboarding_observe_response_too_large$/,
+      String(contentLength),
+    );
+    assert.equal(state.cancelled, true, `cancelled for ${String(contentLength)}`);
+    assert.ok(state.pulled <= 18, `stopped near the limit for ${String(contentLength)}: pulled ${state.pulled}`);
+  }
+});
+
+test('a chunked body under the limit is reassembled exactly', async () => {
+  const store = await storeWithCredential();
+  const body = JSON.stringify({ status: 'active', conversationId: selected, note: 'ñ'.repeat(3000) });
+  const encoded = new TextEncoder().encode(body);
+  let offset = 0;
+  const stream = new ReadableStream<Uint8Array>({
+    pull(controller) {
+      if (offset >= encoded.length) return controller.close();
+      // Odd chunk size splits multi-byte characters across chunks.
+      controller.enqueue(encoded.subarray(offset, offset + 777));
+      offset += 777;
+    },
+  });
+  const result = await client(store, async () => new Response(stream)).readObservation(selected);
+  assert.equal(result.observation.note, 'ñ'.repeat(3000));
+});
+
+test('a stalled response or body is aborted by the bounded observation timeout', async () => {
+  const store = await storeWithCredential();
+  let headerSignal: AbortSignal | undefined;
+  const stalledHeaders = client(store, (input) => {
+    headerSignal = (input as Request).signal;
+    return new Promise<Response>((_resolve, reject) => {
+      headerSignal!.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
+    });
+  }, endpoint, 50);
+  await assert.rejects(stalledHeaders.readObservation(selected), /^Error: onboarding_observe_timeout$/);
+  assert.equal(headerSignal?.aborted, true);
+
+  const stalledBody = client(store, async (input) => {
+    const signal = (input as Request).signal;
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode('{"status":'));
+        signal.addEventListener('abort', () => controller.error(new DOMException('aborted', 'AbortError')));
+      },
+    });
+    return new Response(stream);
+  }, endpoint, 50);
+  await assert.rejects(stalledBody.readObservation(selected), /^Error: onboarding_observe_timeout$/);
+
+  for (const invalid of [0, -1, 1.5, 120_001, Number.NaN]) {
+    assert.throws(() => client(store, async () => json({}), endpoint, invalid), /onboarding_observe_timeout_invalid/);
+  }
+  assert.equal(safeFailureCode(new Error('onboarding_observe_timeout')), 'onboarding_observe_timeout');
 });
 
 test('generic authenticatedFetch still refuses the observer route and other non-coordination targets', async () => {

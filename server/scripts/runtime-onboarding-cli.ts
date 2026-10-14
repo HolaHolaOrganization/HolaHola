@@ -167,6 +167,8 @@ const SAFE_FAILURE_CODES = new Set([
   'onboarding_observe_response_invalid',
   'onboarding_observe_response_too_large',
   'onboarding_observe_failed',
+  'onboarding_observe_timeout',
+  'onboarding_observe_timeout_invalid',
 ]);
 
 export function safeFailureCode(error: unknown): string {
