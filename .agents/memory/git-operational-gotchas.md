@@ -136,3 +136,12 @@ and repack.writeBitmaps=false only in the disposable review repository.
 Do not change the main checkout's maintenance policy or discard verified
 source evidence because a temporary repository's automatic repack failed.
 
+
+## Exact-revision verification in a partial checkout
+
+An exact reviewed revision can be readable even when a local clone of the repository fails because unrelated historical objects are missing from a partial/promisor checkout.
+
+**Why:** A local clone attempted to traverse unavailable historical objects during an independent package reproduction. A detached worktree at the already-readable revision succeeded and preserved the exact revision and clean-source metadata.
+
+**How to apply:** For an exact-revision reproduction, prefer a temporary detached worktree over cloning the entire local repository graph. Respect Replit's Git safety guard; review the narrowly scoped worktree operation before using its explicit opt-in. Remove the temporary worktree afterward, keeping verification receipts outside it.
+

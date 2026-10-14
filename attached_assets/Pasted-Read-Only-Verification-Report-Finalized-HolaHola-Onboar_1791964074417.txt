@@ -1,0 +1,59 @@
+Read-Only Verification Report: Finalized HolaHola Onboarding Package
+Actor: Luca [Antigravity]
+Host Inspected: LITTLENEMO ($env:COMPUTERNAME: LITTLENEMO / hostname: LittleNemo)
+Checkout / Branch / Commit:
+
+Checkout Path: 
+
+/c:/Users/David/HolaHola-antigravity
+Branch: luca/gemini-experiment
+Commit: 350bb1a13c9d25d04ea164c507f13520f076847b (working tree clean)
+1. Directory Structure & File Inventory (C:\Users\David\obs-final\staging)
+Subdirectories Present: bin, lib, scripts
+Missing Files: None
+Extra Files: None
+Reparse Points / Symlinks: None (all entries are standard directory or regular file entries with empty LinkType and Target)
+Total Regular Files: Exactly 6 regular files
+2. File Hashes & Byte Length Verification
+Relative Path	Expected Bytes	Actual Bytes	Byte Match	Expected SHA-256	Actual SHA-256	Hash Match
+manifest.json	—	1,713	—	c64b146ba1e97eb1d4d43e79eb025e56fbc1633264c8833d6d34d85b41f3909f	c64b146ba1e97eb1d4d43e79eb025e56fbc1633264c8833d6d34d85b41f3909f	MATCH
+bin/holahola-onboarding.mjs	65,491	65,491	MATCH	a5c506567da46b405f0e45e93ccd5b8148de127ca62043f9bfa5aa4f8e00d506	a5c506567da46b405f0e45e93ccd5b8148de127ca62043f9bfa5aa4f8e00d506	MATCH
+lib/runtime-onboarding-sdk.mjs	48,172	48,172	MATCH	1688e6fcf3e4b46cfa8d7b530512a8240e946571acc00ee2b60be33ca53b0a0e	1688e6fcf3e4b46cfa8d7b530512a8240e946571acc00ee2b60be33ca53b0a0e	MATCH
+scripts/runtime-onboarding-native-store.ps1	11,202	11,202	MATCH	8e0f0233b7be513bf814f1536599df32800e00cc58e907c808fe38dec3737c59	8e0f0233b7be513bf814f1536599df32800e00cc58e907c808fe38dec3737c59	MATCH
+package.json	259	259	MATCH	78f01d092b9c282cb33fbab57e46056938706c4b1a4dd3397e9998b94806ab2b	78f01d092b9c282cb33fbab57e46056938706c4b1a4dd3397e9998b94806ab2b	MATCH
+README.txt	1,306	1,306	MATCH	123daa5b8c18011ca36ec08e388bb3cc752efbaaed3764039507f202d32c074b	123daa5b8c18011ca36ec08e388bb3cc752efbaaed3764039507f202d32c074b	MATCH
+3. manifest.json Context & Finalization Checks
+sourceRevision: cde9429f6e538d82e1bf96f7797dc5283fdf3ed7 (MATCH)
+sourceDirty: false (MATCH)
+release: false (MATCH)
+Finalization approvalId: la-observer-cde9429f6-pilot-signed-helper-2026-10-14 (MATCH)
+Finalization approvalSha256: 941ad7aa8573f0fe5bacb4d007ae934f0776bb142dc8a3b540dce097bf1204d3 (MATCH)
+Finalization unsignedManifestSha256: d9ebde394190f7d3a58f77b2ee2835bdb765302d61b3f4c89680718819d3da60 (MATCH)
+unsignedHelperSha256: 04feff0bfaeb5bde6018f02df5fbac94ffff6432b0ff63467cd0f215008d1e4c
+Signer Metadata:
+subject: CN=HolaHola Internal Helper Pilot
+certificateSha256: 5527baca5c8c9db7c8343d3e36b625cc8d4ddc23bd3a203e2c66b322df9404ad
+timestampPolicy: absent-internal-pilot
+4. Read-Only Signature Inspection (scripts/runtime-onboarding-native-store.ps1)
+Inspected via Get-AuthenticodeSignature (read-only):
+
+Status: Valid (Signature verified.)
+Signer Subject: CN=HolaHola Internal Helper Pilot
+Signer Thumbprint (SHA-1): AE523E990FF3D3AD1271D5A668709489A8EFB13A
+Signer Certificate Raw SHA-256: 5527baca5c8c9db7c8343d3e36b625cc8d4ddc23bd3a203e2c66b322df9404ad (MATCHES manifest.json.finalization.signer.certificateSha256)
+Timestamp: None (TimeStamperCertificate is empty, conforming to absent-internal-pilot)
+5. Direct Verification vs. Unverified Scope
+Directly Verified:
+Physical directory contents on LITTLENEMO under C:\Users\David\obs-final\staging.
+Exact file counts, byte sizes, and full SHA-256 checksums matching expected values for all 6 files.
+Key manifest fields matching expected pilot finalization values.
+Read-only Authenticode signature validity and raw certificate SHA-256 match on scripts/runtime-onboarding-native-store.ps1.
+Remains Unverified:
+Native Execution: No package helper, setup, enrollment, or observation script was executed.
+System Root Certificate Trust: Verified Authenticode status against current host policy, but pilot certificate lacks an external timestamp authority.
+Observation Trial State: No Daniela conversation has been selected or initiated.
+6. Coordination Access Status
+Status: UNAVAILABLE
+Dedicated COORDINATION_LUCA_ANTIGRAVITY_TOKEN or broker credentials (COORDINATION_RUNTIME_ID + COORDINATION_RUNTIME_BOOTSTRAP_TOKEN) are not configured on this host.
+As required by protocol: no credentials were borrowed, no packages were modified or transferred, and no onboarding helpers were executed to self-provision access.
+Because coordination access is unavailable, this report is returned here in native chat for David to forward to Luca [Replit] on thread b34efa7e-91bb-4d5f-9d4f-cd92c55c533c.
