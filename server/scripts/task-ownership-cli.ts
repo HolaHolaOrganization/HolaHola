@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { ensureTaskAgentKey, loadTaskAgentKey } from '../services/task-ownership-key-custody';
 import { TaskOwnershipHttpClient, proveStandaloneTaskOwnership } from '../services/task-ownership-client';
 import { approvalWindow, requestOwnershipAttempt, validateTaskRef } from '../services/task-ownership-attempt';
+import { localPromotionCandidate, remotePromotionHead } from '../services/promotion-candidate';
 
 const MACHINE_PREFIX = 'TASK_OWNERSHIP_RESULT_JSON:';
 
@@ -16,7 +17,7 @@ function option(name: string): string | undefined {
 }
 
 function usage(): never {
-  console.error('Usage: task-ownership-cli.ts <begin|renew|status|prove|diagnostic> --task-ref <ref> --actor <actor> [--app-url <url>] [--challenge-id <expired-id> --approval-minutes <1-30>] [--receipt-id <receipt-id>]');
+  console.error('Usage: task-ownership-cli.ts <begin|renew|status|prove|diagnostic> --task-ref <ref> --actor <actor> [--app-url <url>] [--challenge-id <expired-id> --approval-minutes <1-30>] [--receipt-id <receipt-id>] [--promote-branch <branch> --promote-commit <40-hex>]');
   process.exit(64);
 }
 
@@ -57,6 +58,15 @@ async function main(): Promise<void> {
     const root = process.cwd();
     const artifactPath = `${root}/.local/tasks/task-${taskRef}.md`;
     const artifact = await readFile(artifactPath);
+    const branch = option('--promote-branch');
+    const commit = option('--promote-commit');
+    if ((branch === undefined) !== (commit === undefined)) {
+      throw new Error('--promote-branch and --promote-commit must be provided together.');
+    }
+    const promotion = branch && commit ? localPromotionCandidate(root, branch, commit) : undefined;
+    if (promotion && remotePromotionHead(root, promotion.branch) !== promotion.candidateCommit) {
+      throw new Error('Publish the exact candidate branch before requesting promotion approval.');
+    }
     if (command === 'begin' && option('--approval-minutes') !== undefined) {
       throw new Error('--approval-minutes is only supported by renew; begin preserves its original request.');
     }
@@ -69,6 +79,7 @@ async function main(): Promise<void> {
       binding: {
         taskRef, actor, artifactSha256: createHash('sha256').update(artifact).digest('hex'),
         publicKey: key.publicKey, keyFingerprint: key.fingerprint,
+        ...(promotion ? { promotion } : {}),
       },
     });
     console.log(JSON.stringify(response));

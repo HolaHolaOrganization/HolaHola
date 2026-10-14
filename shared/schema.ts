@@ -12683,6 +12683,16 @@ export const taskOwnershipChallenges = pgTable("task_ownership_challenges", {
   check("task_ownership_challenge_lifecycle", sql`${t.expiresAt} > ${t.createdAt} AND ((${t.status} = 'pending' AND ${t.decidedAt} IS NULL) OR (${t.status} <> 'pending' AND ${t.decidedAt} IS NOT NULL))`),
 ]);
 
+export const taskOwnershipPromotionContexts = pgTable("task_ownership_promotion_contexts", {
+  challengeId: varchar("challenge_id").primaryKey().references(() => taskOwnershipChallenges.id),
+  contextDigest: varchar("context_digest", { length: 64 }).notNull(),
+  descriptor: jsonb("descriptor").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => [
+  check("task_ownership_promotion_context_digest", sql`${t.contextDigest} ~ '^[a-f0-9]{64}$'`),
+  check("task_ownership_promotion_context_object", sql`jsonb_typeof(${t.descriptor}) = 'object'`),
+]);
+
 export const taskOwnershipReceipts = pgTable("task_ownership_receipts", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   challengeId: varchar("challenge_id").notNull().references(() => taskOwnershipChallenges.id),

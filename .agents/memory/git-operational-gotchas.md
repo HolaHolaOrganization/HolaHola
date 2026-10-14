@@ -100,3 +100,39 @@ Before starting an approved protected source operation in Replit, authorize its 
 
 **How to apply:** For founder-authorized canonical Git operations, use the platform's documented process-scoped Git permission flag before acquiring the source lease. This does not authorize direct pushes or bypass source validation. If interrupted, preserve the lock, let the canonical expired-and-dead-owner recovery run, and explicitly prepare the same approved bytes before recording. Never hand-edit the ready status or receipt.
 
+
+## Remote-read-only fetch and local Git protection
+
+Remote-read-only Git operations can still write protected local repository state. An authorized source-publication scope does not itself remove a workspace Git protection refusal.
+
+**Why:** The canonical preparation CLI stopped while a fetch tried to update local FETCH_HEAD, before any external write or validation suite ran. Treating “read-only fetch” as “no local mutation” would have hidden the actual guard boundary.
+
+**How to apply:** Keep the distinction between remote mutation, local Git writes, and validation results. Honor an approved rollout's stop-on-refusal rule; do not silently add a permission override or move execution to a manufactured checkout identity.
+
+
+## Fresh GitHub metadata and dispatch identity
+
+Live GitHub ref responses can be stale immediately after a successful landing. Resolve a mismatch with fresh cache-busted ref and branch reads and inspect their server dates before accepting either the reported landing or the old response.
+
+**Why:** A normal ref read returned the former main while fresh ref and branch reads both returned the newly landed commit. Treating the first response as definitive would falsely block dependent work.
+
+**How to apply:** Use independent fresh metadata for disputed live heads. A dispatch workflow's `head_sha` may identify its workflow/ref rather than a separately checked-out promotion candidate; verify the pinned input/checkout in job logs and the resulting main instead of equating those identities.
+
+
+## Partial review repositories: bounded reads and automatic maintenance
+
+Avoid broad content searches in blobless temporary review repositories.
+Disable automatic GC/maintenance and bitmap writing in the disposable
+repository before materializing objects; inspect the named candidate blobs.
+
+**Why:** A broad subtree search can lazily fetch many unrelated blobs.
+In a shallow, partial review repository this also triggered repeated automatic
+repack attempts and bitmap-closure failures. These were review-environment
+failures, not evidence that the candidate code failed.
+
+**How to apply:** Limit reads to the candidate inventory and specific baseline
+objects needed for the comparison. Configure gc.auto=0, maintenance.auto=false
+and repack.writeBitmaps=false only in the disposable review repository.
+Do not change the main checkout's maintenance policy or discard verified
+source evidence because a temporary repository's automatic repack failed.
+

@@ -237,3 +237,68 @@ Schedule bounded infrastructure verification as soon as fresh approval and key p
 
 **How to apply:** Plan create/test/delete as one short verified unit. If the lease expires, stop infrastructure changes and seek a new explicit approval; never extend authority from a status label or an earlier successful proof.
 
+
+## Native approval and release dependency closure
+
+---
+name: Native review proves the tested combined tree
+description: A source packet can rely on reviewed prerequisite patches absent from destination main.
+---
+
+Native approval belongs to the complete tested tree, not automatically to a
+standalone changed-file packet applied to destination main. Resolve the full
+test-base commit and prerequisite source manifests before drafting a release.
+For overlapping files, specify the final version explicitly.
+
+**Why:** A promotion packet passed native verification on top of reviewed
+ownership-renewal source. A rollout draft omitted that prerequisite and would
+have landed imports whose dependencies were absent from main. Independent review
+caught the discrepancy before any publication.
+
+**How to apply:** Compare destination base, review base and final release tree.
+Require full immutable pins, dependency-complete manifests and combined founder
+release scope. Treat missing base objects as an unresolved verification gate,
+not permission to infer the tree from a green test count.
+
+
+## Full identifiers in direct reviewer follow-ups
+
+Use full immutable identifiers and self-contained evidence in direct review follow-ups; shortened display labels are not lookup handles.
+
+**Why:** A follow-up using shortened review/revision identifiers failed to locate a decision that had just been persisted. Supplying the complete identifiers and verified decision restored access. A separate direct consultation must not be assumed to inherit the previous exchange.
+
+**How to apply:** Include full review/document/revision IDs, the exact hash and current verified status. Distinguish the reviewed source packet from the assembled release, and verify decisions independently rather than treating a conversational claim as a receipt.
+
+
+## Provider capabilities versus response-level safety stops
+
+---
+name: Provider capabilities are not safety-stop clearance
+description: Distinguish documented automation and tool permissions from an unresolved response-level safety stop.
+---
+
+A documented automation capability does not authorize reproducing content
+stopped by a safety classifier. Do not infer that a response-level notice came
+from the CLI's tool-permission classifier, or that permission settings can
+resolve it, without evidence identifying the issuing component.
+
+**Why:** Official Anthropic documentation describes both action-approval
+classifiers and safeguards that can stop complete responses. Our worker's
+reported stop supplied neither a command-specific refusal nor a permitted
+narrower scope. General headless-use documentation therefore answered whether
+the capability exists, not why that particular preparation was stopped.
+
+**How to apply:** Keep capability, authentication/commercial scope, confinement
+and incident clearance separate. Seek clarification through the provider's
+documented consent-based feedback/support process using existing visible
+evidence; never treat submitting feedback as approval. Do not retry, reword,
+change actors or switch authentication/billing as an inferred remedy.
+Check current documentation and the actual installed version before relying on
+any newly documented feature.
+
+Sources checked 2026-10-13:
+- https://code.claude.com/docs/en/headless
+- https://www.anthropic.com/engineering/claude-code-auto-mode
+- https://www.anthropic.com/news/building-safeguards-for-claude
+- https://code.claude.com/docs/en/commands
+

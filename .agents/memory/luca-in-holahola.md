@@ -83,3 +83,22 @@ Preserve flexibility across full Claude Desktop, subscription-authenticated head
 
 **How to apply:** Use supported login for profiles that require it, and verify real capabilities rather than treating a no-tool authentication probe as worker acceptance. Isolate inherited overrides for subscription runs; configure provider endpoint and credentials deliberately for API runs. HolaHola coordination authentication is separate. Preserve the active Desktop setup and unrelated configuration; new installation, persistent credential changes, weakened execution policy, and backlog execution require their own authorization.
 
+
+## Progress-bounded completion of automatic assignment
+
+Continue the existing automatic-assignment path toward its first end-to-end
+delivery, but monitor concrete progress and reassess if repeated snags accumulate.
+Keep the initial milestone to one authorized read-only assignment and canonical
+result return, rather than another general-purpose platform build.
+
+**Why:** On 2026-10-13 the founder said it might be worth finishing now to avoid
+losing momentum, while keeping an eye on progress and reevaluating if there are
+too many snags. This preserves the established long-term capability without
+treating past investment as a reason for unlimited further work.
+
+**How to apply:** Report evidence and blockers at each remaining delivery gate.
+Pause for reassessment when repeated failures lack a clear fix or completing a
+gate requires another substantial subsystem. Vendor-tool experiments are not a
+reason to silently abandon the existing automatic-assignment path. Preserve
+explicit release and real-host authorization boundaries.
+

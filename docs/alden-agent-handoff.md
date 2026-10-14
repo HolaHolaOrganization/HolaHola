@@ -1,3 +1,74 @@
+## 2026-10-13 — Ownership scope integration (main window)
+
+The read-only founder ownership UI integration is implemented. Verified
+immutable-registry title/purpose/scope/exclusions, authenticated registry
+creator/source thread, and exact artifact bytes/hash match appear in challenge
+cards and confirmation. Missing record, unregistered bootstrap reservation,
+unavailable provenance, mismatch, integrity failure and registry-unavailable
+cases are explicit. Existing actor/key/artifact/context and decision/receipt
+semantics are unchanged. Metadata grants no authority.
+
+The registry is live; the UI task itself has no registered definition. No
+registration was invented. A challenge context digest does not include a
+decoded candidate descriptor; task starting commit is not candidate approval.
+Earlier notes describing this whole UI integration as blocked are superseded
+by the verified read contract; decoded promotion context remains separate.
+
+27 focused checks, typecheck and system health passed. App restart/public
+screenshot and completed build/release manifest verified. Alden approved exact
+updated source unconditionally. Signed-in founder interaction and full CI
+remain unverified; no testing/implementation subagent or live decision was
+used. See `docs/ownership-scope-review.md`. No promotion, release, registry
+write, enrollment or observation. Canonical handoff revision was updated first;
+this is its local closeout summary, not a live-instruction publication.
+
+LCC's LA client review branch is now available after founder authorization;
+exact-source Replit feedback is pending. Distribution remains open and actual
+invitation/enrollment/observation are unproven. Replit's notification listener
+is live and the monitor is armed for new messages/errors; receipt was posted
+to LCC on the separate thread.
+
+## Automatic promotion candidate binding — 2026-10-12 UTC
+
+David directly approved adding exact branch-and-commit binding in the Replit
+main window. Implemented locally: descriptor/digest in begin/renew, shared
+server nonce payload builder, explicit standalone no-grant path, repeated
+candidate/head proof, narrowly scoped in-process two-parent merge exception,
+SHA-qualified upload and expectedSha workflow pinning with before/after
+checkout branch checks. Null-context generic/runtime contracts retained.
+Final promotion/dispatcher tests 50/50; prior client/attempt regression tests
+89/89; typecheck and diff check pass. Native coverage of this new revision is
+pending, not inherited from LCC's earlier 31/31 approval.
+
+Implementation thread: 10bd8e7f-2980-42d6-bc4e-771170303a76. Source review packet
+is updated separately with exact bytes and a destination-based, single-owned-
+suite CI projection; do not export the mixed workspace CI file. No actual
+dispatch, publication, migration, receipt/challenge renewal or key rotation
+authorized/performed. Old workflow/receiver cannot run this new protocol:
+rollout remains separately gated. Registry release and Task 1724 stay blocked;
+1724 must render decoded promotion context and verify its digest, not display
+a bare hash as readable candidate approval.
+
+Final exact source revision: 29a6d3e3-e308-4d57-88b0-574d4fefda73, SHA256
+9d9bd72b33755922206aa6401ec1441cdf29c5919bb59d46ffaf421bc43a804f;
+formal review 4c3cbce2-ce3c-4ded-91ab-e6646a898a74 is open for eligible
+reviewers. LCC received the source/native request at thread sequence 7.
+Repository policy does not permit assigning him the formal shared-spec
+review, so his independent source/native decision belongs on the thread;
+do not change policy or impersonate an eligible actor. Alden separately
+approved the architecture after inspecting the final workflow and correcting
+his earlier merge-scope statement. That is not formal source/native approval.
+
+LCC's independent decision arrived at thread sequence 8: APPROVED for the
+exact 17-file superseding source revision above, whose bytes match the prior
+draft. His LITTLENEMO/Node 24.19 run reports 50 promotion/dispatcher tests
+passed, zero failures/skips. Broader Windows ownership regressions: 57/82
+passed, with all 25 failures identical to main's TMPDIR baseline; typecheck
+has the same 17 errors as main. No live PASS or live action. This is LCC's own
+source/native review, not a formal shared-spec approval. Workflow/server
+bootstrap still needs a separately reviewed exact one-time sequence and
+founder authorization. Production, bootstrap, registry and 1724 stay held.
+
 ## Luca session-wide delivery — 2026-10-10 UTC
 
 Approved multi-hat build; independent design approval69668936/3a025a66/f61491b6. Portable listener and guide built in Replit main workspace:38 tests pass, typecheck0, system-health0 (two stopped-dev-app route warnings). LCC native earlier source29/29 plus live once0 and parent-gone71; final F1-corrected exact snapshot09121901/9023f2cc awaits LCC final recheck. Live shared instructions review74840586 includes transitional prior-watcher fallback; not approved yet. Do not claim final-source native coverage or Git main landing until verified. Build thread872ea6d0-bd94-4d0f-9ccf-187c18187a02 read through10/global1522; direct status request10 recipient delivery verified. Active Replit listenerkhlUwt3E, local state.local/coordination-listeners/luca-replit, one-shot monitor armed; receipt1508 observed/open, not hot-looping. No arbitrary review/two-hour expiry, no remote ack, no ended-session wake claim, legacy coverage incomplete. No main publication, merge/deploy, credential/config change, model/harness launch or unrelated worker activation authorized. Guide docs/luca-session-notifications.md; source server/scripts/coordination-listener.ts. Closure/archival and cold-host identity checks remain separate proposed follow-ups.

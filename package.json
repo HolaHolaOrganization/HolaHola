@@ -6,8 +6,8 @@
   "overrides": {
     "nanoid": "^3.3.8",
     "browserslist": "^4.24.3",
-    "@xmldom/xmldom": "^0.9.7",
-    "micromatch": "^4.0.8", "brace-expansion": "^2.0.1", "braces": "^3.0.3", "@modelcontextprotocol/sdk": "^1.2.0"
+    "@xmldom/xmldom": "^0.9.16",
+    "micromatch": "^4.0.8", "brace-expansion": "^2.0.1", "braces": "^3.0.3", "@modelcontextprotocol/sdk": "^1.5.0", "@tailwindcss/typography": "^0.5.4"
   },
   "scripts": {
     "prepare": "git config merge.ours.driver true || echo 'WARNING: could not set merge.ours.driver (git unavailable or .git missing)' >&2",

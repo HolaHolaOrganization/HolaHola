@@ -13,3 +13,25 @@ Package-tool output must remain portable outside the development workspace. Keep
 
 **How to apply:** Inspect newly resolved URLs after package-tool use. Where public npm URLs are required, use the official distribution URL and verify that the existing integrity hash matches the public registry. Check registry portability as well as install consistency before committing.
 
+
+## Effective JSON settings versus raw diffs
+
+---
+name: Effective dependency configuration and raw diffs
+description: Reproducibility review needs both parsed dependency settings and raw source comparisons.
+---
+
+Compare effective parsed dependency configuration as well as the raw Git diff.
+Duplicate JSON keys can make an apparent override change semantically inactive:
+the parser uses the last occurrence. Do not silently normalize inherited keys
+as part of a narrowly scoped release.
+
+**Why:** A live-to-destination diff appeared to change an override, while the
+effective npm configuration was different because of an inherited repeated
+key. Looking at only the diff or only the parsed object gave an incomplete view.
+
+**How to apply:** Check duplicate-key structure and the effective resolver
+settings before attributing dependency changes or interpreting lock consistency.
+Keep unrelated manifest cleanup separately reviewed; a dry run still does not
+prove an installed build.
+

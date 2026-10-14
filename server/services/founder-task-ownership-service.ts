@@ -1,4 +1,7 @@
 import crypto from "node:crypto";
+import { enrichOwnershipApprovalScopes } from "./ownership-approval-scope";
+import { checkedPromotionDescriptor, insertPromotionApprovalContext, loadPromotionApprovalContexts, requireVerifiedPromotionContext } from "./promotion-approval-context";
+import { ownershipProofPayload } from "./task-ownership-proof-payload";
 import { and, desc, eq, gt, isNull, lte, sql } from "drizzle-orm";
 import { db } from "../db";
 import {
@@ -35,7 +38,7 @@ function validatePublicKey(encoded: string, suppliedFingerprint: string): string
 export async function createChallenge(input: {
   taskRef: string; artifactSha256: string; intendedActor?: string; coordinationActor: string;
   publicKey: string; keyFingerprint: string; contextDigest?: string; idempotencyKey: string;
-  ttlMs?: number;
+  ttlMs?: number; promotionDescriptor?: unknown;
 }) {
   const ttlMs = input.ttlMs ?? CHALLENGE_TTL;
   if (input.intendedActor && input.intendedActor !== input.coordinationActor) error("ACTOR_MISMATCH");
@@ -49,6 +52,8 @@ export async function createChallenge(input: {
     || ttlMs > MAX_CHALLENGE_TTL
   ) error("INVALID_CHALLENGE");
   validatePublicKey(input.publicKey, input.keyFingerprint);
+  const promotionDescriptor = input.contextDigest != null || input.promotionDescriptor !== undefined
+    ? checkedPromotionDescriptor(input.promotionDescriptor, input.contextDigest) : undefined;
   const requestFields: Record<string, unknown> = {
     taskRef: input.taskRef,
     artifactSha256: input.artifactSha256,
@@ -58,6 +63,7 @@ export async function createChallenge(input: {
     ttlMs,
   };
   if (input.contextDigest !== undefined) requestFields.contextDigest = input.contextDigest;
+  if (promotionDescriptor) requestFields.promotionDescriptor = promotionDescriptor;
   const requestDigest = digest(canonical(requestFields));
 
   return db.transaction(async tx => {
@@ -90,6 +96,7 @@ export async function createChallenge(input: {
       id: taskOwnershipChallenges.id,
       expiresAt: taskOwnershipChallenges.expiresAt,
     });
+    if (promotionDescriptor) await insertPromotionApprovalContext(tx, row.id, input.contextDigest!, promotionDescriptor);
     return { challengeId: row.id, expiresAt: row.expiresAt };
   });
 }
@@ -123,7 +130,11 @@ export async function listChallenges() {
     revokedAt: taskOwnershipReceipts.revokedAt,
   }).from(taskOwnershipReceipts);
   const byChallenge = new Map(receipts.map(receipt => [receipt.challengeId, receipt]));
-  return challenges.map(challenge => ({ ...challenge, receipt: byChallenge.get(challenge.id) ?? null }));
+  const promotionContexts = await loadPromotionApprovalContexts(challenges);
+  return enrichOwnershipApprovalScopes(challenges.map(challenge => ({
+    ...challenge, receipt: byChallenge.get(challenge.id) ?? null,
+    promotionContext: promotionContexts.get(challenge.id),
+  })));
 }
 
 export async function decideChallenge(id: string, decision: "approved" | "rejected", founderId: string, reason?: string) {
@@ -132,8 +143,9 @@ export async function decideChallenge(id: string, decision: "approved" | "reject
     const [initial] = await tx.select().from(taskOwnershipChallenges).where(eq(taskOwnershipChallenges.id, id));
     if (!initial) error("CHALLENGE_NOT_FOUND");
     await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${initial.taskRef}, 0))`);
-    const [challenge] = await tx.select().from(taskOwnershipChallenges).where(eq(taskOwnershipChallenges.id, id));
+    const [challenge] = await tx.select().from(taskOwnershipChallenges).where(eq(taskOwnershipChallenges.id, id)).for("update");
     if (!challenge) error("CHALLENGE_NOT_FOUND");
+    if (decision === "approved") await requireVerifiedPromotionContext(challenge, tx);
     if (challenge.status !== "pending") {
       const [priorEvent] = await tx.select().from(taskOwnershipDecisionEvents)
         .where(eq(taskOwnershipDecisionEvents.challengeId, id))
@@ -247,20 +259,9 @@ export async function issueProofNonce(receiptId: string, actor: string) {
   const [receipt] = await db.select().from(taskOwnershipReceipts).where(and(eq(taskOwnershipReceipts.id, receiptId),
     eq(taskOwnershipReceipts.intendedActor, actor), eq(taskOwnershipReceipts.status, "active"), gt(taskOwnershipReceipts.expiresAt, new Date())));
   if (!receipt) error("RECEIPT_NOT_ACTIVE");
+  await requireVerifiedPromotionContext({ id: receipt.challengeId, contextDigest: receipt.contextDigest });
   const [nonce] = await db.insert(taskOwnershipProofNonces).values({ receiptId, nonce: crypto.randomBytes(32).toString("base64url"), expiresAt: new Date(Date.now() + NONCE_TTL) }).returning();
-  const signedPayload = {
-    nonce: nonce.nonce,
-    nonceId: nonce.id,
-    receiptId: receipt.id,
-    challengeId: receipt.challengeId,
-    taskRef: receipt.taskRef,
-    artifactSha256: receipt.artifactSha256,
-    intendedActor: receipt.intendedActor,
-    publicKey: receipt.publicKey,
-    keyFingerprint: receipt.keyFingerprint,
-    payloadDigest: receipt.payloadDigest,
-    expiresAt: receipt.expiresAt.toISOString(),
-  };
+  const signedPayload = ownershipProofPayload(receipt, nonce);
   return { nonceId: nonce.id, expiresAt: nonce.expiresAt, signedPayload };
 }
 
@@ -281,10 +282,8 @@ export async function verifyProof(nonceId: string, signature: string, actor: str
       await tx.insert(taskOwnershipProofAttempts).values({ nonceId, receiptId: receipt.id, success: false, errorCode: "RECEIPT_NOT_ACTIVE" });
       return { ok: false as const, errorCode: "RECEIPT_NOT_ACTIVE" };
     }
-    const payload = canonical({ nonce: nonce.nonce, nonceId, receiptId: receipt.id, challengeId: receipt.challengeId,
-      taskRef: receipt.taskRef, artifactSha256: receipt.artifactSha256, intendedActor: receipt.intendedActor,
-      publicKey: receipt.publicKey, keyFingerprint: receipt.keyFingerprint, payloadDigest: receipt.payloadDigest,
-      expiresAt: receipt.expiresAt.toISOString() });
+    await requireVerifiedPromotionContext({ id: receipt.challengeId, contextDigest: receipt.contextDigest }, tx);
+    const payload = canonical(ownershipProofPayload(receipt, nonce));
     let success = false;
     try {
       const publicKey = crypto.createPublicKey({
@@ -310,10 +309,11 @@ export async function verifyProof(nonceId: string, signature: string, actor: str
           artifactSha256: receipt.artifactSha256,
           intendedActor: receipt.intendedActor,
            proofPayloadDigest,
+           ...(receipt.contextDigest ? { contextDigest: receipt.contextDigest } : {}),
         }
       : { ok: false as const, errorCode: "SIGNATURE_INVALID" };
   });
-  if (!result.ok) error(result.errorCode);
+  if (result.ok !== true) return error(result.errorCode);
   return result;
 }
 

@@ -101,3 +101,23 @@ For a generated snapshot refresh, retrieve the current canonical document withou
 
 **How to apply:** When a generated handoff refresh stalls, distinguish the current-document read from history retrieval. Verify the current revision and generate the snapshot from it; do not manually merge competing generated snapshots or mistake a history timeout for a missing canonical document.
 
+
+## Compressed source transport does not confer approval
+
+When unpublished source must be reviewed before publication, a byte-preserving
+compressed packet over the existing immutable-note channel can provide source
+access without granting a repository-push exception.
+
+**Why:** Large generated snapshots and diffs can make uncompressed paging
+impractical. A minimal Git bundle can reuse already-public prerequisite
+histories while retaining exact commit, tree and blob identities. This kept
+source access separate from code approval and publication authority.
+
+**How to apply:** Pin all page revisions and content/payload hashes; verify the
+decoded packet's full length/hash, prerequisites, commit/tree, complete path
+inventory and file hashes in a disposable repository without executing the
+candidate. Notes are only a transport: code remains on Git/CI, and source
+review, ownership, CI, release and operational qualification stay separate
+gates. Use an already-authorized review branch when appropriate; do not weaken
+a denied publication gate merely to obtain review bytes.
+

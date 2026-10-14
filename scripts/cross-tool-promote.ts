@@ -61,6 +61,8 @@ import { randomUUID } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { isDirectCliInvocation } from '../server/scripts/lib/cli-entrypoint';
 import { assertOwnershipForInfraMutation, type OwnershipProbe } from '../server/services/infra-mutation-guard';
+import { createPromotionOwnershipProbe } from '../server/services/promotion-ownership-probe';
+import { isCommitSha, type PromotionMerge } from '../server/services/promotion-candidate';
 
 if (existsSync('.env')) {
   process.loadEnvFile('.env');
@@ -117,7 +119,13 @@ export function isValidBranchName(branch: string): boolean {
  * caller re-running `push` after an earlier successful freshen) — nothing
  * to merge, nothing to push.
  */
-export function freshenBranchAgainstMain(branch: string, cwd: string = process.cwd()): { merged: boolean } {
+export function freshenBranchAgainstMain(
+  branch: string, cwd: string = process.cwd(),
+  options: {
+    deferPush?: boolean; candidateCommit?: string;
+    onPromotionMerge?: (merge: PromotionMerge) => void;
+  } = {},
+): { merged: boolean } {
   const git = (args: string[]): string =>
     execFileSync('git', args, { cwd, encoding: 'utf-8', stdio: ['ignore', 'pipe', 'pipe'] });
 
@@ -136,9 +144,23 @@ export function freshenBranchAgainstMain(branch: string, cwd: string = process.c
     );
   }
 
-  git(['fetch', 'origin', 'main', '--no-tags']);
-  const mainSha = git(['rev-parse', 'FETCH_HEAD']).trim();
+  // A process-private ref avoids another fetch changing global FETCH_HEAD
+  // between retrieval and recording the approved merge's second parent.
+  const mainRef = options.onPromotionMerge ? `refs/promotion-freshen/${randomUUID()}` : undefined;
+  let mainSha: string;
+  if (mainRef) {
+    try {
+      git(['fetch', 'origin', `refs/heads/main:${mainRef}`, '--no-tags']);
+      mainSha = git(['rev-parse', '--verify', `${mainRef}^{commit}`]).trim();
+    } finally { git(['update-ref', '-d', mainRef]); }
+  } else {
+    git(['fetch', 'origin', 'main', '--no-tags']);
+    mainSha = git(['rev-parse', 'FETCH_HEAD']).trim();
+  }
   const headSha = git(['rev-parse', 'HEAD']).trim();
+  if (options.candidateCommit !== undefined && headSha !== options.candidateCommit) {
+    throw new Error('Candidate changed after approval; refusing to freshen.');
+  }
 
   let mainAlreadyIncluded = true;
   try {
@@ -151,7 +173,7 @@ export function freshenBranchAgainstMain(branch: string, cwd: string = process.c
   }
 
   try {
-    git(['merge', '--no-edit', mainSha]);
+    git(['merge', ...(options.onPromotionMerge ? ['--no-ff'] : []), '--no-edit', mainSha]);
   } catch (err) {
     try {
       git(['merge', '--abort']);
@@ -167,7 +189,15 @@ export function freshenBranchAgainstMain(branch: string, cwd: string = process.c
     );
   }
 
-  git(['push', 'origin', branch]);
+  if (options.onPromotionMerge) {
+    const commitSha = git(['rev-parse', 'HEAD']).trim();
+    if (!isCommitSha(commitSha) ||
+        git(['rev-list', '--parents', '-n', '1', commitSha]).trim() !== `${commitSha} ${headSha} ${mainSha}`) {
+      throw new Error('Freshening did not create the exact approved two-parent merge.');
+    }
+    options.onPromotionMerge(Object.freeze({ candidateCommit: headSha, mainCommit: mainSha, commitSha }));
+  }
+  if (!options.deferPush) git(['push', 'origin', branch]);
   return { merged: true };
 }
 
@@ -256,20 +286,49 @@ async function cmdPush(positional: string[], flags: Record<string, string | bool
     throw new Error(`Not a valid branch name: ${branch}`);
   }
   const taskRef = requireTaskRef(flags);
+  for (const name of ['actor', 'app-url', 'receipt-id']) {
+    if (flags[name] !== undefined && (typeof flags[name] !== 'string' || !flags[name])) {
+      throw new Error(`--${name} requires a value.`);
+    }
+  }
+  let merge: PromotionMerge | undefined;
+  let phase: 'upload' | 'dispatch' = 'dispatch';
+  const probeOwnership = createPromotionOwnershipProbe({
+    actor: typeof flags.actor === 'string' ? flags.actor : undefined,
+    appUrl: typeof flags['app-url'] === 'string' ? flags['app-url'] : undefined,
+    receiptId: typeof flags['receipt-id'] === 'string' ? flags['receipt-id'] : undefined,
+    branch, merge: () => merge, phase: () => phase,
+  });
   // Freshening can push a merge commit, so check before it as well as dispatch.
-  await assertOwnershipForInfraMutation(taskRef, `github:cross_tool_promote_push:${branch}`);
+  await assertOwnershipForInfraMutation(taskRef, `github:cross_tool_promote_push:${branch}`, probeOwnership);
   const source = (flags.source as string) ?? 'claude-code';
   const jobId = randomUUID();
 
   console.log(`[cross-tool-promote] Freshening "${branch}" against the latest origin/main...`);
-  const { merged } = freshenBranchAgainstMain(branch);
+  const candidateCommit = probeOwnership.candidate()?.candidateCommit;
+  if (!candidateCommit) throw new Error('Missing verified promotion candidate.');
+  const { merged } = freshenBranchAgainstMain(branch, process.cwd(), {
+    deferPush: true, candidateCommit,
+    onPromotionMerge: value => { merge = value; },
+  });
+  if (merged) {
+    // A merge may take long enough for approval to expire or be revoked.
+    // Reprove immediately before uploading the merge, not only at dispatch.
+    phase = 'upload';
+    await assertOwnershipForInfraMutation(taskRef, `github:cross_tool_promote_merge_push:${branch}`, probeOwnership);
+    const sha = probeOwnership.verifiedCommit();
+    if (!isCommitSha(sha)) throw new Error('Missing verified merge SHA.');
+    execFileSync('git', ['push', 'origin', `${sha}:refs/heads/${branch}`], { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'pipe'] });
+    phase = 'dispatch';
+  }
   console.log(
     merged
       ? `[cross-tool-promote] Merged the latest main into "${branch}" and pushed the merge commit.`
       : `[cross-tool-promote] "${branch}" already includes the latest main — nothing to merge.`,
   );
 
-  await dispatchCrossToolPromote(branch, taskRef, jobId);
+  await dispatchCrossToolPromote(branch, taskRef, jobId, { probeOwnership });
+  console.log(`[cross-tool-promote] Approved candidate ${candidateCommit}; dispatched ${probeOwnership.verifiedCommit()}`);
   console.log(`[cross-tool-promote] Dispatched by ${source} — job ${jobId}`);
 
   for (;;) {
@@ -339,16 +398,25 @@ export async function dispatchCrossToolPromote(
   branch: string,
   taskRef: string,
   jobId: string,
-  options: { probeOwnership?: OwnershipProbe; fetchImpl?: typeof fetch } = {},
+  options: { probeOwnership?: OwnershipProbe; fetchImpl?: typeof fetch; expectedSha?: string } = {},
 ): Promise<void> {
+  const probe = options.probeOwnership ?? createPromotionOwnershipProbe({ branch });
   await assertOwnershipForInfraMutation(
     taskRef,
     `github:cross_tool_promote_push:${branch}`,
-    options.probeOwnership,
+    probe,
   );
+  if ('candidate' in probe &&
+      (probe as ReturnType<typeof createPromotionOwnershipProbe>).candidate()?.branch !== branch) {
+    throw new Error('Dispatch branch differs from the approved candidate.');
+  }
+  const expectedSha = 'verifiedCommit' in probe
+    ? (probe as ReturnType<typeof createPromotionOwnershipProbe>).verifiedCommit()
+    : options.expectedSha;
+  if (!isCommitSha(expectedSha)) throw new Error('A freshly verified promotion SHA is required.');
   await githubApi(
     `/repos/${OWNER}/${REPO}/actions/workflows/${WORKFLOW_FILE}/dispatches`,
-    { method: 'POST', body: JSON.stringify({ ref: 'main', inputs: { branch, jobId } }) },
+    { method: 'POST', body: JSON.stringify({ ref: 'main', inputs: { branch, jobId, expectedSha } }) },
     options.fetchImpl,
   );
 }

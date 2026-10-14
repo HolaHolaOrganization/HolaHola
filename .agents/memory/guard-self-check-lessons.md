@@ -28,3 +28,12 @@ A fault-injection test must violate the observable invariant on each supported e
 
 **How to apply:** Preserve the production boundary. In private test copies, deliberately create the unsafe behavior and require the specific assertion to fail. Exercise both scalarized and preserved singleton-array representations, require the unmodified implementation to pass, and retain actual target-engine CI proof. A different error or an unchanged safe result does not prove the intended regression was detected.
 
+
+## Default security gates need a real positive path
+
+Treat the default caller wiring as a real security boundary: it must prove both legitimate authorization and denial, not merely refuse everything.
+
+**Why:** An infrastructure guard's denial-only tests and injected positive stubs looked reassuring while its shipped default could never consume a valid founder approval. A successful proof in one process did not establish authority in the later mutation process. Fail-closed behavior was necessary but not sufficient for a functional gate.
+
+**How to apply:** Exercise the actual credentialed entrypoint in a fresh process, with private fixtures and real cryptographic proof against a synthetic authenticated service. Verify that legitimate approval works without an injected success result, and that missing, expired, revoked or mismatched authority causes no external mutation. Reverify at each later upload/dispatch boundary after potentially lengthy preparation; do not cache a prior successful verification as authority.
+

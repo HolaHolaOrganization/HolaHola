@@ -11,6 +11,10 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import type { OwnershipApprovalScope } from "@shared/task-ownership-scope";
+import { TaskOwnershipScope } from "./TaskOwnershipScope";
+import { PromotionApprovalContext } from "./PromotionApprovalContext";
+import type { PromotionApprovalContext as PromotionContext } from "@shared/promotion-approval-context";
 
 type Receipt = { id: string; status: string; expiresAt: string; revokedAt?: string | null };
 type Challenge = {
@@ -20,6 +24,8 @@ type Challenge = {
   intendedActor: string;
   keyFingerprint: string;
   contextDigest?: string | null;
+  scopeContext?: OwnershipApprovalScope;
+  promotionContext?: PromotionContext;
   status: string;
   expiresAt: string;
   createdAt: string;
@@ -30,6 +36,11 @@ type Action = "approve" | "reject" | "revoke";
 
 const dateTime = (value?: string | null) => value ? new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(value)) : "Not recorded";
 const shortId = (value: string) => value.length > 26 ? `${value.slice(0, 13)}…${value.slice(-11)}` : value;
+const reviewable = (challenge: Challenge) => challenge.contextDigest == null ||
+  (challenge.promotionContext?.status === "verified" &&
+   challenge.promotionContext.contextDigest === challenge.contextDigest &&
+   challenge.promotionContext.computedDigest === challenge.contextDigest &&
+   !!challenge.promotionContext.descriptor);
 
 export function TaskOwnershipTab() {
   const { toast } = useToast();
@@ -56,6 +67,7 @@ export function TaskOwnershipTab() {
   const challenges = useMemo(() => data ?? [], [data]);
   const pendingCount = challenges.filter((item) => item.status.toLowerCase() === "pending").length;
   const openDialog = (action: Action, challenge: Challenge) => {
+    actionMutation.reset();
     setReason("");
     setDialog({ action, challenge });
   };
@@ -64,6 +76,10 @@ export function TaskOwnershipTab() {
     const now = Date.now();
     const isExpired = new Date(dialog.challenge.expiresAt).getTime() <= now;
     const isPending = dialog.challenge.status.toLowerCase() === "pending";
+    if (dialog.action === "approve" && !reviewable(dialog.challenge)) {
+      toast({ variant: "destructive", title: "Promotion context is not reviewable", description: "A matching readable candidate descriptor is required before approval." });
+      return;
+    }
     const receiptExpired = dialog.challenge.receipt
       ? new Date(dialog.challenge.receipt.expiresAt).getTime() <= now
       : true;
@@ -94,7 +110,7 @@ export function TaskOwnershipTab() {
           <Alert className="border-amber-500/30 bg-amber-500/[0.06]">
             <AlertTriangle className="h-4 w-4 text-amber-600" />
             <AlertTitle>What approval proves</AlertTitle>
-            <AlertDescription>Approval authorizes the process holding that private key for this task; it does not independently prove Replit sandbox identity.</AlertDescription>
+            <AlertDescription>Review requests in Command Center → System → Ownership. Approval authorizes the process holding that private key for this task; it does not independently prove Replit sandbox identity. Registry metadata is informational, not approval or ownership proof.</AlertDescription>
           </Alert>
         </CardContent>
       </Card>
@@ -140,11 +156,11 @@ export function TaskOwnershipTab() {
               <CardHeader className="pb-3">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                   <div className="min-w-0">
-                    <CardTitle className="flex items-center gap-2 text-base"><span className="truncate">{challenge.taskRef}</span><Badge variant={pending && !expired ? "default" : "secondary"}>{expired && pending ? "Expired" : challenge.status}</Badge></CardTitle>
+                    <CardTitle className="flex items-center gap-2 text-base"><span className="truncate">{challenge.taskRef}</span><Badge variant={pending && !expired ? "default" : "secondary"}>{expired && pending ? "Challenge expired" : challenge.status}</Badge></CardTitle>
                     <CardDescription className="mt-1">Challenge {shortId(challenge.id)}</CardDescription>
                   </div>
                   <div className="flex shrink-0 gap-2">
-                    <Button size="sm" onClick={() => openDialog("approve", challenge)} disabled={!pending || expired || actionMutation.isPending} data-testid={`button-approve-${challenge.id}`}><Check className="mr-1.5 h-4 w-4" /> Approve</Button>
+                    <Button size="sm" onClick={() => openDialog("approve", challenge)} disabled={!pending || expired || actionMutation.isPending || !reviewable(challenge)} data-testid={`button-approve-${challenge.id}`}><Check className="mr-1.5 h-4 w-4" /> Approve</Button>
                     <Button size="sm" variant="outline" onClick={() => openDialog("reject", challenge)} disabled={!pending || expired || actionMutation.isPending} data-testid={`button-reject-${challenge.id}`}><X className="mr-1.5 h-4 w-4" /> Reject</Button>
                     {challenge.receipt && <Button size="sm" variant="destructive" onClick={() => openDialog("revoke", challenge)} disabled={!canRevoke || actionMutation.isPending} data-testid={`button-revoke-${challenge.id}`}><ShieldCheck className="mr-1.5 h-4 w-4" /> Revoke receipt</Button>}
                   </div>
@@ -159,7 +175,8 @@ export function TaskOwnershipTab() {
                 </div>
                 <Digest label="Artifact SHA-256" value={challenge.artifactSha256} />
                 <Digest label="Public-key fingerprint" value={challenge.keyFingerprint} icon={<Fingerprint />} />
-                {challenge.contextDigest && <Digest label="Context digest" value={challenge.contextDigest} />}
+                <TaskOwnershipScope context={challenge.scopeContext} />
+                <PromotionApprovalContext context={challenge.promotionContext} contextDigest={challenge.contextDigest} />
                 <div className="rounded-md border bg-muted/30 p-3 text-sm">
                   <span className="font-medium">Receipt: </span>{challenge.receipt ? `${challenge.receipt.status} · expires ${dateTime(challenge.receipt.expiresAt)}${challenge.receipt.revokedAt ? ` · revoked ${dateTime(challenge.receipt.revokedAt)}` : ""}` : "Not issued"}
                 </div>
@@ -177,6 +194,8 @@ export function TaskOwnershipTab() {
               {dialog?.action === "approve" ? "This authorizes the process holding the listed private key for this task. It does not independently prove Replit sandbox identity." : "This decision changes the authorization state for this task. Confirm only if you have reviewed the digests and actor fingerprint."}
             </AlertDialogDescription>
           </AlertDialogHeader>
+          {dialog && <div className="max-h-[40vh] space-y-3 overflow-y-auto"><TaskOwnershipScope context={dialog.challenge.scopeContext} /><PromotionApprovalContext context={dialog.challenge.promotionContext} contextDigest={dialog.challenge.contextDigest} /></div>}
+          {actionMutation.isError && <Alert variant="destructive"><AlertTitle>Decision failed</AlertTitle><AlertDescription>{actionMutation.error instanceof Error ? actionMutation.error.message : "The server refused this decision."}</AlertDescription></Alert>}
           <div className="space-y-2"><Label htmlFor="ownership-reason">Reason <span className="font-normal text-muted-foreground">(optional)</span></Label><Textarea id="ownership-reason" value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Record the operational basis for this decision" data-testid="input-ownership-reason" /></div>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={actionMutation.isPending}>Cancel</AlertDialogCancel>

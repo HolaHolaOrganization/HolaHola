@@ -424,3 +424,59 @@ mtime_ms = 1791668589028
 storage_uri = "gcs://replit-rams-assets-kirk/rams/assets/repl:3ca2376d-c3dc-490a-a375-6b2f97f7c281/87bf72a8-a396-461c-9e19-8e1c2ac2dccc/7aa9723d-eece-47a6-989b-06862d01eb33"
 storage_version_token = "1791668739177967"
 content_type = "text/markdown"
+
+[[outputs]]
+id = "T_bukShZxqgUEEQyFqbyJ"
+uri = "file://.local/promotion-binding-rollout-draft.md"
+type = "text"
+title = "Approved rollout procedure"
+description = "Independently approved by LCC. This approves the procedure only; exact release pins and founder execution approval are still required."
+logical_id = "eb359f21-9ed5-4fa8-962e-0848fe7025e4"
+content_hash = "sha256:425eb54a0a5866b98844924e45808a0a1e45a918d87c5151caba0a105de5c7f7"
+size = 12348
+mtime_ms = 1791790961724
+storage_uri = "gcs://replit-rams-assets-kirk/rams/assets/repl:3ca2376d-c3dc-490a-a375-6b2f97f7c281/eb359f21-9ed5-4fa8-962e-0848fe7025e4/6a3e2357-efc2-47b0-8c58-79cbd40c857f"
+storage_version_token = "1791791190634532"
+content_type = "text/markdown"
+
+[[outputs]]
+id = "PjosWPaZKTgs9dD4MVY64"
+uri = "file://.local/promotion-bootstrap-preflight.md"
+type = "text"
+title = "Verified combined release candidate"
+description = "Exact commit verified locally and independently reconstructed by LCC. Publication remains held pending formal source review, full validation and exact-commit approval."
+logical_id = "32eecd72-96c9-4474-8e52-c20ef8d0ac7f"
+content_hash = "sha256:45dffa3133efab16c578af41c59a381a97b74d34a247e9cfa6b1c3c30b575dd1"
+size = 4336
+mtime_ms = 1791807181243
+storage_uri = "gcs://replit-rams-assets-kirk/rams/assets/repl:3ca2376d-c3dc-490a-a375-6b2f97f7c281/32eecd72-96c9-4474-8e52-c20ef8d0ac7f/3e83c526-04df-44fa-b35b-fc6dca81a4db"
+storage_version_token = "1791807208362244"
+content_type = "text/markdown"
+
+[[outputs]]
+id = "XnUtsg7s5FD_tfqjNXs8R"
+uri = "file://.local/promotion-binding-source-review-approval.md"
+type = "text"
+title = "Verified formal source approval"
+description = "Alden’s exact recorded approval, the 17-source-file versus 22-release-path clarification, and the remaining publication boundaries."
+logical_id = "3c78cdc7-0923-4ccf-bfe6-b6b442518b75"
+content_hash = "sha256:20be309469f16a4ff5861c49e1704b81fd8e71550cacf4c2824b688cca2aec45"
+size = 1944
+mtime_ms = 1791820899998
+storage_uri = "gcs://replit-rams-assets-kirk/rams/assets/repl:3ca2376d-c3dc-490a-a375-6b2f97f7c281/3c78cdc7-0923-4ccf-bfe6-b6b442518b75/7396cbfe-953c-4079-a2b6-115b4fd17d5e"
+storage_version_token = "1791821007192303"
+content_type = "text/markdown"
+
+[[outputs]]
+id = "45Jty16mJKZ788yOE4c3E"
+uri = "file://.local/promotion-bootstrap-clean-publisher-proposal.md"
+type = "text"
+title = "Clean publisher continuation proposal"
+description = "Preserves the approved commit and original workspace; requires a genuine authorized main publisher and all normal guards. No release has occurred."
+logical_id = "bdaf5417-85a2-466a-a005-3ff5e5f67781"
+content_hash = "sha256:619dfe0d4666d824def3b46911814623d105c0f1740396d180cbe43b1ca511d8"
+size = 2292
+mtime_ms = 1791821797082
+storage_uri = "gcs://replit-rams-assets-kirk/rams/assets/repl:3ca2376d-c3dc-490a-a375-6b2f97f7c281/bdaf5417-85a2-466a-a005-3ff5e5f67781/335d0f8b-6e09-49c6-b886-01a4be71219e"
+storage_version_token = "1791822012630907"
+content_type = "text/markdown"

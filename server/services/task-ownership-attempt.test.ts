@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { approvalWindow, ownershipEndpoint, requestOwnershipAttempt, validateTaskRef } from './task-ownership-attempt';
+import { promotionContextDigest, type PromotionCandidate } from './promotion-candidate';
 
 const binding = {
   taskRef: '900003', actor: 'luca-replit', artifactSha256: 'a'.repeat(64),
@@ -13,6 +14,24 @@ const binding = {
 const expired = '10000000-0000-4000-8000-000000000001';
 const endpoint = 'http://127.0.0.1:59999';
 const due = new Date(0).toISOString();
+
+test('promotion-v2 submits the exact descriptor with a bounded key and deep-canonical retry', async () => {
+  await fixture(async (f, workspace) => {
+    const promotion: PromotionCandidate = { purpose: 'cross-tool-promote', repository: 'github:davidwmcintosh/holahola', branch: 'fixture/review', candidateCommit: 'c'.repeat(40) };
+    const input = { command: 'begin' as const, workspace, endpoint, binding: { ...binding, promotion }, client: f.client };
+    const first = await requestOwnershipAttempt(input);
+    const second = await requestOwnershipAttempt({ ...input, binding: { ...binding, promotion: JSON.parse(JSON.stringify(promotion)) } });
+    assert.equal(first.challengeId, second.challengeId);
+    const directories = await readdir(join(workspace, '.local', 'task-ownership-attempts'));
+    const directory = join(workspace, '.local', 'task-ownership-attempts', directories[0]);
+    const files = await readdir(directory);
+    assert.deepEqual(files, [`begin-promotion-v2-${promotionContextDigest(promotion)}.json`]);
+    const attempt = JSON.parse(await readFile(join(directory, files[0]), 'utf8'));
+    assert.deepEqual(attempt.payload.promotionDescriptor, promotion);
+    assert.equal(attempt.payload.contextDigest, promotionContextDigest(promotion));
+    assert.ok(attempt.payload.idempotencyKey.length <= 128);
+  });
+});
 
 async function fixture(run: (f: ReturnType<typeof fake>, workspace: string) => Promise<void>) {
   const workspace = await mkdtemp(join(tmpdir(), 'ownership-attempt-'));

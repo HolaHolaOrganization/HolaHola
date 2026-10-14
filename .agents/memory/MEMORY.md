@@ -91,7 +91,6 @@
 - [Socket room supersession](socket-room-supersession.md) — Socket.IO membership belongs to socket+room, not join attempt; stale same-room completion must never leave the winning room.
 - [Render redeploys on every push to main](render-autodeploy-moving-target.md) — Historical auto-deploy observations are conditional; verify live policy. Dashboard exact-commit deploys disable auto-deploy.
 - [.replit env vars are git-tracked](replit-env-var-tracked-file.md) — setEnvVars(shared) writes into the tracked .replit file; set/commit/push config before, never during, a tree-cleanliness-sensitive git workflow.
-- [Source-control promotion path](source-control-promotion-path.md) — direct git push is disabled; use the in-process scheduler's wake file; any unrelated dirty tracked file silently blocks promotion.
 - [Git reconciliation procedure](reconciliation-git-procedure.md) — divergence detection, GitHub App auth, preflight→candidate→sync, plus manual hand-merge steps for ordinary/unclassified conflicts candidate() refuses.
 - [Reconciliation hermetic env import coupling](reconciliation-hermetic-env-import-coupling.md) — any eager value-import of a DB-touching module breaks the self-check under its deliberately stripped validation env; use type-only + lazy import.
 - [Triaging markTaskComplete validation failures](validation-failure-triage.md) — check the live server/workflow first, and prove pre-existing-vs-caused-by-me with a git worktree at the parent commit before treating a failure as a regression.
@@ -110,10 +109,9 @@
 - [Status signals need independent verification](status-signal-verification.md) — a missing blockedBy tag, a coordination comment, or a compacted-summary claim can look like confirmation without being one; verify the authoritative state directly.
 - [Disposable-database gate design rules](disposable-database-gate-design.md) — DB-writing tests need a verified job-local database, not just cleanup; a disposable-target gate must check its own dedicated env var before the ambient shared one or it throws instead of skipping.
 - [Gemini review and approval process](gemini-review-and-approval-process.md) — prompt-context-injection/neural-net changes need Gemini approval (GEMINI_REQUIRED.md); iterate to unconditional approval before commit.
-- [LITTLENEMO reauth publish gate](littlenemo-reauth-publish-gate.md) — Windows reauthorization testing on LITTLENEMO is downstream of founder-only source AND runtime publication -- never a parallel track; see topic file for the exact stop sequence.
 - [Validation-suite CI parity guard design](validation-suite-ci-parity-guard.md) — regex text-scanning for a string literal is comment-blind -- a commented-out (disabled) call reads as identically present as a live one unless comments are stripped first.
 - [DB conflict becomes an actionable error message](db-conflict-actionable-error-message.md) — once a duplicate-key conflict is detected, verify the suggested recovery path works for the record's real state before wiring it into the error message
-- [REPL_HOME leaks into local fresh-checkout simulations](local-ci-simulation-fidelity.md) — Fresh-checkout/CI simulations have three gotchas: REPL_HOME leaks past cwd() unless unset, shallow clones (fetch-depth 1) break history-anchored self-checks, and .local/ doesn't exist until a writer mkdirSync's it first.
+- [REPL_HOME leaks into local fresh-checkout simulations](local-ci-simulation-fidelity.md) — Fresh-checkout and workflow parity: root env, history depth, missing directories, and system-tool dependencies.
 - [Bootstrap mismatch diagnosis](bootstrap-mismatch-diagnosis.md) — Repeated invalid_bootstrap after a clean reissue is almost always a client-side transcription error; verify the token's exact byte length locally before reissuing again.
 - [MEMORY.md cap nudge can be stale](memory-index-cap-nudge-verification.md) — verify with wc -l/-c before trimming a shared multi-hat index -- the automated cap nudge can fire when the file measures under both caps
 - [Replit sandbox process, backgrounding, and log-capture quirks](replit-sandbox-process-quirks.md) — Consolidates 5 topics: always use run_in_background (never manual &/nohup); disposable local Postgres recipe; ss is missing (use lsof); workflow 'finished' can race the log drain; ambient sandbox tools/secrets absent in CI.
@@ -130,7 +128,7 @@
 - [Episode-lifecycle service guards](episode-lifecycle-service-guards.md) — new episode-insertion call sites must mirror createEpisode's fire-and-forget indexing side effects; never flip the live 'rolling' tag against shared prod DB during testing.
 - [Hat onboarding sequencing](hat-onboarding-sequencing.md) — Ledger path + Gemini's V2 adapter proven (Sep 28-29); the interactive-CLI path is separate and untouched -- real LITTLENEMO has zero V2 sessions bound to it as of Sep 30.
 - [Synthetic fixture ID collision](synthetic-fixture-id-collision.md) — a hardcoded "surely never real" fixture value (e.g. Episode 99) can collide with real content as the system grows -- not a race, a deterministic expiry
-- [Windows PowerShell/console quirks](windows-environment-quirks.md) — Windows-only PowerShell/console gotchas plus Job Object startup and cancellation ownership; verify native contracts, not PID or model assertions.
+- [Windows PowerShell/console quirks](windows-environment-quirks.md) — Windows console, PowerShell, job ownership and disposable-test policies; verify native behavior, not process IDs or model claims.
 - [Shared-spec live-instruction-document drift](shared-spec-live-instruction-doc-drift.md) — docs/coordination-clients.md is DB-governed; a raw git edit silently diverges until synced via appendRevision.
 - [CAS failure reason: deleted vs version_mismatch](agent-memory-cas-failure-reason.md) — editEntry/editBlock's failure now reports why: deletedAt beats version comparison, so a deletion is never mistaken for a stale version.
 - [Source-control stall detection](source-control-stall-detection.md) — generic failure-count/staleness thresholds + dual-channel (ephemeral+durable) alerting beat per-state cases and the visible-only-if-watched gap.
@@ -138,7 +136,6 @@
 - [Coordination V2 system lessons](coordination-v2-consolidated-lessons.md) — 22 lessons on Coordination V2 authority boundaries, credential handling, testing patterns, and operational gotchas -- see topic file for each.
 - [Confabulation in code, not just conversation](confabulation-in-code-generation.md) — Same Archive-vs-Muse pattern hits code-writing agents: placeholder checks + false done/notified claims, not an engine quality gap.
 - [Shared-tool identity leak](shared-tool-identity-leak.md) — parallel branches need identity via explicit context, not a global-config read, or one gets told it's the other
-- [Source-control candidate provenance](source-control-candidate-provenance.md) — auto-sync can produce ready_to_promote too; candidateSource + drift check stop Publish shipping the unreviewed one.
 - [Agent-memory drift guard vs. concurrent writes](agent-memory-drift-guard-concurrent-writes.md) — the drift guard's "out of sync with DB" error also fires from another hat's legitimate concurrent write, not just a hand-edit -- regenerate --all before assuming a hand-edit
 - [Memory-file rebase conflicts](agent-memory-rebase-conflict-resolution.md) — resolve via regenerate --all from the shared DB, not by hand-merging ours/theirs prose -- rebase's ours/theirs is reversed from merge's
 - [Real-DB channel-independence testing](postgres-trigger-fault-injection.md) — prove two best-effort DB writes fail independently with a real BEFORE INSERT trigger, not a mock
@@ -150,10 +147,10 @@
 - [Coordinator V2 Windows DPAPI retry semantics](coordination-v2-dpapi-retry-no-clear.md) — runtime-release refresh needs no DPAPI clear -- retry is Initialize-HolaCoordinatorRuntime + Invoke-HolaCoordinator; host never auto-upgrades
 - [Historical attribution recovery](historical-attribution-recovery.md) — Snapshot repair alone does not change recovery authority; verify both the repaired prefix and later historical appends.
 - [Windows signing and publisher trust](windows-signing-publisher-trust.md) — Public CA trust is not publisher approval; rotating signer certificates may prevent unattended downloaded-helper execution.
-- [Render production target](render-production-target.md) — Render is production; every builder runtime must publish through the shared Render release path.
 - [NPM override reproducibility](npm-override-reproducibility.md) — Floating overrides can break clean CI while local installs pass; inspect dependency-tool declaration drift.
 - [Coordination inbox evidence boundaries](coordination-inbox-evidence-boundaries.md) — A fresh attributed forward can unblock review; successful bounded receipt/read/reply does not explain historical invisibility.
 - [Guard self-check lessons](guard-self-check-lessons.md) — Grouped pointers: sibling detectors, asymmetric mutations, scanner fixture races, and self-matching text scans.
 - [Main workspace implementation](main-workspace-implementation.md) — Approved designs allow direct multi-hat implementation and review; routine exchanges do not require founder relays.
-- [Windows validation environment](windows-validation-environment.md) — Sandbox is optional for disposable testing, never a Windows product or runtime requirement.
 - [Task-number range assumptions](task-number-range-assumptions.md) — A project allocation floor is not an external platform ID ceiling; preserve imported references and reject collisions.
+- [CLI read-only contract safety](cli-readonly-contract-safety.md) — Confirm inspection flags before invoking them; an unsupported listing flag can start the default executable chain.
+- [Approval and publication boundaries](approval-publication-boundaries.md) — Separate digest coverage, selected source and release authority; grouped pointers retain the five original rules.

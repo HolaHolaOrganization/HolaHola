@@ -342,3 +342,18 @@ set TEMP, TMP and TMPDIR to the same private fixture directory, while continuing
 to exclude ambient credentials and DB URLs. Verify native results separately;
 baseline equality establishes no regression, not a passing test entrypoint.
 
+
+## Disposable Windows validation policy
+
+For disposable test-environment policy, see
+[Windows validation environment](windows-validation-environment.md).
+Windows Sandbox is optional for isolated testing, never a HolaHola product or
+runtime requirement.
+
+**Why:** A standing project requirement distinguishes disposable validation
+facilities from dependencies that would restrict actual Windows users.
+
+**How to apply:** Native Windows verification may use a disposable environment,
+but product setup must not require Sandbox. Keep that policy with the other
+Windows operational lessons; the linked topic retains the original detail.
+

@@ -1,3 +1,57 @@
+## 2026-10-13 — Readable ownership scope
+
+The assigned main-window UI work now enriches founder challenge reads from the
+existing immutable registry and shows title, purpose, scope/exclusions, registry
+creator, source thread and independently checked artifact hashes in the card
+and confirmation. Missing records, reserved-but-unregistered bootstrap tasks,
+unknown metadata/provenance, mismatches, invalid bytes and unavailable registry
+are explicit. Existing founder-only decisions and all actor/key/receipt bindings
+remain unchanged; registry metadata does not grant authority.
+
+The live registry is available, contrary to the earlier blanket dependency
+note below. The assigned UI task itself is unregistered; no registration was
+manufactured. Decoded promotion descriptors remain separately scoped: the
+existing challenge response stores only a context digest, and the UI says so.
+A task starting commit is not a promotion candidate.
+
+Verification: 27 focused checks passed without skips, typecheck and system
+health passed; application restart/public screenshot succeeded. Build artifacts
+and release manifest completed after the launcher timeout. The canonical CI
+runner contains the focused suite. An attempted unsupported `--list` flag
+started the canonical runner and was interrupted early; no full-CI pass is
+claimed. Signed-in founder interaction was not exercised; main-window work
+used no testing/implementation subagent. Alden reviewed exact updated source
+and returned unconditional approval. Details: `docs/ownership-scope-review.md`.
+No source promotion, release, registry write, enrollment or observation.
+
+## 2026-10-12 — Automatic promotion proof and exact candidate binding
+
+Direct main-window authorization covers implementation only. Begin/renew can
+request an exact promotion descriptor (purpose, GitHub repository, branch, full
+candidate SHA) using existing context_digest. One pure payload builder binds
+that digest in nonce issuance and verification, preserving null-context bytes.
+Standalone proof suppresses runtime grant issuance. Promotion repeats proof,
+checks local and remote heads, and permits only its own no-ff two-parent merge
+with a process-private fetched-main ref and an in-memory lease. Upload uses an
+immutable SHA. Workflow requires expectedSha, verifies the branch before
+checkout, pins checkout, and checks the branch again before validation.
+
+Final focused promotion/dispatcher tests: 50/50, zero skipped; earlier unchanged
+ownership client/attempt regression tests: 89/89. Typecheck and diff check pass.
+Tests use private repositories/remotes, synthetic HTTP and actual signatures;
+the actual inline workflow guards run against fixtures. No shared DB test
+writes, actual GitHub dispatch, publication or migration. Exact new source
+awaits independent/native LCC review; earlier native approval does not cover
+this added binding. Old receiver/workflow need separately authorized rollout;
+no compatibility fallback. Task 1724 remains blocked and needs decoded
+descriptor plus digest validation in its future approval-context UI.
+
+Independent native review subsequently arrived: LCC approved the exact
+17-file source and reports Windows50/50 promotion/dispatcher tests passed
+with no skips. Broader Windows regression/typecheck failures match main's
+pre-existing baselines; live success remains unverified. This does not
+authorize the one-time receiver/workflow bootstrap or change the release holds.
+
 ## 2026-10-11 — Registry bootstrap staged verification
 
 Registry1000002:64 focused pass, typecheck/build0; actual disposable current

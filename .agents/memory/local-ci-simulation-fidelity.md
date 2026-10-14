@@ -82,3 +82,21 @@ you are that "some other process already created the directory." Don't trust
 a green local run alone to prove this — local dev shells hide the bug by
 already having the directory.
 
+
+## Test-command parity is not workflow-environment parity
+
+Passing a full test suite in one workflow does not establish that a separate
+publication workflow has the system dependencies required to run that same
+suite. Test-command parity is not environment parity.
+
+**Why:** A candidate passed every PR-CI job, but its founder-operated
+publication gate failed an unchanged test because only PR CI installed
+ripgrep. The test deliberately forced the native-tool branch, so the
+application's working fallback did not satisfy that assertion.
+
+**How to apply:** When reusing a test suite in another workflow, compare
+system-tool installation, PATH setup, checkout history, working directory
+and environment gates, not only npm commands. Attribute evidence to the
+workflow and exact commit that actually ran; never treat a parent's green
+CI as verification of a revised publication workflow.
+

@@ -42,6 +42,10 @@ const STATUS_BY_ERROR_CODE: Readonly<Record<string, number>> = {
   INVALID_CHALLENGE: 422,
   INVALID_KEY_FINGERPRINT: 422,
   INVALID_PUBLIC_KEY: 422,
+  PROMOTION_DESCRIPTOR_INVALID: 422,
+  PROMOTION_CONTEXT_MISMATCH: 422,
+  PROMOTION_CONTEXT_REQUIRED: 409,
+  PROMOTION_CONTEXT_UNAVAILABLE: 503,
   NONCE_INVALID: 410,
   NONCE_REPLAYED: 409,
   OWNERSHIP_UNAVAILABLE: 503,
@@ -222,7 +226,8 @@ export function registerFounderTaskOwnershipRoutes(app: Application): void {
         // Gate 3 grants require broker provenance.  Fixed/legacy actor tokens
         // may continue to verify ownership, but can never mint authority.
         if (
-          req.coordinationAuthType !== "broker"
+          req.body?.standalone === true
+          || req.coordinationAuthType !== "broker"
           || !isGate3BrokerCredential(req.coordinationCredential)
         ) {
           res.json(proof);

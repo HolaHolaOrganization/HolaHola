@@ -42,6 +42,10 @@ on:
         description: "Branch to validate and fast-forward main to"
         required: true
         type: string
+      expectedSha:
+        description: "Exact verified promotion commit"
+        required: true
+        type: string
       jobId:
         description: "Correlation id the triggering caller uses to find this run"
         required: true
@@ -63,10 +67,67 @@ jobs:
       DEEPGRAM_API_KEY: ${{ secrets.DEEPGRAM_API_KEY }}
       DEV_TEST_ACCOUNT_PASSWORD: ${{ secrets.DEV_TEST_ACCOUNT_PASSWORD }}
     steps:
+      - name: Validate pinned promotion inputs
+        env:
+          PROMOTION_BRANCH: ${{ inputs.branch }}
+          EXPECTED_SHA: ${{ inputs.expectedSha }}
+        run: |
+          [[ "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::Invalid expected SHA"; exit 1; }
+          [[ "$PROMOTION_BRANCH" =~ ^[A-Za-z0-9._/-]+$ && ${#PROMOTION_BRANCH} -le 200 && "$PROMOTION_BRANCH" != -* && "$PROMOTION_BRANCH" != *..* ]] || { echo "::error::Invalid promotion branch"; exit 1; }
+          git check-ref-format --branch "$PROMOTION_BRANCH"
+
+      - name: Verify promotion branch before checkout
+        env:
+          PROMOTION_BRANCH: ${{ inputs.branch }}
+          EXPECTED_SHA: ${{ inputs.expectedSha }}
+          PROMOTION_TOKEN: ${{ github.token }}
+        run: |
+          node --input-type=module <<'NODE'
+          const branch = process.env.PROMOTION_BRANCH;
+          const expected = process.env.EXPECTED_SHA;
+          if (!/^[0-9a-f]{40}$/.test(expected ?? '') || !/^[A-Za-z0-9._/-]+$/.test(branch ?? '') ||
+              branch.startsWith('-') || branch.includes('..') || branch.length > 200) {
+            throw new Error('Invalid pinned promotion inputs');
+          }
+          const endpoint = `${process.env.GITHUB_API_URL}/repos/${process.env.GITHUB_REPOSITORY}/git/ref/heads/${encodeURIComponent(branch)}`;
+          const response = await fetch(endpoint, {
+            headers: {
+              Authorization: `Bearer ${process.env.PROMOTION_TOKEN}`,
+              Accept: 'application/vnd.github+json',
+              'X-GitHub-Api-Version': '2022-11-28',
+            },
+            redirect: 'error', signal: AbortSignal.timeout(15000),
+          });
+          if (!response.ok) throw new Error('Cannot verify promotion branch before checkout');
+          const ref = await response.json();
+          if (ref.ref !== `refs/heads/${branch}` || ref.object?.type !== 'commit' || ref.object?.sha !== expected) {
+            throw new Error('Promotion branch moved before checkout');
+          }
+          NODE
+
       - uses: actions/checkout@v5
         with:
-          ref: ${{ inputs.branch }}
+          ref: ${{ inputs.expectedSha }}
           fetch-depth: 0
+
+      - name: Refuse a moved promotion branch
+        env:
+          PROMOTION_BRANCH: ${{ inputs.branch }}
+          EXPECTED_SHA: ${{ inputs.expectedSha }}
+        run: |
+          node --input-type=module <<'NODE'
+          import { execFileSync } from 'node:child_process';
+          const branch = process.env.PROMOTION_BRANCH;
+          const expected = process.env.EXPECTED_SHA;
+          if (!/^[0-9a-f]{40}$/.test(expected ?? '') || !/^[A-Za-z0-9._/-]+$/.test(branch ?? '') ||
+              branch.startsWith('-') || branch.includes('..') || branch.length > 200) {
+            throw new Error('Invalid pinned promotion inputs');
+          }
+          const git = args => execFileSync('git', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+          const remote = git(['ls-remote', '--heads', 'origin', `refs/heads/${branch}`]);
+          if (remote !== `${expected}\trefs/heads/${branch}`) throw new Error('Promotion branch moved after verification');
+          if (git(['rev-parse', 'HEAD']) !== expected) throw new Error('Checkout differs from verified SHA');
+          NODE
 
       - name: Use Node.js
         uses: actions/setup-node@v5

@@ -57,3 +57,4 @@ docs/episode-99.md
 
 # Approved private Windows signing-pilot transfers are not source releases.
 attached_assets/runtime-onboarding-windows-signed-pilot*.zip
+/generated-artifacts/
