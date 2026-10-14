@@ -3,7 +3,10 @@ import { existsSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { RuntimeOnboardingClient } from '../services/runtime-onboarding-client';
+import {
+  RuntimeOnboardingClient,
+  validObserverConversationId,
+} from '../services/runtime-onboarding-client';
 import {
   createNativeRuntimeOnboardingStore,
   secureStoreDiagnosticCategory,
@@ -14,13 +17,14 @@ import {
   runRuntimeMcpStdioBridge,
 } from '../services/runtime-onboarding-transports';
 
-type CliAction = 'setup' | 'status' | 'mcp' | 'sdk';
+type CliAction = 'setup' | 'status' | 'mcp' | 'sdk' | 'observe';
 type ParsedArguments = {
   action: CliAction;
   endpoint: string;
   actor: string;
   runtimeId: string;
   invitationId?: string;
+  conversationId?: string;
   printConfig: boolean;
   waitForApproval: boolean;
 };
@@ -32,14 +36,16 @@ const CLI_HELP = [
   '  node holahola-onboarding.mjs mcp --endpoint https://host --actor <actor> --runtime-id <id>',
   '  node holahola-onboarding.mjs mcp --print-config --endpoint https://host --actor <actor> --runtime-id <id>',
   '  node holahola-onboarding.mjs sdk --endpoint https://host --actor <actor> --runtime-id <id>',
+  '  node holahola-onboarding.mjs observe --endpoint https://host --actor <actor> --runtime-id <id> --conversation-id <uuid>',
   '',
   'setup prints the approval reference and can be rerun with the same scope after approval.',
   '--wait opens the founder approval page and polls for up to ten minutes.',
+  'observe is a read-only snapshot of one founder-selected conversation; there is no latest-session default.',
 ].join('\n');
 
 function parseArguments(argv: string[]): ParsedArguments {
   const action = argv[0];
-  if (action !== 'setup' && action !== 'status' && action !== 'mcp' && action !== 'sdk') {
+  if (action !== 'setup' && action !== 'status' && action !== 'mcp' && action !== 'sdk' && action !== 'observe') {
     throw new Error('usage');
   }
   const values = new Map<string, string>();
@@ -55,7 +61,8 @@ function parseArguments(argv: string[]): ParsedArguments {
       waitForApproval = true;
       continue;
     }
-    if (flag !== '--endpoint' && flag !== '--actor' && flag !== '--runtime-id' && flag !== '--invitation-id') {
+    if (flag !== '--endpoint' && flag !== '--actor' && flag !== '--runtime-id' && flag !== '--invitation-id'
+      && !(flag === '--conversation-id' && action === 'observe')) {
       throw new Error('usage');
     }
     const value = argv[index + 1];
@@ -69,9 +76,13 @@ function parseArguments(argv: string[]): ParsedArguments {
   if (!endpoint || !actor || !runtimeId) throw new Error('usage');
   const invitationId = values.get('--invitation-id');
   if ((action === 'setup') !== Boolean(invitationId)) throw new Error('usage');
+  const conversationId = values.get('--conversation-id');
+  if ((action === 'observe') !== Boolean(conversationId)) throw new Error('usage');
   return {
     action, endpoint, actor, runtimeId,
     ...(invitationId ? { invitationId } : {}),
+    // Validated here so a malformed target fails before secure-store access.
+    ...(conversationId ? { conversationId: validObserverConversationId(conversationId) } : {}),
     printConfig, waitForApproval,
   };
 }
@@ -150,13 +161,19 @@ const SAFE_FAILURE_CODES = new Set([
   'onboarding_sdk_mcp_failed',
   'onboarding_recovery_not_available',
   'secure_store_unsupported_platform',
+  'onboarding_observe_conversation_id_invalid',
+  'onboarding_observe_capability_missing',
+  'onboarding_observe_conversation_mismatch',
+  'onboarding_observe_response_invalid',
+  'onboarding_observe_response_too_large',
+  'onboarding_observe_failed',
 ]);
 
 export function safeFailureCode(error: unknown): string {
   if (!(error instanceof Error)) return 'runtime_onboarding_operation_failed';
   const message = error.message;
   if (SAFE_FAILURE_CODES.has(message)) return message;
-  if (/^onboarding_(?:request_failed|sdk_ledger_read_failed|sdk_mcp_failed):[1-5]\d\d$/.test(message)) {
+  if (/^onboarding_(?:request_failed|sdk_ledger_read_failed|sdk_mcp_failed|observe_failed):[1-5]\d\d$/.test(message)) {
     return message.split(':')[0];
   }
   if (/^onboarding_recovery_not_available:(?:prepared|requested|approved|denied|cancelled|expired|revoked)$/.test(message)) {
@@ -255,6 +272,21 @@ export async function runRuntimeOnboardingCli(argv = process.argv.slice(2)): Pro
 
   if (parsed.action === 'status') {
     console.log(JSON.stringify(await client.localStatus(), null, 2));
+    return;
+  }
+
+  if (parsed.action === 'observe') {
+    const result = await client.readObservation(parsed.conversationId as string);
+    console.log(JSON.stringify({
+      action: 'observe',
+      actor: client.scope.actor,
+      runtimeId: client.scope.runtimeId,
+      conversationId: result.conversationId,
+      status: result.status,
+      readAt: new Date().toISOString(),
+      readOnly: true,
+      observation: result.observation,
+    }, null, 2));
     return;
   }
 

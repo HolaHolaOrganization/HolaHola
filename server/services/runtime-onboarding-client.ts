@@ -69,6 +69,29 @@ export type RuntimeOpenAIResponsesPolicy = {
 export type RuntimeOpenAIResponsesResult = OpenAIResponse | Stream<ResponseStreamEvent>;
 
 const RUNTIME_OPENAI_MCP_SERVER_LABEL = 'holahola-coordination';
+const OBSERVER_PATH = '/api/admin/luca/observe';
+const OBSERVER_CAPABILITY = 'observation:read';
+const OBSERVER_RESPONSE_MAX_BYTES = 1024 * 1024;
+const OBSERVER_STATUSES = new Set(['active', 'db_only', 'no_active_session']);
+const CONVERSATION_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export type RuntimeObservationResult = {
+  conversationId: string;
+  status: 'active' | 'db_only' | 'no_active_session';
+  observation: Record<string, unknown>;
+};
+
+/**
+ * The observer route falls back to the most recently active session when the
+ * conversation ID is absent or empty, so an explicit, well-formed ID is the
+ * only accepted target.
+ */
+export function validObserverConversationId(value: unknown): string {
+  if (typeof value !== 'string' || !CONVERSATION_ID_PATTERN.test(value)) {
+    throw new Error('onboarding_observe_conversation_id_invalid');
+  }
+  return value.toLowerCase();
+}
 
 function requireString(value: unknown, name: string, maxLength = 512): string {
   if (typeof value !== 'string' || value.length === 0 || value.length > maxLength) {
@@ -504,6 +527,20 @@ export class RuntimeOnboardingClient {
     return credential;
   }
 
+  /** Loads, recovers or renews this scope's credential; it never leaves the client. */
+  private async usableCredential(): Promise<StoredCredential> {
+    let credential = await this.loadCredential();
+    if (!credential) credential = await this.recoverCredential();
+    const expiresIn = Date.parse(credential.expiresAt) - Date.now();
+    if (expiresIn <= 0) {
+      credential = await this.recoverCredential();
+    } else if (expiresIn < this.credentialRenewalSkewMs
+      && credential.capabilities.includes('coordination:credential:renew')) {
+      credential = await this.renewCredential(credential);
+    }
+    return credential;
+  }
+
   /**
    * Call the already-authorized OpenAI Responses SDK with this runtime's
    * coordination MCP tool. The coordination credential never leaves this
@@ -533,15 +570,7 @@ export class RuntimeOnboardingClient {
       throw new Error('onboarding_openai_allowed_tools_invalid');
     }
 
-    let credential = await this.loadCredential();
-    if (!credential) credential = await this.recoverCredential();
-    const expiresIn = Date.parse(credential.expiresAt) - Date.now();
-    if (expiresIn <= 0) {
-      credential = await this.recoverCredential();
-    } else if (expiresIn < this.credentialRenewalSkewMs
-      && credential.capabilities.includes('coordination:credential:renew')) {
-      credential = await this.renewCredential(credential);
-    }
+    const credential = await this.usableCredential();
     if (!/^[A-Za-z0-9._~+/=-]+$/.test(credential.accessToken)) {
       throw new Error('onboarding_local_credential_invalid');
     }
@@ -576,15 +605,7 @@ export class RuntimeOnboardingClient {
     if (target.origin !== new URL(this.scope.endpoint).origin || !allowedPath || credentialPath) {
       throw new Error('onboarding_auth_header_target_not_allowed');
     }
-    let credential = await this.loadCredential();
-    if (!credential) credential = await this.recoverCredential();
-    const expiresIn = Date.parse(credential.expiresAt) - Date.now();
-    if (expiresIn <= 0) {
-      credential = await this.recoverCredential();
-    } else if (expiresIn < this.credentialRenewalSkewMs
-      && credential.capabilities.includes('coordination:credential:renew')) {
-      credential = await this.renewCredential(credential);
-    }
+    const credential = await this.usableCredential();
     const headers = new Headers(baseRequest.headers);
     headers.delete('authorization');
     headers.delete('x-coordination-token');
@@ -597,6 +618,76 @@ export class RuntimeOnboardingClient {
     headers.set('accept', headers.get('accept') ?? 'application/json, text/event-stream');
     const authenticatedRequest = new Request(baseRequest, { headers, redirect: 'error' });
     return this.fetchImpl(authenticatedRequest);
+  }
+
+  /**
+   * Read-only observation of one explicitly selected conversation through the
+   * existing observer route. The path, method and query are fixed here; callers
+   * supply only the conversation ID, which is validated before any secure-store
+   * or network access. Which conversation may be observed is a founder
+   * selection outside this method; the route does not check conversation
+   * ownership.
+   */
+  async readObservation(conversationId: string): Promise<RuntimeObservationResult> {
+    const selected = validObserverConversationId(conversationId);
+    const target = new URL(OBSERVER_PATH, `${this.scope.endpoint}/`);
+    target.searchParams.set('conversationId', selected);
+    if (target.origin !== this.scope.endpoint || target.pathname !== OBSERVER_PATH
+      || target.search !== `?conversationId=${selected}`) {
+      throw new Error('onboarding_auth_header_target_not_allowed');
+    }
+
+    const credential = await this.usableCredential();
+    if (!credential.capabilities.includes(OBSERVER_CAPABILITY)) {
+      throw new Error('onboarding_observe_capability_missing');
+    }
+
+    const response = await this.fetchImpl(new Request(target.toString(), {
+      method: 'GET',
+      headers: { accept: 'application/json', 'x-coordination-token': credential.accessToken },
+      cache: 'no-store',
+      redirect: 'error',
+    }));
+    if (response.redirected || (response.url && response.url !== target.toString())) {
+      throw new Error('onboarding_observe_response_invalid');
+    }
+    if (!response.ok) throw new Error(`onboarding_observe_failed:${response.status}`);
+    const raw = await response.text();
+    if (Buffer.byteLength(raw, 'utf8') > OBSERVER_RESPONSE_MAX_BYTES) {
+      throw new Error('onboarding_observe_response_too_large');
+    }
+    let value: unknown;
+    try {
+      value = JSON.parse(raw) as unknown;
+    } catch {
+      throw new Error('onboarding_observe_response_invalid');
+    }
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+      throw new Error('onboarding_observe_response_invalid');
+    }
+    const observation = value as Record<string, unknown>;
+    const status = observation.status;
+    if (typeof status !== 'string' || !OBSERVER_STATUSES.has(status)) {
+      throw new Error('onboarding_observe_response_invalid');
+    }
+    // A session for any other conversation means the target was not honoured;
+    // never hand it back as the selected conversation.
+    const session = observation.session;
+    const returnedConversation = status === 'active'
+      ? observation.conversationId
+      : status === 'db_only'
+        ? (typeof session === 'object' && session !== null
+          ? (session as Record<string, unknown>).conversationId
+          : undefined)
+        : selected;
+    if (typeof returnedConversation !== 'string' || returnedConversation.toLowerCase() !== selected) {
+      throw new Error('onboarding_observe_conversation_mismatch');
+    }
+    return {
+      conversationId: selected,
+      status: status as RuntimeObservationResult['status'],
+      observation,
+    };
   }
 
   /** Proves actor identity and read-only ledger/MCP capability with live calls. */
