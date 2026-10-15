@@ -21,6 +21,14 @@ ACTFL-grounded teaching, a syllabus and adaptation across encounters, alongside
 meaningful back-and-forth conversation. Foreign-language fluency in chatbot
 output alone does not establish these teaching capabilities.
 
+The founder describes the intended experience as "a real person in digital
+form": sustained connection rather than a foreign-language chatbot alone.
+Learning should be driven by meaningful communication and its consequences,
+not primarily by memorizing disconnected material. Expressing a need, being
+understood, sharing a personal story or laughing together can provide reasons
+to speak, retrieve language and return to the conversation. The communicative
+outcome itself is a reward; it need not be replaced by gamified incentives.
+
 **Why:** On October 15, 2026, the founder explicitly identified this as what
 HolaHola should be and warned that stripping away conversation, collaboration
 and fun jeopardizes the end goal.
@@ -39,4 +47,9 @@ the lesson rather than treating stored records, level labels or syllabus
 documents as proof. Preserve the difference between intended product behavior
 and behavior demonstrated in real use. Do not turn broad claims about other
 apps into established facts without evidence.
+Use curriculum and proficiency standards to support appropriate opportunities
+for meaningful communication. Notice and revisit what needs practice without
+turning every exchange into a recall test. This is a product direction, not a
+claim that all material will be retained automatically or that all adults learn
+identically to young children.
 
