@@ -15,6 +15,11 @@ services:
     region: oregon
     healthCheckPath: /health
     autoDeploy: true
+    # Applies pending migrations + data-ops to production before the new
+    # release starts; a failure aborts the deploy. See scripts/render-predeploy.ts.
+    # A Blueprint is desired config only -- the live service's dashboard
+    # "Pre-Deploy Command" must hold this same value.
+    preDeployCommand: npx tsx scripts/render-predeploy.ts
     envVars:
       - key: NODE_ENV
         value: production

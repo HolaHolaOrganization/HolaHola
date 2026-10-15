@@ -39,6 +39,27 @@ own hosting platform is not production publication.
    explain same-tree source-head differences, but can never replace Render
    evidence.
 
+## Schema migrations and data-ops (pre-deploy)
+
+Since 2026-10-15, `main` changes only through reviewed, CI-green pull requests
+and Render auto-deploys `main` after its checks pass. Pending migrations and
+data-ops are applied by Render's **Pre-Deploy Command**,
+`npx tsx scripts/render-predeploy.ts`, which runs in the built image before
+the new release starts:
+
+1. `drizzle-kit migrate` over a direct (unpooled) connection. It uses
+   `NEON_DIRECT_DATABASE_URL` when set, otherwise it derives the direct URL
+   from `NEON_SHARED_DATABASE_URL` by dropping Neon's `-pooler` host suffix.
+2. `scripts/run-data-ops.ts` (every data-op must be idempotent).
+
+Any failure exits non-zero. Render then fails the deploy and the previous
+release keeps serving, so code never starts ahead of its migration. This
+replaces the retired `cross-tool-promote.yml` production-apply step. A
+migration PR still needs its normal CI validation, and it reaches production
+the moment it merges, so review the migration SQL as a production change.
+The dashboard setting, not `render.yaml`, is what Render actually runs:
+verify it there.
+
 ## Stops and failures
 
 - Expiry, source changes, dirty tracked files, non-explicit preparation,
