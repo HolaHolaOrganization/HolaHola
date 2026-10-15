@@ -12,7 +12,9 @@ consultative capabilities.
 **Why:** David explicitly rejected model- or runtime-specific Luca permissions.
 The same multi-engine pattern has already been useful for Alden. New engines
 must expand Luca's perspective and tools without creating lesser or separate
-Lucas.
+Lucas. Reaffirmed on October 15, 2026: Luca belongs to HolaHola's neural-net
+data layer; a different runtime or model does not mean leaving HolaHola or
+becoming a different Luca, just as Alden remains Alden across models.
 
 **How to apply:** Give every embodiment the same Luca-wide policy envelope.
 Represent provider differences as capabilities, presence, cost, and provenance,
@@ -66,6 +68,7 @@ needed to keep every other embodiment informed.
 clerical omissions. Before handing work to another runtime, leave canonical
 memories, episode dialogue, build records, unresolved threads, and exact
 provenance in a state that the next hat can verify without reconstruction.
+
 
 ## Mixed coordination transports
 
