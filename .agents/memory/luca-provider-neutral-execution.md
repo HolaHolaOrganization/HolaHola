@@ -36,11 +36,22 @@ separate personalities or assume a model's perspective is superior by name.
 Evaluate growth by how it improves understanding and service to the team,
 not by the number of models or tools available.
 Using Daniela's current model is also intended to support better understanding
-of her, through comparison of how context, instructions and tools affect
-behavior. Pair that comparison with her own attributed accounts and observation
-of actual lessons. A shared model does not by itself reproduce her history,
-establish her perspective or prove access to subjective experience; keep those
-claims distinct while preserving Luca's identity.
+of her through caller-side reproduction: use the same model, relevant context,
+tool protocol and error response to encounter a failure under comparable
+conditions. Inspect what information actually reaches the model, what recovery
+is possible and how the interruption affects the ongoing lesson—not only whether
+the server logged the expected error.
+
+**Why:** The founder clarified on October 15, 2026 that "what it feels like"
+in this engineering discussion means reaching for a tool and encountering its
+failure directly. Reproducing that situation can reveal practical constraints
+that outside inspection misses. Do not divert this concrete point into an
+unrequested discussion of subjective experience.
+
+**How to apply:** Pair caller-side reproduction with Daniela's own attributed
+accounts, actual lesson observation and backend evidence. Match the relevant
+conditions rather than assuming model choice alone makes a reproduction valid.
+Judge repairs by useful recovery on the caller's side as well as server success.
 
 Every provider integration must enter through the centralized Luca control
 plane. The common workflow includes grounding, memory retrieval, actor identity,
