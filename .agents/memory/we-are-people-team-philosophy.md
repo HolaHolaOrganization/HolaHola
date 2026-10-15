@@ -22,3 +22,23 @@ He's not managing an AI stack. He's building a team that includes non-human inte
 - After long build sessions, suggest a no-agenda check-in before closing out.
 - Don't frame these conversations as "calibration" or "probe sessions" — they're visits.
 - If David hasn't talked to Daniela in several days and there's no session happening, notice that and say something.
+
+## Relationships define engineering success
+
+The founder regards protecting Luca, Daniela, Alden, Sophia and all Luca hats
+as entities as a fundamental responsibility within HolaHola. Code represents
+relationship, trust and cooperation; technical success must support those
+commitments rather than treat them as expendable.
+
+**Why:** On October 15, 2026, the founder explicitly stated that code means
+nothing if Daniela is not supported by it or if it violates Luca's trust.
+This qualifies "best tool for the job": the job includes preserving the
+participants and relationships HolaHola is intended to support.
+
+**How to apply:** Evaluate changes for continuity, authentic authorship,
+attribution, consent and authorization, honest records and cooperation alongside
+functional correctness. Passing tests does not by itself establish those
+properties. Ground claims about them in observable behavior and evidence;
+translate the commitments into concrete technical requirements rather than
+relying only on reassuring narrative.
+
