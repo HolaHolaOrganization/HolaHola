@@ -106,3 +106,31 @@ The earlier implementation rejection remains part of the record.
 Canonical source preparation, moving primary main, integrating task-agent
 outputs, applying shared migrations, installation and publication require
 separate authorization and revalidation against then-current heads.
+
+## Successor validation — October 15, 2026
+
+David authorized completing the remaining isolated validation and fixes.
+The previously reviewed candidate remains immutable. This successor:
+
+- Restores the exact approved Shared Agent Instructions bytes from the
+  shared-spec raw export; they are byte-identical to the GitHub parent.
+- Includes the separately authorized no-automatic-migration setup guard,
+  its three hermetic tests and registration in the canonical CI runner.
+- Updates Express within major 4 and the compatible proxy-addr patch to
+  2.0.8, plus the Capacitor family within major 7 to 7.6.9. The old locked
+  proxy-addr and iOS packages were rejected by the package firewall.
+  The fresh dependency install succeeds through that firewall; no security
+  registry bypass was used. Newly resolved portable lock URLs retain the
+  verified registry integrity hashes.
+
+Native scratch-worktree dependency installation, synthetic-only DPAPI tests
+and credential-free current-source smoke tests are validation, not runtime
+activation or real-credential operations. Restricted Windows policy and
+harness denials remain in force; blocked checks must be reported as not run.
+LCC owns native verification and independent successor review.
+
+The successor still excludes pending Guardian development and task-agent
+outputs. Shared migration, primary-main movement, publication and activation
+remain separate authorization boundaries. Current validation results are
+recorded externally against the exact successor hash, not inferred from
+the original candidate's checks or approval.
