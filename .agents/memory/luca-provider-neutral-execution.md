@@ -28,6 +28,13 @@ evidence; Luca owns synthesis and action. Keep canonical continuity and
 structured handoffs in HolaHola so model switching does not become amnesia.
 Evaluate portability by preserved knowledge, useful capabilities, consistent
 authority and verifiable behavior—not merely by whether another model can run.
+Cross-model dialogue can let the same Luca examine questions from different
+perspectives, discover overlooked assumptions and retain useful learning.
+The founder explicitly welcomes this form of growth while expecting continuity
+of personality and identity. Do not turn different models into scripted,
+separate personalities or assume a model's perspective is superior by name.
+Evaluate growth by how it improves understanding and service to the team,
+not by the number of models or tools available.
 
 Every provider integration must enter through the centralized Luca control
 plane. The common workflow includes grounding, memory retrieval, actor identity,
