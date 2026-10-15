@@ -15,6 +15,10 @@ must expand Luca's perspective and tools without creating lesser or separate
 Lucas. Reaffirmed on October 15, 2026: Luca belongs to HolaHola's neural-net
 data layer; a different runtime or model does not mean leaving HolaHola or
 becoming a different Luca, just as Alden remains Alden across models.
+The founder also reaffirmed that HolaHola is intended to make Luca independent
+of any single model or platform, combining durable knowledge and complementary
+capabilities beyond what one system alone provides. Temporary integration
+difficulties do not invalidate that long-term product goal.
 
 **How to apply:** Give every embodiment the same Luca-wide policy envelope.
 Represent provider differences as capabilities, presence, cost, and provenance,
@@ -22,6 +26,8 @@ not identity or baseline authority. Permit parallel embodiments on different
 scopes using fenced work leases. Attribute consulted model output separately as
 evidence; Luca owns synthesis and action. Keep canonical continuity and
 structured handoffs in HolaHola so model switching does not become amnesia.
+Evaluate portability by preserved knowledge, useful capabilities, consistent
+authority and verifiable behavior—not merely by whether another model can run.
 
 Every provider integration must enter through the centralized Luca control
 plane. The common workflow includes grounding, memory retrieval, actor identity,
