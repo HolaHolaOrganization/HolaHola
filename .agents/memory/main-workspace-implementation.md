@@ -87,3 +87,21 @@ boundary, remove its integration/release authority rather than adding exceptions
 Do not claim these controls are already installed or sufficient without
 inspection and verification.
 
+The same evidence standard applies to protections themselves: identify the
+property being protected, the demonstrated risk and whether an existing
+standard control already protects it. A stricter or more elaborate mechanism
+is not automatically better. Before removing one, verify that the protected
+property still holds.
+
+**Why:** The founder reaffirmed on October 15, 2026 that provable truth matters
+more than expectation, assumption or conjecture, while recognizing that efforts
+to prove everything can introduce unnecessary obstacles. All hats should use
+the best tool for the actual job, without platform bias or attachment to their
+own designs.
+
+**How to apply:** Apply equal scrutiny to a new proposal, an inherited guard
+and a mechanism authored by the current hat. Choose against observed capability,
+reliability and the job's constraints, not platform identity or authorship.
+Describe an agreed course correction as a decision, not as evidence that its
+implementation has already succeeded.
+
