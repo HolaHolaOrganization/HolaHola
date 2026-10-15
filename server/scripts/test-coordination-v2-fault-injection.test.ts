@@ -1113,6 +1113,7 @@ test("verified disposable PostgreSQL proves authoritative Coordinator V2 fault r
     // evidence rows are immutable and intentionally remain until branch
     // deletion; cleanup must never mask an assertion failure.
     await client.end().catch(() => undefined);
+    await (await import("../db")).closeDbConnections();
     if (previousNeon === undefined) delete process.env.NEON_SHARED_DATABASE_URL;
     else process.env.NEON_SHARED_DATABASE_URL = previousNeon;
     if (previousCi === undefined) delete process.env.CI;

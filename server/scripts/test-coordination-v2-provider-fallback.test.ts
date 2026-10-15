@@ -423,5 +423,6 @@ test('verified disposable PostgreSQL runs real attempt services across both prov
     // V2 authority/evidence rows are immutable. This verified disposable
     // database owns the unique fixture until its enclosing branch/job ends.
     await client.end();
+    await (await import("../db")).closeDbConnections();
   }
 });

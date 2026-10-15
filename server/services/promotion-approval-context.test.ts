@@ -68,7 +68,7 @@ test("context-free signed payload remains unchanged", () => {
 });
 test("candidate UI distinguishes task starting commit and shows every exact field", () => {
   const context = projectPromotionApprovalContext(binding, true, stored());
-  const html = renderToStaticMarkup(React.createElement(PromotionApprovalContext, { context, contextDigest: digest }));
+  const html = renderToStaticMarkup(React.createElement(PromotionApprovalContext, { context, contextDigest: digest, purpose: "source_promotion" }));
   assert.match(html, /Exact promotion candidate/);
   assert.match(html, /fixture\/review/);
   assert.match(html, /Candidate commit/);
@@ -76,4 +76,39 @@ test("candidate UI distinguishes task starting commit and shows every exact fiel
   assert.match(html, /independently recheck/);
   const unknown = renderToStaticMarkup(React.createElement(PromotionApprovalContext, { contextDigest: digest }));
   assert.match(unknown, /Approval is unavailable/);
+});
+
+test("approval purposes are explicit and legacy digests never become provisioning", async () => {
+  const { checkedOwnershipPurpose, requireOwnershipContext } = await import("./ownership-context-purpose");
+  assert.equal(checkedOwnershipPurpose("ownership", null), "ownership");
+  assert.equal(checkedOwnershipPurpose(null, null), "ownership");
+  assert.equal(checkedOwnershipPurpose("runtime_provisioning", digest), "runtime_provisioning");
+  assert.equal(checkedOwnershipPurpose("source_promotion", digest), "source_promotion");
+  for (const [purpose, context] of [[null, digest], ["ownership", digest], ["runtime_provisioning", null], ["source_promotion", null]]) {
+    assert.throws(() => checkedOwnershipPurpose(purpose, context), /OWNERSHIP_PURPOSE_INVALID/);
+  }
+  let reads = 0;
+  const runtime = { execute: async () => {
+    reads++;
+    return [{ purpose: "runtime_provisioning", context_digest: digest }];
+  } };
+  assert.equal(await requireOwnershipContext(binding, runtime), "runtime_provisioning");
+  assert.equal(reads, 1, "provisioning must not infer its purpose from promotion storage");
+  await assert.rejects(requireOwnershipContext(binding, runtime, "source_promotion"), /OWNERSHIP_PURPOSE_MISMATCH/);
+  const promotion = { execute: async () => [{ purpose: "source_promotion", context_digest: digest }] };
+  await assert.rejects(requireOwnershipContext(binding, promotion, "runtime_provisioning"), /OWNERSHIP_PURPOSE_MISMATCH/);
+  await assert.rejects(requireOwnershipContext(binding, { execute: async () => [{ purpose: null, context_digest: digest }] }), /OWNERSHIP_PURPOSE_INVALID/);
+  await assert.rejects(requireOwnershipContext(binding, { execute: async () => [{ purpose: "runtime_provisioning", context_digest: "0".repeat(64) }] }), /OWNERSHIP_CONTEXT_MISMATCH/);
+});
+
+test("the founder UI separates provisioning bundles from promotion and blocks legacy intent", () => {
+  const html = renderToStaticMarkup(React.createElement(PromotionApprovalContext, {
+    purpose: "runtime_provisioning", contextDigest: digest,
+  }));
+  assert.match(html, /Runtime provisioning approval/);
+  assert.match(html, /does not approve publishing/);
+  assert.doesNotMatch(html, /Exact promotion candidate|descriptor_missing/);
+  const legacy = renderToStaticMarkup(React.createElement(PromotionApprovalContext, { contextDigest: digest }));
+  assert.match(legacy, /purpose is unclassified/);
+  assert.match(legacy, /Approval is unavailable/);
 });

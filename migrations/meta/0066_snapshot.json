@@ -42857,6 +42857,13 @@
           "primaryKey": false,
           "notNull": false
         },
+        "purpose": {
+          "name": "purpose",
+          "type": "varchar(32)",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "'ownership'"
+        },
         "server_nonce": {
           "name": "server_nonce",
           "type": "varchar(128)",
@@ -42981,6 +42988,14 @@
         "task_ownership_challenge_context_digest": {
           "name": "task_ownership_challenge_context_digest",
           "value": "\"task_ownership_challenges\".\"context_digest\" IS NULL OR \"task_ownership_challenges\".\"context_digest\" ~ '^[0-9a-f]{64}$'"
+        },
+        "task_ownership_challenge_purpose": {
+          "name": "task_ownership_challenge_purpose",
+          "value": "\"task_ownership_challenges\".\"purpose\" IS NULL OR \"task_ownership_challenges\".\"purpose\" IN ('ownership','runtime_provisioning','source_promotion')"
+        },
+        "task_ownership_challenge_purpose_context": {
+          "name": "task_ownership_challenge_purpose_context",
+          "value": "CASE WHEN \"task_ownership_challenges\".\"purpose\" IS NULL THEN true WHEN \"task_ownership_challenges\".\"purpose\" = 'ownership' THEN \"task_ownership_challenges\".\"context_digest\" IS NULL ELSE \"task_ownership_challenges\".\"context_digest\" IS NOT NULL END"
         },
         "task_ownership_challenge_request_digest": {
           "name": "task_ownership_challenge_request_digest",

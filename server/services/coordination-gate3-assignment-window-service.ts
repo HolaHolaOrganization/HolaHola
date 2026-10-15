@@ -225,6 +225,7 @@ export async function createGate3AssignmentWindow(input: {
         || receipt.taskRef !== "1448" || receipt.intendedActor !== GATE3.actor
         || receipt.artifactSha256 !== bundle.artifactSha256 || receipt.publicKey !== bundle.publicKey
         || receipt.keyFingerprint !== bundle.keyFingerprint || receipt.contextDigest !== bundle.bundleDigest
+        || challenge.purpose !== "runtime_provisioning"
         || challenge.taskRef !== receipt.taskRef || challenge.artifactSha256 !== receipt.artifactSha256
         || challenge.intendedActor !== receipt.intendedActor || challenge.coordinationActor !== GATE3.actor
         || challenge.publicKey !== receipt.publicKey || challenge.keyFingerprint !== receipt.keyFingerprint
@@ -245,6 +246,7 @@ export async function createGate3AssignmentWindow(input: {
       || receipt.taskRef !== "1448" || receipt.intendedActor !== GATE3.actor
       || receipt.artifactSha256 !== bundle.artifactSha256 || receipt.publicKey !== bundle.publicKey
       || receipt.keyFingerprint !== bundle.keyFingerprint || receipt.contextDigest !== bundle.bundleDigest
+      || challenge.purpose !== "runtime_provisioning"
       || challenge.taskRef !== receipt.taskRef || challenge.artifactSha256 !== receipt.artifactSha256
       || challenge.intendedActor !== GATE3.actor || challenge.coordinationActor !== GATE3.actor
       || challenge.publicKey !== receipt.publicKey || challenge.keyFingerprint !== receipt.keyFingerprint

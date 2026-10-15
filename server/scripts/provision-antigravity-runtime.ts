@@ -83,6 +83,7 @@ export async function submitAntigravityChallenge(value: unknown, attemptIdValue:
       publicKey: bundle.publicKey,
       keyFingerprint: bundle.keyFingerprint,
       contextDigest: bundle.bundleDigest,
+       purpose: "runtime_provisioning",
       idempotencyKey: `antigravity:${bundle.bundleDigest}:${attemptId}`,
       ttlMs: 20 * 60_000,
     });
@@ -188,6 +189,7 @@ export async function registerAntigravityRuntime(value: unknown, challengeId: st
       || fullChallenge.publicKey !== bundle.publicKey
       || fullChallenge.keyFingerprint !== bundle.keyFingerprint
       || fullChallenge.contextDigest !== bundle.bundleDigest
+      || fullChallenge.purpose !== "runtime_provisioning"
       || receipt.taskRef !== bundle.taskRef
       || receipt.artifactSha256 !== bundle.artifactSha256
       || receipt.intendedActor !== bundle.actor

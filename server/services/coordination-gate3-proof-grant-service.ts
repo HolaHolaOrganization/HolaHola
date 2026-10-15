@@ -104,7 +104,7 @@ export async function issueGate3ProofGrant(
     const [challenge] = await tx.select().from(taskOwnershipChallenges)
       .where(eq(taskOwnershipChallenges.id, receipt.challengeId)).for("update");
     if (
-      !challenge || challenge.status !== "approved" || challenge.expiresAt <= new Date()
+      !challenge || challenge.purpose !== "runtime_provisioning" || challenge.status !== "approved" || challenge.expiresAt <= new Date()
       || challenge.taskRef !== receipt.taskRef
       || challenge.artifactSha256 !== receipt.artifactSha256
       || challenge.intendedActor !== receipt.intendedActor
@@ -252,6 +252,7 @@ export async function validateGate3ProofGrant(grantId: string, credential: Broke
     || grant.runtimeRegistrationId !== registration.id || grant.profileId !== profile.id
     || receipt.status !== "active" || receipt.expiresAt <= now || receipt.intendedActor !== ACTOR
     || receipt.taskRef !== TASK_REF || !receipt.contextDigest
+    || challenge.purpose !== "runtime_provisioning"
     || challenge.status !== "approved" || challenge.expiresAt <= now || challenge.taskRef !== receipt.taskRef
     || challenge.artifactSha256 !== receipt.artifactSha256 || challenge.contextDigest !== receipt.contextDigest
     || challenge.publicKey !== receipt.publicKey || challenge.keyFingerprint !== receipt.keyFingerprint
@@ -340,6 +341,7 @@ export async function validateGate3ProofGrantForVerifier(grantId: string) {
     grant.runtimeRegistrationId !== registration.id || grant.profileId !== profile.id ||
     receipt.status !== 'active' || receipt.expiresAt <= now || receipt.intendedActor !== ACTOR ||
     receipt.taskRef !== TASK_REF || !receipt.contextDigest ||
+    challenge.purpose !== 'runtime_provisioning' ||
     challenge.status !== 'approved' || challenge.expiresAt <= now || challenge.taskRef !== receipt.taskRef ||
     challenge.intendedActor !== receipt.intendedActor ||
     challenge.artifactSha256 !== receipt.artifactSha256 || challenge.contextDigest !== receipt.contextDigest ||

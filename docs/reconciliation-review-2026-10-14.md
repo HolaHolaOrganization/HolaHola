@@ -139,3 +139,33 @@ outputs. Shared migration, primary-main movement, publication and activation
 remain separate authorization boundaries. Current validation results are
 recorded externally against the exact successor hash, not inferred from
 the original candidate's checks or approval.
+
+## Provisioning regression and purpose-separated successor — October 15
+
+The full disposable gate exposed a real operator-provisioning regression:
+the new promotion-descriptor requirement had also been applied to generic
+runtime bundle digests. The unchanged GitHub baseline passed the same
+coordination suite; the failing test was not weakened or removed.
+
+This successor records immutable challenge purpose: context-free ownership,
+runtime provisioning, or source promotion. Receipts inherit their parent's
+purpose. Only promotion challenges require the exact promotion descriptor;
+runtime proofs cannot authorize standalone source promotion, and promotion
+challenges cannot authorize Gate 3 runtime grants or assignment windows.
+Public challenge requests cannot choose the trusted provisioning purpose.
+The founder UI labels each purpose and blocks unclassified legacy digests.
+
+Staged migration 0066 adds the nullable column before setting its future
+default, leaving historical rows unclassified without a forbidden provenance
+update. A separate immutable-purpose trigger supplements the existing
+lifecycle guard. The promotion-context trigger requires a source-promotion
+parent. Existing descriptor, hash and parent-binding checks remain intact.
+If the independently reserved competing 0066 lands first, regenerate at the
+next free ordinal and repeat the migration gate; never overwrite its history.
+
+The frozen six-module ownership launcher remains unchanged.
+The pinned Gate 3 exact-key wire DTO is also preserved: purpose remains
+available to server checks and standalone proofs, not added to that DTO.
+Checks and independent approval must name this successor, not inherit the earlier
+source-only approval. Shared migration, public-history exposure, main
+movement and runtime activation remain unapproved and are not performed.

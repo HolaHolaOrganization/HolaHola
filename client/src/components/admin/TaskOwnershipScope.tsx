@@ -11,14 +11,16 @@ const unavailable = {
   registry_invalid: ["Registry integrity check failed", "The registry record or its artifact bytes could not be verified. No scope is presented as canonical."],
 } as const;
 
-export function TaskOwnershipScope({ context }: { context?: OwnershipApprovalScope }) {
+export function TaskOwnershipScope({ context, purpose }: { context?: OwnershipApprovalScope; purpose?: string | null }) {
+  const purposeLabel = purpose === "source_promotion" ? "Source promotion" : purpose === "runtime_provisioning" ? "Runtime provisioning" : purpose === "ownership" ? "Task ownership" : "Unclassified legacy approval";
   if (!context) {
-    return <Alert data-testid="task-scope-unavailable"><AlertTitle>Scope metadata unavailable</AlertTitle><AlertDescription>This server response does not include verified task scope. No scope has been inferred.</AlertDescription></Alert>;
+    return <Alert data-testid="task-scope-unavailable"><AlertTitle>Scope metadata unavailable</AlertTitle><AlertDescription>Approval purpose: {purposeLabel}. This server response does not include verified task scope. No scope has been inferred.</AlertDescription></Alert>;
   }
   const definition = context.status === "verified" ? context.definition : undefined;
   return (
     <section className="space-y-3 rounded-md border p-3 text-sm" data-testid={`task-scope-${context.status}`}>
       <h3 className="font-semibold">Task scope — immutable registry</h3>
+      <p className="font-medium" data-testid="ownership-approval-purpose">Approval purpose: {purposeLabel}</p>
       {definition ? (
         <>
           <p className="font-medium">{definition.title}</p>

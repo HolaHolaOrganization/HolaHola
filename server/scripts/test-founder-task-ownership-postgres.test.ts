@@ -127,6 +127,84 @@ test("PostgreSQL founder-attested ownership protocol is durable and immutable", 
     /PROMOTION_CONTEXT_MISMATCH/,
   );
   const challenge = await ownership.createChallenge({ ...base, idempotencyKey: `idem-${suffix}` });
+  const { requireOwnershipContext } = await import("../services/ownership-context-purpose");
+  await codeOf(requireOwnershipContext({ id: challenge.challengeId, contextDigest: base.contextDigest }, db, "runtime_provisioning"), "OWNERSHIP_PURPOSE_MISMATCH");
+  assert.equal((await ownership.getChallenge(challenge.challengeId, actor)).purpose, "source_promotion");
+
+  // The same opaque hash cannot cross domains, even when it happens to equal
+  // a canonical promotion hash. Purpose comes from the immutable challenge.
+  const { promotionDescriptor: _promotion, ...runtimeBase } = base;
+  const runtimeTask = (BigInt(task) * 10n + 1n).toString();
+  const runtime = await ownership.createChallenge({
+    ...runtimeBase, taskRef: runtimeTask, purpose: "runtime_provisioning",
+    idempotencyKey: `runtime-purpose-${suffix}`,
+  });
+  await sqlRejected(db.execute(sql`
+    UPDATE task_ownership_challenges SET purpose='source_promotion',
+      status='approved', decided_at=now() WHERE id=${runtime.challengeId}
+  `), "purpose is immutable");
+  await sqlRejected(db.execute(sql`
+    INSERT INTO task_ownership_promotion_contexts(challenge_id,context_digest,descriptor)
+    VALUES (${runtime.challengeId},${base.contextDigest},${JSON.stringify(promotionDescriptor)}::jsonb)
+  `), "matching pending challenge");
+  await codeOf(ownership.createChallenge({
+    ...base, taskRef: runtimeTask, purpose: "runtime_provisioning",
+    idempotencyKey: `runtime-with-descriptor-${suffix}`,
+  }), "OWNERSHIP_PURPOSE_MISMATCH");
+  await ownership.decideChallenge(runtime.challengeId, "approved", founder);
+  const runtimeNonce = await ownership.issueProofNonce(
+    (await ownership.getChallenge(runtime.challengeId, actor)).receipt!.id, actor,
+  );
+  const runtimeProof = await ownership.verifyProof(runtimeNonce.nonceId, sign(runtimeNonce.signedPayload), actor);
+  assert.equal(runtimeProof.purpose, "runtime_provisioning");
+  assert.equal(runtimeProof.contextDigest, base.contextDigest);
+
+  const handlers = new Map<string, (request: any, response: any) => Promise<void>>();
+  const { registerFounderTaskOwnershipRoutes } = await import("../routes/founder-task-ownership-routes");
+  registerFounderTaskOwnershipRoutes({
+    post(path: string, ...stack: any[]) { handlers.set(path, stack.at(-1)); },
+    get() {},
+  } as any);
+  const response = () => ({
+    statusCode: 200, body: undefined as any,
+    status(value: number) { this.statusCode = value; return this; },
+    json(value: any) { this.body = value; return this; },
+  });
+  const claimedPurpose = response();
+  await handlers.get("/api/task-ownership/challenges")!({
+    coordinationActor: actor,
+    body: { ...runtimeBase, purpose: "runtime_provisioning", idempotencyKey: `http-purpose-${suffix}` },
+  }, claimedPurpose);
+  assert.equal(claimedPurpose.statusCode, 400);
+  assert.equal(claimedPurpose.body.error.code, "OWNERSHIP_PURPOSE_SERVER_ASSIGNED");
+  const standaloneNonce = await ownership.issueProofNonce(runtimeProof.receiptId, actor);
+  const standalone = response();
+  await handlers.get("/api/task-ownership/proof")!({
+    coordinationActor: actor,
+    body: { nonceId: standaloneNonce.nonceId, signature: sign(standaloneNonce.signedPayload), standalone: true },
+  }, standalone);
+  assert.equal(standalone.statusCode, 403);
+  assert.equal(standalone.body.error.code, "OWNERSHIP_PURPOSE_MISMATCH");
+
+  // Simulate a pre-migration digest row. It may be rejected, never guessed
+  // into either domain or upgraded in place.
+  const legacyRows = await db.execute(sql`
+    INSERT INTO task_ownership_challenges(task_ref,artifact_sha256,intended_actor,
+      coordination_actor,public_key,key_fingerprint,context_digest,purpose,
+      server_nonce,expires_at,idempotency_key,request_digest)
+    VALUES (${(BigInt(task) * 10n + 2n).toString()},${artifact},${actor},${actor},
+      ${publicKey},${fingerprint},${base.contextDigest},NULL,
+      ${crypto.randomBytes(32).toString("base64url")},now()+interval '5 minutes',
+      ${`legacy-purpose-${suffix}`},${artifact}) RETURNING id
+  `);
+  const legacyId = legacyRows.rows[0].id as string;
+  await codeOf(ownership.decideChallenge(legacyId, "approved", founder), "OWNERSHIP_PURPOSE_INVALID");
+  await sqlRejected(db.execute(sql`
+    UPDATE task_ownership_challenges SET purpose='runtime_provisioning',
+      status='approved',decided_at=now() WHERE id=${legacyId}
+  `), "purpose is immutable");
+  await ownership.decideChallenge(legacyId, "rejected", founder);
+
   const replay = await ownership.createChallenge({ ...base, idempotencyKey: `idem-${suffix}` });
   assert.equal(replay.challengeId, challenge.challengeId);
   await codeOf(ownership.createChallenge({ ...base, artifactSha256: "b".repeat(64), idempotencyKey: `idem-${suffix}` }), "IDEMPOTENCY_CONFLICT");

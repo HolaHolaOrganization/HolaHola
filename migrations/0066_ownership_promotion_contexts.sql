@@ -1,3 +1,30 @@
+-- This migration is staged, not deployed. Add the column without a default
+-- first: existing rows remain explicitly unclassified. In particular, never
+-- relabel an older opaque digest as provisioning or promotion.
+ALTER TABLE "task_ownership_challenges" ADD COLUMN "purpose" varchar(32);
+--> statement-breakpoint
+ALTER TABLE "task_ownership_challenges" ALTER COLUMN "purpose" SET DEFAULT 'ownership';
+--> statement-breakpoint
+ALTER TABLE "task_ownership_challenges" ADD CONSTRAINT "task_ownership_challenge_purpose"
+  CHECK ("purpose" IS NULL OR "purpose" IN ('ownership','runtime_provisioning','source_promotion'));
+--> statement-breakpoint
+ALTER TABLE "task_ownership_challenges" ADD CONSTRAINT "task_ownership_challenge_purpose_context"
+  CHECK (CASE WHEN "purpose" IS NULL THEN true WHEN "purpose" = 'ownership'
+    THEN "context_digest" IS NULL ELSE "context_digest" IS NOT NULL END);
+--> statement-breakpoint
+CREATE OR REPLACE FUNCTION public.guard_task_ownership_purpose()
+RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  IF NEW.purpose IS DISTINCT FROM OLD.purpose THEN
+    RAISE EXCEPTION 'Task ownership purpose is immutable' USING ERRCODE = '23514';
+  END IF;
+  RETURN NEW;
+END $$;
+--> statement-breakpoint
+CREATE TRIGGER task_ownership_purpose_immutable
+BEFORE UPDATE ON public.task_ownership_challenges
+FOR EACH ROW EXECUTE FUNCTION public.guard_task_ownership_purpose();
+--> statement-breakpoint
 CREATE TABLE "task_ownership_promotion_contexts" (
   "challenge_id" varchar PRIMARY KEY NOT NULL,
   "context_digest" varchar(64) NOT NULL,
@@ -16,10 +43,11 @@ BEGIN
   IF TG_OP <> 'INSERT' THEN
     RAISE EXCEPTION 'Promotion approval context is immutable';
   END IF;
-  SELECT context_digest, status, decided_at INTO parent_record
+  SELECT context_digest, purpose, status, decided_at INTO parent_record
     FROM public.task_ownership_challenges WHERE id = NEW.challenge_id FOR UPDATE;
   IF NOT FOUND OR parent_record.status <> 'pending' OR parent_record.decided_at IS NOT NULL
-     OR parent_record.context_digest IS DISTINCT FROM NEW.context_digest THEN
+     OR parent_record.context_digest IS DISTINCT FROM NEW.context_digest
+     OR parent_record.purpose IS DISTINCT FROM 'source_promotion' THEN
     RAISE EXCEPTION 'Promotion context requires its matching pending challenge';
   END IF;
   IF jsonb_typeof(NEW.descriptor) IS DISTINCT FROM 'object'

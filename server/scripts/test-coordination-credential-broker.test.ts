@@ -371,6 +371,8 @@ databaseTest('operator provisioning is two-phase, receipt-bound, atomic, and con
     'artifactSha256', 'contextDigest', 'grant', 'intendedActor', 'ok',
     'proofPayloadDigest', 'receiptId', 'taskRef', 'verified',
   ]);
+  assert.equal(proof.purpose, "runtime_provisioning");
+  assert.equal("purpose" in routeResponse, false, "keep the pinned Gate 3 wire contract unchanged");
   assert.deepEqual(Object.keys(routeResponse.grant).sort(), [
     'artifactSha256', 'contextDigest', 'expiresAt', 'id', 'startingCommit', 'taskRef',
   ]);

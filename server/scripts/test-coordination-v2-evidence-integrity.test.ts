@@ -511,6 +511,7 @@ test('Coordinator V2 terminal evidence stays complete and immutable through repl
     // V2 authority/evidence rows are immutable. The disposable branch/job
     // retains these unique fixtures until it is destroyed.
     await client.end();
+    await (await import("../db")).closeDbConnections();
     if (previousNeonUrl === undefined) delete process.env.NEON_SHARED_DATABASE_URL;
     else process.env.NEON_SHARED_DATABASE_URL = previousNeonUrl;
     if (previousCi === undefined) delete process.env.CI;

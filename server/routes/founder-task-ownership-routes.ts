@@ -23,6 +23,7 @@ import {
   isGate3BrokerCredential,
   issueGate3ProofGrant,
 } from "../services/coordination-gate3-proof-grant-service";
+import type { OwnershipPurpose } from "../services/ownership-context-purpose";
 
 type FounderRequest = Request<{ id: string }, unknown, { reason?: unknown }>;
 
@@ -49,6 +50,9 @@ const STATUS_BY_ERROR_CODE: Readonly<Record<string, number>> = {
   NONCE_INVALID: 410,
   NONCE_REPLAYED: 409,
   OWNERSHIP_UNAVAILABLE: 503,
+  OWNERSHIP_PURPOSE_INVALID: 409,
+  OWNERSHIP_PURPOSE_MISMATCH: 403,
+  OWNERSHIP_CONTEXT_MISMATCH: 409,
   RECEIPT_NOT_ACTIVE: 410,
   RECEIPT_NOT_FOUND: 404,
   SIGNATURE_INVALID: 401,
@@ -88,12 +92,16 @@ function decisionReason(req: FounderRequest): string | undefined {
 export function buildGate3ProofResponse(proof: {
   ok: true; verified: true; receiptId: string; taskRef: string;
   artifactSha256: string; proofPayloadDigest: string;
+  purpose?: OwnershipPurpose;
 }, grant: {
   id: string; taskRef: string; artifactSha256: string; contextDigest: string;
   startingCommit: string; expiresAt: Date;
 }) {
+  // The pinned Gate 3 client enforces an exact wire-key set. Keep the new
+  // server-side purpose out of that legacy DTO; grants recheck parent purpose.
+  const { purpose: _purpose, ...wireProof } = proof;
   return {
-    ...proof,
+    ...wireProof,
     contextDigest: grant.contextDigest,
     grant: {
       id: grant.id, taskRef: grant.taskRef, artifactSha256: grant.artifactSha256,
@@ -112,8 +120,13 @@ export function registerFounderTaskOwnershipRoutes(app: Application): void {
     async (req: CoordinationRequest, res) => {
       if (!requireLucaActor(req, res)) return;
       try {
+        if (req.body && Object.prototype.hasOwnProperty.call(req.body, "purpose")) {
+          res.status(400).json({ error: { code: "OWNERSHIP_PURPOSE_SERVER_ASSIGNED" } });
+          return;
+        }
         res.status(201).json(await createChallenge({
           ...req.body,
+          purpose: undefined,
           coordinationActor: req.coordinationActor,
         }));
       } catch (error) {
@@ -221,6 +234,10 @@ export function registerFounderTaskOwnershipRoutes(app: Application): void {
         const proof = await verifyProof(nonceId, signature, req.coordinationActor);
         if (!proof.ok) {
           res.json(proof);
+          return;
+        }
+        if (req.body?.standalone === true && proof.contextDigest && proof.purpose !== "source_promotion") {
+          res.status(403).json({ error: { code: "OWNERSHIP_PURPOSE_MISMATCH" } });
           return;
         }
         // Gate 3 grants require broker provenance.  Fixed/legacy actor tokens
