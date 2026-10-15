@@ -234,6 +234,15 @@ jobs:
         shell: powershell
         run: .\scripts\test-hola-coordinator-reauthorization.ps1
 
+      - name: Validate historical build dependency registry URLs
+        run: npm run test:package-lock-registry
+
+      - name: Install exact-locked historical build dependencies
+        run: npm ci --include=dev
+
+      - name: Verify frozen Gate 3 artifacts (build only, never execute)
+        run: node --test server/scripts/gate3-historical-integrity.test.mjs
+
       - name: Run read-only recovery clock checks (native PowerShell 5.1)
         shell: powershell
         run: .\scripts\test-hola-coordinator-clock-preflight.ps1

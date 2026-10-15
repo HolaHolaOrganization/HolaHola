@@ -30,3 +30,17 @@ pickup; automatic pickup needs separate evidence from a supported mechanism.
 If existing attributed access is absent, report that exact gap before changing
 credentials or reviving frozen execution infrastructure.
 
+
+## Direct build versus task-agent dispatch
+
+Native-hat collaboration permission is not permission to offer isolated task-agent dispatches. When the owner approves building in the current workspace, implement there rather than creating a task-queue dependency.
+
+**Why:** The owner explicitly corrected the dispatch suggestions while project work was stuck in the queue and authorized the current workspace build. A proposed follow-up card is not a substitute for executing approved work.
+
+**How to apply:** Build and verify the approved scope directly. Preserve separately owned native-hat documentation and ordinary technical consultation; neither requires offering the implementation to a task agent.
+
+
+Do not offer dispatchable project-task or follow-up cards when implementation is restricted to the current workspace with no subagents. Describe follow-ups in chat instead, and perform only the authorized work directly. Accepting a task card can start an isolated task agent; approval of the work does not override the no-subagent restriction.
+
+**Why:** The owner repeated that approved follow-ups had gone to subagents despite an explicit instruction against them. Task-card routing is therefore part of the restriction, not an exception to it.
+

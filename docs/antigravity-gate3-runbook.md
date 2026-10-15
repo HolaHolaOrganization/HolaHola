@@ -81,3 +81,28 @@ production is verified.
 
 Cancelled legacy activation work remains cancelled. Separately owned work
 remains untouched and provides no Coordinator V2 authority.
+
+### Frozen historical validation
+
+Gate 3's original approved source/artifact pairs are reproducibility evidence,
+not a supported initialization path from evolving main. Do not run or install
+the archived bundles, replay historical credentials, or transfer their approval
+to Coordinator V2. The archived launcher retains its original pins. The live
+launcher separately retains main's selected run pin `b80917ae…` and preparation
+pin `06ce0e36…`; this reconciliation does not repin either artifact.
+
+The historical integrity check rebuilds exact frozen source and compiler
+configuration with the dedicated esbuild 0.25.9 alias, then verifies the original
+run and preparation hashes against the archived launcher only. It never
+executes historical output. A separate live check rebuilds current source with
+the application's compiler API and compares both outputs to the live launcher
+pins. Neither check substitutes for the other. Current-source
+entrypoint behavior is tested separately, with no claim that its evolving bytes
+have historical approval. Existing launcher security guards remain enforced.
+See [frozen fixture policy](../server/scripts/fixtures/gate3-approved-origin/README.md)
+for source provenance, immutable artifact preservation and build-only commands.
+
+Any historical-record correction requires explicit founder approval and an
+independent review of the exact correction; routine dependency upgrades, changed
+source inputs or a failing hash test are not permission to refresh a pin.
+No migration, installation or credential reinitialization is authorized here.

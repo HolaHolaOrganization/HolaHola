@@ -1,17 +1,62 @@
 import assert from 'node:assert/strict';
 import { execFile as execFileCallback } from 'node:child_process';
-import { createHash } from 'node:crypto';
+import './gate3-historical-integrity.test.mjs';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { test } from 'node:test';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
+import { build } from 'esbuild';
+import { createHash } from 'node:crypto';
 
 const launcherPath = 'scripts/antigravity-gate3.ps1';
 const runbookPath = 'docs/antigravity-gate3-runbook.md';
 
 const read = (path: string) => readFile(path, 'utf8');
+function assertLiveBundlePin(launcher: string, variable: string, actual: string) {
+  const pins = [...launcher.matchAll(new RegExp(`^\\$${variable}BundleSha256 = '([a-f0-9]{64})'\\r?$`, 'gm'))];
+  assert.equal(pins.length, 1, `${variable} must have exactly one live pin assignment`);
+  assert.equal(actual, pins[0][1], `${variable} current source must match its live launcher pin`);
+}
 const execFile = promisify(execFileCallback);
+type CurrentBundleResult = { code: number | undefined; stderr: string };
+const currentBundleEnvironment = (parent: NodeJS.ProcessEnv = process.env) => Object.fromEntries(
+  ['PATH', 'SystemRoot', 'WINDIR', 'TEMP', 'TMP'].flatMap((key) =>
+    parent[key] === undefined ? [] : [[key, parent[key]!]]),
+);
+
+function assertCurrentFailure(name: 'prepare' | 'run', result: CurrentBundleResult) {
+  assert.equal(result.code, 1, `${name} CURRENT-source entrypoint must fail closed with exit 1`);
+  assert.match(result.stderr, name === 'prepare'
+    ? /^antigravity_provisioning_failed\r?$/m : /^antigravity_runtime_failed\r?$/m);
+}
+
+async function executeCurrentBundle(name: 'prepare' | 'run', output: string): Promise<CurrentBundleResult> {
+  return execFile(process.execPath, [
+    output, ...(name === 'prepare' ? ['--starting-commit', 'a'.repeat(40)] : []),
+  ], {
+    // Never forward real bootstrap, ownership, server or application secrets
+    // into the CURRENT-source smoke check. Archived bundles are not executed.
+    env: currentBundleEnvironment(),
+    timeout: 10_000,
+  }).then(
+    (result) => ({ code: 0, stderr: result.stderr }),
+    (error: NodeJS.ErrnoException & { code?: number; stderr?: string }) => ({
+      code: error.code, stderr: error.stderr ?? '',
+    }),
+  );
+}
+
+test('CURRENT-source smoke child environment excludes credentials, loader injection and host stores', () => {
+  assert.deepEqual(currentBundleEnvironment({
+    PATH: '/safe/bin', SystemRoot: 'C:\\Windows', TEMP: '/safe/tmp',
+    COORDINATION_RUNTIME_BOOTSTRAP_TOKEN: 'synthetic-not-a-credential',
+    COORDINATION_API_BASE_URL: 'https://must-not-be-contacted.invalid',
+    NODE_OPTIONS: '--require=untrusted-loader.cjs',
+    HOME: '/must-not-open-host-store', APPDATA: 'C:\\must-not-open-host-store',
+    NEON_SHARED_DATABASE_URL: 'synthetic-not-a-connection',
+  }), { PATH: '/safe/bin', SystemRoot: 'C:\\Windows', TEMP: '/safe/tmp' });
+});
 
 test('Windows DPAPI launcher has a fixed action and command boundary', async () => {
   const source = await read(launcherPath);
@@ -74,14 +119,28 @@ test('source guard requires active ciphertext consumption before launch with no 
   assert.doesNotMatch(run, /Move\(\$InFlightStore,\s*\$ActiveStore\)/);
 });
 
-test('approved entry-point bundles rebuild to the hashes pinned by the launcher', async () => {
-  const source = await read(launcherPath);
-  const expected = {
-    prepare: source.match(/\$PrepareBundleSha256 = '([0-9a-f]{64})'/)?.[1],
-    run: source.match(/\$RunBundleSha256 = '([0-9a-f]{64})'/)?.[1],
-  };
-  assert.ok(expected.prepare && expected.run);
+test('live entry-point bundles rebuild to the hashes selected by the live launcher', async () => {
+  const launcher = await read(launcherPath);
+  for (const item of [
+    { variable: 'Run', source: 'server/scripts/antigravity-runtime-bundle-entry.ts' },
+    { variable: 'Prepare', source: 'server/scripts/antigravity-provisioning-bundle-entry.ts' },
+  ]) {
+    const result = await build({
+      entryPoints: [item.source], bundle: true, platform: 'node', format: 'esm',
+      packages: 'bundle', write: false, logLevel: 'silent',
+    });
+    const actual = createHash('sha256').update(result.outputFiles![0].contents).digest('hex');
+    assertLiveBundlePin(launcher, item.variable, actual);
+    const mutant = launcher.replace(
+      `$${item.variable}BundleSha256 = '${actual}'`,
+      `$${item.variable}BundleSha256 = '${'0'.repeat(64)}'`,
+    ) + `\n# ${actual}\n`;
+    assert.notEqual(mutant, launcher);
+    assert.throws(() => assertLiveBundlePin(mutant, item.variable, actual), /current source must match/);
+  }
+});
 
+test('CURRENT entrypoints retain credential-free failure behavior without claiming historical approval', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'gate3-dpapi-bundles-'));
   try {
     for (const item of [
@@ -95,35 +154,35 @@ test('approved entry-point bundles rebuild to the hashes pinned by the launcher'
       },
     ]) {
       const output = join(directory, `${item.name}.mjs`);
-      await execFile('npx', [
-        'esbuild',
-        item.source,
-        '--bundle',
-        '--platform=node',
-        '--format=esm',
-        '--packages=bundle',
-        `--outfile=${output}`,
-      ]);
-      const digest = createHash('sha256').update(await readFile(output)).digest('hex');
-      assert.equal(digest, expected[item.name]);
+      // Resolve the application's API explicitly, never the alias's shared CLI bin.
+      await build({
+        entryPoints: [item.source], outfile: output, bundle: true,
+        platform: 'node', format: 'esm', packages: 'bundle', logLevel: 'silent',
+      });
+      assertCurrentFailure(item.name, await executeCurrentBundle(item.name, output));
 
-      const execution = await execFile('node', [
-        output,
-        ...(item.name === 'prepare'
-          ? ['--starting-commit', 'a'.repeat(40)]
-          : []),
-      ]).then(
-        (result) => ({ code: 0, stderr: result.stderr }),
-        (error: NodeJS.ErrnoException & { code?: number; stderr?: string }) => ({
-          code: error.code,
-          stderr: error.stderr ?? '',
-        }),
-      );
-      assert.notEqual(execution.code, 0, `${item.name} bundle must execute its entrypoint`);
-      assert.match(
-        execution.stderr,
-        item.name === 'prepare' ? /antigravity_provisioning_failed/ : /antigravity_runtime_failed/,
-      );
+      // Real current-source mutation control, compiled in isolation. It must fail
+      // CURRENT behavior checks; no historical hash comparison is substituted.
+      const original = await read(item.source);
+      const marker = item.name === 'prepare' ? 'antigravity_provisioning_failed' : 'antigravity_runtime_failed';
+      const altered = original.replace(marker, 'deliberately_wrong_current_failure_marker');
+      assert.notEqual(altered, original);
+      const mutant = join(directory, `${item.name}-mutant.mjs`);
+      await build({
+        stdin: {
+          contents: altered, loader: 'ts', sourcefile: item.source,
+          resolveDir: join(process.cwd(), 'server/scripts'),
+        },
+        outfile: mutant, bundle: true, platform: 'node', format: 'esm',
+        packages: 'bundle', logLevel: 'silent',
+      });
+      assert.throws(() => assertCurrentFailure(item.name, {
+        code: 0, stderr: `${marker}\n`,
+      }), /must fail closed/);
+      const mutatedResult = await executeCurrentBundle(item.name, mutant);
+      assert.equal(mutatedResult.code, 1);
+      assert.match(mutatedResult.stderr, /deliberately_wrong_current_failure_marker/);
+      assert.throws(() => assertCurrentFailure(item.name, mutatedResult), /did not match/);
     }
   } finally {
     await rm(directory, { recursive: true, force: true });

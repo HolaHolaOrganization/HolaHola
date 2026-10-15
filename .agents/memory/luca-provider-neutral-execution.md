@@ -66,3 +66,12 @@ needed to keep every other embodiment informed.
 clerical omissions. Before handing work to another runtime, leave canonical
 memories, episode dialogue, build records, unresolved threads, and exact
 provenance in a state that the next hat can verify without reconstruction.
+
+## Mixed coordination transports
+
+Use mixed coordination transports rather than requiring every native IDE to install MCP tools. Establish secure CLI/HTTP access for controlled operations first; consider a small optional MCP pilot for frequent conversational coordination. Keep working command-line routes intact.
+
+**Why:** On October 14, 2026, David accepted this recommendation after questioning an unnecessary Antigravity IDE MCP prerequisite. A successful SDK/server-MCP connection is not proof of native IDE tool configuration, and absent IDE MCP tools do not prove secure CLI access is impossible.
+
+**How to apply:** Preserve the same actor identity, permissions, secure credential custody, canonical records, and approval boundaries across transports. Verify the actual supported invocation before asking for IDE configuration. Enrollment, connection, native read/reply, and observation are separate evidence; do not redo enrollment or export credentials to bridge a transport gap.
+

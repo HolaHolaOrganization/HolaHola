@@ -203,6 +203,31 @@ test('begin retains the legacy key and exact ten-minute digest fields', () => fi
   assert.equal(payload.idempotencyKey, `${binding.taskRef}:${binding.keyFingerprint}`);
   assert.equal(payload.ttlMs, 10 * 60_000);
 }));
+test('a V2 commit-bound begin key fits the server limit, binds the request, and is stable per commit', () => fixture(async (f, workspace) => {
+  const promotion = (candidateCommit: string) => ({
+    purpose: 'cross-tool-promote' as const, repository: 'github:davidwmcintosh/holahola',
+    branch: 'lcc/example', candidateCommit,
+  });
+  const input = (commit: string) => ({
+    command: 'begin' as const, workspace, endpoint, client: f.client,
+    binding: { ...binding, taskRef: '1000001', promotion: promotion(commit) },
+  });
+  const first = await requestOwnershipAttempt(input('c'.repeat(40)));
+  assert.equal((await requestOwnershipAttempt(input('c'.repeat(40)))).challengeId, first.challengeId);
+  await requestOwnershipAttempt(input('d'.repeat(40)));
+  const keys = [...f.requests.values()].map(r => r.payload.idempotencyKey);
+  assert.equal(keys.length, 2);
+  assert.notEqual(keys[0], keys[1]);
+  for (const [index, key] of keys.entries()) {
+    assert.ok(key.length <= 128, `${key.length}-character key`);
+    assert.match(key, /^promotion-v2:[0-9a-f]{64}$/);
+    const commit = (index === 0 ? 'c' : 'd').repeat(40);
+    const digest = createHash('sha256')
+      .update(JSON.stringify(['1000001', binding.keyFingerprint, promotionContextDigest(promotion(commit))]))
+      .digest('hex');
+    assert.equal(key, `promotion-v2:${digest}`);
+  }
+}));
 test('begin refuses local key/artifact drift before resubmission', () => fixture(async (f, workspace) => {
   await requestOwnershipAttempt({ command: 'begin', workspace, endpoint, binding, client: f.client });
   await assert.rejects(requestOwnershipAttempt({

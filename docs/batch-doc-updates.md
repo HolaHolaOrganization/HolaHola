@@ -1,3 +1,26 @@
+## 2026-10-14 — Isolated reconciliation candidate
+
+Prepared a direct, non-publishing review candidate from local `25be2f54` and
+GitHub main `239eceaa`. Primary main and its pending implementation files
+remain unchanged. The ten merge conflicts were resolved with explicit
+preservation checks; canonical episode additions and all historical mailbox
+identities/bodies survive. Memory and live instructions come from their
+canonical stores. Migration 0066 remains staged only.
+
+The revised historical Gate 3 check uses only its verified archived launcher.
+A separate current-source build check verifies main's live pins. Historical
+fixtures remain unchanged and historical output is never executed. Guardian
+development implementation and its pending CI registrations are excluded.
+
+Typecheck, 92 focused tests, system health and the package-lock registry guard
+passed. The candidate is not canonical-ready: no full consolidated CI, clean
+full-app install, native Windows verification, exact-candidate independent
+review, primary-main movement or publication is claimed. Already-running task
+agents may finish, but their output is not incorporated automatically.
+
+See `docs/reconciliation-review-2026-10-14.md` for per-file resolutions,
+verification evidence and remaining authorization boundaries.
+
 ## 2026-10-13 — Readable ownership scope
 
 The assigned main-window UI work now enriches founder challenge reads from the

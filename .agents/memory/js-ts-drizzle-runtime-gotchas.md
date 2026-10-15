@@ -227,3 +227,21 @@ The TypeScript tooling lessons include [test-fixture typechecking boundaries](ts
 
 **How to apply:** Check which files the compiler includes, and execute affected test files rather than treating a clean typecheck as fixture verification.
 
+
+## Constructor-free offline lifecycle tests
+
+When reproducing live-session behavior offline by bypassing its constructor, retain the real method bodies AND their safe state defaults. A partial synthetic object can fail on missing rolling arrays or lexical constants before it ever reaches the suspected bug.
+
+**Why:** Avoiding the live constructor also avoids its field initialization. Several initial harness failures were missing fixture state, not evidence against the production lifecycle. Separately verify the state mutation, the recorded event, and the external delivery sink; a correct safety discard can coexist with an incomplete trace.
+
+**How to apply:** Project reviewed method bodies into an isolated runtime with explicit external stubs; preserve only literal, non-I/O field initializers; block unknown side effects. Compare event orderings and use a runtime-only mutation as a detector control. Clearly distinguish passing characterization of an existing defect from a passing correctness gate.
+
+
+## Historical esbuild resolver metadata
+
+A closed esbuild resolver plugin must preserve native Node-built-in side-effect metadata when reproducing historical bytes.
+
+**Why:** Returning external:true alone retained otherwise unused built-in imports, changed symbol allocation, and produced a different bundle from identical source/configuration. Returning sideEffects:false for an exact allowlist of Node built-ins reproduced the original output.
+
+**How to apply:** Do not dismiss historical hash mismatches as compiler drift. Compare emitted bytes, verify the resolver metadata, and prove the original hash before accepting a closed-graph build wrapper.
+

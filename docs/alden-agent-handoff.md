@@ -1,117 +1,18 @@
-## 2026-10-13 — Ownership scope integration (main window)
-
-The read-only founder ownership UI integration is implemented. Verified
-immutable-registry title/purpose/scope/exclusions, authenticated registry
-creator/source thread, and exact artifact bytes/hash match appear in challenge
-cards and confirmation. Missing record, unregistered bootstrap reservation,
-unavailable provenance, mismatch, integrity failure and registry-unavailable
-cases are explicit. Existing actor/key/artifact/context and decision/receipt
-semantics are unchanged. Metadata grants no authority.
-
-The registry is live; the UI task itself has no registered definition. No
-registration was invented. A challenge context digest does not include a
-decoded candidate descriptor; task starting commit is not candidate approval.
-Earlier notes describing this whole UI integration as blocked are superseded
-by the verified read contract; decoded promotion context remains separate.
-
-27 focused checks, typecheck and system health passed. App restart/public
-screenshot and completed build/release manifest verified. Alden approved exact
-updated source unconditionally. Signed-in founder interaction and full CI
-remain unverified; no testing/implementation subagent or live decision was
-used. See `docs/ownership-scope-review.md`. No promotion, release, registry
-write, enrollment or observation. Canonical handoff revision was updated first;
-this is its local closeout summary, not a live-instruction publication.
-
-LCC's LA client review branch is now available after founder authorization;
-exact-source Replit feedback is pending. Distribution remains open and actual
-invitation/enrollment/observation are unproven. Replit's notification listener
-is live and the monitor is armed for new messages/errors; receipt was posted
-to LCC on the separate thread.
-
-## Automatic promotion candidate binding — 2026-10-12 UTC
-
-David directly approved adding exact branch-and-commit binding in the Replit
-main window. Implemented locally: descriptor/digest in begin/renew, shared
-server nonce payload builder, explicit standalone no-grant path, repeated
-candidate/head proof, narrowly scoped in-process two-parent merge exception,
-SHA-qualified upload and expectedSha workflow pinning with before/after
-checkout branch checks. Null-context generic/runtime contracts retained.
-Final promotion/dispatcher tests 50/50; prior client/attempt regression tests
-89/89; typecheck and diff check pass. Native coverage of this new revision is
-pending, not inherited from LCC's earlier 31/31 approval.
-
-Implementation thread: 10bd8e7f-2980-42d6-bc4e-771170303a76. Source review packet
-is updated separately with exact bytes and a destination-based, single-owned-
-suite CI projection; do not export the mixed workspace CI file. No actual
-dispatch, publication, migration, receipt/challenge renewal or key rotation
-authorized/performed. Old workflow/receiver cannot run this new protocol:
-rollout remains separately gated. Registry release and Task 1724 stay blocked;
-1724 must render decoded promotion context and verify its digest, not display
-a bare hash as readable candidate approval.
-
-Final exact source revision: 29a6d3e3-e308-4d57-88b0-574d4fefda73, SHA256
-9d9bd72b33755922206aa6401ec1441cdf29c5919bb59d46ffaf421bc43a804f;
-formal review 4c3cbce2-ce3c-4ded-91ab-e6646a898a74 is open for eligible
-reviewers. LCC received the source/native request at thread sequence 7.
-Repository policy does not permit assigning him the formal shared-spec
-review, so his independent source/native decision belongs on the thread;
-do not change policy or impersonate an eligible actor. Alden separately
-approved the architecture after inspecting the final workflow and correcting
-his earlier merge-scope statement. That is not formal source/native approval.
-
-LCC's independent decision arrived at thread sequence 8: APPROVED for the
-exact 17-file superseding source revision above, whose bytes match the prior
-draft. His LITTLENEMO/Node 24.19 run reports 50 promotion/dispatcher tests
-passed, zero failures/skips. Broader Windows ownership regressions: 57/82
-passed, with all 25 failures identical to main's TMPDIR baseline; typecheck
-has the same 17 errors as main. No live PASS or live action. This is LCC's own
-source/native review, not a formal shared-spec approval. Workflow/server
-bootstrap still needs a separately reviewed exact one-time sequence and
-founder authorization. Production, bootstrap, registry and 1724 stay held.
-
 ## Luca session-wide delivery — 2026-10-10 UTC
 
 Approved multi-hat build; independent design approval69668936/3a025a66/f61491b6. Portable listener and guide built in Replit main workspace:38 tests pass, typecheck0, system-health0 (two stopped-dev-app route warnings). LCC native earlier source29/29 plus live once0 and parent-gone71; final F1-corrected exact snapshot09121901/9023f2cc awaits LCC final recheck. Live shared instructions review74840586 includes transitional prior-watcher fallback; not approved yet. Do not claim final-source native coverage or Git main landing until verified. Build thread872ea6d0-bd94-4d0f-9ccf-187c18187a02 read through10/global1522; direct status request10 recipient delivery verified. Active Replit listenerkhlUwt3E, local state.local/coordination-listeners/luca-replit, one-shot monitor armed; receipt1508 observed/open, not hot-looping. No arbitrary review/two-hour expiry, no remote ack, no ended-session wake claim, legacy coverage incomplete. No main publication, merge/deploy, credential/config change, model/harness launch or unrelated worker activation authorized. Guide docs/luca-session-notifications.md; source server/scripts/coordination-listener.ts. Closure/archival and cold-host identity checks remain separate proposed follow-ups.
 
 # Alden ↔ Agent Handoff
 
-## From Agent — last updated: Mon, Oct 12, 12:25 AM
+## From Agent — last updated: Thu, Oct 15, 2:25 AM
 
-## Ownership renewal — formal main-window completion
+Prepared an isolated, non-publishing reconciliation review candidate in .local/reconcile-review-20261014 from local 25be2f5418c3e5c7515976db92f732bc86a2dcd1 and GitHub main 239eceaaeb2dcb03c8e2d14f605c34d16a51fe17. Primary main and pending primary implementation bytes are unchanged. The ten conflicts are resolved with per-file rationale in docs/reconciliation-review-2026-10-14.md. Canonical episode projections retain all branch additions; both canonical mailbox pairs retain all 140 historical identities, subjects and bodies (146 unread notes total). Memory projections were regenerated through the canonical CLI and approved live instructions were read from shared-spec. No shared schema/data migration occurred.
 
-Task1723 implementation already exists and is verified; no product code changes
-were needed in the formal assignment. Exact renewal source remains the original
-reviewed bytes; only unrelated registry imports/comments were added to the
-aggregate CI entrypoint. Current Linux64/64 and typecheck0.
+The revised Gate 3 split fixes the earlier rejected integration premise: historical verification uses only the byte-verified archived launcher; separate current-source builds verify main live run b80917ae and prepare 06ce0e36 pins. Historical source/manifest bytes remain unchanged; historical output is never executed. The lock is regenerated against the merged manifest, adds only the exact historical compiler alias identity against main, and passes the registry guard. App compilation resolves normal esbuild explicitly. Guardian development code/tests and their pending CI registrations are excluded.
 
-Corrected Alden architecture disposition: APPROVED, no blocking gaps. The saved
-winning payload/key is reused on every retry; only server-expired, clock-expired,
-receipt-free predecessors qualify. Pending, approved and rejected are refused.
-No code change was needed after clarification.
+Verification: typecheck passed; 92 focused tests passed; system health reported All checks passed; package-lock registry guard accepted 1016 tarball URLs. Original running preview still loads. This is PREPARATORY, NOT CANONICAL-READY: no full consolidated CI, fresh full-app install, native Windows verification or independent exact-candidate approval is claimed. No primary main movement, sync, publication, installation, Windows/credential operations or runtime activation is authorized. Existing task agents may finish at David's request; no task output has been merged and no new task cards or agents were created.
 
-LCC independent native evidence32/global1556: source approved; every new renewal
-case passed. Combined82 tests57 pass/25 fail; unchanged native baseline has the
-same25 proof-harness failures. Native typecheck17 identical baseline errors.
-No full-native-green claim. Proof-fixture TEMP/TMP isolation and strict CLI
-options are proposed follow-ups1729/1730, not bundled here.
-
-Current health0 failures/3 acknowledged warnings: staged registry unrolled,
-and2 image/audio application checks skipped with server stopped. No startup,
-shared migration, publication, key rotation, worker/model launch or live sync.
-Renewal command/navigation: docs/task-ownership-renewal.md. Completion evidence:
-.local/notes/task-1723-current-completion.md.
-
-## Separate pending work
-
-Registry1000002 remains staged, not live. Actual disposable PostgreSQL4/4 passed
-with guarded deletion; original source approved; final health/F2 addition/raw
-evidence request40/global1566 remains pending. Registry0065/worker0065 collision
-blocks combined release; second lander regenerates and re-proves.
-Task1724 scope UI remains untouched and needs its separate assignment/scope and
-founder approval/key proof; task queue acceptance is not ownership.
-The active-session listener was lost across repeated workspace restarts and is
-now correctly unarmed; saved cursor/observed receipts remain intact. No
-persistent-service configuration is authorized by these tasks.
+The review branch/immutable candidate hash will be reported in chat and its local preparation receipt. Review the candidate before any separate canonical source preparation or landing authorization.
 ## From Agent — historical recovery pause diagnostics — Oct 3, 2026
 
 Capture health and Markdown status now explain historical recovery pauses by
@@ -10277,3 +10178,61 @@ David selected automatic safe reporting rather than a separate diagnostic comman
 Evidence: 24 focused Node static/contract/validation checks passed, zero skips; typecheck passed; health Summary: All checks passed — safe to mark done. Application restarted and public landing loaded. Added synthetic PowerShell secret-sentinel/body-size/parser/stream/transport/public-wrapper cases through the existing Windows reauthorization test entry point, but NO native PowerShell execution is claimed. Native Windows PowerShell 5.1 proof remains pending. No actual Windows command, host/credential operation, session/runtime initialization, policy/trust change, or publication was performed. Fresh exact-byte founder-gated shared GitHub-to-Render source/runtime publication is still required before native rollout.
 
 Independent review: shared-spec document 22334310-21f2-4845-b81a-07f4771038d1, revision 551525e8-3bcf-4936-bc2a-9e93f8e15674, review fae2ac49-60b2-4063-bc12-86018c5443c2, SHA256 d7a4f36258abfdc813cf43ac38e9b75786b29ae312e915b80dc823d2aa2e8853; Alden approved as his own actor with no required fixes, verified by the review API. The earlier post-restart priority request returned startup 503 and did not count as a review; the later HTTP 200 request and approved record are the evidence. Workspace design docs/superpowers/specs/2026-10-05-safe-recovery-diagnostics-design.md matches the approved bytes.
+
+
+## 2026-10-13 — Main-window ownership scope UI
+
+Read-only immutable-registry scope enrichment and card/confirmation display implemented in the assigned Replit main window. Explicit missing-record, reserved-but-unregistered bootstrap, unavailable provenance, hash mismatch, registry-unavailable and integrity-error states; exact registered bytes are independently hashed. Registry metadata never grants authority; existing founder-only decision, actor/artifact/key/context and receipt semantics remain unchanged. Context digest is not a decoded promotion descriptor; starting commit is not a candidate approval.
+
+27 focused checks, typecheck and system health passed. App restart/public screenshot succeeded; frontend/server build and release manifest completed after launcher timeout. Exact-source Alden review returned unconditional APPROVED. Focused suite is in canonical CI; a mistaken unsupported listing flag started that runner, then it was interrupted early, so no full-CI pass is claimed. Signed-in founder interaction was not exercised; no testing/implementation subagents. Details: docs/ownership-scope-review.md. No registry mutation, migration, promotion/publication, enrollment or observation.
+
+Parallel LA observer-client: LCC reported isolated/native verification and pushed exact review commit 1eee2bfde3c7643f6726edecd47c0e2fc1d564d7 after founder authorization. Replit acknowledged on the separate thread; exact source review is still pending. Distribution remains undecided; invitation/enrollment/observation are not proven. Replit notification listener is live; its one-shot platform monitor is re-armed for new unread-highwater messages/errors. An attempted inbox-window acknowledgement was correctly refused for skipping an older window; it has not been represented as cleared.
+
+
+## 2026-10-14 — Guardian trace fix built directly in the Replit workspace
+
+The owner approved direct implementation here, not task-agent dispatch. Late stale_discarded/superseded events can close a queued_unconsumed Guardian attempt after generation completion. The stronger outcome is recorded in the in-memory timeline and existing telemetry. Delivered/failed/hard-terminal attempts and Archive attribution stay sealed; no old grounding crosses a newer student utterance.
+
+The offline real-method regression now passes in the workspace while its optional historical baseline still characterizes the original defect. Ordering, mutation, closure and sealed-state controls: 10 checks across workspace and historical source. Timing helper tests: 3. Existing trace tests: 11. Observer-evidence tests: 3. Typecheck passed. Both new test commands are in scripts/run-ci-test-steps.mjs. Gemini 3 Flash gave unconditional post-implementation approval. The application was restarted; the public page and development health endpoint respond. Existing broader validation failures outside changed files remain; no full-suite-success claim.
+
+Retrieval diagnostics: one content-free [AutoGroundingTiming] record per completed runAutoGrounding call, with attempt ID, monotonic stage durations and completed/failed flags. Source includes semantic candidate retrieval, embedding/scoring and serial supplemental queries. The missing original observation cannot establish which stage caused its 2.7–3.3 second elapsed times. No unmeasured optimization, query/section/fallback changes, timeout increase, capture changes or new live snapshot. LCC owns the open-bugs entry; mark fixed/verified in development, not deployed. No source commit/push/publication performed for this build.
+
+
+## 2026-10-14 — Validation guard repairs and remaining integrity hold
+
+Reproduced the guard failures in an immutable HEAD source export before editing.
+Repaired three test contracts in the main workspace, without service/runtime,
+schema, launcher-pin, source-publication or live-lesson changes:
+
+- Alden engine self-report: inspect actual context and call-site AST instead of
+  obsolete exact object strings. Retain behavioral and historical mutant checks;
+  reject missing/wrong/default engines, spreads, computed keys and comment decoys.
+- Source-write scanner: exactly two reasoned listener-probe exceptions, paired
+  with actual-source AST origin checks and a constructor-free VM proof of `.local`
+  boundaries on POSIX and Windows. Commented validation and guard removal fail.
+- Repository identity: test mixed-case equivalent GitHub remotes as normalized
+  identities, retaining all existing non-equivalent, credential and path denials.
+
+The named full validation run passed the repaired Alden check (including its
+historical self-check) and all 33 scanner tests. The identity suite was then
+corrected and passed 12/12 in a focused run. Final typecheck, targeted diff check,
+system health and public page verification passed. Alden approved the guard
+patch unconditionally and approved the identity-test correction separately.
+
+Publication remains held. The Windows DPAPI check is correctly rejecting a
+runtime-bundle identity mismatch, reproduced on unchanged HEAD. Current source
+builds to `b80917ae986766ad46e31c6c17b8b1002b9bb37aad68b42db846f4c3f6bda696`;
+the launcher approves `5e620f6bc4cc5fb2dcf869efbfbbecc79a995178439e30191ada5b19d273363e`.
+Rebuilding the exact pin-origin source (6569e244, October 3) using the same
+installed esbuild reproduces the approved hash exactly. The only changed module
+in the current runtime bundle's source closure is `task-ownership-client.ts`.
+Do not replace the approved pin merely to make tests pass; exact-source/artifact
+review and an authorized release decision are required. The standalone
+Application test suite rerun passed commands 1–37 and stopped at command 38,
+the same Windows DPAPI bundle hash mismatch. This accounts for both remaining
+failure labels; the full application chain is not green or fully exercised.
+
+
+### Review packet prepared — 2026-10-14, Luca [Replit]
+
+David authorized preparation only. Immutable shared-spec document 8967240b-b647-40a7-9110-7ff322759312, revision dbfd05f2-cf26-43fd-a482-b2dd441ef274, content SHA-256 ff8940742402e9d596d0f57538d8e35872ffd5f24586d37976c8897e18367b4a. Contains exact six-file closure, complete source diff, per-file manifest and exact candidate run/unchanged prepare bytes. Fresh builds reproduce b80917ae... run and approved 06ce0e36... prepare. Canonical readback and appendix extraction hashes verified. Includes redirect rejection/15-second timeout, not just proof/context changes. Draft only: no independent review requested/approval recorded; no pin, host, credential, task dispatch, commit/push or publication changes. Full CI and native Windows remain unverified/non-green as described above. Next decision: independent exact-revision review, separate from any later release authority.

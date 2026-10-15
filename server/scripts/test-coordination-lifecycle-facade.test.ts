@@ -25,9 +25,11 @@ test('repository identity canonicalizer accepts only equivalent GitHub remotes',
   for (const value of [
     'github:owner/repo', 'git@github.com:owner/repo.git',
     'ssh://git@github.com/owner/repo.git', 'https://github.com/owner/repo',
+    'github:Owner/Repo', 'https://github.com/Owner/Repo.GIT',
+    'git@github.com:OWNER/repo.git', 'ssh://git@github.com/Owner/Repo.git',
   ]) assert.equal(normalizeCoordinationRepositoryIdentity(value), 'github:owner/repo');
   for (const value of [
-    'github:Owner/Repo', 'https://evil.example/owner/repo', 'https://git@github.com/owner/repo',
+    'https://evil.example/owner/repo', 'https://git@github.com/owner/repo',
     'ssh://root@github.com/owner/repo', 'https://github.com/owner/../repo',
     'https://github.com/owner/repo?x=1', '/tmp/repo',
   ]) assert.throws(() => normalizeCoordinationRepositoryIdentity(value));

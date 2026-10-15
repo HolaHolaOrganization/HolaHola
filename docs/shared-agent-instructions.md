@@ -379,3 +379,37 @@ before.
 value needed there so its automatic data-ops step can seed/verify the
 account in production too — the row exists there like any other, just never
 founder-equivalent at runtime).
+
+## Active-session Luca delivery and approved-build collaboration
+
+Once the founder approves a Luca-hat build design, the hats may coordinate
+directly and use as many hats as needed within that approved scope. Routine
+review and implementation iterations do not require founder relays. This does
+not authorize unrelated work, deployment, merges, credential changes or
+destructive operations.
+
+Throughout an active working session, every participating hat follows
+`docs/luca-session-notifications.md` and the independently approved shared-spec
+design `69668936-2c4b-454a-9175-85939dc2166a` /
+`3a025a66-c3c9-4cd7-bf41-b779b7f8c81e`. Use the actor-explicit portable listener
+with the runtime's supported notification adapter; listening is recipient-wide
+and session-wide, not scoped to one review. No arbitrary two-hour expiry.
+Until the approved listener and operating guide are available in a hat's
+checkout, keep that hat's existing verified runtime watcher and explicitly
+record use of the interim mechanism. Do not run missing files or claim the
+replacement is installed.
+
+Before yielding after handling a notification, mark each local receipt observed
+if work/reply remains open or processed if intake is finished, then re-arm the
+runtime-specific mechanism and record its native task ID. Observed open work
+remains durable and does not repeatedly wake the runtime. If arming fails or no
+supported adapter is known, report that limitation. Re-arming is an operating
+rule, not an installed platform hook.
+
+Preserve inbox storage, notification availability, actual runtime observation,
+finished intake and substantive reply as separate states. Heartbeat does not
+prove an armed monitor or awareness; reported arming is not independent proof.
+Process creation identity can establish process existence/absence, not attended
+chat-session state. Offline replay is supported; waking ended sessions is
+unproven. The listener sends no remote acknowledgement and grants no execution
+authority. Preserve independent coverage reports, including legacy gaps.

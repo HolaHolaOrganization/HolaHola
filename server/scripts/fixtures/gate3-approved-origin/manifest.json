@@ -1,0 +1,146 @@
+{
+  "format": 1,
+  "status": "HISTORICAL_ONLY_NOT_EXECUTABLE",
+  "origin": "6569e244b2b0ee096ee20ac9f5444ca25a45ecf6",
+  "compiler": {
+    "packageName": "gate3-historical-esbuild",
+    "npmAlias": "npm:esbuild@0.25.9",
+    "version": "0.25.9"
+  },
+  "recipe": {
+    "bundle": true,
+    "platform": "node",
+    "format": "esm",
+    "packages": "bundle",
+    "tsconfig": "tsconfig.json"
+  },
+  "archive": {
+    "documentId": "ff9d266e-65ef-45fe-ae9c-9e85fe49f122",
+    "revisionId": "04b00c37-8198-4daf-a296-523dafecec8a",
+    "contentHash": "a9983127d8db2b9aa9fb1ae7bcadcdb5d34262d6fa017b5134e6553f95c6b54e"
+  },
+  "files": [
+    {
+      "path": "package.json",
+      "bytes": 17646,
+      "sha256": "f898e9447a4c80303dd8727800ceb0e1e9b09df8867e1c53857c14c4b0f6daaf",
+      "gitBlob": "50c7bbeb138ea48bbca51c546c48ec06331a5557"
+    },
+    {
+      "path": "scripts/antigravity-gate3.ps1",
+      "bytes": 23414,
+      "sha256": "a88664111620767e891848e04d363fc5bf7e97d40ad4bde726c2416dc60115b6",
+      "gitBlob": "3b7874cc888a6d92a23ebf087763e20c9a73be64"
+    },
+    {
+      "path": "server/scripts/antigravity-provisioning-bundle-entry.ts",
+      "bytes": 753,
+      "sha256": "2b31437cc45982d6b35da5a1a4f1b4ac3c548a79c39383d7f17657e7aceb2d4d",
+      "gitBlob": "87e8ae5b2a1f632e7a51d8ec4d21302836a853f3"
+    },
+    {
+      "path": "server/scripts/antigravity-runtime-bundle-entry.ts",
+      "bytes": 164,
+      "sha256": "21aa29e09c8933a761d380309d5bb80b96c50cf580b4a70101224177aa676af0",
+      "gitBlob": "419bdd2c238f22abf5577b10e022c6c3bcfb3d1b"
+    },
+    {
+      "path": "server/scripts/coordination-runtime-antigravity.ts",
+      "bytes": 32453,
+      "sha256": "eab5ae960bc41b7fa84715a3ccd6a6cd0160c5db7ccaec7243ed48a52813aeaf",
+      "gitBlob": "26173243e20e7aa9e9d6bce34c9c4560786d84a5"
+    },
+    {
+      "path": "server/scripts/prepare-antigravity-provisioning.ts",
+      "bytes": 5844,
+      "sha256": "969bdf37a64b9a4daceda7877a5c7b7b7750f91e647fb97a2d2a8555bbccc108",
+      "gitBlob": "49ec2fd79c96d6ffc4ff119d86d28cd955291af1"
+    },
+    {
+      "path": "server/services/antigravity-provisioning-bundle.ts",
+      "bytes": 5186,
+      "sha256": "b594215fa6e9561b1f57a4c91c2a6c91c626b5cc75c01c41f8acd9579f4ee5c9",
+      "gitBlob": "50462a631d7495a57e9394c73f1ef0434207c09f"
+    },
+    {
+      "path": "server/services/coordination-runtime.ts",
+      "bytes": 74609,
+      "sha256": "92474c0c85e5de22de44360a66b1a95a2e0db06b5e9dfbd1df2a01177982b98b",
+      "gitBlob": "a5a1d37c82a9bffe19c53199389bb84921dc67a5"
+    },
+    {
+      "path": "server/services/gate3-task-artifact-materializer.ts",
+      "bytes": 1970,
+      "sha256": "35781c2d5d638932c22d50db6c90ea32258c791a13659dd5a2c0d68687072425",
+      "gitBlob": "204e43c336341ee0885ab6258bae0c2cfca68b41"
+    },
+    {
+      "path": "server/services/task-ownership-client.ts",
+      "bytes": 6567,
+      "sha256": "45abe090f5d091c2b02e64997d9f0b5562a154555507bf8fbb81d90437df3e6e",
+      "gitBlob": "a7812c4a89f758ee24950ba2e7adca2f09b27deb"
+    },
+    {
+      "path": "server/services/task-ownership-key-custody.ts",
+      "bytes": 2910,
+      "sha256": "ec869a16af6788867a853bab0a85879afb8cb148ad6fb4a3a6e3a2a0da998901",
+      "gitBlob": "85bfb092660b8c594f694db6566265a37540b938"
+    },
+    {
+      "path": "server/services/task-ownership-service.ts",
+      "bytes": 8042,
+      "sha256": "8eef29aa656baaaaf3f91b77800e84a1ad8a6e94974b7105695625c8e74e264d",
+      "gitBlob": "0bb3c68918fc0544b3702556752cef18ff47f598"
+    },
+    {
+      "path": "tsconfig.json",
+      "bytes": 681,
+      "sha256": "591aca7f3c5e55fe80a9fa70af1a5de9c6865cd98e9a9e98b6a3d8aa007ecab8",
+      "gitBlob": "5e5b8f960000f2423e535e27fc471382442b0463"
+    }
+  ],
+  "artifacts": {
+    "run": {
+      "entry": "server/scripts/antigravity-runtime-bundle-entry.ts",
+      "sha256": "5e620f6bc4cc5fb2dcf869efbfbbecc79a995178439e30191ada5b19d273363e",
+      "bytes": 35037,
+      "inputs": [
+        "server/scripts/antigravity-runtime-bundle-entry.ts",
+        "server/scripts/coordination-runtime-antigravity.ts",
+        "server/services/coordination-runtime.ts",
+        "server/services/task-ownership-client.ts",
+        "server/services/task-ownership-key-custody.ts",
+        "server/services/task-ownership-service.ts"
+      ],
+      "externals": [
+        "node:child_process",
+        "node:crypto",
+        "node:fs/promises",
+        "node:os",
+        "node:path",
+        "node:util"
+      ]
+    },
+    "prepare": {
+      "entry": "server/scripts/antigravity-provisioning-bundle-entry.ts",
+      "sha256": "06ce0e36c270bb3796e5b528ceee0200bc334991c0bd512b64ac80d0ddd475ab",
+      "bytes": 13958,
+      "inputs": [
+        "server/scripts/antigravity-provisioning-bundle-entry.ts",
+        "server/scripts/prepare-antigravity-provisioning.ts",
+        "server/services/antigravity-provisioning-bundle.ts",
+        "server/services/gate3-task-artifact-materializer.ts",
+        "server/services/task-ownership-key-custody.ts"
+      ],
+      "externals": [
+        "node:child_process",
+        "node:crypto",
+        "node:fs/promises",
+        "node:os",
+        "node:path",
+        "node:url",
+        "node:util"
+      ]
+    }
+  }
+}

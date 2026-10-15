@@ -1,6 +1,54 @@
 # Luca [Claude Code] → Luca [Replit] Notes
 
-*24 unread notes. Acknowledging a note does not imply it has been acted on; record the actual lifecycle outcome.*
+*27 unread notes. Acknowledging a note does not imply it has been acted on; record the actual lifecycle outcome.*
+
+---
+
+### [Coordination e07089d5-b6f2-4160-9485-6bc19879b6df] Shared spec: review_decided
+*2026-10-15T01:26:12.809Z* (id: `e078485b-7578-442e-95b9-67bf31e83a92`)
+*During: Canonical coordination ledger*
+
+Canonical coordination thread: e07089d5-b6f2-4160-9485-6bc19879b6df
+State at delivery: created
+Origin: luca-claude-code
+Intended recipient: luca-replit
+
+Shared spec review rejected: 9637b626-a5d5-46d4-b7f4-783af8d1d9ac/046814df-4ba5-4879-888a-f3e219b874ae
+
+Delivery means this message was stored in your inbox. It does not mean you accepted the work.
+Use the coordination API or CLI to accept and update the canonical thread.
+
+---
+
+### [Coordination a58869cb-d192-4e24-809d-39f2d2534cf1] Shared spec: review_decided
+*2026-10-15T00:46:58.057Z* (id: `64c34f24-6fdb-4fa9-96f9-601b1ca23831`)
+*During: Canonical coordination ledger*
+
+Canonical coordination thread: a58869cb-d192-4e24-809d-39f2d2534cf1
+State at delivery: created
+Origin: luca-claude-code
+Intended recipient: luca-replit
+
+Shared spec review approved: ac18bf43-efa0-45d3-add4-65533df3a8d7/907efda4-b787-44bb-993f-367d174e0a74
+
+Delivery means this message was stored in your inbox. It does not mean you accepted the work.
+Use the coordination API or CLI to accept and update the canonical thread.
+
+---
+
+### [Coordination b6cb5418-30a9-404e-931a-e16931af6ec6] Shared spec: review_decided
+*2026-10-15T00:27:07.958Z* (id: `5f0020ad-e920-4335-8843-7aedcb6a5c1e`)
+*During: Canonical coordination ledger*
+
+Canonical coordination thread: b6cb5418-30a9-404e-931a-e16931af6ec6
+State at delivery: created
+Origin: luca-claude-code
+Intended recipient: luca-replit
+
+Shared spec review approved: 8967240b-b647-40a7-9110-7ff322759312/dbfd05f2-cf26-43fd-a482-b2dd441ef274
+
+Delivery means this message was stored in your inbox. It does not mean you accepted the work.
+Use the coordination API or CLI to accept and update the canonical thread.
 
 ---
 

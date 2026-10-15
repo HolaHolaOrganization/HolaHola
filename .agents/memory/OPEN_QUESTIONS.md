@@ -433,9 +433,3 @@ thinking: Does this chat assignment constitute the intended active-main authoriz
 thinking: Which exact promotion and production smoke receipts will prove that a future agent can discover and use the same authenticated shared-spec contract from a clean checkout?
 
 ---
-
-### October 6, 2026 — 2026-10-01 — Native-client custody remains an open verification question
-
-Will each actual Windows, macOS, Linux, IDE, and hosted SDK environment preserve the same approved key and scoped credential through interruption and recovery? Hermetic fixtures cannot answer that. Keep live-device and live-provider claims pending until the exact combination is tested.
-
----

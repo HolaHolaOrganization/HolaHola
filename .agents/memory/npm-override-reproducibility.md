@@ -35,3 +35,21 @@ settings before attributing dependency changes or interpreting lock consistency.
 Keep unrelated manifest cleanup separately reviewed; a dry run still does not
 prove an installed build.
 
+
+## Aliased compiler CLI collisions
+
+When isolating a historical esbuild version with an npm alias, import the compiler API by its explicit package name. npm aliases expose the underlying same CLI bin name and may replace the shared .bin/esbuild symlink.
+
+**Why:** The isolated alias installation actually changed the app-wide CLI symlink even though the current two versions happened to match; future app upgrades would otherwise silently select the historical compiler.
+
+**How to apply:** Historical checks resolve their dedicated alias API; application build tooling and current-source checks resolve the application compiler API explicitly. Preserve existing build options and verify output equivalence.
+
+
+## Portable lockfile URLs after proxy regeneration
+
+When regenerating a lockfile through the Replit package proxy, verify the resolved tarball URLs as well as package versions and integrity. An internal proxy URL is not suitable for this repository's portable lockfile.
+
+**Why:** Package-lock-only regeneration introduced an internal proxy tarball URL even though the package version and integrity were identical to the already-reviewed canonical npm entry. The existing registry guard correctly rejected the metadata.
+
+**How to apply:** Keep the configured proxy and firewall checks in place. Normalize only to a verified existing canonical npm tarball URL after matching package identity and integrity; run the registry guard afterward. Do not change the registry, bypass a rejected download, or use URL normalization as evidence that a clean installation passed.
+
