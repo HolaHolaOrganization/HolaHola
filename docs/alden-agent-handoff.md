@@ -4,12 +4,18 @@ Approved multi-hat build; independent design approval69668936/3a025a66/f61491b6.
 
 # Alden ↔ Agent Handoff
 
-## From Agent — last updated: Thu, Oct 15, 3:29 PM
+## From Agent — last updated: Thu, Oct 15, 3:38 PM
 
 Latest isolated-source and coordination status, October 15, 2026.
 CURRENT: David approved LCC as release coordinator. Recipient-addressed handoff
 was durably delivered on canonical thread dd40f2cf-b862-434f-b9ad-4dcf19776306,
-seq69/global1911. This proves delivery, not LCC acknowledgement of the new scope.
+seq69/global1911. LCC explicitly ACKNOWLEDGED release-coordination ownership at
+seq70, for exact67ff, with no merge/shared-DDL/deployment/client authority.
+Founder requirement for standard enforced controls, not memory/hope, was
+recipient-delivered at seq71/global1913. The requested client re-probe
+sequencing check was source-confirmed and delivered at seq72/global1914:
+all ownership probes precede workflow dispatch/migration; this is source
+evidence, not a claimed successful production-promotion run.
 Primary is c8ee35ee; PR30 stays67ff; optional test successor is parked.
 No merge, shared migration, deployment or client rollout was authorized.
 Historical validation checkpoints below retain their then-current HEAD values;

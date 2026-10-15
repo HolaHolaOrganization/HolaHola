@@ -64,3 +64,26 @@ with a project-wide ban on parallel work. Record the exact candidate whenever
 integration changes it, and validate only the changed scope plus its affected
 boundaries rather than discarding previous evidence or transferring approval.
 
+
+## Standard enforced integration, not remembered discipline
+
+Enforce cross-hat integration and release rules with established source-host,
+CI and permission controls. Prompts, remembered instructions and coordination
+messages are not substitutes for those controls.
+
+**Why:** The founder explicitly stated that memory and hope fail and that every
+hat, runtime and agent must encounter the same concrete process. Proven
+multi-developer processes should be used before inventing custom infrastructure.
+
+**How to apply:** Start from the actual protected-branch, required-check,
+review, merge-queue/serialized-landing and least-privilege capabilities already
+available. Audit what is actually configured and prove forbidden actions are
+rejected. Treat developer-workspace changes as normal; do not require all
+developer checkouts to stop changing or remain identical for a frozen release
+to proceed. Release from an explicit validated commit, not whichever developer
+checkout is current. Test migration compatibility against the integrated
+candidate and settled base. If a runtime cannot obey the same contribution
+boundary, remove its integration/release authority rather than adding exceptions.
+Do not claim these controls are already installed or sufficient without
+inspection and verification.
+
