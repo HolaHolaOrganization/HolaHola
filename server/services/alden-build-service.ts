@@ -15,8 +15,10 @@ import { GoogleGenAI } from '@google/genai';
 import { storage } from '../storage';
 
 const GUARDIAN_MANIFEST_PATH = '/tmp/alden-guardian-manifest.json';
-// GUARDIAN_TOKEN must be set as a Replit secret in production.
-// If not set (dev/CI), internal admin routes return 401 — correct and safe behavior.
+// GUARDIAN_TOKEN must be set in the server environment (Render and Replit).
+// Guardian-protected routes check it through isValidGuardianToken
+// (./guardian-token), which rejects every request when it is unset or blank.
+// The spawned guardian script inherits it via process.env.
 export const GUARDIAN_TOKEN = process.env.GUARDIAN_TOKEN;
 
 // ── Types ─────────────────────────────────────────────────────────────────────

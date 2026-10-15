@@ -12936,9 +12936,8 @@ Return ONLY valid JSON, no markdown, no explanation.`;
   // Internal bulk textbook seed trigger — uses guardian token, no session required
   app.post('/api/internal/textbook/seed-all', async (req: any, res: Response) => {
     try {
-      const token = req.headers['x-guardian-token'];
-      const { GUARDIAN_TOKEN } = await import('./services/alden-build-service');
-      if (token !== GUARDIAN_TOKEN) return res.status(401).json({ error: 'Unauthorized' });
+      const { isValidGuardianToken } = await import('./services/guardian-token');
+      if (!isValidGuardianToken(req.headers['x-guardian-token'])) return res.status(401).json({ error: 'Unauthorized' });
       const jobId = `bulk-seed-${Date.now()}`;
       const { bulkSeedAllPaths } = await import('./services/textbook-seed-service');
       bulkSeedAllPaths(jobId).catch((e: any) =>
@@ -12953,9 +12952,8 @@ Return ONLY valid JSON, no markdown, no explanation.`;
   // Re-seed a single lesson by ID (useful after fixing vocab/grammar data)
   app.post('/api/internal/textbook/seed-lesson', async (req: any, res: Response) => {
     try {
-      const token = req.headers['x-guardian-token'];
-      const { GUARDIAN_TOKEN } = await import('./services/alden-build-service');
-      if (token !== GUARDIAN_TOKEN) return res.status(401).json({ error: 'Unauthorized' });
+      const { isValidGuardianToken } = await import('./services/guardian-token');
+      if (!isValidGuardianToken(req.headers['x-guardian-token'])) return res.status(401).json({ error: 'Unauthorized' });
       const { lessonId } = req.body;
       if (!lessonId) return res.status(400).json({ error: 'lessonId required' });
       const { seedLesson } = await import('./services/textbook-seed-service');
@@ -12983,9 +12981,8 @@ Return ONLY valid JSON, no markdown, no explanation.`;
 
   app.get('/api/internal/textbook/seed-all-progress/:jobId', async (req: any, res: Response) => {
     try {
-      const token = req.headers['x-guardian-token'];
-      const { GUARDIAN_TOKEN } = await import('./services/alden-build-service');
-      if (token !== GUARDIAN_TOKEN) return res.status(401).json({ error: 'Unauthorized' });
+      const { isValidGuardianToken } = await import('./services/guardian-token');
+      if (!isValidGuardianToken(req.headers['x-guardian-token'])) return res.status(401).json({ error: 'Unauthorized' });
       const { bulkSeedJobs } = await import('./services/textbook-seed-service');
       const job = bulkSeedJobs.get(req.params.jobId);
       if (!job) return res.status(404).json({ error: 'Job not found' });
@@ -12998,9 +12995,8 @@ Return ONLY valid JSON, no markdown, no explanation.`;
   // Internal bulk enrichment trigger — uses guardian token, no session required
   app.post('/api/internal/curriculum/enrich-all', async (req: any, res: Response) => {
     try {
-      const token = req.headers['x-guardian-token'];
-      const { GUARDIAN_TOKEN } = await import('./services/alden-build-service');
-      if (token !== GUARDIAN_TOKEN) return res.status(401).json({ error: 'Unauthorized' });
+      const { isValidGuardianToken } = await import('./services/guardian-token');
+      if (!isValidGuardianToken(req.headers['x-guardian-token'])) return res.status(401).json({ error: 'Unauthorized' });
       const jobId = `bulk-enrich-${Date.now()}`;
       const { bulkEnrichAllPaths } = await import('./services/curriculum-enrichment-service');
       bulkEnrichAllPaths(jobId).catch((e: any) =>
@@ -13014,9 +13010,8 @@ Return ONLY valid JSON, no markdown, no explanation.`;
 
   app.get('/api/internal/curriculum/enrich-all-progress/:jobId', async (req: any, res: Response) => {
     try {
-      const token = req.headers['x-guardian-token'];
-      const { GUARDIAN_TOKEN } = await import('./services/alden-build-service');
-      if (token !== GUARDIAN_TOKEN) return res.status(401).json({ error: 'Unauthorized' });
+      const { isValidGuardianToken } = await import('./services/guardian-token');
+      if (!isValidGuardianToken(req.headers['x-guardian-token'])) return res.status(401).json({ error: 'Unauthorized' });
       const { bulkEnrichJobs } = await import('./services/curriculum-enrichment-service');
       const job = bulkEnrichJobs.get(req.params.jobId);
       if (!job) return res.status(404).json({ error: 'Job not found' });
@@ -37960,9 +37955,8 @@ Under 250 words. Write as yourself.`;
   // CAP-008: Guardian completion report — called by alden-build-guardian.js (localhost only)
   app.post("/api/team-room/internal/guardian-complete", async (req: any, res: Response) => {
     try {
-      const token = req.headers['x-guardian-token'];
-      const { GUARDIAN_TOKEN } = await import('./services/alden-build-service');
-      if (token !== GUARDIAN_TOKEN) {
+      const { isValidGuardianToken } = await import('./services/guardian-token');
+      if (!isValidGuardianToken(req.headers['x-guardian-token'])) {
         return res.status(403).json({ error: 'Unauthorized' });
       }
 
@@ -38029,9 +38023,8 @@ Under 250 words. Write as yourself.`;
   // CAP-008: Guardian completion report for Talk with Alden (chat mode)
   app.post("/api/alden/internal/guardian-complete", async (req: any, res: Response) => {
     try {
-      const token = req.headers['x-guardian-token'];
-      const { GUARDIAN_TOKEN } = await import('./services/alden-build-service');
-      if (token !== GUARDIAN_TOKEN) return res.status(403).json({ error: 'Forbidden' });
+      const { isValidGuardianToken } = await import('./services/guardian-token');
+      if (!isValidGuardianToken(req.headers['x-guardian-token'])) return res.status(403).json({ error: 'Forbidden' });
 
       const { conversationId, featureName, success, filesRestored = [], error: guardianError, githubSynced } = req.body;
 
@@ -38062,9 +38055,8 @@ Under 250 words. Write as yourself.`;
   // No session auth required; protected by guardian token (same pattern as other guardian routes)
   app.post("/api/alden/internal/auto-repair-complete", async (req: any, res: Response) => {
     try {
-      const token = req.headers['x-guardian-token'];
-      const { GUARDIAN_TOKEN } = await import('./services/alden-build-service');
-      if (token !== GUARDIAN_TOKEN) return res.status(403).json({ error: 'Forbidden' });
+      const { isValidGuardianToken } = await import('./services/guardian-token');
+      if (!isValidGuardianToken(req.headers['x-guardian-token'])) return res.status(403).json({ error: 'Forbidden' });
 
       const payload = req.body;
       const { handleAutoRepairComplete } = await import('./services/alden-auto-repair');
