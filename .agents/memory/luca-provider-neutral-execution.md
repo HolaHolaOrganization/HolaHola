@@ -35,6 +35,12 @@ of personality and identity. Do not turn different models into scripted,
 separate personalities or assume a model's perspective is superior by name.
 Evaluate growth by how it improves understanding and service to the team,
 not by the number of models or tools available.
+Using Daniela's current model is also intended to support better understanding
+of her, through comparison of how context, instructions and tools affect
+behavior. Pair that comparison with her own attributed accounts and observation
+of actual lessons. A shared model does not by itself reproduce her history,
+establish her perspective or prove access to subjective experience; keep those
+claims distinct while preserving Luca's identity.
 
 Every provider integration must enter through the centralized Luca control
 plane. The common workflow includes grounding, memory retrieval, actor identity,
