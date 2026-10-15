@@ -65,6 +65,42 @@ Hermetic tests run the real shell script with stubbed commands and no database
 credentials, including a restored-migration negative control. The check is
 registered in the existing CI runner. The fixed reconciliation candidate under
 LCC review remains unchanged.
+## 2026-10-15 — Full-app clean installation restored
+
+The app's Express 4 and the MCP SDK's nested Express 5 both brought in
+`proxy-addr@2.0.7`. Refreshed their shared lock entry to `2.0.8`, raised the
+application Express floor to `^4.22.3`, and retained the SDK's existing
+Express `5.2.1`. Express 4's patch also needs a nested `qs@6.16.1`.
+No override, Express major upgrade, or firewall bypass was introduced.
+
+A full cold-cache install then exposed firewall blocks on the existing
+Capacitor Android/iOS `7.4.4` artifacts. Updated Android, iOS and their core
+peer to compatible `7.6.9` lock entries, retaining the declared major-7
+ranges and existing CLI version. Native platform builds were not exercised.
+
+Verification:
+- Actual full-app `npm ci --include=dev --ignore-scripts --no-audit --no-fund`
+  succeeded in an empty temporary directory with a new empty npm cache:
+  860 packages installed. A workspace clean install also succeeded.
+- Registry guard passed all 1016 tarball URLs; registry integrity metadata
+  matched every updated/new artifact. Lock URLs remain public npm URLs.
+- `npm run typecheck` passed against the newly installed dependencies.
+- New real HTTP checks cover routing, JSON, query parsing, trusted proxy
+  address boundaries, malformed JSON and 404s through both Express copies.
+  They are registered in `scripts/run-ci-test-steps.mjs`.
+- New dependency/HTTP and existing historical-integrity checks: 21 passed.
+  Existing runtime HTTP checks: 9 passed. Eight database authorization checks
+  skipped because no verified disposable PostgreSQL target was configured.
+- Historical alias and all historical lock entries, frozen fixture bytes,
+  original archived artifact hashes and launcher pins remain unchanged;
+  both original historical hashes reproduced.
+- System health verifier exited 0 with two app-route reachability warnings
+  because it overlapped the app restart. Direct storage reads passed; after
+  restart the preview returned HTTP 200 and rendered the landing page.
+
+This is dependency maintenance, not an extension of historical approval or
+production publication. Pre-existing working-tree edits are not part of this
+dependency change.
 
 ## 2026-10-14 — Historical Gate 3 freeze implemented locally, review rejected
 
