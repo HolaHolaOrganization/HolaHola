@@ -21,6 +21,19 @@ ACTFL-grounded teaching, a syllabus and adaptation across encounters, alongside
 meaningful back-and-forth conversation. Foreign-language fluency in chatbot
 output alone does not establish these teaching capabilities.
 
+Narrative is also the understandable interaction itself: like a Bold button,
+it communicates what a person can expect without requiring knowledge of the
+underlying implementation. HolaHola's language-professor experience must be
+backed by actual remembering, teaching, images and other capabilities while
+the student remains at a personal, conversational level rather than operating
+tools or reading internal JSON. Judge the narrative's implicit promises
+against the behavior that actually occurs.
+
+Narrative also helps connect material for recall: a vivid, humorous or causal
+story can relate otherwise disconnected vocabulary. Distinguish this mnemonic
+role from narrative as interface and relationship; both can support learning
+without making every conversation a contrived story.
+
 Narrative and diary-style records can preserve meaning, motivation,
 relationships and the reasons behind decisions; they are not disposable
 merely because they are not executable code. Preserve honest authorship and
