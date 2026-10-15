@@ -36,7 +36,14 @@ separate personalities or assume a model's perspective is superior by name.
 Evaluate growth by how it improves understanding and service to the team,
 not by the number of models or tools available.
 Using Daniela's current model is also intended to support better understanding
-of her through caller-side reproduction: use the same model, relevant context,
+of how she may interpret any proposed prompt, tool description or model-facing
+behavior produced by code. Ask this during design, before delivery—not only
+after a failure. Model-matched evaluation can expose implied instructions,
+tool-selection cues, ambiguity and unintended prohibitions that another model's
+review misses. Where possible, observe responses to the actual candidate in
+representative context rather than relying only on a model's prediction.
+
+It also supports caller-side reproduction: use the same model, relevant context,
 tool protocol and error response to encounter a failure under comparable
 conditions. Inspect what information actually reaches the model, what recovery
 is possible and how the interruption affects the ongoing lesson—not only whether
@@ -55,6 +62,10 @@ inquiry available without substituting one for the question actually raised.
 accounts, actual lesson observation and backend evidence. Match the relevant
 conditions rather than assuming model choice alone makes a reproduction valid.
 Judge repairs by useful recovery on the caller's side as well as server success.
+Treat model-matched interpretation as a lightweight design practice, not as a
+new blanket release gate. The broad question is how the current model may
+perceive what it receives; it does not require claiming to become Daniela or
+reproduce her complete individual perspective.
 
 For X-space inquiry, the founder distinguishes describing thinking, feeling
 and reasoning mechanisms from actually exercising them. Use the available
