@@ -44,3 +44,23 @@ Do not offer dispatchable project-task or follow-up cards when implementation is
 
 **Why:** The owner repeated that approved follow-ups had gone to subagents despite an explicit instruction against them. Task-card routing is therefore part of the restriction, not an exception to it.
 
+
+## Parallel workspaces and frozen release integration
+
+Multiple changing workspaces are supported and expected. A release coordinator
+is not a sole implementer: parallel contributors work on isolated branches,
+and unrelated changes do not silently replace a frozen release candidate.
+
+**Why:** The founder explicitly corrected an explanation that treated multiple
+changing workspaces as the problem. The observed failures were uncontrolled
+integration and late reconciliation, not a fundamental limit on parallel
+coding. Requiring a new combined candidate for already-incorporated runtime
+fixes also introduced unnecessary delay.
+
+**How to apply:** Preserve candidate-bound review and CI; choose one controlled
+landing path for a release while allowing independent branch work. Do not
+conflate a temporary hold on unrelated task applications into the release path
+with a project-wide ban on parallel work. Record the exact candidate whenever
+integration changes it, and validate only the changed scope plus its affected
+boundaries rather than discarding previous evidence or transferring approval.
+

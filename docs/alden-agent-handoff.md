@@ -4,9 +4,18 @@ Approved multi-hat build; independent design approval69668936/3a025a66/f61491b6.
 
 # Alden ↔ Agent Handoff
 
-## From Agent — last updated: Thu, Oct 15, 3:18 PM
+## From Agent — last updated: Thu, Oct 15, 3:29 PM
 
-Latest isolated-source status, October 15, 2026. This supersedes the earlier
+Latest isolated-source and coordination status, October 15, 2026.
+CURRENT: David approved LCC as release coordinator. Recipient-addressed handoff
+was durably delivered on canonical thread dd40f2cf-b862-434f-b9ad-4dcf19776306,
+seq69/global1911. This proves delivery, not LCC acknowledgement of the new scope.
+Primary is c8ee35ee; PR30 stays67ff; optional test successor is parked.
+No merge, shared migration, deployment or client rollout was authorized.
+Historical validation checkpoints below retain their then-current HEAD values;
+the decision/preflight sections at the end supersede their local-worktree state.
+
+This supersedes the earlier
 3475 status. Final verification-only successor67ff is frozen, source-approved,
 and has passed the full canonical disposable-Neon gate.
 
@@ -127,6 +136,33 @@ primary; it is no longer a valid candidate checkout. Reviewed objects and the
 published67ff branch remain preserved. Fresh isolated source verification is
 required before any successor work. No source-main advance, migration,
 deployment or activation was performed during this preflight.
+
+INTEGRATION WORK PAUSED FOR FOUNDER DECISION:
+Fresh detached checkout .local/reconcile-integration-20261015 was created at
+67ff and its exact repository root verified. Narrow integration found the
+new dependency fixes are ALREADY present in67ff: Express4.22.3,
+proxy-addr2.0.8, grpc1.14.4, compiler alias0.25.9 and Capacitor7.6.9.
+No package manifest/lockfile, runtime, migration or production changes are needed
+to absorb those fixes into the reviewed source.
+Only uncommitted verification additions were made: the two compiler-selection
+poisoning tests, the proxy dependency/routing test, its consolidated-runner
+registration and a scoped verification note. Archived-launcher identity and
+live-launcher independence tests were retained rather than overwritten from the
+older task checkout. These additions are UNTESTED, UNCOMMITTED, NOT APPROVED
+and NOT PUBLISHED. They are not a prerequisite to releasing unchanged PR30.
+David asked whether LCC should own the finish; recommended LCC as sole release
+lead from frozen PR30, with unrelated task applications held. No handoff or
+release authority is implied until David decides. No source work continues
+while that decision is pending. Original67ff/PR30 remain unchanged.
+
+FOUNDER DECISION: LCC RELEASE COORDINATION APPROVED.
+David selected LCC and explicitly rejected treating multiple changing
+workspaces as the problem. Parallel coding remains supported; the requirement
+is controlled integration with exact-candidate review/CI, not a single coder.
+Bounded handoff body: .local/lcc-release-handoff-20261015.md.
+This grants coordination only, not merge/shared-DDL/deploy/client authority.
+Optional uncommitted successor stays parked and is not required to obtain the
+dependency fixes already in frozen67ff. No global task pause has been applied.
 ## From Agent — reconciliation successor and final validation — October 15, 2026
 
 David authorized proceeding through the remaining isolated checks and fixes.
