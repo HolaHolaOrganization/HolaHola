@@ -1,10 +1,17 @@
 /**
  * test-github-branch-bypass-guard.ts
  *
- * CI check: verifies that `main`'s only way to push around required PR
- * review + status checks is the one audited GitHub App installation — never
- * a broad deploy-key bypass, a second/rogue bypass actor, or a resurrected
+ * CI check: verifies that NOTHING can push to `main` around required PR
+ * review + status checks — no bypass actor of any kind (App, deploy key, team,
+ * role or user), no weakened core ruleset protections, and no resurrected
  * legacy classic branch-protection rule.
+ *
+ * Update (2026-10-15): the founder removed the last bypass actor (the
+ * holahola-source-promotion GitHub App, Integration 4984686) and disabled the
+ * cross-tool-promote workflow that needed it. Per the approved
+ * standard-integration-controls plan (shared-spec efb1e3d1), every change now
+ * reaches main only as a reviewed, CI-green pull request. The expected state is
+ * therefore an EMPTY bypass list; re-adding any bypass actor is drift.
  *
  * Background (Sep 17-18 2026):
  *   The source-control coordinator was migrated off a long-lived SSH deploy
@@ -22,11 +29,12 @@
  *   until someone tested a real push by hand. See
  *   .agents/memory/github-branch-protection-layering.md for the full story.
  *
- *   Nothing previously caught either failure mode automatically. This check
- *   does, by reading the live GitHub state directly:
- *     1. The ruleset's bypass_actors is exactly one entry, and it is the
- *        audited GitHub App (Integration, not DeployKey/Team/OrgAdmin/etc).
- *     2. Classic branch protection has not reappeared on `main` (its
+ *   This check reads the live GitHub state directly and asserts:
+ *     1. The ruleset is active and its bypass_actors list is EMPTY.
+ *     2. The core main protections are still present: deletion and
+ *        non-fast-forward blocking, required pull request, linear history, and
+ *        the required `test` status check.
+ *     3. Classic branch protection has not reappeared on `main` (its
  *        `protection.enabled` flag on the branch resource).
  *
  * Credential note — why RULESET_MONITOR_TOKEN_GITHUB and not the GitHub App:
@@ -77,8 +85,9 @@
  *
  * --self-check mode: confirms the guard currently passes against the REAL
  * live ruleset/branch state, then feeds the same assertion logic synthetic
- * *bad* fixtures (DeployKey re-added, bypass_actors emptied, wrong app id,
- * a second bypass actor, enforcement disabled, classic protection reenabled)
+ * *bad* fixtures (the old App re-added, a DeployKey or other bypass actor,
+ * enforcement disabled, a core rule or the required `test` check removed,
+ * classic protection reenabled)
  * and verifies each one is caught. It never mutates the real, live
  * ruleset or branch protection to do this — even briefly reintroducing the
  * bypass hole on production `main` to "prove" the check works is not an
@@ -99,7 +108,9 @@ const OWNER = 'davidwmcintosh';
 const REPO = 'HolaHola';
 const BRANCH = 'main';
 const RULESET_ID = 21584232;
-const EXPECTED_APP_INTEGRATION_ID = 4984686;
+const REQUIRED_RULE_TYPES = ['deletion', 'non_fast_forward', 'pull_request', 'required_linear_history', 'required_status_checks'] as const;
+const REQUIRED_STATUS_CHECK = 'test';
+const RETIRED_APP_INTEGRATION_ID = 4984686;
 
 interface RulesetBypassActor {
   actor_id?: number;
@@ -107,9 +118,15 @@ interface RulesetBypassActor {
   bypass_mode?: string;
 }
 
+interface RulesetRule {
+  type?: string;
+  parameters?: { required_status_checks?: Array<{ context?: string }> };
+}
+
 interface RulesetState {
   enforcement?: string;
   bypass_actors?: RulesetBypassActor[];
+  rules?: RulesetRule[];
 }
 
 interface BranchState {
@@ -128,23 +145,27 @@ function assertRulesetBypass(ruleset: RulesetState): string[] {
     failures.push(`ruleset ${RULESET_ID} enforcement is "${ruleset.enforcement}", expected "active"`);
   }
   const actors = Array.isArray(ruleset.bypass_actors) ? ruleset.bypass_actors : [];
-  if (actors.length !== 1) {
-    failures.push(`ruleset ${RULESET_ID} has ${actors.length} bypass_actors entries, expected exactly 1`);
-    return failures;
+  for (const actor of actors) {
+    const retired = actor.actor_type === 'Integration' && actor.actor_id === RETIRED_APP_INTEGRATION_ID
+      ? ' (the retired holahola-source-promotion App)' : '';
+    failures.push(`ruleset ${RULESET_ID} has a bypass actor: ${actor.actor_type} ${actor.actor_id ?? ''} mode=${actor.bypass_mode}${retired} — expected NO bypass actors`);
   }
-  const [actor] = actors;
-  if (actor.actor_type !== 'Integration') {
-    failures.push(`sole bypass_actors entry has actor_type "${actor.actor_type}", expected "Integration" (found a ${actor.actor_type} bypass — e.g. a DeployKey entry grants bypass to ANY deploy key on the repo, not one)`);
+  const rules = Array.isArray(ruleset.rules) ? ruleset.rules : [];
+  for (const type of REQUIRED_RULE_TYPES) {
+    if (!rules.some((rule) => rule.type === type)) {
+      failures.push(`ruleset ${RULESET_ID} is missing required rule "${type}"`);
+    }
   }
-  if (actor.actor_id !== EXPECTED_APP_INTEGRATION_ID) {
-    failures.push(`sole bypass_actors entry has actor_id ${actor.actor_id}, expected ${EXPECTED_APP_INTEGRATION_ID} (the audited GitHub App)`);
+  const checks = rules.find((rule) => rule.type === 'required_status_checks')?.parameters?.required_status_checks ?? [];
+  if (!checks.some((check) => check.context === REQUIRED_STATUS_CHECK)) {
+    failures.push(`ruleset ${RULESET_ID} no longer requires the "${REQUIRED_STATUS_CHECK}" status check`);
   }
   return failures;
 }
 
 function assertNoClassicProtection(branch: BranchState): string[] {
   if (branch.protection?.enabled === true) {
-    return [`classic branch protection is enabled on ${BRANCH} — it has no bypass-actor concept and will silently block the audited GitHub App's push regardless of ruleset config`];
+    return [`classic branch protection is enabled on ${BRANCH} — it is a second, unmonitored protection layer outside the audited ruleset`];
   }
   return [];
 }
@@ -187,7 +208,7 @@ async function fetchLiveState(): Promise<{ ruleset: RulesetState; branch: Branch
 async function runRealCheck(): Promise<void> {
   sep();
   console.log(B('GitHub main-branch bypass surface guard'));
-  console.log(B(`Verifies ruleset ${RULESET_ID} trusts only the audited GitHub App (Integration ${EXPECTED_APP_INTEGRATION_ID})`));
+  console.log(B(`Verifies ruleset ${RULESET_ID} has NO bypass actors and keeps its core protections,`));
   console.log(B(`and that classic branch protection has not reappeared on ${BRANCH}.`));
   sep();
 
@@ -202,10 +223,10 @@ async function runRealCheck(): Promise<void> {
 
   console.log('');
   if (failures.length === 0) {
-    console.log(`  ${G('✓')} ruleset ${RULESET_ID} bypass_actors trusts only the audited GitHub App`);
+    console.log(`  ${G('✓')} ruleset ${RULESET_ID} has no bypass actors and keeps all core protections`);
     console.log(`  ${G('✓')} classic branch protection is not active on ${BRANCH}`);
     sep();
-    console.log(G('\n✓ All assertions passed — main\'s push-bypass surface is exactly the audited GitHub App.\n'));
+    console.log(G('\n✓ All assertions passed — nothing can push to main around review and CI.\n'));
     process.exit(0);
   } else {
     for (const f of failures) console.log(`  ${R('✗')} ${f}`);
@@ -249,20 +270,33 @@ async function selfCheck(): Promise<void> {
 
   const rulesetFixtures: Array<{ label: string; bad: RulesetState }> = [
     {
-      label: 'a broad DeployKey bypass_actor is re-added alongside the App',
-      bad: { ...ruleset, bypass_actors: [...(ruleset.bypass_actors ?? []), { actor_type: 'DeployKey', bypass_mode: 'always' }] },
+      label: 'the retired holahola-source-promotion App is re-added as a bypass actor',
+      bad: { ...ruleset, bypass_actors: [{ actor_type: 'Integration', actor_id: RETIRED_APP_INTEGRATION_ID, bypass_mode: 'always' }] },
     },
     {
-      label: 'bypass_actors is emptied out entirely',
-      bad: { ...ruleset, bypass_actors: [] },
+      label: 'a broad DeployKey bypass_actor is added',
+      bad: { ...ruleset, bypass_actors: [{ actor_type: 'DeployKey', bypass_mode: 'always' }] },
     },
     {
-      label: 'the sole bypass_actors entry points at a different Integration id',
-      bad: { ...ruleset, bypass_actors: [{ actor_type: 'Integration', actor_id: 1, bypass_mode: 'always' }] },
+      label: 'a different Integration bypass_actor is added',
+      bad: { ...ruleset, bypass_actors: [{ actor_type: 'Integration', actor_id: 999999, bypass_mode: 'always' }] },
     },
     {
-      label: 'a second Integration bypass_actor is added',
-      bad: { ...ruleset, bypass_actors: [...(ruleset.bypass_actors ?? []), { actor_type: 'Integration', actor_id: 999999, bypass_mode: 'always' }] },
+      label: 'a repository-role bypass_actor is added (pull_request mode)',
+      bad: { ...ruleset, bypass_actors: [{ actor_type: 'RepositoryRole', actor_id: 5, bypass_mode: 'pull_request' }] },
+    },
+    {
+      label: 'the required pull_request rule is removed',
+      bad: { ...ruleset, rules: (ruleset.rules ?? []).filter((rule) => rule.type !== 'pull_request') },
+    },
+    {
+      label: 'the required "test" status check is removed',
+      bad: { ...ruleset, rules: (ruleset.rules ?? []).map((rule) => rule.type === 'required_status_checks'
+        ? { ...rule, parameters: { ...rule.parameters, required_status_checks: [] } } : rule) },
+    },
+    {
+      label: 'non-fast-forward (force push) protection is removed',
+      bad: { ...ruleset, rules: (ruleset.rules ?? []).filter((rule) => rule.type !== 'non_fast_forward') },
     },
     {
       label: 'ruleset enforcement is switched to "disabled"',
