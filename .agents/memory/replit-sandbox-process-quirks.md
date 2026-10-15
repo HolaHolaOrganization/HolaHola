@@ -220,3 +220,31 @@ and never regenerate a missing key as a retry workaround. Recover original
 custody if available, or obtain explicit authorization for new custody and a
 fresh founder-approved request; that is not renewal of the old key binding.
 
+
+## Missing proc children interface
+
+In this sandbox, `/proc/<pid>/task/<pid>/children` can be absent even when the
+process is alive and its task directory exists. Do not treat that ENOENT as
+proof that the process exited. Discover direct children by reading the PPID
+field of each numeric `/proc/<pid>/stat` entry, tolerating processes that exit
+during the scan.
+
+**Why:** An isolated validation orchestrator was correctly identified and
+paused, but the kernel did not expose its task children file. Assuming that
+file existed interrupted sequential validation even though the process was
+still present.
+
+**How to apply:** For Linux validation-process orchestration, keep creation
+identity checks for the process being signalled and use PPID discovery when
+the task children interface is unavailable. Resume only a process paused by
+the current orchestrator; never touch unrelated application or task workers.
+
+
+## Persistent tsx helper is not a validation child
+
+Distinguish a validation subprocess from a persistent runtime helper before waiting for all children of a paused Node/tsx orchestrator.
+
+**Why:** The parent owned both a test command and an esbuild transform service. The transform service lives until its Node parent exits. Waiting for that service to exit while the parent is paused creates a deadlock, even after every test has finished. This explained earlier wait-budget expirations; changing polling into exit events alone could not solve it.
+
+**How to apply:** Inspect the exact child executable and service arguments. Exclude only the verified persistent esbuild service from test-completion waiting; wait for real validation children through exit events. Preserve pause ownership and resume-on-exit protection. Never infer child exit from a missing proc children interface or a quiet log.
+

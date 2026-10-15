@@ -35,3 +35,5 @@ server/templates/task-1448.md text eol=lf
 scripts/hola-coordinator.ps1 text eol=lf
 server/scripts/coordination-v2-cli.ts text eol=lf
 scripts/coordination-v2-server-signing-public.pem text eol=lf
+# Exact historical build evidence must not change under Windows autocrlf.
+server/scripts/fixtures/gate3-approved-origin/** text eol=lf

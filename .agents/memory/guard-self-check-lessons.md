@@ -37,3 +37,12 @@ Treat the default caller wiring as a real security boundary: it must prove both 
 
 **How to apply:** Exercise the actual credentialed entrypoint in a fresh process, with private fixtures and real cryptographic proof against a synthetic authenticated service. Verify that legitimate approval works without an injected success result, and that missing, expired, revoked or mismatched authority causes no external mutation. Reverify at each later upload/dispatch boundary after potentially lengthy preparation; do not cache a prior successful verification as authority.
 
+
+## Structural checks versus closed-context snapshots
+
+Static guards must distinguish a required semantic field from an exact closed source-code snapshot.
+
+**Why:** Adding legitimate review metadata preserved caller-owned engine identity, but old closed-object signature and call-site strings falsely reported the engine as missing. A full gate stopped despite the actual behavior remaining correct.
+
+**How to apply:** Scope structural checks to the real declaration and named callers. Permit ordinary additional metadata while retaining exact supported engine types and literal caller ownership. Reject comment-only decoys and spread/computed overrides. Preserve behavioral mutation proofs alongside the static checks; do not merely relax a substring until it passes.
+

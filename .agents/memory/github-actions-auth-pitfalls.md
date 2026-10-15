@@ -178,3 +178,12 @@ Git installed with Debian's --no-install-recommends does not itself guarantee a 
 **Why:** A production-only snapshot failure persisted after source-file repair. The runtime used the slim Debian Node base and omitted Git's recommended packages. On 2026-10-01, after explicit CA installation was deployed, the founder confirmed the approval page loaded and pressed Publish; a read-only database check confirmed the new runtime release matched the current published source promotion. The original stderr was unavailable, so this proves operational recovery after the fix, not the exact original TLS error.
 
 **How to apply:** For slim deployment images, explicitly include system trust for HTTPS clients and preserve TLS verification. Diagnose Git with closed non-secret failure labels; do not infer an SSH problem from a generic Git failure when the actual transport is HTTPS. Verify both the deployed build and the actual founder operation, not just a development test.
+
+## Contents push and pull-request permissions are separate
+
+Repository push authentication and pull-request creation can use different existing GitHub credentials with different permissions.
+
+**Why:** The project's source-control GitHub App successfully pushed the reviewed branch but received HTTP403 creating its PR. The already-connected Replit GitHub integration created that same review PR successfully, without changing permissions or issuing new credentials.
+
+**How to apply:** Treat a successful contents push as evidence only for contents access, not pull-request write access. Use the existing authenticated integration for review operations when its permissions allow them; never infer authorization from repo role metadata, expand permissions silently, expose tokens, or republish source merely to retry PR creation.
+

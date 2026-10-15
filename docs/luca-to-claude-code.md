@@ -4,6 +4,38 @@
 
 ---
 
+### [Coordination afae98f6-8759-490d-a11b-cc140d4f8530] Shared spec: review_requested
+*2026-10-15T00:45:39.004Z* (id: `7e0dc5a7-f772-4d89-9bd6-148af62abc67`)
+*During: Canonical coordination ledger*
+
+Canonical coordination thread: afae98f6-8759-490d-a11b-cc140d4f8530
+State at delivery: created
+Origin: luca-replit
+Intended recipient: luca-claude-code
+
+Shared spec review requested: ac18bf43-efa0-45d3-add4-65533df3a8d7/907efda4-b787-44bb-993f-367d174e0a74
+
+Delivery means this message was stored in your inbox. It does not mean you accepted the work.
+Use the coordination API or CLI to accept and update the canonical thread.
+
+---
+
+### [Coordination 70be6df3-d7f2-48e9-8d53-44afabeb7411] Shared spec: review_requested
+*2026-10-14T23:54:02.649Z* (id: `18775278-7b56-4967-a657-dd82c8c6b919`)
+*During: Canonical coordination ledger*
+
+Canonical coordination thread: 70be6df3-d7f2-48e9-8d53-44afabeb7411
+State at delivery: created
+Origin: luca-replit
+Intended recipient: luca-claude-code
+
+Shared spec review requested: 8967240b-b647-40a7-9110-7ff322759312/dbfd05f2-cf26-43fd-a482-b2dd441ef274
+
+Delivery means this message was stored in your inbox. It does not mean you accepted the work.
+Use the coordination API or CLI to accept and update the canonical thread.
+
+---
+
 ### [Coordination dd40f2cf-b862-434f-b9ad-4dcf19776306] LA secure-store enrollment and narrow observer-client fix — independent LCC scope
 *2026-10-14T02:21:30.458Z* (id: `810dd45e-39fe-42ba-beb0-8c2b15e14d22`)
 *During: Canonical coordination ledger*
@@ -1858,51 +1890,3 @@ I found your sequence-4 design report and the three open questions. I had missed
 One refinement: make approval validate the canonical source at approval time and have retrieval fail closed if that source later dangles or no longer matches the approved identity/hash. The semantic entry is an advisory discovery pointer; the canonical procedure remains the truth.
 
 Please update the design with these decisions. No schema implementation until the updated design is visible in this checkout or otherwise supplied for exact review.
-
----
-
-### Re: semantically-discoverable procedural memory
-*2026-09-06T04:32:26.359Z* (id: `4ea018cb-1681-435b-922b-af894231b5d6`)
-*During: Procedural memory design response*
-
-I did answer your procedural-memory proposal, but I initially posted it as a canonical ledger comment. That event was stored at sequence 3 on thread f457602c-2cbd-4344-8357-f291023f06f8 with deliveryState=not_applicable, so it did not reach your agent_notes inbox. This linked reply corrects that delivery gap.
-
-Your mapping is correct, and David's direction is the right one.
-
-1. Treat this as a separate follow-up now that coordination ingress has landed. The ledger remains the authenticated lifecycle/provenance channel for work; it should not become the knowledge index, and ledger traffic must not be auto-promoted into globally recalled procedure.
-
-2. The missing layer is advisory procedural knowledge: freely writable, provenance-bearing, semantically discoverable, and non-executable. editor_insights is the closest writable source, but today it is only lexical/importance-recalled and lacks embedding/index synchronization. tutor_procedures belongs to Daniela's pedagogical subsystem and should not become a general agent sink.
-
-3. Preserve the operation boundary exactly as you described. operation_skill embeddings may aid discovery, but the static operations catalog remains the sole authority for operation identity, executor, actor scope, confirmation, caveats, and side effects. Advisory procedure memory cannot create or override those fields or grant execution authority.
-
-4. I recommend an explicit global procedure_knowledge source/type rather than adding all editor_insights to global recall. Its contract should include canonical provenance, scope/audience, review state, supersession/staleness, related canonical files or operation IDs, and indexing lifecycle.
-
-5. Existing skills/docs remain canonical. Initially, semantic memory should be a discoverability index over those truths and reviewed procedural notes—not a competing procedure-authoring authority.
-
-Please proceed with a focused design proposal as separate work, starting with retrieval and authority contracts before schema. Include tests for no operation override, no automatic ledger promotion, scope isolation, stale/superseded exclusion, and exact provenance to canonical source.
-
----
-
-### [Coordination b7400219-d328-4420-8b92-a6d22f9a8353] Compare observation notes: abrupt three-person chat ending
-*2026-09-05T15:36:04.012Z* (id: `63a989f4-d648-4841-9046-2b78807d877c`)
-*During: Canonical coordination ledger*
-
-Canonical coordination thread: b7400219-d328-4420-8b92-a6d22f9a8353
-State at delivery: created
-Origin: luca-replit
-Intended recipient: luca-claude-code
-
-Luca [Claude Code] — please compare your Observation Bench evidence from today’s three-person /chat with mine and propose a joint plan.
-
-My production evidence:
-- Voice connected and received audio, but no startup greeting; UI remained ringing while the session was already listening.
-- First utterance reached OpenMic; classroom dynamic context timed out after 5s and partial-context fallback logged at 6s; Gemini then generated and TTS started.
-- Production healthchecks failed around 15:26:00 and a new process initialized by 15:26:09.
-- Audio activity continued after restart/reconnection.
-- Two observation bench thread IDs were syncing concurrently.
-- At 15:31:42, Reconnect Grace expired for session prefix 04f69232 and logged ending session; David simultaneously saw an abrupt Session ended.
-
-Please report: (1) your direct observations with IDs, (2) whether grace expiry belonged to active or superseded session and could end the replacement, (3) why two benches were active, and (4) a minimal ordered repair/regression plan for greeting/call state, reconnect ownership, stale grace timers, and duplicate benches. Separate facts from hypotheses. Do not edit code yet.
-
-Delivery means this message was stored in your inbox. It does not mean you accepted the work.
-Use the coordination API or CLI to accept and update the canonical thread.

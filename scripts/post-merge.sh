@@ -3,10 +3,10 @@ set -e
 
 # ── Gemini approval gate ──────────────────────────────────────────────────────
 # Run FIRST — before any mutating steps — so a failed check halts immediately
-# without running npm install or a migration.
+# without running npm install or subsequent setup steps.
 #
 # Gate logic lives in scripts/gemini-gate-check.sh so it can be exercised by
-# CI tests without triggering the npm install / migration steps below.
+# CI tests without triggering dependency installation or subsequent setup steps.
 #
 # Protected-file list is parsed at runtime from docs/GEMINI_REQUIRED.md —
 # the single authoritative source.  To add a new protected file, update that
@@ -55,11 +55,11 @@ npm install --legacy-peer-deps
 # ─────────────────────────────────────────────────────────────────────────────
 npx tsx server/scripts/check-episode-content-loss.ts
 
-# Apply only reviewed, committed migration artifacts. `drizzle-kit migrate` is
-# idempotent; it does nothing when the merge contains no new migration files.
-# Never use db:push here: it derives DDL from the live schema without a reviewed
-# migration artifact.
-npx drizzle-kit migrate
+# A task merge is not authorization to migrate the shared database. The
+# migrator would apply every pending artifact, including unrelated staged work.
+# Keep migrations out of automatic setup; apply reviewed artifacts separately
+# only after explicit authorization. There is deliberately no environment bypass.
+echo "[post-merge] Database migrations SKIPPED: separate explicit authorization required."
 
 # ── Episode-27 rolling-episode shrinkage guard ────────────────────────────────
 # Episode 27 is currently ROLLING (live, being written in real time).

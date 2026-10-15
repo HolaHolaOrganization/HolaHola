@@ -12,3 +12,21 @@ Keep signed approval context, source selection, and runtime publication as separ
 - [Windows reauthorization publication gate](littlenemo-reauth-publish-gate.md): source and runtime publication precede native reauthorization.
 - [Render production target](render-production-target.md): all builder runtimes share the production release path.
 
+
+## Historical evidence versus target-branch selection
+
+Before deriving live launcher constraints or an integration review packet from a local checkout, verify the actual target branch baseline independently. Immutable artifact approval is not evidence of which artifact a live launcher currently selects.
+
+**Why:** A frozen rebuild reproduced its original bytes on both Linux and Windows, yet its integration was correctly rejected: the author checkout predated an already-landed repin. Comparing the live launcher with historical hashes would fail on the target branch, while deleting the old comparison also removed the target's live build verification.
+
+**How to apply:** Keep historical source/artifact evidence distinct from live selection and live-build verification. Check the target launcher, current sources and dependency-lock baseline before asserting compatibility. When the approved plan assumed the two pins were equal and they are not, preserve both records and obtain the required founder decision instead of silently repinning or dropping coverage.
+
+
+## Pinned wire contracts versus internal authorization metadata
+
+Preserve the exact wire contract of a pinned native client when adding server-side authorization metadata. Do not repin or broaden the client just to accommodate an internal field.
+
+**Why:** An apparently additive approval-purpose field broke an exact-key native decoder. Updating only the response-key test would have hidden a real compatibility regression and expanded the release scope.
+
+**How to apply:** Inspect strict consumers before changing response metadata. Keep domain checks on authoritative server records, and omit new internal metadata from an unchanged pinned DTO where possible. A genuinely necessary client repin needs its own explicit approval and byte-level verification.
+

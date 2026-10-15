@@ -480,3 +480,31 @@ mtime_ms = 1791821797082
 storage_uri = "gcs://replit-rams-assets-kirk/rams/assets/repl:3ca2376d-c3dc-490a-a375-6b2f97f7c281/bdaf5417-85a2-466a-a005-3ff5e5f67781/335d0f8b-6e09-49c6-b886-01a4be71219e"
 storage_version_token = "1791822012630907"
 content_type = "text/markdown"
+
+[[outputs]]
+id = "_UZsCurxwrw0CgZkH9bu1"
+uri = "file://generated-artifacts/antigravity-runtime-review/approval-packet.md"
+type = "text"
+title = "Windows runtime approval packet — review only"
+description = "Exact source snapshots, complete diff, bundle bytes and hashes, verification limits, and separate approval/release boundaries. Canonical shared-spec revision: dbfd05f2-cf26-43fd-a482-b2dd441ef274."
+logical_id = "2af05703-7023-41e0-9da2-82eac625c95f"
+content_hash = "sha256:ff8940742402e9d596d0f57538d8e35872ffd5f24586d37976c8897e18367b4a"
+size = 189772
+mtime_ms = 1792021905138
+storage_uri = "gcs://replit-rams-assets-kirk/rams/assets/repl:3ca2376d-c3dc-490a-a375-6b2f97f7c281/2af05703-7023-41e0-9da2-82eac625c95f/b09bc492-c13f-4b9e-a7f2-5b64af3d7278"
+storage_version_token = "1792021980966321"
+content_type = "text/markdown"
+
+[[outputs]]
+id = "6BejRM_iFU3CsMFVx09wn"
+uri = "file://generated-artifacts/antigravity-runtime-review/freeze-validation-proposal.md"
+type = "text"
+title = "Historical bundle freeze and validation proposal"
+description = "Proposal sent to Claude Code for independent review: preserve original approved artifacts, separate historical integrity from current-source behavior, and retain security and mutation checks. No implementation or release authorized."
+logical_id = "e7d464fc-9790-4fdd-9006-bff45c207887"
+content_hash = "sha256:714b0a57643b3bd00d144cca9e8cd71a96a02648b1e675daaabb799c14115b3a"
+size = 9075
+mtime_ms = 1792025121803
+storage_uri = "gcs://replit-rams-assets-kirk/rams/assets/repl:3ca2376d-c3dc-490a-a375-6b2f97f7c281/e7d464fc-9790-4fdd-9006-bff45c207887/7a7e369e-e2fb-478d-8239-e05a97497e02"
+storage_version_token = "1792025170650842"
+content_type = "text/markdown"

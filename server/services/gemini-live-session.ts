@@ -698,7 +698,13 @@ export class GeminiLiveSession {
   ): void {
     if (!attemptId) return;
     const attempt = this.guardianAttempts.find(candidate => candidate.attemptId === attemptId);
-    if (!attempt || attempt.terminalOutcome) return;
+    if (!attempt) return;
+    // Generation completion closes attribution, not a deferred payload's lifetime.
+    // A later discard/supersession is stronger evidence than queued_unconsumed;
+    // record it and recompute that outcome without reopening delivery/linkage.
+    const closesDeferred = attempt.terminalOutcome === 'queued_unconsumed'
+      && (event.type === 'stale_discarded' || event.type === 'superseded');
+    if (attempt.terminalOutcome && !closesDeferred) return;
     const recorded = appendGuardianTraceEvent(attempt, event);
     if (event.type === 'lookup_failed' || event.type === 'stale_discarded' || event.type === 'superseded') {
       attempt.terminalOutcome = resolveGuardianTerminalOutcome(attempt);
@@ -3356,7 +3362,7 @@ LEXICAL CONSTRAINT: Do not use regional slang, fillers, or interjections from yo
             'memory_assertion',
             conversationId,
             targetLanguage,
-            { writeToDb: false, notifyLuca: false, postToTeamRoom: false },
+            { writeToDb: false, notifyLuca: false, postToTeamRoom: false, traceAttemptId: preTurnAttemptId },
           );
           this.preTurnGroundingPromise = promise;
 
@@ -4004,7 +4010,7 @@ LEXICAL CONSTRAINT: Do not use regional slang, fillers, or interjections from yo
             const postTurnAttemptId = this._startGuardianAttempt('post-turn-phrase', groundingBinding);
             this.guardianFireLog.push({ ts: new Date().toISOString(), path: 'post-turn-phrase', phrase: matchedPhrase, charsInjected: null, channel: null, outcome: null, groundingPreview: null, attemptId: postTurnAttemptId });
             this._observeGuardian();
-            runAutoGrounding(userId, matchedPhrase, glSlideResult.trigger, conversationId, targetLanguage)
+            runAutoGrounding(userId, matchedPhrase, glSlideResult.trigger, conversationId, targetLanguage, { traceAttemptId: postTurnAttemptId })
               .then(groundingResult => {
                 if (this.isStopped) return;
                 if (!isGroundingBindingCurrent(groundingBinding, this.activeStudentTurnEpoch)) {
@@ -4186,7 +4192,7 @@ LEXICAL CONSTRAINT: Do not use regional slang, fillers, or interjections from yo
               const frictionAttemptId = this._startGuardianAttempt('friction-signal', groundingBinding);
               this.guardianFireLog.push({ ts: new Date().toISOString(), path: 'friction-signal', phrase: topicSeed, charsInjected: null, channel: null, outcome: null, groundingPreview: null, attemptId: frictionAttemptId });
               this._observeGuardian();
-              runAutoGrounding(userId, topicSeed, 'memory_assertion', conversationId, targetLanguage)
+              runAutoGrounding(userId, topicSeed, 'memory_assertion', conversationId, targetLanguage, { traceAttemptId: frictionAttemptId })
                 .then(groundingResult => {
                   if (this.isStopped || Date.now() - startMs > 2000) {
                     this._traceGuardianAttempt(frictionAttemptId, {
@@ -4312,7 +4318,7 @@ LEXICAL CONSTRAINT: Do not use regional slang, fillers, or interjections from yo
           const hardWallAttemptId = this._startGuardianAttempt('hard-wall', _hwBinding);
           this.hardWallTriggered = false;
           console.warn('[HardWall] Injecting grounding correction for next turn');
-          runAutoGrounding(_hwUserId, _hwQuery, 'memory_assertion', _hwConvId, _hwLang, { writeToDb: true, notifyLuca: true })
+          runAutoGrounding(_hwUserId, _hwQuery, 'memory_assertion', _hwConvId, _hwLang, { writeToDb: true, notifyLuca: true, traceAttemptId: hardWallAttemptId })
             .then(groundingResult => {
               if (this.isStopped || !this.liveSession) return;
               if (!isGroundingBindingCurrent(_hwBinding, this.activeStudentTurnEpoch)) {

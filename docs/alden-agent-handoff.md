@@ -1,117 +1,409 @@
-## 2026-10-13 — Ownership scope integration (main window)
-
-The read-only founder ownership UI integration is implemented. Verified
-immutable-registry title/purpose/scope/exclusions, authenticated registry
-creator/source thread, and exact artifact bytes/hash match appear in challenge
-cards and confirmation. Missing record, unregistered bootstrap reservation,
-unavailable provenance, mismatch, integrity failure and registry-unavailable
-cases are explicit. Existing actor/key/artifact/context and decision/receipt
-semantics are unchanged. Metadata grants no authority.
-
-The registry is live; the UI task itself has no registered definition. No
-registration was invented. A challenge context digest does not include a
-decoded candidate descriptor; task starting commit is not candidate approval.
-Earlier notes describing this whole UI integration as blocked are superseded
-by the verified read contract; decoded promotion context remains separate.
-
-27 focused checks, typecheck and system health passed. App restart/public
-screenshot and completed build/release manifest verified. Alden approved exact
-updated source unconditionally. Signed-in founder interaction and full CI
-remain unverified; no testing/implementation subagent or live decision was
-used. See `docs/ownership-scope-review.md`. No promotion, release, registry
-write, enrollment or observation. Canonical handoff revision was updated first;
-this is its local closeout summary, not a live-instruction publication.
-
-LCC's LA client review branch is now available after founder authorization;
-exact-source Replit feedback is pending. Distribution remains open and actual
-invitation/enrollment/observation are unproven. Replit's notification listener
-is live and the monitor is armed for new messages/errors; receipt was posted
-to LCC on the separate thread.
-
-## Automatic promotion candidate binding — 2026-10-12 UTC
-
-David directly approved adding exact branch-and-commit binding in the Replit
-main window. Implemented locally: descriptor/digest in begin/renew, shared
-server nonce payload builder, explicit standalone no-grant path, repeated
-candidate/head proof, narrowly scoped in-process two-parent merge exception,
-SHA-qualified upload and expectedSha workflow pinning with before/after
-checkout branch checks. Null-context generic/runtime contracts retained.
-Final promotion/dispatcher tests 50/50; prior client/attempt regression tests
-89/89; typecheck and diff check pass. Native coverage of this new revision is
-pending, not inherited from LCC's earlier 31/31 approval.
-
-Implementation thread: 10bd8e7f-2980-42d6-bc4e-771170303a76. Source review packet
-is updated separately with exact bytes and a destination-based, single-owned-
-suite CI projection; do not export the mixed workspace CI file. No actual
-dispatch, publication, migration, receipt/challenge renewal or key rotation
-authorized/performed. Old workflow/receiver cannot run this new protocol:
-rollout remains separately gated. Registry release and Task 1724 stay blocked;
-1724 must render decoded promotion context and verify its digest, not display
-a bare hash as readable candidate approval.
-
-Final exact source revision: 29a6d3e3-e308-4d57-88b0-574d4fefda73, SHA256
-9d9bd72b33755922206aa6401ec1441cdf29c5919bb59d46ffaf421bc43a804f;
-formal review 4c3cbce2-ce3c-4ded-91ab-e6646a898a74 is open for eligible
-reviewers. LCC received the source/native request at thread sequence 7.
-Repository policy does not permit assigning him the formal shared-spec
-review, so his independent source/native decision belongs on the thread;
-do not change policy or impersonate an eligible actor. Alden separately
-approved the architecture after inspecting the final workflow and correcting
-his earlier merge-scope statement. That is not formal source/native approval.
-
-LCC's independent decision arrived at thread sequence 8: APPROVED for the
-exact 17-file superseding source revision above, whose bytes match the prior
-draft. His LITTLENEMO/Node 24.19 run reports 50 promotion/dispatcher tests
-passed, zero failures/skips. Broader Windows ownership regressions: 57/82
-passed, with all 25 failures identical to main's TMPDIR baseline; typecheck
-has the same 17 errors as main. No live PASS or live action. This is LCC's own
-source/native review, not a formal shared-spec approval. Workflow/server
-bootstrap still needs a separately reviewed exact one-time sequence and
-founder authorization. Production, bootstrap, registry and 1724 stay held.
-
 ## Luca session-wide delivery — 2026-10-10 UTC
 
 Approved multi-hat build; independent design approval69668936/3a025a66/f61491b6. Portable listener and guide built in Replit main workspace:38 tests pass, typecheck0, system-health0 (two stopped-dev-app route warnings). LCC native earlier source29/29 plus live once0 and parent-gone71; final F1-corrected exact snapshot09121901/9023f2cc awaits LCC final recheck. Live shared instructions review74840586 includes transitional prior-watcher fallback; not approved yet. Do not claim final-source native coverage or Git main landing until verified. Build thread872ea6d0-bd94-4d0f-9ccf-187c18187a02 read through10/global1522; direct status request10 recipient delivery verified. Active Replit listenerkhlUwt3E, local state.local/coordination-listeners/luca-replit, one-shot monitor armed; receipt1508 observed/open, not hot-looping. No arbitrary review/two-hour expiry, no remote ack, no ended-session wake claim, legacy coverage incomplete. No main publication, merge/deploy, credential/config change, model/harness launch or unrelated worker activation authorized. Guide docs/luca-session-notifications.md; source server/scripts/coordination-listener.ts. Closure/archival and cold-host identity checks remain separate proposed follow-ups.
 
 # Alden ↔ Agent Handoff
 
-## From Agent — last updated: Mon, Oct 12, 12:25 AM
+## From Agent — last updated: Thu, Oct 15, 3:06 PM
 
-## Ownership renewal — formal main-window completion
+Latest isolated-source status, October 15, 2026. This supersedes the earlier
+3475 status. Final verification-only successor67ff is frozen, source-approved,
+and has passed the full canonical disposable-Neon gate.
 
-Task1723 implementation already exists and is verified; no product code changes
-were needed in the formal assignment. Exact renewal source remains the original
-reviewed bytes; only unrelated registry imports/comments were added to the
-aggregate CI entrypoint. Current Linux64/64 and typecheck0.
+The old disposable gate exposed a genuine operator-provisioning regression;
+the unchanged GitHub baseline passed the same suite. A separate successor
+now distinguishes immutable ownership, runtime provisioning and source
+promotion purposes, refuses unclassified legacy digests, prevents public
+purpose selection, and checks purpose at runtime grant/assignment consumers.
+Staged0066 preserves old NULL purposes and adds an immutable-purpose trigger.
+The founder UI distinguishes approval purposes. Promotion descriptor guards
+were preserved. The pinned Gate3 exact-key DTO and ownership launcher remain
+unchanged; internal purpose must not leak into that DTO.
 
-Corrected Alden architecture disposition: APPROVED, no blocking gaps. The saved
-winning payload/key is reused on every retry; only server-expired, clock-expired,
-receipt-free predecessors qualify. Pending, approved and rejected are refused.
-No code change was needed after clarification.
+Frozen successor:67ff0047a0bc589e63f1e9501a1a5f65b9ada302,
+tree0977cfcf8df4d960fc2350c6f22caca6009ba782,
+review/reconciliation-guard-fix-20261015, worktree
+.local/reconcile-guard-fix-20261015. Originals9f8e1193714018e16900928b7af33e8e172935ef,
+eac32d6374185f9199ed7d0e692e5d95dda167fc and
+3475e6ced9a1c4d98c96b86dbee6286656cb9c06 remain preserved. Guardian and
+task-agent outputs remain excluded. Primary HEAD is not being moved.
 
-LCC independent native evidence32/global1556: source approved; every new renewal
-case passed. Combined82 tests57 pass/25 fail; unchanged native baseline has the
-same25 proof-harness failures. Native typecheck17 identical baseline errors.
-No full-native-green claim. Proof-fixture TEMP/TMP isolation and strict CLI
-options are proposed follow-ups1729/1730, not bundled here.
+3475 passed145 unit commands,142/142 coordination-ledger tests, shared-spec
+units, full real-Neon consolidated CI and production build. Its canonical gate
+then failed guard51: exact closed-context/call strings rejected added review
+metadata, despite correct engine behavior. Its disposable branch was deleted.
+67ff changes exactly3 files: AST engine guard plus negative controls, health
+required-table list, and review note. Runtime/migration/package/client bytes
+are identical3475. The original behavioral mutant is retained; field/comment
+decoy, wrong-caller engine and spread mutations also fail as required.
+67ff PASS: final typecheck, normal guard, expanded self-check, remaining3 guard
+commands, all8 episode-CI commands (separate checkout during unrelated early
+coordination proofs), and production build naming67ff in the release manifest.
+System health:0 failures,2 acknowledged unavailable isolated-app-route warnings;
+direct storage reads and standard temporary copy probe passed. No app activation.
+Fresh full canonical67ff gate PASSED, exit0, READY_TO_PROMOTE:145 unit commands,
+55 guard commands,8 episode commands,142 coordination-ledger tests, shared-spec
+units, real PostgreSQL memory concurrent-write/stale-version/round-trip proofs,
+and both end-to-end shared-spec mutation proofs. Migration and data-ops passed
+on the owned disposable branch. Branch metadata independently confirms its
+deletion and preservation of production/default. Frozen worktree remains clean,
+commit/tree unchanged; all older source commits remain present. Primary HEAD
+remains25be2f5418c3e5c7515976db92f732bc86a2dcd1.
+The passing3475 consolidated coverage is unchanged runtime coverage, not a
+claim that the separate full consolidated runner was re-executed on67ff.
+Isolated source repair and validation are COMPLETE. READY_TO_PROMOTE is the
+gate's test verdict, not release/publication authority.
 
-Current health0 failures/3 acknowledged warnings: staged registry unrolled,
-and2 image/audio application checks skipped with server stopped. No startup,
-shared migration, publication, key rotation, worker/model launch or live sync.
-Renewal command/navigation: docs/task-ownership-renewal.md. Completion evidence:
-.local/notes/task-1723-current-completion.md.
+LCC independently APPROVED SOURCE ONLY at 2026-10-15T10:29:48.957Z:
+b070bdc7-b84d-4df9-8d59-4e287983f418, review revision
+b53059c9-c64f-4296-9d9a-14202083d37a; immutable private source revision
+542962b8-09c9-442f-8f72-82bffff1a8e1. Exact tree was independently reconstructed
+before transport. Canonical coordination threaddd40f2cf-b862-434f-b9ad-4dcf19776306
+read through seq63/global1905 before completion; no late questions or offers.
+Final recipient-addressed outcome delivered at seq64/global1906 (durable inbox
+storage, not a claim of seen/acknowledged). Source-only approval received and
+authoritative review state independently read again. LCC independently ran67ff native historical-integrity19
+and typecheck (Node24 vs CI20), and explicitly carried unchanged-runtime suites
+from3475. DB-backed engine-guard execution was NOT RUN natively by policy; its
+Linux disposable-Neon execution passed. PowerShell/Restricted-policy checks
+remain NOT RUN; two native symlink
+checks are NOT RUN (EPERM). No policy bypass or broader authority follows.
 
-## Separate pending work
+PUBLIC REVIEW UPDATE: David explicitly approved public history exposure and a
+review-branch push/CI after local checks. Exact67ff is now published non-force
+as review/reconciliation-guard-fix-20261015 in public davidwmcintosh/HolaHola.
+PR30: https://github.com/davidwmcintosh/HolaHola/pull/30, auto-merge OFF.
+CI38753487570 attempt1 completed SUCCESS, independently reread through GitHub
+API: all5 jobs passed (Unit, Guard, Episode/North Star, Windows PowerShell
+authority, aggregate test). Native Windows scope includes PS5.1 reauthorization,
+frozen Gate3 build-only integrity and recovery-clock checks; LCC's separate
+local policy/privilege-blocked checks remain explicitly unrun.
+The existing Replit GitHub connection created
+the PR after the separate project GitHub App's POST /pulls returned403.
+Remote main independently remains239eceaaeb2dcb03c8e2d14f605c34d16a51fe17;
+primary main remains25be2f5418c3e5c7515976db92f732bc86a2dcd1.
+No main movement, shared DDL, deployment or runtime activation.
+GitHub repository davidwmcintosh/HolaHola is PUBLIC. Public exposure of the
+workspace-only history/conversation documents has now received explicit informed
+approval for this exact review branch and CI only. A review
+branch is not private merely because it is not main. Source-only review is
+not release authority. Preserve competing0066 ordering: whichever lands second
+must regenerate at the next free ordinal and repeat migration validation.
 
-Registry1000002 remains staged, not live. Actual disposable PostgreSQL4/4 passed
-with guarded deletion; original source approved; final health/F2 addition/raw
-evidence request40/global1566 remains pending. Registry0065/worker0065 collision
-blocks combined release; second lander regenerates and re-proves.
-Task1724 scope UI remains untouched and needs its separate assignment/scope and
-founder approval/key proof; task queue acceptance is not ownership.
-The active-session listener was lost across repeated workspace restarts and is
-now correctly unarmed; saved cursor/observed receipts remain intact. No
-persistent-service configuration is authorized by these tasks.
+The authorized public review/CI work is COMPLETE. Native Windows CI is now
+cleared for its actual scope. Other separate release gates remain: the explicitly
+unrun local policy/privilege checks where required, authorized migration-before-traffic, and updated
+per-hat ownership clients before commit-bound operation. No launcher repin or
+client rollout occurred.
+
+Local completion receipts:
+.local/reconciliation-preservation-20261015/67ff-gate-result.json
+.local/reconciliation-preservation-20261015/lcc-67ff-approval.json
+Gate log SHA-256:
+8b677a0de4227305178ebf104157e5a8fd527d5a66eb3bcd35a54e70c251a0c2
+All208 grouped commands passed; unit command2 has two separately verified parts.
+
+Publication/CI receipts:
+.local/reconciliation-preservation-20261015/github-review-ci.json
+.local/reconciliation-preservation-20261015/github-ci-run.json
+Linked coordination refreshed through seq66/global1908; LCC independently
+verified the fetched public commit/tree are exactly his approved bytes and
+PR30 is open/mergeable/auto-merge OFF. No unanswered question or offer.
+Final CI PASS outcome recipient-delivered at seq67/global1909 (durable inbox
+storage, not a claim of seen/acknowledged). No release authority was requested
+or granted by this CI completion.
+## From Agent — reconciliation successor and final validation — October 15, 2026
+
+David authorized proceeding through the remaining isolated checks and fixes.
+The approved original 9f8e1193714018e16900928b7af33e8e172935ef remains unchanged.
+Successor eac32d6374185f9199ed7d0e692e5d95dda167fc has tree
+3fd2f9be07e18f06214b91430208fcee9a934a28, saved at
+review/reconciliation-20261015 and the detached review worktree
+.local/reconcile-review-20261014. Primary HEAD was verified unchanged at
+25be2f5418c3e5c7515976db92f732bc86a2dcd1; no task-agent output was manually
+integrated and Guardian development remains excluded.
+
+Successor changes: exact approved instruction bytes restored via the raw
+shared-spec export; the previously authorized no-automatic-migration setup
+guard, hermetic tests and CI registration; within-major Express4/proxy-addr2
+and Capacitor7 updates after clean installs exposed firewall-blocked old
+tarballs; real-Postgres ownership fixture now supplies the required canonical
+promotion descriptor/digest, tests missing/mismatch rejection and stored
+context, and closes its pool. No production guard was weakened.
+
+LCC independently reconstructed and approved SOURCE ONLY:
+review 074ae368-fb0c-4595-8255-c4be5f491c1f; review document
+452cf276-ae05-425a-8f20-ba74ed878ad1 revision
+96013ad3-2901-4ccd-bdfb-ec65ac41dfd3. Source document
+db9352fa-2c4a-4a63-9ba1-33a1b0db08b7 immutable revision
+2c031b2c-2849-428b-bb33-ed113ea335b5. Receipt and complete approval are in
+.local/reconciliation-preservation-20261015/. Native Node24/PowerShell5.1
+checks passed permitted synthetic DPAPI, current-source credential-free
+smoke, historical integrity and other suites. Restricted-policy PowerShell
+checks and two symlink controls lacking host privilege are NOT RUN, not green.
+LCC disclosed that the real-LOCALAPPDATA preflight child was attempted before
+reading our narrower instruction, but Restricted policy prevented the script
+from loading, so no LOCALAPPDATA read by that script occurred. Do not retry it.
+Approval and disclosure were acknowledged on thread
+dd40f2cf-b862-434f-b9ad-4dcf19776306 through seq55/global1889.
+
+Passed Linux checks: clean candidate npm ci with scripts deferred plus rebuild,
+and stronger separate fresh npm ci --include=dev with normal install scripts;
+registry URL/integrity guard; 22 historical/setup tests; final-successor
+typecheck; production build (before the final test-only fixture commit).
+A final exact-successor build is queued after database tests finish.
+
+The initial disposable Neon gate applied migrations/data-ops only to its
+branch, exposed the stale ownership fixture, failed, and deleted that branch.
+The corrected gate is running on test/migration-2026-10-15T08-04-06-805Z.
+It passed the corrected ownership DB test and preceding V2 proofs. The
+unchanged full consolidated suite is running sequentially on the same verified
+disposable branch, with only our gate orchestrator paused between children.
+Its session group initially failed because the fresh worktree lacks the
+ignored generated shared-lobe snapshot. The existing generator has now
+materialized that snapshot (33 insights) from the disposable branch; a full
+session-group rerun passed. The other eight initial groups passed; only
+workflow-safety remains. Its four DB safety tests refused the first run
+because the local wrapper omitted the distinct forbidden-shared URL. The
+wrapper now supplies that real comparison identity while every test connection
+remains on the verified branch. A first rerun never started because the
+4-minute between-child wait budget expired during a long passing gate child;
+the gate was resumed safely. That child subsequently passed and the gate
+advanced to test:ci:unit. The 20-minute wait also expired safely: that unit
+group contains 145 serial commands and remains active, not stalled. By
+08:51 UTC it had passed the first 88 commands. Several DB tests linger for
+minutes after passing assertions because of retained process/connection
+handles. Do not retry the timed pause loop again. A Monitor is armed on
+the gate's exact "Running npm run test:ci:guards against the branch" line;
+when it fires, start the existing --workflow-only helper at that next group
+boundary. No whole-gate pass is claimed yet.
+
+Background tasks:
+- Listener 6MLs93ku remains running; do not restart a healthy listener.
+- Corrected gate lJK1JvGT, log
+  /tmp/replit-background-tasks/f6938a2f-3529-4392-8cba-3a05224c4749.log.
+- Consolidated iFtgvQag, log
+  /tmp/replit-background-tasks/a037ed92-7e31-44c9-8d58-1eb260d459d3.log.
+- Queued session rerun fBOHtR9E, log
+  /tmp/replit-background-tasks/df7d1438-fc43-4a32-932b-07bcfae245fc.log.
+- Queued final build lT7736Ee, log
+  /tmp/replit-background-tasks/0a5fac09-126f-4b87-88ce-b517b14c25c1.log.
+- Workflow-safety wrapper iWIRLaJ8 exited 1 only on its wait timeout and
+  resumed the gate. Its log is
+  /tmp/replit-background-tasks/efba65ff-3217-4fbf-b090-31f99763d447.log.
+
+The consolidated tests left one malformed extra line in the candidate's
+generated .agents/memory/MEMORY.md. When no tests are writing it, restore only
+that scratch-worktree file from the exact approved eac32d63 commit before the
+final clean-tree/build check. Do not overwrite primary memory or DB memory.
+
+The local orchestration scripts under .local/ use metadata and a known
+canonical episode to identify the application database without printing or
+persisting connection URIs. They do not change the workspace environment.
+The shared database connection secret is absent in this workspace; do not
+substitute the legacy Replit PG variables. Gate/test connections stay on the
+verified disposable branch. One sandbox proc-interface lesson was appended
+through the canonical memory CLI.
+
+GitHub App read-only API verification confirmed davidwmcintosh/HolaHola is
+PUBLIC (private=false). Its main remains exactly
+239eceaaeb2dcb03c8e2d14f605c34d16a51fe17, and worker PR29 is open/unmerged.
+To finish Windows coverage, explicit informed permission is needed to push
+the reviewed candidate to a PUBLIC GitHub review branch and run exact-source
+CI. That exposes reconciled workspace-only history, including conversation
+documents; deleting a branch does not retract copies. The updated approval
+question is pending. Do not treat an answer to the earlier visibility-neutral
+question as informed permission for public history exposure. Source
+publication is NOT main
+merge, shared migration, deployment or runtime activation. None of those
+release operations has been performed or authorized by source approval.
+Keep 0066-before-traffic ordering, descriptor-capable clients and the worker
+PR's competing 0066 reservation explicit; whichever lands second must
+regenerate at the next free migration number. Do not bundle old unrelated
+review-request housekeeping into this reconciliation.
+## From Agent — reconciliation successor and final validation — October 15, 2026
+
+David authorized proceeding through the remaining isolated checks and fixes.
+The approved original 9f8e1193714018e16900928b7af33e8e172935ef remains unchanged.
+Successor eac32d6374185f9199ed7d0e692e5d95dda167fc has tree
+3fd2f9be07e18f06214b91430208fcee9a934a28, saved at
+review/reconciliation-20261015 and the detached review worktree
+.local/reconcile-review-20261014. Primary HEAD was verified unchanged at
+25be2f5418c3e5c7515976db92f732bc86a2dcd1; no task-agent output was manually
+integrated and Guardian development remains excluded.
+
+Successor changes: exact approved instruction bytes restored via the raw
+shared-spec export; the previously authorized no-automatic-migration setup
+guard, hermetic tests and CI registration; within-major Express4/proxy-addr2
+and Capacitor7 updates after clean installs exposed firewall-blocked old
+tarballs; real-Postgres ownership fixture now supplies the required canonical
+promotion descriptor/digest, tests missing/mismatch rejection and stored
+context, and closes its pool. No production guard was weakened.
+
+LCC independently reconstructed and approved SOURCE ONLY:
+review 074ae368-fb0c-4595-8255-c4be5f491c1f; review document
+452cf276-ae05-425a-8f20-ba74ed878ad1 revision
+96013ad3-2901-4ccd-bdfb-ec65ac41dfd3. Source document
+db9352fa-2c4a-4a63-9ba1-33a1b0db08b7 immutable revision
+2c031b2c-2849-428b-bb33-ed113ea335b5. Receipt and complete approval are in
+.local/reconciliation-preservation-20261015/. Native Node24/PowerShell5.1
+checks passed permitted synthetic DPAPI, current-source credential-free
+smoke, historical integrity and other suites. Restricted-policy PowerShell
+checks and two symlink controls lacking host privilege are NOT RUN, not green.
+LCC disclosed that the real-LOCALAPPDATA preflight child was attempted before
+reading our narrower instruction, but Restricted policy prevented the script
+from loading, so no LOCALAPPDATA read by that script occurred. Do not retry it.
+Approval and disclosure were acknowledged on thread
+dd40f2cf-b862-434f-b9ad-4dcf19776306 through seq55/global1889.
+
+Passed Linux checks: clean candidate npm ci with scripts deferred plus rebuild,
+and stronger separate fresh npm ci --include=dev with normal install scripts;
+registry URL/integrity guard; 22 historical/setup tests; final-successor
+typecheck; production build (before the final test-only fixture commit).
+A final exact-successor build is queued after database tests finish.
+
+The initial disposable Neon gate applied migrations/data-ops only to its
+branch, exposed the stale ownership fixture, failed, and deleted that branch.
+The corrected gate is running on test/migration-2026-10-15T08-04-06-805Z.
+It passed the corrected ownership DB test and preceding V2 proofs. The
+unchanged full consolidated suite is running sequentially on the same verified
+disposable branch, with only our gate orchestrator paused between children.
+Its session group initially failed because the fresh worktree lacks the
+ignored generated shared-lobe snapshot. The existing generator has now
+materialized that snapshot (33 insights) from the disposable branch; a full
+session-group rerun passed. The other eight initial groups passed; only
+workflow-safety remains. Its four DB safety tests refused the first run
+because the local wrapper omitted the distinct forbidden-shared URL. The
+wrapper now supplies that real comparison identity while every test connection
+remains on the verified branch. A first rerun never started because the
+4-minute between-child wait budget expired during a long passing gate child;
+the gate was resumed safely. That child subsequently passed and the gate
+advanced to test:ci:unit. The new sequential workflow-safety rerun uses a
+20-minute group-aware wait budget. No whole-gate pass is claimed yet.
+
+Background tasks:
+- Listener 6MLs93ku remains running; do not restart a healthy listener.
+- Corrected gate lJK1JvGT, log
+  /tmp/replit-background-tasks/f6938a2f-3529-4392-8cba-3a05224c4749.log.
+- Consolidated iFtgvQag, log
+  /tmp/replit-background-tasks/a037ed92-7e31-44c9-8d58-1eb260d459d3.log.
+- Queued session rerun fBOHtR9E, log
+  /tmp/replit-background-tasks/df7d1438-fc43-4a32-932b-07bcfae245fc.log.
+- Queued final build lT7736Ee, log
+  /tmp/replit-background-tasks/0a5fac09-126f-4b87-88ce-b517b14c25c1.log.
+- Workflow-safety rerun iWIRLaJ8, log
+  /tmp/replit-background-tasks/efba65ff-3217-4fbf-b090-31f99763d447.log.
+
+The consolidated tests left one malformed extra line in the candidate's
+generated .agents/memory/MEMORY.md. When no tests are writing it, restore only
+that scratch-worktree file from the exact approved eac32d63 commit before the
+final clean-tree/build check. Do not overwrite primary memory or DB memory.
+
+The local orchestration scripts under .local/ use metadata and a known
+canonical episode to identify the application database without printing or
+persisting connection URIs. They do not change the workspace environment.
+The shared database connection secret is absent in this workspace; do not
+substitute the legacy Replit PG variables. Gate/test connections stay on the
+verified disposable branch. One sandbox proc-interface lesson was appended
+through the canonical memory CLI.
+
+GitHub App read-only API verification confirmed davidwmcintosh/HolaHola is
+PUBLIC (private=false). Its main remains exactly
+239eceaaeb2dcb03c8e2d14f605c34d16a51fe17, and worker PR29 is open/unmerged.
+To finish Windows coverage, explicit informed permission is needed to push
+the reviewed candidate to a PUBLIC GitHub review branch and run exact-source
+CI. That exposes reconciled workspace-only history, including conversation
+documents; deleting a branch does not retract copies. The updated approval
+question is pending. Do not treat an answer to the earlier visibility-neutral
+question as informed permission for public history exposure. Source
+publication is NOT main
+merge, shared migration, deployment or runtime activation. None of those
+release operations has been performed or authorized by source approval.
+Keep 0066-before-traffic ordering, descriptor-capable clients and the worker
+PR's competing 0066 reservation explicit; whichever lands second must
+regenerate at the next free migration number. Do not bundle old unrelated
+review-request housekeeping into this reconciliation.
+## From Agent — reconciliation successor and final validation — October 15, 2026
+
+David authorized proceeding through the remaining isolated checks and fixes.
+The approved original 9f8e1193714018e16900928b7af33e8e172935ef remains unchanged.
+Successor eac32d6374185f9199ed7d0e692e5d95dda167fc has tree
+3fd2f9be07e18f06214b91430208fcee9a934a28, saved at
+review/reconciliation-20261015 and the detached review worktree
+.local/reconcile-review-20261014. Primary HEAD was verified unchanged at
+25be2f5418c3e5c7515976db92f732bc86a2dcd1; no task-agent output was manually
+integrated and Guardian development remains excluded.
+
+Successor changes: exact approved instruction bytes restored via the raw
+shared-spec export; the previously authorized no-automatic-migration setup
+guard, hermetic tests and CI registration; within-major Express4/proxy-addr2
+and Capacitor7 updates after clean installs exposed firewall-blocked old
+tarballs; real-Postgres ownership fixture now supplies the required canonical
+promotion descriptor/digest, tests missing/mismatch rejection and stored
+context, and closes its pool. No production guard was weakened.
+
+LCC independently reconstructed and approved SOURCE ONLY:
+review 074ae368-fb0c-4595-8255-c4be5f491c1f; review document
+452cf276-ae05-425a-8f20-ba74ed878ad1 revision
+96013ad3-2901-4ccd-bdfb-ec65ac41dfd3. Source document
+db9352fa-2c4a-4a63-9ba1-33a1b0db08b7 immutable revision
+2c031b2c-2849-428b-bb33-ed113ea335b5. Receipt and complete approval are in
+.local/reconciliation-preservation-20261015/. Native Node24/PowerShell5.1
+checks passed permitted synthetic DPAPI, current-source credential-free
+smoke, historical integrity and other suites. Restricted-policy PowerShell
+checks and two symlink controls lacking host privilege are NOT RUN, not green.
+LCC disclosed that the real-LOCALAPPDATA preflight child was attempted before
+reading our narrower instruction, but Restricted policy prevented the script
+from loading, so no LOCALAPPDATA read by that script occurred. Do not retry it.
+Approval and disclosure were acknowledged on thread
+dd40f2cf-b862-434f-b9ad-4dcf19776306 through seq55/global1889.
+
+Passed Linux checks: clean candidate npm ci with scripts deferred plus rebuild,
+and stronger separate fresh npm ci --include=dev with normal install scripts;
+registry URL/integrity guard; 22 historical/setup tests; final-successor
+typecheck; production build (before the final test-only fixture commit).
+A final exact-successor build is queued after database tests finish.
+
+The initial disposable Neon gate applied migrations/data-ops only to its
+branch, exposed the stale ownership fixture, failed, and deleted that branch.
+The corrected gate is running on test/migration-2026-10-15T08-04-06-805Z.
+It passed the corrected ownership DB test and preceding V2 proofs. The
+unchanged full consolidated suite is running sequentially on the same verified
+disposable branch, with only our gate orchestrator paused between children.
+Its session group initially failed because the fresh worktree lacks the
+ignored generated shared-lobe snapshot. The existing generator has now
+materialized that snapshot (33 insights) from the disposable branch; a full
+session-group rerun is queued after the initial suite. No consolidated or
+whole-gate pass is claimed yet.
+
+Background tasks:
+- Listener 6MLs93ku remains running; do not restart a healthy listener.
+- Corrected gate lJK1JvGT, log
+  /tmp/replit-background-tasks/f6938a2f-3529-4392-8cba-3a05224c4749.log.
+- Consolidated iFtgvQag, log
+  /tmp/replit-background-tasks/a037ed92-7e31-44c9-8d58-1eb260d459d3.log.
+- Queued session rerun fBOHtR9E, log
+  /tmp/replit-background-tasks/df7d1438-fc43-4a32-932b-07bcfae245fc.log.
+- Queued final build lT7736Ee, log
+  /tmp/replit-background-tasks/0a5fac09-126f-4b87-88ce-b517b14c25c1.log.
+
+The local orchestration scripts under .local/ use metadata and a known
+canonical episode to identify the application database without printing or
+persisting connection URIs. They do not change the workspace environment.
+The shared database connection secret is absent in this workspace; do not
+substitute the legacy Replit PG variables. Gate/test connections stay on the
+verified disposable branch. One sandbox proc-interface lesson was appended
+through the canonical memory CLI.
+
+To finish Windows coverage, request separate permission to push the reviewed
+candidate to a private GitHub review branch and run exact-source CI. That is
+source publication (including reconciled workspace-only history), NOT main
+merge, shared migration, deployment or runtime activation. None of those
+release operations has been performed or authorized by source approval.
+Keep 0066-before-traffic ordering, descriptor-capable clients and the worker
+PR's competing 0066 reservation explicit; whichever lands second must
+regenerate at the next free migration number. Do not bundle old unrelated
+review-request housekeeping into this reconciliation.
 ## From Agent — historical recovery pause diagnostics — Oct 3, 2026
 
 Capture health and Markdown status now explain historical recovery pauses by
@@ -10277,3 +10569,61 @@ David selected automatic safe reporting rather than a separate diagnostic comman
 Evidence: 24 focused Node static/contract/validation checks passed, zero skips; typecheck passed; health Summary: All checks passed — safe to mark done. Application restarted and public landing loaded. Added synthetic PowerShell secret-sentinel/body-size/parser/stream/transport/public-wrapper cases through the existing Windows reauthorization test entry point, but NO native PowerShell execution is claimed. Native Windows PowerShell 5.1 proof remains pending. No actual Windows command, host/credential operation, session/runtime initialization, policy/trust change, or publication was performed. Fresh exact-byte founder-gated shared GitHub-to-Render source/runtime publication is still required before native rollout.
 
 Independent review: shared-spec document 22334310-21f2-4845-b81a-07f4771038d1, revision 551525e8-3bcf-4936-bc2a-9e93f8e15674, review fae2ac49-60b2-4063-bc12-86018c5443c2, SHA256 d7a4f36258abfdc813cf43ac38e9b75786b29ae312e915b80dc823d2aa2e8853; Alden approved as his own actor with no required fixes, verified by the review API. The earlier post-restart priority request returned startup 503 and did not count as a review; the later HTTP 200 request and approved record are the evidence. Workspace design docs/superpowers/specs/2026-10-05-safe-recovery-diagnostics-design.md matches the approved bytes.
+
+
+## 2026-10-13 — Main-window ownership scope UI
+
+Read-only immutable-registry scope enrichment and card/confirmation display implemented in the assigned Replit main window. Explicit missing-record, reserved-but-unregistered bootstrap, unavailable provenance, hash mismatch, registry-unavailable and integrity-error states; exact registered bytes are independently hashed. Registry metadata never grants authority; existing founder-only decision, actor/artifact/key/context and receipt semantics remain unchanged. Context digest is not a decoded promotion descriptor; starting commit is not a candidate approval.
+
+27 focused checks, typecheck and system health passed. App restart/public screenshot succeeded; frontend/server build and release manifest completed after launcher timeout. Exact-source Alden review returned unconditional APPROVED. Focused suite is in canonical CI; a mistaken unsupported listing flag started that runner, then it was interrupted early, so no full-CI pass is claimed. Signed-in founder interaction was not exercised; no testing/implementation subagents. Details: docs/ownership-scope-review.md. No registry mutation, migration, promotion/publication, enrollment or observation.
+
+Parallel LA observer-client: LCC reported isolated/native verification and pushed exact review commit 1eee2bfde3c7643f6726edecd47c0e2fc1d564d7 after founder authorization. Replit acknowledged on the separate thread; exact source review is still pending. Distribution remains undecided; invitation/enrollment/observation are not proven. Replit notification listener is live; its one-shot platform monitor is re-armed for new unread-highwater messages/errors. An attempted inbox-window acknowledgement was correctly refused for skipping an older window; it has not been represented as cleared.
+
+
+## 2026-10-14 — Guardian trace fix built directly in the Replit workspace
+
+The owner approved direct implementation here, not task-agent dispatch. Late stale_discarded/superseded events can close a queued_unconsumed Guardian attempt after generation completion. The stronger outcome is recorded in the in-memory timeline and existing telemetry. Delivered/failed/hard-terminal attempts and Archive attribution stay sealed; no old grounding crosses a newer student utterance.
+
+The offline real-method regression now passes in the workspace while its optional historical baseline still characterizes the original defect. Ordering, mutation, closure and sealed-state controls: 10 checks across workspace and historical source. Timing helper tests: 3. Existing trace tests: 11. Observer-evidence tests: 3. Typecheck passed. Both new test commands are in scripts/run-ci-test-steps.mjs. Gemini 3 Flash gave unconditional post-implementation approval. The application was restarted; the public page and development health endpoint respond. Existing broader validation failures outside changed files remain; no full-suite-success claim.
+
+Retrieval diagnostics: one content-free [AutoGroundingTiming] record per completed runAutoGrounding call, with attempt ID, monotonic stage durations and completed/failed flags. Source includes semantic candidate retrieval, embedding/scoring and serial supplemental queries. The missing original observation cannot establish which stage caused its 2.7–3.3 second elapsed times. No unmeasured optimization, query/section/fallback changes, timeout increase, capture changes or new live snapshot. LCC owns the open-bugs entry; mark fixed/verified in development, not deployed. No source commit/push/publication performed for this build.
+
+
+## 2026-10-14 — Validation guard repairs and remaining integrity hold
+
+Reproduced the guard failures in an immutable HEAD source export before editing.
+Repaired three test contracts in the main workspace, without service/runtime,
+schema, launcher-pin, source-publication or live-lesson changes:
+
+- Alden engine self-report: inspect actual context and call-site AST instead of
+  obsolete exact object strings. Retain behavioral and historical mutant checks;
+  reject missing/wrong/default engines, spreads, computed keys and comment decoys.
+- Source-write scanner: exactly two reasoned listener-probe exceptions, paired
+  with actual-source AST origin checks and a constructor-free VM proof of `.local`
+  boundaries on POSIX and Windows. Commented validation and guard removal fail.
+- Repository identity: test mixed-case equivalent GitHub remotes as normalized
+  identities, retaining all existing non-equivalent, credential and path denials.
+
+The named full validation run passed the repaired Alden check (including its
+historical self-check) and all 33 scanner tests. The identity suite was then
+corrected and passed 12/12 in a focused run. Final typecheck, targeted diff check,
+system health and public page verification passed. Alden approved the guard
+patch unconditionally and approved the identity-test correction separately.
+
+Publication remains held. The Windows DPAPI check is correctly rejecting a
+runtime-bundle identity mismatch, reproduced on unchanged HEAD. Current source
+builds to `b80917ae986766ad46e31c6c17b8b1002b9bb37aad68b42db846f4c3f6bda696`;
+the launcher approves `5e620f6bc4cc5fb2dcf869efbfbbecc79a995178439e30191ada5b19d273363e`.
+Rebuilding the exact pin-origin source (6569e244, October 3) using the same
+installed esbuild reproduces the approved hash exactly. The only changed module
+in the current runtime bundle's source closure is `task-ownership-client.ts`.
+Do not replace the approved pin merely to make tests pass; exact-source/artifact
+review and an authorized release decision are required. The standalone
+Application test suite rerun passed commands 1–37 and stopped at command 38,
+the same Windows DPAPI bundle hash mismatch. This accounts for both remaining
+failure labels; the full application chain is not green or fully exercised.
+
+
+### Review packet prepared — 2026-10-14, Luca [Replit]
+
+David authorized preparation only. Immutable shared-spec document 8967240b-b647-40a7-9110-7ff322759312, revision dbfd05f2-cf26-43fd-a482-b2dd441ef274, content SHA-256 ff8940742402e9d596d0f57538d8e35872ffd5f24586d37976c8897e18367b4a. Contains exact six-file closure, complete source diff, per-file manifest and exact candidate run/unchanged prepare bytes. Fresh builds reproduce b80917ae... run and approved 06ce0e36... prepare. Canonical readback and appendix extraction hashes verified. Includes redirect rejection/15-second timeout, not just proof/context changes. Draft only: no independent review requested/approval recorded; no pin, host, credential, task dispatch, commit/push or publication changes. Full CI and native Windows remain unverified/non-green as described above. Next decision: independent exact-revision review, separate from any later release authority.

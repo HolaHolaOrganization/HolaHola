@@ -100,6 +100,7 @@ import path from 'node:path';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import ts from 'typescript';
+import { runInNewContext } from 'node:vm';
 
 // ─── Config ──────────────────────────────────────────────────────────────────
 
@@ -167,6 +168,10 @@ type AllowlistEntry =
  * verified reason the write is already safe.
  */
 const ALLOWLIST: AllowlistEntry[] = [
+  // Paired with the source-projected path-boundary proof below; not a general
+  // permission for this CLI or arbitrary localPath() helpers to write source.
+  { kind: 'unresolved', file: 'coordination-listener-lifecycle-probe.ts', fn: 'writeFile', argExprText: 'temporary', reason: 'temporary (mark branch, writeFile at line 35) appends a UUID suffix to actionFile = localPath(required("action-file")); localPath rejects root, traversal, siblings and absolute escapes from .local. The paired VM guard proves this against actual source and a validation-removal mutant.' },
+  { kind: 'unresolved', file: 'coordination-listener-lifecycle-probe.ts', fn: 'writeFile', argExprText: 'output', reason: 'output (observe branch, writeFile at line 60) = localPath(required("output")); localPath rejects root, traversal, siblings and absolute escapes from .local. The paired VM guard proves this against actual source and a validation-removal mutant.' },
   // ── Pre-existing in-place mutation of a real, shared source file. This is
   //    exactly the antipattern this guard exists to catch going forward; the
   //    entries below are grandfathered tech debt, not an endorsed pattern.
@@ -905,6 +910,86 @@ function scanForViolations(scriptsRoot: string): { tracked: TrackedViolation[]; 
 // ─── Tests ───────────────────────────────────────────────────────────────────
 
 describe('Source-mutation write guard — server/scripts writes stay out of tracked directories', () => {
+  it('proves the two lifecycle-probe exceptions retain their actual local-path validation', () => {
+    const source = fs.readFileSync(path.join(SCRIPTS_ROOT, 'coordination-listener-lifecycle-probe.ts'), 'utf8');
+    const file = ts.createSourceFile('probe.ts', source, ts.ScriptTarget.Latest, true);
+    const helper = file.statements.find((node): node is ts.FunctionDeclaration =>
+      ts.isFunctionDeclaration(node) && node.name?.text === 'localPath');
+    assert.ok(helper?.body, 'the allowlisted writes must retain the localPath validator');
+    // Verify the actual write variables still originate in that validator.
+    const proveOrigins = (sourceFile: ts.SourceFile) => {
+      const declarations: ts.VariableDeclaration[] = [];
+      let validatorBindings = 0;
+      const visit = (node: ts.Node) => {
+        if ((ts.isFunctionDeclaration(node) || ts.isVariableDeclaration(node) || ts.isParameter(node)) &&
+            node.name && ts.isIdentifier(node.name) && node.name.text === 'localPath') validatorBindings++;
+        if (ts.isVariableDeclaration(node)) declarations.push(node);
+        ts.forEachChild(node, visit);
+      };
+      visit(sourceFile);
+      assert.equal(validatorBindings, 1, 'no shadow validator may bypass the checked helper');
+      const initializer = (name: string) => {
+        const matches = declarations.filter(node => ts.isIdentifier(node.name) && node.name.text === name);
+        assert.equal(matches.length, 1, `expected one actual ${name} declaration`);
+        assert.ok(matches[0].initializer);
+        return matches[0].initializer;
+      };
+      for (const [name, option] of [['actionFile', 'action-file'], ['output', 'output']]) {
+        const call = initializer(name);
+        assert.ok(ts.isCallExpression(call) && ts.isIdentifier(call.expression) &&
+          call.expression.text === 'localPath' && call.arguments.length === 1,
+        `${name} must originate in the checked localPath validator`);
+        const required = call.arguments[0];
+        assert.ok(ts.isCallExpression(required) && ts.isIdentifier(required.expression) &&
+          required.expression.text === 'required' && required.arguments.length === 1 &&
+          ts.isStringLiteral(required.arguments[0]) && required.arguments[0].text === option,
+        `${name} must validate its actual CLI option`);
+      }
+      const temporary = initializer('temporary');
+      assert.ok(ts.isTemplateExpression(temporary) && temporary.head.text === '' &&
+        temporary.templateSpans.length === 2, 'temporary must only append the UUID suffix');
+      const [base, suffix] = temporary.templateSpans;
+      assert.ok(ts.isIdentifier(base.expression) && base.expression.text === 'actionFile' &&
+        base.literal.text === '.' && suffix.literal.text === '.tmp' &&
+        ts.isCallExpression(suffix.expression) && ts.isIdentifier(suffix.expression.expression) &&
+        suffix.expression.expression.text === 'randomUUID' && suffix.expression.arguments.length === 0,
+      'temporary must derive from the validated actionFile, without another directory');
+    };
+    proveOrigins(file);
+    for (const [name, option] of [['actionFile', 'action-file'], ['output', 'output']]) {
+      const original = `const ${name} = localPath(required('${option}'));`;
+      assert.ok(source.includes(original));
+      const bypass = source.replace(original, `// ${original}\nconst ${name} = required('${option}');`);
+      assert.throws(() => proveOrigins(ts.createSourceFile('mutant.ts', bypass, ts.ScriptTarget.Latest, true)),
+        /must originate/, 'a commented validator cannot justify an unvalidated write');
+    }
+    const project = (text: string, platform: typeof path.posix, root: string) =>
+      runInNewContext(ts.transpileModule(text, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText +
+        '\nlocalPath;', {
+        resolve: (...parts: string[]) => platform.resolve(root, ...parts),
+        relative: platform.relative, isAbsolute: platform.isAbsolute, Error,
+      }) as (value: string) => string;
+    const proveBoundary = (text: string) => {
+      for (const [platform, root] of [[path.posix, '/workspace'], [path.win32, 'C:\\workspace']] as const) {
+        const validate = project(text, platform, root);
+        assert.equal(validate('.local/evidence.json'), platform.resolve(root, '.local/evidence.json'));
+        assert.equal(validate('.local/nested/action.json'), platform.resolve(root, '.local/nested/action.json'));
+        for (const denied of [
+          '.local', '.local/../server/source.ts', '.local-sibling/evidence.json',
+          'server/source.ts', 'client/src/source.ts', 'shared/source.ts',
+          platform.resolve(root, '../outside.json'),
+          ...(platform === path.win32 ? ['D:\\outside.json'] : []),
+        ]) assert.throws(() => validate(denied), /evidence_path_must_be_under_local/, denied);
+      }
+    };
+    proveBoundary(helper.getText(file));
+    const guards = helper.body.statements.filter(ts.isIfStatement);
+    assert.equal(guards.length, 1, 'expected one actual boundary guard to mutate');
+    const mutant = helper.getText(file).replace(guards[0].getText(file), '');
+    assert.throws(() => proveBoundary(mutant), /Missing expected exception/,
+      'removing the actual validator must break the exception proof');
+  });
+
   it('finds no un-allowlisted write into client/src/, server/, or shared/, and no un-allowlisted unresolvable destination', () => {
     const { tracked, unresolved } = scanForViolations(SCRIPTS_ROOT);
     if (tracked.length > 0 || unresolved.length > 0) {

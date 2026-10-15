@@ -30,6 +30,7 @@
  */
 
 import { getSharedDb } from '../db';
+import { createGroundingTiming } from './auto-grounding-timing';
 import { semanticSearch } from './semantic-memory-service';
 import { postAsLuca } from './luca-responder';
 import { setLucaSessionContext } from './luca-session-context';
@@ -466,6 +467,8 @@ export interface AutoGroundingOptions {
   notifyLuca?: boolean;
   /** Post to Team Room in real time and store context for next-turn injection. True for post-turn. */
   postToTeamRoom?: boolean;
+  /** Diagnostic correlation only; never injected into retrieved context. */
+  traceAttemptId?: string;
 }
 
 export async function runAutoGrounding(
@@ -476,10 +479,11 @@ export async function runAutoGrounding(
   targetLanguage?: string,
   options: AutoGroundingOptions = { writeToDb: true, notifyLuca: true },
 ): Promise<string> {
+  const timing = createGroundingTiming(options.traceAttemptId);
   const db = getSharedDb();
-  const { sql: _sql, ilike, or, eq, and, desc } = await import('drizzle-orm');
+  const { sql: _sql, ilike, or, eq, and, desc } = await timing.measure('orm_module', () => import('drizzle-orm'));
   const { danielaSelfReflections, northStarPrinciples, conversationMemories, agentNotes } =
-    await import('@shared/schema');
+    await timing.measure('schema_module', () => import('@shared/schema'));
 
   const sections: string[] = [];
 
@@ -489,15 +493,16 @@ export async function runAutoGrounding(
   // Falls through to keyword phases for supplemental coverage.
   if (userId && matchedPhrase.length > 4) {
     try {
-      const semResults = await semanticSearch(userId, matchedPhrase, 4, ['conversation_memory', 'conversation_summary']);
+      const semResults = await timing.measure('semantic_search', () =>
+        semanticSearch(userId, matchedPhrase, 4, ['conversation_memory', 'conversation_summary']));
       const highConf = semResults.filter(r => r.similarity > 0.42);
       if (highConf.length > 0) {
         const ids = highConf.map(r => r.memoryId);
         const { inArray: inArrayOp } = await import('drizzle-orm');
-        const convRows = await db
+        const convRows = await timing.measure('semantic_records', () => db
           .select({ id: conversationMemories.id, title: conversationMemories.title, summary: conversationMemories.summary })
           .from(conversationMemories)
-          .where(inArrayOp(conversationMemories.id, ids));
+          .where(inArrayOp(conversationMemories.id, ids)));
         if (convRows.length > 0) {
           sections.push(
             `From the conversation record:\n${convRows.map(m => `— ${m.title}: ${(m.summary || '').substring(0, 200)}`).join('\n')}`,
@@ -512,7 +517,7 @@ export async function runAutoGrounding(
   if (userId && queryWords.length > 0) {
     const kw = `%${queryWords[0].toLowerCase()}%`;
     try {
-      const feltMatches = await db
+      const feltMatches = await timing.measure('felt_history', () => db
         .select()
         .from(danielaSelfReflections)
         .where(and(
@@ -521,7 +526,7 @@ export async function runAutoGrounding(
           ilike(danielaSelfReflections.content, kw),
         ))
         .orderBy(desc(danielaSelfReflections.createdAt))
-        .limit(3);
+        .limit(3));
       if (feltMatches.length > 0) {
         sections.push(
           `From your felt history:\n${feltMatches.map(r => `— ${r.content.substring(0, 180)}`).join('\n')}`,
@@ -533,7 +538,7 @@ export async function runAutoGrounding(
   // ── Phase 2: North Star (keyword fallback) ────────────────────────────────
   try {
     const nsKw = `%${queryWords[0] || 'memory'}%`;
-    const principles = await db
+    const principles = await timing.measure('north_star', () => db
       .select()
       .from(northStarPrinciples)
       .where(
@@ -545,7 +550,7 @@ export async function runAutoGrounding(
           ),
         ),
       )
-      .limit(2);
+      .limit(2));
     if (principles.length > 0) {
       sections.push(
         `From your North Star:\n${principles.map(p => `— ${p.principleTitle || 'Principle'}: ${p.principle.substring(0, 200)}`).join('\n')}`,
@@ -557,11 +562,11 @@ export async function runAutoGrounding(
   if (sections.length === 0) {
     try {
       const memKw = `%${queryWords[0] || matchedPhrase.split(/\s+/)[0] || 'memory'}%`;
-      const memMatches = await db
+      const memMatches = await timing.measure('keyword_records', () => db
         .select({ id: conversationMemories.id, title: conversationMemories.title, summary: conversationMemories.summary })
         .from(conversationMemories)
         .where(or(ilike(conversationMemories.title, memKw), ilike(conversationMemories.summary, memKw)))
-        .limit(2);
+        .limit(2));
       if (memMatches.length > 0) {
         sections.push(
           `From the conversation record:\n${memMatches.map(m => `— ${m.title}: ${(m.summary || '').substring(0, 150)}`).join('\n')}`,
@@ -630,6 +635,8 @@ export async function runAutoGrounding(
     }
   }
 
+  // One bundled record per lookup; do not log phrases, user IDs or returned text.
+  console.log('[AutoGroundingTiming]', JSON.stringify(timing.snapshot()));
   if (sections.length > 0) {
     return sections.join('\n\n');
   } else {

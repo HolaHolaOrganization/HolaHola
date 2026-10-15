@@ -35,3 +35,12 @@ settings before attributing dependency changes or interpreting lock consistency.
 Keep unrelated manifest cleanup separately reviewed; a dry run still does not
 prove an installed build.
 
+
+## Aliased compiler CLI collisions
+
+When isolating a historical esbuild version with an npm alias, import the compiler API by its explicit package name. npm aliases expose the underlying same CLI bin name and may replace the shared .bin/esbuild symlink.
+
+**Why:** The isolated alias installation actually changed the app-wide CLI symlink even though the current two versions happened to match; future app upgrades would otherwise silently select the historical compiler.
+
+**How to apply:** Historical checks resolve their dedicated alias API; application build tooling and current-source checks resolve the application compiler API explicitly. Preserve existing build options and verify output equivalence.
+

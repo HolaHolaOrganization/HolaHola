@@ -1,3 +1,162 @@
+## 2026-10-15 — Public reconciliation review and CI COMPLETE
+
+David explicitly approved public history exposure plus the reviewed branch/CI.
+Exact frozen67ff was pushed non-force to review/reconciliation-guard-fix-20261015;
+PR30 is open/unmerged with auto-merge OFF. CI38753487570 attempt1 completed
+SUCCESS: all five jobs passed (Unit, Guard, Episode/North Star, Windows
+PowerShell authority, aggregate test). Native Windows coverage includes
+reauthorization, frozen Gate3 build-only integrity and PS5.1 recovery clocks;
+the separately blocked local policy/privilege checks are not relabeled as run.
+LCC independently fetched and confirmed the published commit/tree match his
+source approval. Final CI outcome delivered at seq67/global1909 on the linked
+thread; receipts retained in the reconciliation preservation directory.
+Project GitHub App pushed source;
+existing Replit GitHub connection created the PR after the separate project
+App refused PR creation. Remote main remains239eceaa and primary main25be2f54.
+No shared migration, main merge, deployment, activation or launcher repin.
+Public-review consent and this CI gate are cleared; migration ordering/
+authorization, per-hat client rollout and other release gates remain held.
+
+## 2026-10-15 — Reconciliation source repair and isolated validation COMPLETE
+
+Final frozen `67ff0047a0bc589e63f1e9501a1a5f65b9ada302` is independently
+source-approved and passed the full canonical disposable-Neon gate, exit0,
+`READY_TO_PROMOTE`:145 unit,55 guard and8 episode commands, plus the ledger,
+shared-spec and real-PostgreSQL mutation/integrity proofs. The disposable branch
+is deleted, frozen checkout clean and primary HEAD unchanged. Exact build and
+typecheck passed. Final recipient-addressed LCC outcome delivered at thread
+dd40f2cf-b862-434f-b9ad-4dcf19776306, seq64/global1906; handoff updated.
+No release/publication authority follows: public-history consent, Windows CI,
+migration ordering/authorization and per-hat client rollout remain held.
+
+## 2026-10-15 — Reconciliation purpose separation (earlier validation status)
+
+- Frozen isolated successor `3475e6ced9a1c4d98c96b86dbee6286656cb9c06`
+  separates ownership, runtime provisioning and source-promotion approval.
+  Legacy opaque digests fail closed; public requests cannot select the trusted
+  provisioning purpose. Runtime grants and assignment windows enforce purpose.
+- Staged0066 leaves historical purposes NULL, sets the future ownership default,
+  protects purpose immutability and requires source-promotion parents for
+  promotion descriptors. No shared migration was applied.
+- Founder approval UI distinguishes the domains. The pinned Gate3 exact-key
+  response and ownership launcher remain unchanged; server-side purpose is
+  intentionally omitted from that legacy DTO.
+- Final typecheck and all7 targeted real-Postgres/route tests passed. Fresh
+  full unit stage passed:145 unit commands plus all142 coordination-ledger
+  tests and shared-spec units. Disposable-Neon gate has advanced to guards,
+  not a final gate pass. Local-fixture consolidated attempt had
+  7 environment/data failures; assertions remain intact. Corrected consolidated
+  run is queued sequentially on the gate's disposable Neon branch in a separate
+  checkout. Production build is not run yet; no final gate/full-CI pass claimed.
+- Independent LCC review APPROVED SOURCE ONLY against immutable private source:
+  `aedb0339-e0b2-41c0-8d65-998c747f2377`, including permitted exact-successor
+  native checks. Restricted-policy/privilege-blocked checks remain NOT RUN.
+  Primary main, publication, shared DDL, deployment
+  and activation remain held; informed permission for PUBLIC history exposure
+  is still outstanding.
+
+## 2026-10-14 — Automatic post-merge migration hold
+
+David authorized a no-migration guard while tasks 1735 and 1736 wait to merge.
+Automatic setup now logs that migrations are skipped and has no environment
+bypass. Dependencies and existing safety checks remain enabled; applying
+reviewed shared-database migrations requires separate explicit authorization.
+Hermetic tests run the real shell script with stubbed commands and no database
+credentials, including a restored-migration negative control. The check is
+registered in the existing CI runner. The fixed reconciliation candidate under
+LCC review remains unchanged.
+
+## 2026-10-14 — Historical Gate 3 freeze implemented locally, review rejected
+
+Implemented the independently approved freeze directly in the main workspace.
+The archived run/preparation bytes are preserved in an immutable shared-spec
+revision, and both original hashes reproduce from exact frozen source/config
+fixtures with a dedicated exact-pinned esbuild alias. Historical output is never
+executed; no current-source rebuild is represented as historical approval.
+
+Added sealed manifest/Git blob/LF/closed-import-graph/output validation, real
+negative controls, temporary-root cleanup, separate credential-free current
+entrypoint checks, CI wiring and the fixture/runbook correction policy.
+Application server build options and output remain unchanged; an explicit
+normal-esbuild API wrapper prevents the alias from shadowing the shared CLI.
+
+Focused suite 28/28, clean standalone historical suite 18/18, typecheck and
+system health passed. Broader isolated CI passed commands 1–35 after raw
+extracted evidence was preserved as `.ts.source` instead of executable-looking
+`.ts`; scanner guards were not relaxed. The run was stopped during command 36
+after review exposed a stale workspace baseline. Full-app clean install is
+separately blocked by the existing `proxy-addr@2.0.7` firewall rejection.
+
+Independent LCC review `ce7d6075-b348-431f-8400-6f3fbf1214d0` REJECTED the
+implementation: main already pins the current run build `b80917ae…`, unlike this
+checkout's historical `5e620f6b…`. Historical checks must not require main's
+live pin to equal the archived pin, and main's separate current-source pin
+verification must not disappear. LCC verified both original frozen builds and
+all source bytes on Windows. The source freeze is valid evidence, not a
+landable implementation. Founder decision is needed before reconciling the
+baseline and revising the approved design; no pin is being changed.
+
+No source publication, launcher-pin change,
+runtime/service change, Windows installation/credential operation or task
+dispatch occurred. See `docs/antigravity-gate3-runbook.md` and the frozen fixture
+README for the permanent historical/non-authorizing boundary.
+
+## 2026-10-14 — Validation guard repairs and remaining integrity hold
+
+Reproduced the guard failures in an immutable HEAD source export before editing.
+Repaired three test contracts in the main workspace, without service/runtime,
+schema, launcher-pin, source-publication or live-lesson changes:
+
+- Alden engine self-report: inspect actual context and call-site AST instead of
+  obsolete exact object strings. Retain behavioral and historical mutant checks;
+  reject missing/wrong/default engines, spreads, computed keys and comment decoys.
+- Source-write scanner: exactly two reasoned listener-probe exceptions, paired
+  with actual-source AST origin checks and a constructor-free VM proof of `.local`
+  boundaries on POSIX and Windows. Commented validation and guard removal fail.
+- Repository identity: test mixed-case equivalent GitHub remotes as normalized
+  identities, retaining all existing non-equivalent, credential and path denials.
+
+The named full validation run passed the repaired Alden check (including its
+historical self-check) and all 33 scanner tests. The identity suite was then
+corrected and passed 12/12 in a focused run. Final typecheck, targeted diff check,
+system health and public page verification passed. Alden approved the guard
+patch unconditionally and approved the identity-test correction separately.
+
+Publication remains held. The Windows DPAPI check is correctly rejecting a
+runtime-bundle identity mismatch, reproduced on unchanged HEAD. Current source
+builds to `b80917ae986766ad46e31c6c17b8b1002b9bb37aad68b42db846f4c3f6bda696`;
+the launcher approves `5e620f6bc4cc5fb2dcf869efbfbbecc79a995178439e30191ada5b19d273363e`.
+Rebuilding the exact pin-origin source (6569e244, October 3) using the same
+installed esbuild reproduces the approved hash exactly. The only changed module
+in the current runtime bundle's source closure is `task-ownership-client.ts`.
+Do not replace the approved pin merely to make tests pass; exact-source/artifact
+review and an authorized release decision are required. The standalone
+Application test suite rerun passed commands 1–37 and stopped at command 38,
+the same Windows DPAPI bundle hash mismatch. This accounts for both remaining
+failure labels; the full application chain is not green or fully exercised.
+
+## 2026-10-14 — Guardian deferred-discard trace fix (main workspace)
+
+Implemented directly in this workspace. A `queued_unconsumed` Guardian attempt
+can now record a later `stale_discarded` or `superseded` event and advance to
+that stronger outcome. Delivered/failed/hard-terminal traces remain sealed,
+and stale grounding still cannot cross a student utterance boundary.
+
+The offline lifecycle reproduction is now a regression gate, including the
+reintroduced-guard mutation control; both it and content-free lookup-timing
+tests are registered in the canonical CI runner. Typecheck and focused tests
+passed; Gemini gave unconditional approval. The application was restarted and
+its public page and health endpoint verified. Broader validation still reports
+failures outside these changed files; no claim of full-suite success is made.
+
+Added a single `[AutoGroundingTiming]` log per completed lookup, reporting fixed
+stage names, monotonic durations/statuses and optional attempt ID only. Query
+text, retrieved content and user IDs are excluded. Existing retrieval queries,
+section order, fallbacks, freshness budget and capture settings are unchanged.
+The earlier snapshot does not establish which retrieval stage caused its
+latency; timing instrumentation is not a claim that retrieval was optimized.
+LCC owns the existing open-bugs entry and receives the implementation evidence.
+
 ## 2026-10-13 — Readable ownership scope
 
 The assigned main-window UI work now enriches founder challenge reads from the
@@ -8515,3 +8674,72 @@ The proof fixture/cases and original renewal imports remain byte-identical to
 the reviewed snapshot; registry-only imports account for the larger entrypoint.
 Source remains unpublished. The separate scope-visibility work is not included;
 no shared migration, promotion, worker/model launch or key rotation occurred.
+
+## 2026-10-14 — Historical Gate 3 runtime artifact review packet
+
+Prepared a review-only immutable shared-spec packet after David authorized
+packet preparation. Document `8967240b-b647-40a7-9110-7ff322759312`, revision
+`dbfd05f2-cf26-43fd-a482-b2dd441ef274`, content SHA-256
+`ff8940742402e9d596d0f57538d8e35872ffd5f24586d37976c8897e18367b4a`.
+It includes the exact six-file runtime source closure, origin-to-current diff,
+per-file hashes, generated run/prepare artifact bytes, review scope and limits.
+Local review materials are excluded from Git and deployment under
+`generated-artifacts/antigravity-runtime-review/`.
+
+Fresh esbuild 0.25.9 builds reproduced candidate run
+`b80917ae986766ad46e31c6c17b8b1002b9bb37aad68b42db846f4c3f6bda696`
+and the unchanged approved preparation bundle. The approved run pin remains
+`5e620f6bc4cc5fb2dcf869efbfbbecc79a995178439e30191ada5b19d273363e`.
+The packet explicitly includes HTTP redirect rejection and the 15-second
+timeout in addition to context/expiry/proof-only changes. Full CI remains
+non-green; downstream commands and native Windows behavior remain unverified.
+No independent approval requested or recorded, pin refresh, host/credential
+operation, task dispatch, commit, push or publication was performed.
+
+## 2026-10-15 — Reconciliation verification-only successor
+
+Frozen private successor `67ff0047a0bc589e63f1e9501a1a5f65b9ada302`,
+tree `0977cfcf8df4d960fc2350c6f22caca6009ba782`, preserves the preceding
+purpose-separated source and every older frozen candidate. Exactly three files
+change from3475: structural engine-guard assertions/negative controls, the
+health required-table list, and its review note. No runtime, migration,
+package, client or launcher bytes changed.
+
+3475 passed145 unit commands, all142 coordination-ledger cases, shared-spec
+units, full real-Neon consolidated CI and production build. Its canonical
+gate stopped at guard51 because closed-object string checks rejected legitimate
+review-session metadata. The successor checks actual TypeScript declarations
+and caller-owned literal engines, accepting ordinary metadata while rejecting
+comment decoys, missing/wrong engines, and spread/computed overrides. Its
+historical two-process behavioral mutation remains intact.
+
+67ff passed final typecheck, the repaired normal/self-check guards, the three
+remaining guard commands, all8 episode-CI commands in a separate checkout, and
+production build (release manifest names67ff; development/non-promotable).
+System health:0 failures,2 acknowledged unavailable isolated-app-route warnings.
+Direct storage reads and the standard temporary copy probe passed; no app was
+activated to silence warnings.
+
+Independent SOURCE ONLY approval:
+`b070bdc7-b84d-4df9-8d59-4e287983f418`, revision
+`b53059c9-c64f-4296-9d9a-14202083d37a`; private source revision
+`542962b8-09c9-442f-8f72-82bffff1a8e1`. Native Windows exact-source integrity19
+and typecheck passed; unchanged-runtime results carried over explicitly.
+Policy/privilege-blocked native checks remain NOT RUN.
+
+Fresh full canonical gate on67ff PASSED with exit0 and `READY_TO_PROMOTE`:
+all145 unit commands,55 guard commands and8 episode commands, plus142
+coordination-ledger tests, shared-spec units, real PostgreSQL memory concurrency/
+stale-version/round-trip proofs, and both end-to-end shared-spec mutation proofs.
+Migration and data-ops passed on the owned disposable Neon branch. Its deletion
+was independently verified through branch metadata; production/default remains.
+The frozen worktree is clean, its commit/tree unchanged, all three older
+candidates remain present, and primary HEAD remains25be2f5418c3e5c7515976db92f732bc86a2dcd1.
+Earlier full consolidated results remain unchanged-runtime coverage on3475,
+not a claim that the separate consolidated runner was re-executed on67ff.
+The isolated source-repair and validation work is complete. The gate's
+machine-readable readiness marker is not publication or release authority.
+No public push, primary-main movement, shared migration, deployment or
+activation. Public-history consent, Windows CI, migration-before-traffic,
+competing0066 ordering and per-hat updated ownership clients remain separate
+release holds.

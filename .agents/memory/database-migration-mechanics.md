@@ -66,3 +66,12 @@ fail-closed startup schema assertion in production for weeks — a lucky
 outcome, but the reverse (an unreviewed unrelated migration introducing a
 new problem) is exactly as possible.
 
+
+## Task integration is not migration authorization
+
+Automatic task merges must not apply shared-database migrations. Treat task integration and schema application as separate authorization boundaries.
+
+**Why:** David explicitly approved removing migration execution from automatic post-merge setup: an apparently unrelated task merge can otherwise apply every staged migration, including changes not authorized for production.
+
+**How to apply:** Keep automatic setup migration-free, with no environment-variable bypass. Apply reviewed migration artifacts only under separate explicit authorization and the existing disposable-database gate. Do not restore automatic migration execution just to unblock a dependency or test task.
+

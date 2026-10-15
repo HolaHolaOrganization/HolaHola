@@ -145,3 +145,30 @@ An exact reviewed revision can be readable even when a local clone of the reposi
 
 **How to apply:** For an exact-revision reproduction, prefer a temporary detached worktree over cloning the entire local repository graph. Respect Replit's Git safety guard; review the narrowly scoped worktree operation before using its explicit opt-in. Remove the temporary worktree afterward, keeping verification receipts outside it.
 
+
+## Quoted message arguments and post-write shell errors
+
+Quote free-form message text as one shell argument in native coordination command examples. A terminal error after a write is not proof that the write failed.
+
+**Why:** An unquoted semicolon in a supplied hello command split the message at the shell boundary. The authenticated canonical event was committed with truncated text, so treating a later shell error as a failed POST could have prompted an unnecessary duplicate write.
+
+**How to apply:** Keep shell syntax out of unquoted message arguments. On an ambiguous write failure, independently inspect the canonical receipt and idempotency key before authorizing any retry. Do not issue a second hello merely to repair the wording of a successfully committed one.
+
+
+## Source-only baselines without Git metadata writes
+
+For source-behavior baseline checks, an immutable Git archive can replace a
+detached worktree when local Git metadata writes are refused and no Git
+operation is part of the behavior being tested. Do not escalate Git permissions
+just to run a source-only comparison.
+
+**Why:** Replit's Git guard can refuse worktree creation even during authorized
+debugging. Exporting the existing committed snapshot reproduced the same
+failures without modifying protected repository metadata.
+
+**How to apply:** Keep the export in a disposable temporary directory, preserve
+the exact committed source, and run with the export as cwd so path aliases
+resolve there. Document reused dependencies and environment. This is not a
+substitute for tests that depend on checkout identity, refs, tracked-file
+inventory, history, source authority or release provenance.
+

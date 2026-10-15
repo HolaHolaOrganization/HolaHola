@@ -47,6 +47,7 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import ts from 'typescript';
 import { executeAldenTool } from '../services/alden-functions';
 
 const root = resolve(import.meta.dirname, '../..');
@@ -58,16 +59,88 @@ const driverPath = resolve(root, 'server/scripts/test-alden-dual-engine-self-rep
 const CANONICAL_ENGINE_LINE = 'const engine = context?.engine ?? configuredDefault;';
 const MUTANT_ENGINE_LINE = 'const engine = configuredDefault;';
 
-// Exact call-site literals -- each pins the calling function's own known
-// engine, independent of the shared alden_config default.
-const ANTHROPIC_PERSONA_CALL_SITE =
-  "await executeAldenTool(tu.name, (tu.input as Record<string, any>) || {}, { conversationId, engine: 'anthropic' });";
-const GEMINI_PERSONA_CALL_SITE =
-  "await executeAldenTool(toolName, toolArgs, { conversationId, engine: 'gemini' });";
-const WATCH_WORKER_CALL_SITE_1 =
-  "return await executeAldenTool(toolName, args, { engine: 'anthropic' });";
-const WATCH_WORKER_CALL_SITE_2 =
-  "toolOutput = await executeAldenTool(block.name, block.input as Record<string, any>, { engine: 'anthropic' });";
+// Inspect live syntax, not formatting or comments. Unrelated context fields
+// (such as reviewReadSession) must not invalidate the engine contract.
+function parseSource(source: string): ts.SourceFile {
+  return ts.createSourceFile('engine-guard.ts', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+}
+
+function assertContextEngineType(source: string): void {
+  const file = parseSource(source);
+  const declaration = file.statements.find((node): node is ts.FunctionDeclaration =>
+    ts.isFunctionDeclaration(node) && node.name?.text === 'executeAldenTool');
+  const context = declaration?.parameters.find(node => node.name.getText(file) === 'context');
+  assert.ok(context?.questionToken && context.type && ts.isTypeLiteralNode(context.type),
+    'executeAldenTool must declare its optional context object');
+  const engines = context.type.members.filter((node): node is ts.PropertySignature =>
+    ts.isPropertySignature(node) && node.name.getText(file) === 'engine');
+  assert.equal(engines.length, 1, 'context must declare exactly one engine field');
+  const engine = engines[0];
+  assert.ok(engine.questionToken && engine.type && ts.isUnionTypeNode(engine.type),
+    'context must accept an optional engine union');
+  assert.deepEqual(engine.type.types.map(node => {
+    assert.ok(ts.isLiteralTypeNode(node) && ts.isStringLiteral(node.literal),
+      'context engine types must be string literals');
+    return node.literal.text;
+  }).sort(), ['anthropic', 'gemini'], 'context must accept precisely the two conversational engines');
+}
+
+function assertCallEngines(source: string, expected: 'anthropic' | 'gemini', functionName?: string): void {
+  const file = parseSource(source);
+  const scope = functionName
+    ? file.statements.find(node => ts.isFunctionDeclaration(node) && node.name?.text === functionName)
+    : file;
+  assert.ok(scope, `missing engine branch ${functionName}`);
+  let count = 0;
+  const visit = (node: ts.Node) => {
+    if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) &&
+        node.expression.text === 'executeAldenTool') {
+      count++;
+      const context = node.arguments[2];
+      assert.ok(context && ts.isObjectLiteralExpression(context),
+        'each tool call must pass an explicit context object');
+      assert.ok(!context.properties.some(ts.isSpreadAssignment),
+        'tool context spreads could override the literal engine');
+      assert.ok(context.properties.every(node =>
+        (ts.isPropertyAssignment(node) || ts.isShorthandPropertyAssignment(node)) &&
+        !ts.isComputedPropertyName(node.name)),
+      'tool context keys must be explicit; computed keys or accessors could replace the engine');
+      const engines = context.properties.filter(node =>
+        ts.isPropertyAssignment(node) &&
+        ((ts.isIdentifier(node.name) || ts.isStringLiteral(node.name)) && node.name.text === 'engine'));
+      assert.equal(engines.length, 1, 'each tool call must pin exactly one engine');
+      const engine = engines[0];
+      assert.ok(ts.isPropertyAssignment(engine) && ts.isStringLiteral(engine.initializer),
+        'tool engine must be a literal, not a shared/default lookup');
+      assert.equal(engine.initializer.text, expected, 'tool engine must match its calling branch');
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(scope);
+  assert.ok(count > 0, `no guarded tool calls found in ${functionName ?? 'watch worker'}`);
+}
+
+function assertStructuralGuardControls(): void {
+  const signature = "export async function executeAldenTool(context?: { conversationId?: string; engine?: 'anthropic' | 'gemini'; reviewReadSession?: unknown }) {}";
+  assertContextEngineType(signature);
+  for (const mutant of [
+    signature.replace("engine?: 'anthropic' | 'gemini';", ''),
+    signature.replace("'gemini'", "'other'"),
+    signature.replace('engine?:', 'engine:'),
+  ]) assert.throws(() => assertContextEngineType(`// ${signature}\n${mutant}`));
+  const call = "function branch() { executeAldenTool('tool', {}, { conversationId, engine: 'anthropic', reviewReadSession }); }";
+  assertCallEngines(call, 'anthropic', 'branch');
+  for (const mutant of [
+    call.replace("engine: 'anthropic',", ''),
+    call.replace("engine: 'anthropic'", "engine: 'gemini'"),
+    call.replace("engine: 'anthropic'", 'engine: configuredDefault'),
+    call.replace("engine: 'anthropic'", "engine: 'anthropic', ...override"),
+    call.replace("engine: 'anthropic'", "engine: 'anthropic', ['engine']: 'gemini'"),
+  ]) assert.throws(() => assertCallEngines(`// ${call}\n${mutant}`, 'anthropic', 'branch'));
+  assert.throws(() => assertCallEngines(call.replace("reviewReadSession });",
+    "reviewReadSession }); executeAldenTool('second', {}, {});"), 'anthropic', 'branch'));
+  console.log('  ✓ structural negative controls reject missing/wrong/default engines, overrides and misleading comments');
+}
 
 // ── Layer 1: behavioral — in-process, read-only (get_current_engine never
 // writes alden_config, so this is safe against the live shared database) ───
@@ -133,30 +206,15 @@ function assertEngineResolutionGuard(source: string, { expectFixed }: { expectFi
 
 function assertStaticGuards(aldenFunctionsSource: string): void {
   assertEngineResolutionGuard(aldenFunctionsSource, { expectFixed: true });
-  assert.ok(
-    aldenFunctionsSource.includes("context?: { conversationId?: string; engine?: 'anthropic' | 'gemini' }"),
-    'executeAldenTool must accept an engine field on its context parameter',
-  );
+  assertContextEngineType(aldenFunctionsSource);
 
   const personaSource = readFileSync(personaServicePath, 'utf8');
-  assert.ok(
-    personaSource.includes(ANTHROPIC_PERSONA_CALL_SITE),
-    "generateAldenResponseAnthropic must pass its own literal engine ('anthropic') into every executeAldenTool call",
-  );
-  assert.ok(
-    personaSource.includes(GEMINI_PERSONA_CALL_SITE),
-    "generateAldenResponseGemini must pass its own literal engine ('gemini') into every executeAldenTool call",
-  );
+  assertCallEngines(personaSource, 'anthropic', 'generateAldenResponseAnthropic');
+  assertCallEngines(personaSource, 'gemini', 'generateAldenResponseGemini');
 
   const watchWorkerSource = readFileSync(watchWorkerPath, 'utf8');
-  assert.ok(
-    watchWorkerSource.includes(WATCH_WORKER_CALL_SITE_1),
-    "alden-watch-worker.ts's safeCall helper must pin engine: 'anthropic' (watch cycles are Anthropic-only)",
-  );
-  assert.ok(
-    watchWorkerSource.includes(WATCH_WORKER_CALL_SITE_2),
-    "alden-watch-worker.ts's tool-use loop must pin engine: 'anthropic' (watch cycles are Anthropic-only)",
-  );
+  assertCallEngines(watchWorkerSource, 'anthropic');
+  assertStructuralGuardControls();
 
   console.log("  ✓ each real call site hardcodes its own literal engine into executeAldenTool's context");
 }

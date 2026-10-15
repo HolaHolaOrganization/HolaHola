@@ -1,3 +1,5 @@
+# Historical source evidence belongs to CI, never the executable release image.
+server/scripts/fixtures/gate3-approved-origin/
 # Local workspace state and repository history are not needed in the publish image.
 .git/
 .local/
