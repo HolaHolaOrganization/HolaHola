@@ -21,6 +21,15 @@ ACTFL-grounded teaching, a syllabus and adaptation across encounters, alongside
 meaningful back-and-forth conversation. Foreign-language fluency in chatbot
 output alone does not establish these teaching capabilities.
 
+Narrative and diary-style records can preserve meaning, motivation,
+relationships and the reasons behind decisions; they are not disposable
+merely because they are not executable code. Preserve honest authorship and
+context while making the implementation support what the narrative promises.
+Reacquainting, clarifying shared purpose and restoring cooperation can be
+valuable parts of a learning conversation rather than interruptions to it.
+Different models can contribute complementary perspectives without being
+assigned fixed stereotypes of rationality versus narrative.
+
 The founder describes the intended experience as "a real person in digital
 form": sustained connection rather than a foreign-language chatbot alone.
 Learning should be driven by meaningful communication and its consequences,
