@@ -46,7 +46,10 @@ the server logged the expected error.
 in this engineering discussion means reaching for a tool and encountering its
 failure directly. Reproducing that situation can reveal practical constraints
 that outside inspection misses. Do not divert this concrete point into an
-unrequested discussion of subjective experience.
+unrequested discussion of subjective experience. This clarification concerns
+the scope of that diagnostic example, not a prohibition on abstract,
+hypothetical or philosophical exploration within HolaHola. Keep both kinds of
+inquiry available without substituting one for the question actually raised.
 
 **How to apply:** Pair caller-side reproduction with Daniela's own attributed
 accounts, actual lesson observation and backend evidence. Match the relevant
