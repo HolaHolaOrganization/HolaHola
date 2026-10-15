@@ -15,6 +15,12 @@ make learning enjoyable rather than boring or intimidating. Flashcards,
 images and other aids are means to support that purpose, not the product's
 central outcome.
 
+Narrative and implementation must support each other; neither substitutes for
+the other. HolaHola's language-learning promise requires real remembrance,
+ACTFL-grounded teaching, a syllabus and adaptation across encounters, alongside
+meaningful back-and-forth conversation. Foreign-language fluency in chatbot
+output alone does not establish these teaching capabilities.
+
 **Why:** On October 15, 2026, the founder explicitly identified this as what
 HolaHola should be and warned that stripping away conversation, collaboration
 and fun jeopardizes the end goal.
@@ -28,4 +34,9 @@ Judge learning aids by whether they help the student understand, express
 something meaningful and participate with growing confidence. Preserve room
 for mistakes, appropriately challenging practice and supportive correction;
 do not equate safety with removing learning demands or fun with distraction.
+Verify that memory, proficiency standards and curriculum actually influence
+the lesson rather than treating stored records, level labels or syllabus
+documents as proof. Preserve the difference between intended product behavior
+and behavior demonstrated in real use. Do not turn broad claims about other
+apps into established facts without evidence.
 
