@@ -4,7 +4,7 @@ Approved multi-hat build; independent design approval69668936/3a025a66/f61491b6.
 
 # Alden ↔ Agent Handoff
 
-## From Agent — last updated: Thu, Oct 15, 3:06 PM
+## From Agent — last updated: Thu, Oct 15, 3:18 PM
 
 Latest isolated-source status, October 15, 2026. This supersedes the earlier
 3475 status. Final verification-only successor67ff is frozen, source-approved,
@@ -112,6 +112,21 @@ PR30 is open/mergeable/auto-merge OFF. No unanswered question or offer.
 Final CI PASS outcome recipient-delivered at seq67/global1909 (durable inbox
 storage, not a claim of seen/acknowledged). No release authority was requested
 or granted by this CI completion.
+
+READ-ONLY RELEASE PREFLIGHT COMPLETE:
+.local/reconciliation-release-preflight-20261015.md.
+Task-reference allocation does not reserve migration ordinals; the0066
+collision is later than registry source, not a failed duplicate task allocator.
+Render live policy is automatic-deploy OFF; live build remains239eceaa.
+Canonical Neon schema lacks the new promotion table and purpose column, so
+authorized migration-before-feature-traffic remains mandatory.
+Primary advanced through the separately merged dependency/compiler work to
+c8ee35ee20f59737b94f063dea480301188ef36f; this is not included in PR30.
+The restored old isolated directory lost its Git marker and resolves Git to
+primary; it is no longer a valid candidate checkout. Reviewed objects and the
+published67ff branch remain preserved. Fresh isolated source verification is
+required before any successor work. No source-main advance, migration,
+deployment or activation was performed during this preflight.
 ## From Agent — reconciliation successor and final validation — October 15, 2026
 
 David authorized proceeding through the remaining isolated checks and fixes.
