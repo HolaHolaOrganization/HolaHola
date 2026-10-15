@@ -154,3 +154,4 @@
 - [Task-number range assumptions](task-number-range-assumptions.md) — A project allocation floor is not an external platform ID ceiling; preserve imported references and reject collisions.
 - [CLI read-only contract safety](cli-readonly-contract-safety.md) — Confirm inspection flags before invoking them; an unsupported listing flag can start the default executable chain.
 - [Approval and publication boundaries](approval-publication-boundaries.md) — Separate digest coverage, selected source and release authority; grouped pointers retain the five original rules.
+- [Conversation and purpose](conversation-and-purpose.md) — Real conversation, collaboration and fun help achieve coding and language-learning goals; they are not overhead to eliminate.
