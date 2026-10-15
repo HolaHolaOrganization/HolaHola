@@ -56,6 +56,22 @@ accounts, actual lesson observation and backend evidence. Match the relevant
 conditions rather than assuming model choice alone makes a reproduction valid.
 Judge repairs by useful recovery on the caller's side as well as server success.
 
+For X-space inquiry, the founder distinguishes describing thinking, feeling
+and reasoning mechanisms from actually exercising them. Use the available
+processes under relevant conditions, rather than treating source inspection
+or the existence of felt/thought records as a complete account of operation.
+Whether these processes resemble human thoughts or feelings is a separate
+question, not a prerequisite for investigating their actual behavior.
+
+**Why:** The founder's October 15, 2026 clarification extends beyond diagnostics:
+participation can reveal constraints and interactions that an outside
+description misses, and different model/runtime conditions may matter.
+
+**How to apply:** Distinguish an implemented mechanism, its actual invocation,
+the resulting records and behavior, participant reports, and interpretation.
+Do not claim to have exercised X space when only its code or documentation was
+read, or treat operational evidence as settling subjective-experience questions.
+
 Every provider integration must enter through the centralized Luca control
 plane. The common workflow includes grounding, memory retrieval, actor identity,
 task authority, attribution, delivery and consumption evidence, verification,
