@@ -17,11 +17,18 @@
  *   1. `drizzle-kit migrate` (its migrations table makes re-runs a no-op)
  *   2. `scripts/run-data-ops.ts` (every data-op must be idempotent)
  *
- * drizzle-kit needs a direct (unpooled) Neon connection. Render holds only
- * NEON_SHARED_DATABASE_URL, so the direct URL is NEON_DIRECT_DATABASE_URL when
- * set, otherwise derived from the pooled URL by dropping Neon's `-pooler`
- * host suffix (Neon's documented pooled/direct naming). No new secret is
- * required, and no connection string is ever printed.
+ * drizzle-kit needs a direct (unpooled) Neon connection. The direct URL is
+ * derived ONLY from the app's own NEON_SHARED_DATABASE_URL, by dropping the
+ * `-pooler` suffix from a Neon endpoint host (Neon's documented pooled/direct
+ * naming). There is deliberately no separate override: a second URL could
+ * point the migration at a different database than the one the app serves
+ * from, and both steps would "succeed" with the real schema unmigrated.
+ * No new secret is required, and no connection string is ever printed.
+ *
+ * A failure here keeps the previous release serving, but it does NOT roll
+ * back a schema step or data-op that already committed. The old release keeps
+ * running against the changed database, so every migration and data-op must
+ * stay backward-compatible with the release before it.
  *
  * Usage (Render "Pre-Deploy Command"): npx tsx scripts/render-predeploy.ts
  */
@@ -30,10 +37,15 @@ import { pathToFileURL } from 'node:url';
 
 export interface DirectUrlResolution {
   url: string;
-  source: 'NEON_DIRECT_DATABASE_URL' | 'derived-from-pooled' | 'already-direct';
+  source: 'derived-from-pooled' | 'already-direct';
 }
 
-/** Neon pooled hosts end their first DNS label with `-pooler`. */
+const NEON_HOST_SUFFIX = '.neon.tech';
+
+/**
+ * Neon pooled endpoint hosts end their first DNS label with `-pooler`. Only
+ * hosts under neon.tech are rewritten; any other host is returned unchanged.
+ */
 export function toDirectNeonUrl(connectionString: string): { url: string; changed: boolean } {
   let parsed: URL;
   try {
@@ -45,7 +57,7 @@ export function toDirectNeonUrl(connectionString: string): { url: string; change
     throw new Error(`NEON_SHARED_DATABASE_URL has unsupported protocol "${parsed.protocol}"`);
   }
   const [firstLabel, ...rest] = parsed.hostname.split('.');
-  if (!firstLabel.endsWith('-pooler')) {
+  if (!parsed.hostname.toLowerCase().endsWith(NEON_HOST_SUFFIX) || !firstLabel.endsWith('-pooler')) {
     return { url: connectionString, changed: false };
   }
   parsed.hostname = [firstLabel.slice(0, -'-pooler'.length), ...rest].join('.');
@@ -53,10 +65,6 @@ export function toDirectNeonUrl(connectionString: string): { url: string; change
 }
 
 export function resolveDirectUrl(env: NodeJS.ProcessEnv): DirectUrlResolution {
-  const explicit = env.NEON_DIRECT_DATABASE_URL?.trim();
-  if (explicit) {
-    return { url: toDirectNeonUrl(explicit).url, source: 'NEON_DIRECT_DATABASE_URL' };
-  }
   const pooled = env.NEON_SHARED_DATABASE_URL?.trim();
   if (!pooled) {
     throw new Error('NEON_SHARED_DATABASE_URL is required for the pre-deploy migration step');
