@@ -47,6 +47,7 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import ts from 'typescript';
 import { executeAldenTool } from '../services/alden-functions';
 
 const root = resolve(import.meta.dirname, '../..');
@@ -58,16 +59,59 @@ const driverPath = resolve(root, 'server/scripts/test-alden-dual-engine-self-rep
 const CANONICAL_ENGINE_LINE = 'const engine = context?.engine ?? configuredDefault;';
 const MUTANT_ENGINE_LINE = 'const engine = configuredDefault;';
 
-// Exact call-site literals -- each pins the calling function's own known
-// engine, independent of the shared alden_config default.
-const ANTHROPIC_PERSONA_CALL_SITE =
-  "await executeAldenTool(tu.name, (tu.input as Record<string, any>) || {}, { conversationId, engine: 'anthropic' });";
-const GEMINI_PERSONA_CALL_SITE =
-  "await executeAldenTool(toolName, toolArgs, { conversationId, engine: 'gemini' });";
-const WATCH_WORKER_CALL_SITE_1 =
-  "return await executeAldenTool(toolName, args, { engine: 'anthropic' });";
-const WATCH_WORKER_CALL_SITE_2 =
-  "toolOutput = await executeAldenTool(block.name, block.input as Record<string, any>, { engine: 'anthropic' });";
+function parseSource(source: string): ts.SourceFile {
+  return ts.createSourceFile('guarded.ts', source, ts.ScriptTarget.Latest, true);
+}
+
+function namedFunction(file: ts.SourceFile, name: string): ts.FunctionDeclaration {
+  const fn = file.statements.find((node): node is ts.FunctionDeclaration =>
+    ts.isFunctionDeclaration(node) && node.name?.text === name);
+  assert.ok(fn?.body, `must find the implementation of ${name}`);
+  return fn;
+}
+
+function assertEngineContext(source: string): ts.PropertySignature {
+  const fn = namedFunction(parseSource(source), 'executeAldenTool');
+  const context = fn.parameters.find(p => ts.isIdentifier(p.name) && p.name.text === 'context');
+  const type = context?.type;
+  assert.ok(context?.questionToken && type && ts.isTypeLiteralNode(type), 'context must remain an optional object');
+  const property = (name: string) => type.members.find((p): p is ts.PropertySignature =>
+    ts.isPropertySignature(p) && ts.isIdentifier(p.name) && p.name.text === name);
+  const conversation = property('conversationId');
+  assert.ok(conversation?.questionToken && conversation.type?.kind === ts.SyntaxKind.StringKeyword,
+    'context must retain optional conversationId');
+  const engine = property('engine');
+  assert.ok(engine?.questionToken && engine.type && ts.isUnionTypeNode(engine.type),
+    'executeAldenTool must accept an engine field on its context parameter');
+  assert.deepEqual(engine.type.types.map(t =>
+    ts.isLiteralTypeNode(t) && ts.isStringLiteral(t.literal) ? t.literal.text : '').sort(),
+  ['anthropic', 'gemini'], 'context engine must retain exactly the two supported literal types');
+  return engine;
+}
+
+function assertPinnedCallSites(source: string, owner: string | undefined, engine: string, count: number): ts.PropertyAssignment[] {
+  const file = parseSource(source);
+  const scope = owner ? namedFunction(file, owner) : file;
+  const calls: ts.CallExpression[] = [];
+  function visit(node: ts.Node): void {
+    if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === 'executeAldenTool') calls.push(node);
+    ts.forEachChild(node, visit);
+  }
+  visit(scope);
+  assert.equal(calls.length, count, `${owner ?? 'watch worker'} must retain every guarded tool call`);
+  return calls.map(call => {
+    const context = call.arguments[2];
+    assert.ok(context && ts.isObjectLiteralExpression(context), 'tool calls must pass explicit context');
+    assert.ok(context.properties.every(p => !ts.isSpreadAssignment(p) && !ts.isComputedPropertyName(p.name)),
+      'context spreads/computed keys could override the pinned engine');
+    const pins = context.properties.filter((p): p is ts.PropertyAssignment =>
+      ts.isPropertyAssignment(p) && (ts.isIdentifier(p.name) || ts.isStringLiteral(p.name)) && p.name.text === 'engine');
+    assert.equal(pins.length, 1, 'each call must pin exactly one engine');
+    assert.ok(ts.isStringLiteral(pins[0].initializer) && pins[0].initializer.text === engine,
+      `${owner ?? 'watch worker'} must pin engine ${engine} as a literal`);
+    return pins[0];
+  });
+}
 
 // ── Layer 1: behavioral — in-process, read-only (get_current_engine never
 // writes alden_config, so this is safe against the live shared database) ───
@@ -133,30 +177,14 @@ function assertEngineResolutionGuard(source: string, { expectFixed }: { expectFi
 
 function assertStaticGuards(aldenFunctionsSource: string): void {
   assertEngineResolutionGuard(aldenFunctionsSource, { expectFixed: true });
-  assert.ok(
-    aldenFunctionsSource.includes("context?: { conversationId?: string; engine?: 'anthropic' | 'gemini' }"),
-    'executeAldenTool must accept an engine field on its context parameter',
-  );
+  assertEngineContext(aldenFunctionsSource);
 
   const personaSource = readFileSync(personaServicePath, 'utf8');
-  assert.ok(
-    personaSource.includes(ANTHROPIC_PERSONA_CALL_SITE),
-    "generateAldenResponseAnthropic must pass its own literal engine ('anthropic') into every executeAldenTool call",
-  );
-  assert.ok(
-    personaSource.includes(GEMINI_PERSONA_CALL_SITE),
-    "generateAldenResponseGemini must pass its own literal engine ('gemini') into every executeAldenTool call",
-  );
+  assertPinnedCallSites(personaSource, 'generateAldenResponseAnthropic', 'anthropic', 1);
+  assertPinnedCallSites(personaSource, 'generateAldenResponseGemini', 'gemini', 1);
 
   const watchWorkerSource = readFileSync(watchWorkerPath, 'utf8');
-  assert.ok(
-    watchWorkerSource.includes(WATCH_WORKER_CALL_SITE_1),
-    "alden-watch-worker.ts's safeCall helper must pin engine: 'anthropic' (watch cycles are Anthropic-only)",
-  );
-  assert.ok(
-    watchWorkerSource.includes(WATCH_WORKER_CALL_SITE_2),
-    "alden-watch-worker.ts's tool-use loop must pin engine: 'anthropic' (watch cycles are Anthropic-only)",
-  );
+  assertPinnedCallSites(watchWorkerSource, undefined, 'anthropic', 2);
 
   console.log("  ✓ each real call site hardcodes its own literal engine into executeAldenTool's context");
 }
@@ -201,6 +229,31 @@ async function selfCheck(): Promise<void> {
 
   const originalBytes = readFileSync(aldenFunctionsPath);
   const originalSource = originalBytes.toString('utf8');
+  // Harmless metadata is accepted, but a comment containing the old signature
+  // must never substitute for the actual optional engine field.
+  assertStaticGuards(originalSource);
+  const engineField = assertEngineContext(originalSource);
+  const missingEngine = originalSource.slice(0, engineField.getStart())
+    + "/* engine?: 'anthropic' | 'gemini'; */"
+    + originalSource.slice(engineField.end);
+  assert.throws(() => assertEngineContext(missingEngine), /must accept an engine field/);
+  for (const [path, owner, engine, count] of [
+    [personaServicePath, 'generateAldenResponseAnthropic', 'anthropic', 1],
+    [personaServicePath, 'generateAldenResponseGemini', 'gemini', 1],
+    [watchWorkerPath, undefined, 'anthropic', 2],
+  ] as const) {
+    const source = readFileSync(path, 'utf8');
+    const [pin] = assertPinnedCallSites(source, owner, engine, count);
+    const wrong = source.slice(0, pin.initializer.getStart())
+      + JSON.stringify(engine === 'anthropic' ? 'gemini' : 'anthropic')
+      + source.slice(pin.initializer.end);
+    assert.throws(() => assertPinnedCallSites(wrong, owner, engine, count), /must pin engine/);
+    const context = pin.parent;
+    const spread = source.slice(0, context.getStart() + 1) + '...{},'
+      + source.slice(context.getStart() + 1);
+    assert.throws(() => assertPinnedCallSites(spread, owner, engine, count), /spreads\/computed/);
+  }
+  console.log('  ✓ structural guards reject removed/comment-only engine fields, wrong caller engines and spread overrides');
 
   assert.equal(
     originalSource.split(CANONICAL_ENGINE_LINE).length - 1,

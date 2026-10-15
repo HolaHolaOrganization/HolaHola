@@ -169,3 +169,32 @@ available to server checks and standalone proofs, not added to that DTO.
 Checks and independent approval must name this successor, not inherit the earlier
 source-only approval. Shared migration, public-history exposure, main
 movement and runtime activation remain unapproved and are not performed.
+
+## Structural engine-guard successor
+
+The preceding purpose-separated source passed all 145 unit commands, all
+142 coordination-ledger cases and the shared-spec unit stage. Its canonical
+gate then stopped at guard 51: exact closed-object strings rejected the
+legitimate added review-session metadata in the context type and persona
+calls. The engine fields and per-call runtime behavior were still correct.
+
+This successor changes only verification scripts and this note. The static
+engine guard now parses the real TypeScript declaration and live call sites,
+retains optional conversation/engine typing and literal caller-owned engines,
+allows ordinary extra metadata, and rejects spread/computed overrides.
+The original two-process behavioral mutation remains intact. New mutations
+prove removed/comment-only engine fields, wrong caller engines and context
+spreads are rejected. Normal guard, expanded self-check and the three remaining
+guard commands passed against the verified disposable Neon branch.
+
+The system-health verifier now explicitly requires the staged promotion-context
+table. It passed with zero failures and two acknowledged warnings: app-route
+storage reads were not run because this isolated source validation has no
+running application server. Direct storage reads and the standard temporary
+copy probe passed; mocked failure-path warnings were expected test output.
+No server was activated to silence the two warnings.
+
+This is not a canonical-gate pass. Final checks and independent approval must
+name the new frozen successor. Earlier approvals and gate results remain
+attached to their original bytes. All publication, migration and runtime holds
+above remain in force.

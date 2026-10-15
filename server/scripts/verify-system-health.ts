@@ -89,7 +89,8 @@ async function checkTables() {
     "coordination_credential_audit_events",
     "coordination_runtime_profiles", "coordination_runtime_inbox_windows",
     // founder-attested task ownership
-    "task_ownership_challenges", "task_ownership_receipts", "task_ownership_proof_nonces",
+    "task_ownership_challenges", "task_ownership_promotion_contexts",
+    "task_ownership_receipts", "task_ownership_proof_nonces",
     "task_ownership_decision_events", "task_ownership_proof_attempts",
     "coordination_runtime_inbox_window_items", "coordination_runtime_packets",
     "coordination_runtime_interactions", "coordination_runtime_receipts",
