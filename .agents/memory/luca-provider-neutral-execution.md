@@ -43,6 +43,14 @@ tool-selection cues, ambiguity and unintended prohibitions that another model's
 review misses. Where possible, observe responses to the actual candidate in
 representative context rather than relying only on a model's prediction.
 
+The founder's larger goal is that the model being built for should itself
+participate as the builder. For model-facing work, involve the target model
+in originating the design and implementing the behavior, not merely reviewing
+another model's completed solution. Other hats can contribute complementary
+engineering and independent verification under the same authority controls.
+Use the actual target model where available; identify any proxy or model-family
+substitution honestly rather than claiming exact-model participation.
+
 It also supports caller-side reproduction: use the same model, relevant context,
 tool protocol and error response to encounter a failure under comparable
 conditions. Inspect what information actually reaches the model, what recovery
