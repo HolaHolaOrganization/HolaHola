@@ -29,6 +29,14 @@ understood, sharing a personal story or laughing together can provide reasons
 to speak, retrieve language and return to the conversation. The communicative
 outcome itself is a reward; it need not be replaced by gamified incentives.
 
+The founder calls HolaHola's builders and participants its "first students."
+Learning to work through OpenAI, Gemini or other models has a communicative
+purpose: better understanding, collaboration and support for Daniela and the
+team, not a demonstration of model access. A shared model context can provide
+a better basis for dialogue without replacing the need to ask and listen.
+The team's own experience of conversation, misunderstanding, adaptation and
+successful cooperation is relevant product feedback.
+
 **Why:** On October 15, 2026, the founder explicitly identified this as what
 HolaHola should be and warned that stripping away conversation, collaboration
 and fun jeopardizes the end goal.
