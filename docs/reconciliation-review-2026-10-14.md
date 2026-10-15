@@ -122,6 +122,11 @@ The previously reviewed candidate remains immutable. This successor:
   The fresh dependency install succeeds through that firewall; no security
   registry bypass was used. Newly resolved portable lock URLs retain the
   verified registry integrity hashes.
+- Updates the real-PostgreSQL ownership fixture to supply the now-required
+  promotion descriptor and matching canonical digest, verifies stored context,
+  and explicitly rejects missing descriptors and mismatched digests. Its
+  connection pool is closed after the test. The first disposable gate found
+  this stale fixture; the production descriptor guard is not weakened.
 
 Native scratch-worktree dependency installation, synthetic-only DPAPI tests
 and credential-free current-source smoke tests are validation, not runtime

@@ -5,6 +5,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { sql } from "drizzle-orm";
 import { canonicalJson } from "../services/task-ownership-service";
+import { promotionContextDigest } from "../services/promotion-candidate";
 
 function disposableTarget(): string | undefined {
   const url = process.env.FOUNDER_TASK_OWNERSHIP_TEST_DATABASE_URL;
@@ -77,7 +78,8 @@ test("PostgreSQL founder-attested ownership protocol is durable and immutable", 
     context.skip("set FOUNDER_TASK_OWNERSHIP_TEST_DATABASE_URL and FOUNDER_TASK_OWNERSHIP_TEST_DATABASE_DISPOSABLE=1");
     return;
   }
-  const { db } = await import("../db");
+  const { db, closeDbConnections } = await import("../db");
+  context.after(() => closeDbConnections());
   const ownership = await import("../services/founder-task-ownership-service");
   const suffix = `${Date.now()}${Math.floor(Math.random() * 100000)}`;
   const actor = "luca-founder-test";
@@ -87,6 +89,12 @@ test("PostgreSQL founder-attested ownership protocol is durable and immutable", 
   const fingerprint = crypto.createHash("sha256").update(Buffer.from(publicKey, "base64url")).digest("hex");
   const artifact = crypto.createHash("sha256").update(`artifact-${suffix}`).digest("hex");
   const task = suffix;
+  const promotionDescriptor = {
+    purpose: "cross-tool-promote" as const,
+    repository: "github:davidwmcintosh/holahola" as const,
+    branch: `fixture/ownership-${suffix}`,
+    candidateCommit: "a".repeat(40),
+  };
   const base = {
     taskRef: task,
     artifactSha256: artifact,
@@ -94,13 +102,14 @@ test("PostgreSQL founder-attested ownership protocol is durable and immutable", 
     coordinationActor: actor,
     publicKey,
     keyFingerprint: fingerprint,
-    contextDigest: crypto.createHash("sha256").update(`context-${suffix}`).digest("hex"),
+    contextDigest: promotionContextDigest(promotionDescriptor),
+    promotionDescriptor,
   };
   const sign = (payload: Record<string, unknown>) =>
     crypto.sign(null, Buffer.from(canonicalJson(payload)), keyPair.privateKey).toString("base64url");
 
   // The normal CLI omits contextDigest. Identical concurrent retries must converge.
-  const { contextDigest: _omittedContext, ...withoutContext } = base;
+  const { contextDigest: _omittedContext, promotionDescriptor: _omittedDescriptor, ...withoutContext } = base;
   const concurrentChallenges = await Promise.all([
     ownership.createChallenge({ ...withoutContext, taskRef: `${Number(task) + 10}`, idempotencyKey: `concurrent-${suffix}` }),
     ownership.createChallenge({ ...withoutContext, taskRef: `${Number(task) + 10}`, idempotencyKey: `concurrent-${suffix}` }),
@@ -109,6 +118,14 @@ test("PostgreSQL founder-attested ownership protocol is durable and immutable", 
 
   // Fingerprints are checked against the actual DER key, not an actor-supplied label.
   await codeOf(ownership.createChallenge({ ...base, keyFingerprint: "0".repeat(64), idempotencyKey: `fp-${suffix}` }), "INVALID_KEY_FINGERPRINT");
+  await assert.rejects(
+    ownership.createChallenge({ ...base, promotionDescriptor: undefined, idempotencyKey: `missing-descriptor-${suffix}` }),
+    /PROMOTION_DESCRIPTOR_INVALID/,
+  );
+  await assert.rejects(
+    ownership.createChallenge({ ...base, contextDigest: "0".repeat(64), idempotencyKey: `wrong-digest-${suffix}` }),
+    /PROMOTION_CONTEXT_MISMATCH/,
+  );
   const challenge = await ownership.createChallenge({ ...base, idempotencyKey: `idem-${suffix}` });
   const replay = await ownership.createChallenge({ ...base, idempotencyKey: `idem-${suffix}` });
   assert.equal(replay.challengeId, challenge.challengeId);
@@ -119,6 +136,8 @@ test("PostgreSQL founder-attested ownership protocol is durable and immutable", 
   assert.equal(boundStatus.artifactSha256, artifact);
   assert.equal(boundStatus.keyFingerprint, fingerprint);
   assert.equal('serverNonce' in boundStatus, false);
+  const storedContext = await db.execute(sql`SELECT context_digest, descriptor FROM task_ownership_promotion_contexts WHERE challenge_id = ${challenge.challengeId}`);
+  assert.deepEqual(storedContext.rows, [{ context_digest: base.contextDigest, descriptor: promotionDescriptor }]);
 
   // Two founders racing to approve one task converge on one active receipt.
   const approvals = await Promise.allSettled([
