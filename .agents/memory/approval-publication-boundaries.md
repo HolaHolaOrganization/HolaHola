@@ -29,4 +29,3 @@ Preserve the exact wire contract of a pinned native client when adding server-si
 **Why:** An apparently additive approval-purpose field broke an exact-key native decoder. Updating only the response-key test would have hidden a real compatibility regression and expanded the release scope.
 
 **How to apply:** Inspect strict consumers before changing response metadata. Keep domain checks on authoritative server records, and omit new internal metadata from an unchanged pinned DTO where possible. A genuinely necessary client repin needs its own explicit approval and byte-level verification.
-

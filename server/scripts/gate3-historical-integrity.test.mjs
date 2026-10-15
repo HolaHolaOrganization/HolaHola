@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
-import { cp, mkdtemp, readFile, readdir, rm, unlink, writeFile } from 'node:fs/promises';
+import { chmod, cp, mkdir, mkdtemp, readFile, readdir, rm, symlink, unlink, writeFile } from 'node:fs/promises';
+import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { test } from 'node:test';
 import {
   APPROVED_HASHES, FIXTURE_ROOT, REPOSITORY_ROOT, MANIFEST_SHA256,
@@ -13,6 +15,182 @@ import {
 const require = createRequire(import.meta.url);
 const compiler = require('gate3-historical-esbuild');
 const fixtureFile = (root, relative) => path.join(root, 'inputs', `${relative}.source`);
+
+// No installed package, shared bin, live source, or environment is modified.
+// Each child gets a fresh module cache and only an allowlisted environment.
+async function isolatedCompilerSelection(run) {
+  const root = await mkdtemp(path.join(tmpdir(), 'gate3-compiler-selection-'));
+  try {
+    for (const directory of ['server/scripts/lib', 'scripts', 'node_modules/esbuild', 'node_modules/.bin', 'scratch']) {
+      await mkdir(path.join(root, directory), { recursive: true });
+    }
+    const helper = path.join(root, 'server/scripts/lib/gate3-historical-integrity.mjs');
+    const appBuilder = path.join(root, 'scripts/build-app-server.mjs');
+    await cp(path.join(REPOSITORY_ROOT, 'server/scripts/lib/gate3-historical-integrity.mjs'), helper);
+    await cp(path.join(REPOSITORY_ROOT, 'scripts/build-app-server.mjs'), appBuilder);
+    await cp(FIXTURE_ROOT, path.join(root, 'server/scripts/fixtures/gate3-approved-origin'), { recursive: true });
+    await cp(path.join(REPOSITORY_ROOT, 'scripts/antigravity-gate3.ps1'), path.join(root, 'scripts/antigravity-gate3.ps1'));
+    await writeFile(path.join(root, 'package.json'), '{"type":"module"}');
+    await writeFile(path.join(root, 'node_modules/esbuild/package.json'), '{"name":"esbuild","main":"index.cjs"}');
+    await symlink(path.dirname(require.resolve('gate3-historical-esbuild/package.json')),
+      path.join(root, 'node_modules/gate3-historical-esbuild'), process.platform === 'win32' ? 'junction' : 'dir');
+    const cliMarker = path.join(root, 'cli-used');
+    const appMarker = path.join(root, 'app-api-used');
+    const sharedCli = path.join(root, 'node_modules/.bin/esbuild');
+    await writeFile(`${sharedCli}.cjs`, `
+require('node:fs').writeFileSync(${JSON.stringify(cliMarker)}, 'shared-cli');
+console.error('gate3_test_shared_cli_selected');
+process.exit(86);
+`);
+    if (process.platform === 'win32') {
+      await writeFile(`${sharedCli}.cmd`, `@"${process.execPath}" "%~dp0esbuild.cjs" %*\r\n`);
+    } else {
+      await writeFile(sharedCli, `#!${process.execPath}\nrequire('./esbuild.cjs');\n`);
+      await chmod(sharedCli, 0o755);
+    }
+    // Windows .cmd files must go through cmd.exe. Use its absolute path, while
+    // PATH still resolves only our shadow CLI, never an installed shared bin.
+    const invokeCli = (args) => process.platform === 'win32'
+      ? `execFileSync(process.env.ComSpec, ['/d', '/s', '/c', ${JSON.stringify(`esbuild ${args.join(' ')}`)}], { stdio: 'inherit' });`
+      : `execFileSync('esbuild', ${JSON.stringify(args)}, { stdio: 'inherit' });`;
+    const setAppCompiler = async (poisoned) => writeFile(path.join(root, 'node_modules/esbuild/index.cjs'), `
+const fs = require('node:fs');
+exports.version = '0.25.9';
+exports.build = async function(options) {
+  fs.writeFileSync(${JSON.stringify(appMarker)}, JSON.stringify(options));
+  ${poisoned
+    ? "throw new Error('gate3_test_app_api_poisoned');"
+    : `return require(${JSON.stringify(require.resolve('esbuild'))}).build(options);`}
+};
+`);
+    const child = (source) => spawnSync(process.execPath, ['--input-type=module', '--eval', source], {
+      cwd: root,
+      env: {
+        PATH: path.join(root, 'node_modules/.bin'), HOME: root, TMPDIR: path.join(root, 'scratch'),
+        ...(process.platform === 'win32' ? {
+          SystemRoot: process.env.SystemRoot,
+          ComSpec: path.join(process.env.SystemRoot, 'System32/cmd.exe'),
+          PATHEXT: '.COM;.EXE;.BAT;.CMD',
+          TEMP: path.join(root, 'scratch'), TMP: path.join(root, 'scratch'),
+        } : {}),
+      },
+      encoding: 'utf8',
+      timeout: 60_000,
+      maxBuffer: 1024 * 1024,
+    });
+    const historicalSource = `
+import assert from 'node:assert/strict';
+import { readdir } from 'node:fs/promises';
+import { loadHistoricalSnapshot, buildHistoricalArtifact } from ${JSON.stringify(pathToFileURL(helper).href)};
+const snapshot = await loadHistoricalSnapshot();
+for (const [name, hash] of ${JSON.stringify(Object.entries(APPROVED_HASHES))}) {
+  // Exercise DEFAULT selection: no compiler option is supplied.
+  const result = await buildHistoricalArtifact(snapshot, name, { temporaryParent: ${JSON.stringify(path.join(root, 'scratch'))} });
+  assert.equal(result.sha256, hash);
+}
+assert.deepEqual(await readdir(${JSON.stringify(path.join(root, 'scratch'))}), []);
+console.log('both-original-hashes-rebuilt');
+`;
+    await run({ root, helper, appBuilder, appMarker, cliMarker, setAppCompiler, child, historicalSource, invokeCli });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+}
+
+function successfulChild(result) {
+  assert.ifError(result.error);
+  assert.equal(result.signal, null, result.stderr);
+  assert.equal(result.status, 0, result.stderr);
+}
+
+function failedChild(result, message) {
+  assert.ifError(result.error);
+  assert.equal(result.signal, null, result.stderr);
+  assert.equal(result.status, 1, result.stderr);
+  assert.match(result.stderr, message);
+}
+
+test('DEFAULT historical alias rebuilds both original hashes with a poisoned same-version app API and shadowed CLI', async () => {
+  await isolatedCompilerSelection(async ({ root, helper, appMarker, cliMarker, setAppCompiler, child, historicalSource, invokeCli }) => {
+    await setAppCompiler(true);
+    // First prove the poison is active in this child's actual resolution scope.
+    const probe = child("import { build } from 'esbuild'; await build({});");
+    failedChild(probe, /gate3_test_app_api_poisoned/);
+    await unlink(appMarker);
+    const result = child(historicalSource);
+    successfulChild(result);
+    assert.match(result.stdout, /both-original-hashes-rebuilt/);
+    await assert.rejects(readFile(appMarker), { code: 'ENOENT' });
+    await assert.rejects(readFile(cliMarker), { code: 'ENOENT' });
+
+    const original = await readFile(helper, 'utf8');
+    const swapped = original.replace("compiler = require('gate3-historical-esbuild')", "compiler = require('esbuild')");
+    assert.notEqual(swapped, original, 'default compiler mutation must actually apply');
+    await writeFile(helper, swapped);
+    failedChild(child(historicalSource), /gate3_test_app_api_poisoned/);
+    assert.ok(await readFile(appMarker, 'utf8'));
+    assert.deepEqual(await readdir(path.join(root, 'scratch')), [], 'failed builds clean their temporary roots');
+
+    // Mutate the default selection to a CLI-backed compiler, not an injected
+    // compiler option. The real shadow executable must run and reject it.
+    const cliDefault = `compiler = { version: '0.25.9', async build() {
+      const { execFileSync } = await import('node:child_process');
+      ${invokeCli(['--version'])}
+      throw new Error('shared CLI unexpectedly succeeded');
+    } }`;
+    const cliSwapped = original.replace("compiler = require('gate3-historical-esbuild')", cliDefault);
+    assert.notEqual(cliSwapped, original, 'CLI default mutation must actually apply');
+    await writeFile(helper, cliSwapped);
+    failedChild(child(historicalSource), /gate3_test_shared_cli_selected/);
+    assert.equal(await readFile(cliMarker, 'utf8'), 'shared-cli');
+    assert.deepEqual(await readdir(path.join(root, 'scratch')), []);
+  });
+});
+
+test('application builder uses the normal API despite a shadowed shared CLI; real alias and CLI swaps fail the proof', async () => {
+  await isolatedCompilerSelection(async ({ root, appBuilder, appMarker, cliMarker, setAppCompiler, child, invokeCli }) => {
+    await setAppCompiler(false);
+    // A tiny app proves real bundling without loading the live application or
+    // executing generated code. Executing this input would fail immediately.
+    await writeFile(path.join(root, 'server/index.ts'), "throw new Error('gate3_test_output_must_never_execute');\n");
+    const source = `
+import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+await import(${JSON.stringify(pathToFileURL(appBuilder).href)});
+const options = JSON.parse(await readFile(${JSON.stringify(appMarker)}, 'utf8'));
+assert.deepEqual(options, {
+  entryPoints: ['server/index.ts'], platform: 'node', packages: 'external',
+  bundle: true, format: 'esm', outdir: 'dist',
+});
+assert.match(await readFile('dist/index.js', 'utf8'), /gate3_test_output_must_never_execute/);
+console.log('normal-app-api-built');
+`;
+    const result = child(source);
+    successfulChild(result);
+    assert.match(result.stdout, /normal-app-api-built/);
+    await assert.rejects(readFile(cliMarker), { code: 'ENOENT' });
+    await unlink(appMarker);
+    await rm(path.join(root, 'dist'), { recursive: true, force: true });
+
+    const original = await readFile(appBuilder, 'utf8');
+    const swapped = original.replace("from 'esbuild'", "from 'gate3-historical-esbuild'");
+    assert.notEqual(swapped, original, 'application alias mutation must actually apply');
+    await writeFile(appBuilder, swapped);
+    // Same-version historical alias can compile, but cannot satisfy API-use proof.
+    failedChild(child(source), /ENOENT.*app-api-used/);
+    assert.match(await readFile(path.join(root, 'dist/index.js'), 'utf8'), /gate3_test_output_must_never_execute/);
+    await rm(path.join(root, 'dist'), { recursive: true, force: true });
+
+    await writeFile(appBuilder, `
+import { execFileSync } from 'node:child_process';
+${invokeCli(['server/index.ts', '--platform=node', '--packages=external', '--bundle', '--format=esm', '--outdir=dist'])}
+`);
+    failedChild(child(source), /gate3_test_shared_cli_selected/);
+    assert.equal(await readFile(cliMarker, 'utf8'), 'shared-cli');
+    await assert.rejects(readFile(appMarker), { code: 'ENOENT' });
+    await assert.rejects(readFile(path.join(root, 'dist/index.js')), { code: 'ENOENT' });
+  });
+});
 
 async function isolatedFixture(run) {
   const parent = await mkdtemp(path.join(tmpdir(), 'gate3-historical-control-'));
