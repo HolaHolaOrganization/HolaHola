@@ -23,6 +23,10 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
+      # Required at boot (server/services/instance-role.ts): only the production
+      # instance starts background workers, schedulers, capture and boot writes.
+      - key: HOLAHOLA_INSTANCE_ROLE
+        value: production
       - key: PORT
         value: "5000"
 
