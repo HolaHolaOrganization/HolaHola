@@ -230,10 +230,13 @@ test("replicate() proceeds past the ownership gate when ownership is proven", as
   // Force primaryConfig() to fail deterministically right after the gate, so
   // this test can never reach a real S3 call regardless of which archive
   // credentials happen to be configured in the running environment.
-  const originalAccessKey = process.env.AWS_S3_ACCESS_KEY_ID;
-  const originalRegion = process.env.AWS_S3_REGION;
+  // A fixture bucket name is set so the failure is the credential check, not
+  // "no bucket configured" -- CI receives no storage secrets at all.
+  const keys = ["AWS_S3_ACCESS_KEY_ID", "AWS_S3_REGION", "RECONCILIATION_ARCHIVE_BUCKET"] as const;
+  const original = Object.fromEntries(keys.map((key) => [key, process.env[key]]));
   delete process.env.AWS_S3_ACCESS_KEY_ID;
   delete process.env.AWS_S3_REGION;
+  process.env.RECONCILIATION_ARCHIVE_BUCKET = "fixture-reconciliation-archive";
   try {
     await assert.rejects(
       () => replicate("1470", async () => ownershipResult("main_session")),
@@ -242,9 +245,9 @@ test("replicate() proceeds past the ownership gate when ownership is proven", as
         && /AWS_S3_REGION|AWS_S3_ACCESS_KEY_ID/.test(error.message),
     );
   } finally {
-    if (originalAccessKey === undefined) delete process.env.AWS_S3_ACCESS_KEY_ID;
-    else process.env.AWS_S3_ACCESS_KEY_ID = originalAccessKey;
-    if (originalRegion === undefined) delete process.env.AWS_S3_REGION;
-    else process.env.AWS_S3_REGION = originalRegion;
+    for (const key of keys) {
+      if (original[key] === undefined) delete process.env[key];
+      else process.env[key] = original[key];
+    }
   }
 });
