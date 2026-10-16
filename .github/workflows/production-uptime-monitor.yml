@@ -18,6 +18,9 @@ jobs:
     name: Check production readiness
     runs-on: ubuntu-latest
     timeout-minutes: 3
+    # Secrets live in the `monitors` Environment (deployment branch: main only),
+    # so a workflow on any other branch cannot read them. Phase S, plan efb1e3d1.
+    environment: monitors
 
     steps:
       - name: Check out monitor
