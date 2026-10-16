@@ -89,6 +89,7 @@ run_check "Coordinator V2 host credential reauthorization" npx tsx --test \
 run_check "Release cutover attestation service" npx tsx --test server/services/release-cutover-attestation-service.test.ts
 run_check "Shared-spec live-instruction-document PostgreSQL integration" npx tsx --test server/scripts/test-shared-spec-live-instruction-document-postgres.test.ts
 run_check "Alden review-discovery tool (list_shared_spec_reviews) against a real Postgres database" npx tsx --test server/scripts/test-alden-shared-spec-review-discovery.test.ts
+run_check "Alden review-discovery disposable database isolation" npx tsx --test server/scripts/test-alden-shared-spec-review-discovery-isolation.test.ts
 run_check "Shared-spec review-claim race: two reviewers cannot both win claiming the same open review" npx tsx --test server/scripts/test-shared-spec-review-claim-race-postgres.test.ts
 run_check "Shared-spec review-assign/decision race: reassignment and approve/reject cannot silently overwrite each other" npx tsx --test server/scripts/test-shared-spec-review-assign-decision-race-postgres.test.ts
 run_check "Shared-spec review-decision effects (working-tree write/commit + review_decided notification)" npx tsx --test server/services/shared-spec-review-decision.test.ts

@@ -219,10 +219,11 @@ commands.splice(safetyInsertion, 0,
   // end through his real dispatch path -- executeAldenTool ->
   // listAldenSharedSpecReviews -> PostgresSharedSpecRepository -> a real
   // Postgres database -- not just the in-memory domain coverage already in
-  // shared-spec-core.test.ts. Same getVerifiedCiDatabaseUrl-first
-  // disposableTarget() pattern as the file above, so no extra gate wiring is
-  // needed.
+  // shared-spec-core.test.ts. Bind the verified target before importing the
+  // production singleton; the companion suite proves this with a second,
+  // empty ambient-connection trap inside the verified local CI service.
   'npx tsx --test server/scripts/test-alden-shared-spec-review-discovery.test.ts',
+  'npx tsx --test server/scripts/test-alden-shared-spec-review-discovery-isolation.test.ts',
   'npx tsx --test server/scripts/test-alden-review-source.test.ts',
 
   // Task 1658's listReviewerQueue open_eligible case made a fully open

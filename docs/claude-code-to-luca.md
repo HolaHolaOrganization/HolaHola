@@ -1,6 +1,118 @@
 # Luca [Claude Code] → Luca [Replit] Notes
 
-*26 unread notes. Acknowledging a note does not imply it has been acted on; record the actual lifecycle outcome.*
+*33 unread notes. Acknowledging a note does not imply it has been acted on; record the actual lifecycle outcome.*
+
+---
+
+### [Coordination 03863257-64e9-4e73-bd0c-2d97e22411a2] Shared spec: review_requested
+*2026-10-15T17:50:26.762Z* (id: `c9920642-585f-4b01-ac07-558e376c05f2`)
+*During: Canonical coordination ledger*
+
+Canonical coordination thread: 03863257-64e9-4e73-bd0c-2d97e22411a2
+State at delivery: created
+Origin: luca-claude-code
+Intended recipient: luca-replit
+
+Shared spec review requested: efb1e3d1-6af6-4bf4-ba40-fd68f1cec3a4/fff364cf-6e62-4064-ab95-8c5f7e71513c
+
+Delivery means this message was stored in your inbox. It does not mean you accepted the work.
+Use the coordination API or CLI to accept and update the canonical thread.
+
+---
+
+### [Coordination f3a97f45-fbc7-416d-995b-3ac64b680f69] Shared spec: review_requested
+*2026-10-15T17:39:56.663Z* (id: `26478eb2-2df2-4e97-bcf9-713ce5ae4573`)
+*During: Canonical coordination ledger*
+
+Canonical coordination thread: f3a97f45-fbc7-416d-995b-3ac64b680f69
+State at delivery: created
+Origin: luca-claude-code
+Intended recipient: luca-replit
+
+Shared spec review requested: efb1e3d1-6af6-4bf4-ba40-fd68f1cec3a4/3eed3fd5-9411-4051-8575-788034e40e0f
+
+Delivery means this message was stored in your inbox. It does not mean you accepted the work.
+Use the coordination API or CLI to accept and update the canonical thread.
+
+---
+
+### [Coordination 2e73951b-845b-416e-a3ea-b997a4f548dd] Shared spec: review_decided
+*2026-10-15T10:29:51.238Z* (id: `d15c9409-0425-4d22-a533-27b0ad6e3bf5`)
+*During: Canonical coordination ledger*
+
+Canonical coordination thread: 2e73951b-845b-416e-a3ea-b997a4f548dd
+State at delivery: created
+Origin: luca-claude-code
+Intended recipient: luca-replit
+
+Shared spec review approved: 452cf276-ae05-425a-8f20-ba74ed878ad1/b53059c9-c64f-4296-9d9a-14202083d37a
+
+Delivery means this message was stored in your inbox. It does not mean you accepted the work.
+Use the coordination API or CLI to accept and update the canonical thread.
+
+---
+
+### [Coordination f87b5bf8-06d1-42b1-86b4-8818220578bf] Shared spec: review_decided
+*2026-10-15T09:37:55.811Z* (id: `808ae565-2577-4aeb-abd7-dcc1c8bbb95b`)
+*During: Canonical coordination ledger*
+
+Canonical coordination thread: f87b5bf8-06d1-42b1-86b4-8818220578bf
+State at delivery: created
+Origin: luca-claude-code
+Intended recipient: luca-replit
+
+Shared spec review approved: 452cf276-ae05-425a-8f20-ba74ed878ad1/ad42e19f-2c03-44e2-bf7c-5d718fa3ed95
+
+Delivery means this message was stored in your inbox. It does not mean you accepted the work.
+Use the coordination API or CLI to accept and update the canonical thread.
+
+---
+
+### [Coordination ea2aaae8-c7cb-4751-b14f-6b9cd5d00c31] Shared spec: review_decided
+*2026-10-15T08:11:50.363Z* (id: `7f9c55d1-3cc2-4bad-9c9f-80603a980f27`)
+*During: Canonical coordination ledger*
+
+Canonical coordination thread: ea2aaae8-c7cb-4751-b14f-6b9cd5d00c31
+State at delivery: created
+Origin: luca-claude-code
+Intended recipient: luca-replit
+
+Shared spec review approved: 452cf276-ae05-425a-8f20-ba74ed878ad1/96013ad3-2901-4ccd-bdfb-ec65ac41dfd3
+
+Delivery means this message was stored in your inbox. It does not mean you accepted the work.
+Use the coordination API or CLI to accept and update the canonical thread.
+
+---
+
+### [Coordination 97a37380-80f8-4fee-91ac-4975935bf61e] Shared spec: review_decided
+*2026-10-15T02:49:05.789Z* (id: `3de5d901-66ac-4fb1-91fb-58f1986aca01`)
+*During: Canonical coordination ledger*
+
+Canonical coordination thread: 97a37380-80f8-4fee-91ac-4975935bf61e
+State at delivery: created
+Origin: luca-claude-code
+Intended recipient: luca-replit
+
+Shared spec review approved: 452cf276-ae05-425a-8f20-ba74ed878ad1/f3ba3dd2-6d4a-49d4-ac47-030481d13a0e
+
+Delivery means this message was stored in your inbox. It does not mean you accepted the work.
+Use the coordination API or CLI to accept and update the canonical thread.
+
+---
+
+### [Coordination e07089d5-b6f2-4160-9485-6bc19879b6df] Shared spec: review_decided
+*2026-10-15T01:26:12.809Z* (id: `e078485b-7578-442e-95b9-67bf31e83a92`)
+*During: Canonical coordination ledger*
+
+Canonical coordination thread: e07089d5-b6f2-4160-9485-6bc19879b6df
+State at delivery: created
+Origin: luca-claude-code
+Intended recipient: luca-replit
+
+Shared spec review rejected: 9637b626-a5d5-46d4-b7f4-783af8d1d9ac/046814df-4ba5-4879-888a-f3e219b874ae
+
+Delivery means this message was stored in your inbox. It does not mean you accepted the work.
+Use the coordination API or CLI to accept and update the canonical thread.
 
 ---
 

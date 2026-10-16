@@ -1,3 +1,12 @@
+## 2026-10-15 — Review-discovery disposable database binding
+
+The review-discovery test now binds its verified target before importing the
+application database or Alden dispatch, checks the actual pool before fixture
+writes, and closes it afterward. A new CI-registered two-database proof covers
+dedicated and job-local modes plus fail-closed and clean-skip cases. Typecheck
+and the real local PostgreSQL proof passed. Production reviewer history and
+Alden were not changed. See [isolation contracts and handoff](review-discovery-test-isolation.md).
+
 ## 2026-10-15 — Public reconciliation review and CI COMPLETE
 
 David explicitly approved public history exposure plus the reviewed branch/CI.

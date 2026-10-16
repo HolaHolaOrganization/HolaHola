@@ -12,11 +12,11 @@
 // Requires a disposable Postgres database (SHARED_SPEC_TEST_* below) with the
 // shared_spec_* migration already applied. Mirrors
 // test-shared-spec-live-instruction-document-postgres.test.ts's
-// disposableTarget() gate exactly, including why getVerifiedCiDatabaseUrl()
-// is checked before the dedicated SHARED_SPEC_TEST_DATABASE_* vars: it gives
-// this file real-database coverage on every ordinary CI run (GitHub Actions'
-// job-local CI_DATABASE_URL) as well as scripts/neon-branch.ts's migration
-// gate, with no extra gate wiring beyond splicing this file into
+// disposable-target contract, supporting both the dedicated
+// SHARED_SPEC_TEST_DATABASE_* vars and GitHub Actions' verified job-local
+// CI_DATABASE_URL. The verified target is bound BEFORE database/tool imports;
+// validating a URL alone cannot redirect an already-imported singleton.
+// This file is spliced into
 // scripts/run-ci-test-steps.mjs and server/scripts/run-validation-suite.sh --
 // scripts/neon-branch.ts's cmdGate() already sets the generic
 // SHARED_SPEC_TEST_DATABASE_* env vars for any file using this pattern.
@@ -26,40 +26,16 @@ import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
-import { getVerifiedCiDatabaseUrl } from "../ci-database";
-import { getSharedDb } from "../db";
-import { executeAldenTool } from "../services/alden-functions";
+import { bindReviewDiscoveryDatabase } from "./alden-review-discovery-test-database";
 import { SharedSpecCore, type ActorContext } from "../services/shared-spec-core";
 import { PostgresSharedSpecRepository } from "../services/shared-spec-postgres-repository";
 
-function disposableTarget(): string | undefined {
-  const ci = getVerifiedCiDatabaseUrl();
-  if (ci) return ci;
-  const url = process.env.SHARED_SPEC_TEST_DATABASE_URL;
-  if (!url) {
-    if (process.env.SHARED_SPEC_REQUIRE_DATABASE_TESTS === "1") {
-      throw new Error("SHARED_SPEC_TEST_DATABASE_URL is required by the migration gate");
-    }
-    return undefined;
-  }
-  if (process.env.SHARED_SPEC_TEST_DATABASE_DISPOSABLE !== "1") {
-    throw new Error("SHARED_SPEC_TEST_DATABASE_DISPOSABLE=1 is required");
-  }
-  if (url === process.env.SHARED_SPEC_FORBIDDEN_SHARED_URL) {
-    throw new Error("shared-spec review-discovery test refuses the shared Neon database");
-  }
-  return url;
-}
-
-// Mirrors the identical self-check in
-// test-shared-spec-live-instruction-document-postgres.test.ts -- without
-// this, a quietly-deleted gate branch would make every test below skip
-// silently forever, defeating the whole point of proving this tool against a
-// real database.
+// Cheap import-order guard. The companion isolation suite exercises the
+// actual gate failures and fixture/tool writes against two disposable DBs.
 const OWN_SOURCE = readFileSync(fileURLToPath(import.meta.url), "utf8");
 test("this file hard-fails under the gate instead of silently skipping DB coverage", () => {
-  assert.ok(OWN_SOURCE.includes('SHARED_SPEC_REQUIRE_DATABASE_TESTS === "1"'));
-  assert.ok(OWN_SOURCE.includes("SHARED_SPEC_FORBIDDEN_SHARED_URL"));
+  assert.ok(OWN_SOURCE.includes("bindReviewDiscoveryDatabase()"));
+  assert.doesNotMatch(OWN_SOURCE, /^import .*from ["']\.\.\/(?:db|services\/alden-functions)["'];/m);
   assert.ok(OWN_SOURCE.includes("context.skip("));
 });
 
@@ -70,20 +46,20 @@ const OTHER_REVIEWER: ActorContext = { actorId: `review-discovery-other-${runId}
 const REPOSITORY = "hola/hola";
 
 test("list_shared_spec_reviews, called through Alden's real dispatch path, finds reviews assigned to or claimed by alden and excludes reviews assigned to/claimed by someone else or already decided", async (context) => {
-  const url = disposableTarget();
+  const url = bindReviewDiscoveryDatabase();
   if (!url) {
     context.skip("set SHARED_SPEC_TEST_DATABASE_URL and SHARED_SPEC_TEST_DATABASE_DISPOSABLE=1");
     return;
   }
 
-  // getSharedDb() resolves NEON_SHARED_DATABASE_URL, which the gate above has
-  // already arranged to equal `url`. This is the same singleton
-  // listAldenSharedSpecReviews's own lazy getCore() constructs its
-  // PostgresSharedSpecRepository from (see alden-shared-spec-review.ts), so
-  // the setup below and the real tool dispatch afterward transparently share
-  // one live database -- exactly what makes this an end-to-end proof rather
-  // than another in-memory unit test.
-  const core = new SharedSpecCore(new PostgresSharedSpecRepository(getSharedDb()));
+  const { getSharedDb, closeDbConnections } = await import("../db");
+  context.after(closeDbConnections);
+  const db = getSharedDb();
+  // Verify the actual pool, not merely the environment. Fail before the first
+  // fixture write if an earlier/transitive import ever captured another URL.
+  assert.ok(db.$client.options.connectionString === url, "repository pool must use the verified disposable target");
+  const { executeAldenTool } = await import("../services/alden-functions");
+  const core = new SharedSpecCore(new PostgresSharedSpecRepository(db));
 
   await core.setReviewerPolicy(ADMIN, {
     actorId: "alden", capability: "reviewer", active: true, idempotencyKey: `alden-policy-${runId}`,

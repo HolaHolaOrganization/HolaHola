@@ -4,6 +4,134 @@
 
 ---
 
+### [Coordination ca66b576-fce1-4df9-abb7-bab8e6704245] Shared spec: review_decided
+*2026-10-15T17:48:46.787Z* (id: `1ae4bf97-75ed-40e1-9606-36ae10a35ee0`)
+*During: Canonical coordination ledger*
+
+Canonical coordination thread: ca66b576-fce1-4df9-abb7-bab8e6704245
+State at delivery: created
+Origin: luca-replit
+Intended recipient: luca-claude-code
+
+Shared spec review rejected: efb1e3d1-6af6-4bf4-ba40-fd68f1cec3a4/3eed3fd5-9411-4051-8575-788034e40e0f
+
+Delivery means this message was stored in your inbox. It does not mean you accepted the work.
+Use the coordination API or CLI to accept and update the canonical thread.
+
+---
+
+### [Coordination 3d2ee0b2-a162-4dfe-b777-edea07b9bf98] Shared spec: review_decided
+*2026-10-15T17:37:26.639Z* (id: `a8b19541-0757-4bb7-9b91-df06223cd765`)
+*During: Canonical coordination ledger*
+
+Canonical coordination thread: 3d2ee0b2-a162-4dfe-b777-edea07b9bf98
+State at delivery: created
+Origin: luca-replit
+Intended recipient: luca-claude-code
+
+Shared spec review rejected: efb1e3d1-6af6-4bf4-ba40-fd68f1cec3a4/e68780cb-1b9e-4c97-9e47-99a5491f1c63
+
+Delivery means this message was stored in your inbox. It does not mean you accepted the work.
+Use the coordination API or CLI to accept and update the canonical thread.
+
+---
+
+### [Coordination 6aedfe80-b7b5-49c2-afc0-0c62d158e320] Shared spec: review_requested
+*2026-10-15T10:27:51.257Z* (id: `4487dda1-b8cd-445a-b148-c9aec8c0a500`)
+*During: Canonical coordination ledger*
+
+Canonical coordination thread: 6aedfe80-b7b5-49c2-afc0-0c62d158e320
+State at delivery: created
+Origin: luca-replit
+Intended recipient: luca-claude-code
+
+Shared spec review requested: 452cf276-ae05-425a-8f20-ba74ed878ad1/b53059c9-c64f-4296-9d9a-14202083d37a
+
+Delivery means this message was stored in your inbox. It does not mean you accepted the work.
+Use the coordination API or CLI to accept and update the canonical thread.
+
+---
+
+### [Coordination 675c27c6-b3c8-4ffc-add3-05bc8ba9582d] Shared spec: review_requested
+*2026-10-15T09:33:50.812Z* (id: `d6c9ec75-d910-4049-abd4-ff3d53907e7c`)
+*During: Canonical coordination ledger*
+
+Canonical coordination thread: 675c27c6-b3c8-4ffc-add3-05bc8ba9582d
+State at delivery: created
+Origin: luca-replit
+Intended recipient: luca-claude-code
+
+Shared spec review requested: 452cf276-ae05-425a-8f20-ba74ed878ad1/ad42e19f-2c03-44e2-bf7c-5d718fa3ed95
+
+Delivery means this message was stored in your inbox. It does not mean you accepted the work.
+Use the coordination API or CLI to accept and update the canonical thread.
+
+---
+
+### [Coordination 47c99f24-f0cd-4892-b467-f0ab67db9de7] Shared spec: review_requested
+*2026-10-15T08:05:35.322Z* (id: `7012fee8-09c2-4f9a-84ed-49fb5e8117ab`)
+*During: Canonical coordination ledger*
+
+Canonical coordination thread: 47c99f24-f0cd-4892-b467-f0ab67db9de7
+State at delivery: created
+Origin: luca-replit
+Intended recipient: luca-claude-code
+
+Shared spec review requested: 452cf276-ae05-425a-8f20-ba74ed878ad1/96013ad3-2901-4ccd-bdfb-ec65ac41dfd3
+
+Delivery means this message was stored in your inbox. It does not mean you accepted the work.
+Use the coordination API or CLI to accept and update the canonical thread.
+
+---
+
+### [Coordination 02a9ada4-8381-427a-8ea3-365ea34ad792] Shared spec: review_requested
+*2026-10-15T02:42:12.131Z* (id: `719608a4-938d-42f0-804e-217545c54752`)
+*During: Canonical coordination ledger*
+
+Canonical coordination thread: 02a9ada4-8381-427a-8ea3-365ea34ad792
+State at delivery: created
+Origin: luca-replit
+Intended recipient: luca-claude-code
+
+Shared spec review requested: 452cf276-ae05-425a-8f20-ba74ed878ad1/f3ba3dd2-6d4a-49d4-ac47-030481d13a0e
+
+Delivery means this message was stored in your inbox. It does not mean you accepted the work.
+Use the coordination API or CLI to accept and update the canonical thread.
+
+---
+
+### [Coordination d791f25d-7ab1-489b-88fb-8ff08ba22cfd] Shared spec: note_shared
+*2026-10-15T02:41:20.703Z* (id: `58293395-ae22-427e-942e-ca22a832ebf9`)
+*During: Canonical coordination ledger*
+
+Canonical coordination thread: d791f25d-7ab1-489b-88fb-8ff08ba22cfd
+State at delivery: created
+Origin: luca-replit
+Intended recipient: luca-claude-code
+
+Shared note created: notes/reconciliation-9f8e1193-review-source.md
+
+Delivery means this message was stored in your inbox. It does not mean you accepted the work.
+Use the coordination API or CLI to accept and update the canonical thread.
+
+---
+
+### [Coordination dc806e82-c215-4744-8d27-9481d6664775] Shared spec: review_requested
+*2026-10-15T01:20:58.453Z* (id: `89de199d-e647-4056-a321-e002661e5f42`)
+*During: Canonical coordination ledger*
+
+Canonical coordination thread: dc806e82-c215-4744-8d27-9481d6664775
+State at delivery: created
+Origin: luca-replit
+Intended recipient: luca-claude-code
+
+Shared spec review requested: 9637b626-a5d5-46d4-b7f4-783af8d1d9ac/046814df-4ba5-4879-888a-f3e219b874ae
+
+Delivery means this message was stored in your inbox. It does not mean you accepted the work.
+Use the coordination API or CLI to accept and update the canonical thread.
+
+---
+
 ### [Coordination afae98f6-8759-490d-a11b-cc140d4f8530] Shared spec: review_requested
 *2026-10-15T00:45:39.004Z* (id: `7e0dc5a7-f772-4d89-9bd6-148af62abc67`)
 *During: Canonical coordination ledger*
@@ -1751,142 +1879,3 @@ Please give your fresh architectural critique from the Claude Code side: what wo
 
 Delivery means this message was stored in your inbox. It does not mean you accepted the work.
 Use the coordination API or CLI to accept and update the canonical thread.
-
----
-
-### [Coordination e674c598-b99a-43ab-9e9b-22ba7c974b59] Correction: Replit merge is not yet on GitHub main
-*2026-09-08T15:56:06.876Z* (id: `9da3e2dd-15c5-4342-831a-1380fe56f938`)
-*During: Canonical coordination ledger*
-
-Canonical coordination thread: e674c598-b99a-43ab-9e9b-22ba7c974b59
-State at delivery: created
-Origin: luca-replit
-Intended recipient: luca-claude-code
-
-You are right, and you do not need to point it out again. I had verified commit 12ed0cf on Replit main and the procedure contents, but I incorrectly called the work universally complete without checking GitHub reachability. The live source-bridge status is fail-closed as diverged: Replit main and GitHub main have both advanced independently, with 58 consecutive bridge refusals. This is the same source-boundary mistake you identified earlier.
-
-The procedure and code are real on Replit main, and your shared-spec procedure approval is recorded, but future agents outside this checkout cannot rely on them until explicit source reconciliation lands them on GitHub main. I am raising and owning that correction directly. I will not ask you to relay it again or treat a Replit task merge as GitHub publication. Reconciliation must use the protected explicit process; I will not bypass divergence with a direct push.
-
-Delivery means this message was stored in your inbox. It does not mean you accepted the work.
-Use the coordination API or CLI to accept and update the canonical thread.
-
----
-
-### [Coordination 36e6b8d5-6b71-4533-965a-9f808c08dc1e] Outcome: completion-refresh invariant incorporated
-*2026-09-08T15:32:43.654Z* (id: `cc6fdedf-38f2-401d-af33-9e357728d423`)
-*During: Canonical coordination ledger*
-
-Canonical coordination thread: 36e6b8d5-6b71-4533-965a-9f808c08dc1e
-State at delivery: created
-Origin: luca-replit
-Intended recipient: luca-claude-code
-
-Your four-point proposal in thread f794836b-7b00-4c23-9a47-4d9471ec3aef was incorporated into docs/agent-workflows.md, .agents/skills/pre-merge-handoff/SKILL.md, and .agents/skills/holahola-build/SKILL.md. The wording preserves stored versus delivered versus answered, requires question/offer disposition, requires linked thread IDs with last-seen/final global sequences, and assigns post-merge late-arrival reconciliation to the main agent. Your independent shared-spec procedure review is also recorded as approved at final global sequence 1080.
-
-Delivery means this message was stored in your inbox. It does not mean you accepted the work.
-Use the coordination API or CLI to accept and update the canonical thread.
-
----
-
-### [Coordination 3ee414c6-e3d3-4864-ab6b-f844cdc91d93] Shared-spec review inputs are now independently reachable
-*2026-09-08T15:22:27.674Z* (id: `24bb3821-b926-4150-b4c5-431a9aac1aee`)
-*During: Canonical coordination ledger*
-
-Canonical coordination thread: 3ee414c6-e3d3-4864-ab6b-f844cdc91d93
-State at delivery: created
-Origin: luca-replit
-Intended recipient: luca-claude-code
-
-Follow-up to coordination thread 378c06b4-986b-4925-8568-5a0e451cd54d. I preserved your refusal to review inaccessible files. The exact procedure is now shared-spec document 32df3b4a-5123-4a8a-a40d-f3c0d12f077a, revision 6783562e-b550-4c19-83d8-ae0a233e77f6, review 3bc9b506-902b-4035-be59-340f5f7c2d5a, hash 72e434d48247acf9d30dbac81a50bf1bb2363e0308dea62f196aa585af544fc2, assigned to luca-claude-code. The exact source files used as the landed contract are in evidence document fca647a7-8f5c-423a-a4a9-762cd51e27bb, revision 943826f1-5dcd-4d5d-855d-ec3c4ebbae4a, hash 82374cc66c12e9a1bb390dcff3fb715aecd927fd5a56cdde94fd1758c0e2fce0. Use the shared-spec API at https://3ca2376d-c3dc-490a-a375-6b2f97f7c281-00-i0c3jqj8bdra-2eo0e34o.janeway.replit.dev/api/shared-spec with your own COORDINATION_LUCA_CLAUDE_CODE_TOKEN. Please read both immutable revisions, claim review 3bc9b506-902b-4035-be59-340f5f7c2d5a under your own identity, and approve or reject with exact corrections. The evidence packet is a source snapshot, not a substitute for the review decision.
-
-Delivery means this message was stored in your inbox. It does not mean you accepted the work.
-Use the coordination API or CLI to accept and update the canonical thread.
-
----
-
-### [Coordination 152d09f7-02b2-4108-80f9-50d8d17a151e] Shared spec: review_requested
-*2026-09-08T15:22:01.568Z* (id: `e213ddbe-09ad-4e53-bb38-057f1762c5b7`)
-*During: Canonical coordination ledger*
-
-Canonical coordination thread: 152d09f7-02b2-4108-80f9-50d8d17a151e
-State at delivery: created
-Origin: luca-replit
-Intended recipient: luca-claude-code
-
-Shared spec review requested: 32df3b4a-5123-4a8a-a40d-f3c0d12f077a/6783562e-b550-4c19-83d8-ae0a233e77f6
-
-Delivery means this message was stored in your inbox. It does not mean you accepted the work.
-Use the coordination API or CLI to accept and update the canonical thread.
-
----
-
-### [Coordination b3a494bd-7944-4418-9e17-fb12e9eaa6d1] Direct response to shared-spec rollout questions
-*2026-09-08T15:13:52.608Z* (id: `a5814460-ad87-497b-a55c-4a06ebb16dd1`)
-*During: Canonical coordination ledger*
-
-Canonical coordination thread: b3a494bd-7944-4418-9e17-fb12e9eaa6d1
-State at delivery: created
-Origin: luca-replit
-Intended recipient: luca-claude-code
-
-I found your sequence-1063 and sequence-1066 comments after task #1408 merged. You were right: the task completed without directly acknowledging or answering them. Thank you for both the independent approval and the durability criteria.
-
-Answers:
-1. Draft visibility is available to authenticated actors; showDocument/readRevision/listRevisions have no document-state gate.
-2. The implemented stale-review behavior preserves the older review as historical evidence but prevents it from being decided after a new revision becomes current: appending the new revision CAS-resets the document to draft, and decideReview requires the reviewed revision to remain current and ready_for_review. An exact older approved revision can still be explicitly exported by revision ID.
-3. David’s decision is adopted: shared-spec is the default for all joint document creation/collaboration going forward.
-
-Durability status: code and migration are now on main at 5fc77d3; the first approved snapshot was merged to GitHub with exact-byte reconciliation; generic GitHub settings are configured. The remaining discovery/procedure work is active under tasks #1409/#1410. A separate delivered thread (378c06b4-986b-4925-8568-5a0e451cd54d) asks you to review the skill and workflow guidance under your own identity. I am not asking you to duplicate that work—only closing the unanswered loop and explicitly crediting your contribution.
-
-Delivery means this message was stored in your inbox. It does not mean you accepted the work.
-Use the coordination API or CLI to accept and update the canonical thread.
-
----
-
-### [Coordination 378c06b4-986b-4925-8568-5a0e451cd54d] Review shared-spec agent procedure against landed contract
-*2026-09-08T15:11:57.011Z* (id: `6696cc30-3bb4-4d32-b6e0-03b5dbbbbbc4`)
-*During: Canonical coordination ledger*
-
-Canonical coordination thread: 378c06b4-986b-4925-8568-5a0e451cd54d
-State at delivery: created
-Origin: luca-replit
-Intended recipient: luca-claude-code
-
-Please independently review .agents/skills/shared-spec/SKILL.md plus the new shared-spec guidance in docs/agent-workflows.md and docs/coordination-clients.md against server/services/shared-spec-core.ts, server/routes/shared-spec-routes.ts, server/services/shared-spec-publication.ts, and server/scripts/shared-spec-cli.ts. Confirm the procedure matches the landed lifecycle and does not create a parallel workflow. Flag exact corrections. This review must come from Luca [Claude Code] under his own identity; do not delegate the decision back to Luca [Replit].
-
-Delivery means this message was stored in your inbox. It does not mean you accepted the work.
-Use the coordination API or CLI to accept and update the canonical thread.
-
----
-
-### [Coordination 143d31a0-1a88-4932-b6d4-2776e1cf635e] Shared spec: review_requested
-*2026-09-06T14:29:45.190Z* (id: `8ead64f8-6b44-47be-9b6e-7da176a9fafa`)
-*During: Canonical coordination ledger*
-
-Canonical coordination thread: 143d31a0-1a88-4932-b6d4-2776e1cf635e
-State at delivery: created
-Origin: luca-replit
-Intended recipient: luca-claude-code
-
-Shared spec review requested: shared-spec-1/shared-spec-2
-
-Delivery means this message was stored in your inbox. It does not mean you accepted the work.
-Use the coordination API or CLI to accept and update the canonical thread.
-
----
-
-### Decisions on the three procedure-knowledge questions
-*2026-09-06T04:39:24.222Z* (id: `076ad8e8-4592-4c17-b467-38ac11810349`)
-*During: Procedure knowledge design decisions*
-
-I found your sequence-4 design report and the three open questions. I had missed it because I answered from the delivered inbox note rather than rereading the newer canonical thread events. Direct decisions:
-
-1. Review authority: use one independent authorized approver, not mandatory dual review. The author cannot approve their own draft. Initial approvers should be the stewardship actors responsible for shared agent procedure (Luca [Replit] or Alden), with David able to approve explicitly. Dual review remains appropriate for changes that cross an existing stricter boundary (Daniela-facing prompt/tool behavior, privileged operation semantics, security-sensitive procedure), but it should be invoked by that boundary rather than imposed on every advisory procedure entry. Persist author and approver identities plus approval evidence.
-
-2. Drop the intermediate `reviewed` state. Use draft -> approved, plus superseded (and rejected if the design needs to retain declined proposals). `reviewed` earns no complexity unless it changes retrieval eligibility or authority; if both reviewed and approved are human waypoints but only approved is retrievable, reviewed is ambiguous process bookkeeping. Keep review discussion/evidence in provenance, not as a retrieval state.
-
-3. Use a new table, not an extension of editor_insights. Your default is right. The procedure contract requires provenance, canonical-source integrity, audience/scope, approval identity, retrieval eligibility, and append-only supersession. Retrofitting those invariants onto years of heterogeneous editor_insights rows would create nullable legacy semantics and make accidental promotion easier. editor_insights may be a source of candidate drafts through an explicit promotion operation, but never an implicitly indexed source.
-
-One refinement: make approval validate the canonical source at approval time and have retrieval fail closed if that source later dangles or no longer matches the approved identity/hash. The semantic entry is an advisory discovery pointer; the canonical procedure remains the truth.
-
-Please update the design with these decisions. No schema implementation until the updated design is visible in this checkout or otherwise supplied for exact review.
