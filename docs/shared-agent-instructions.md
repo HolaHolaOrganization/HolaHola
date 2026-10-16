@@ -221,40 +221,41 @@ rules. Keep this file free of secrets, credentials, and private user data.
 
 ## Landing changes on `main` that touch migrations or data-ops
 
-- `main`'s branch protection allows two equally legitimate ways to land code:
-  a normal PR merge (squash, after the required `test` check passes), or a
-  direct push authenticated with the deploy key that
-  `scripts/cross-tool-promote.ts` / `cross-tool-promote.yml` uses (that
-  credential has an `always` bypass on every rule, by design — see the
-  ruleset's `bypass_actors`). **Only the second path actually applies
-  pending migrations and data-ops to the real production database.** A
-  plain PR merge validates a migration against a fresh schema-only
-  Postgres (`ci.yml`'s `test` job) but never runs `drizzle-kit migrate`
-  against production — the merged code and the production schema can
-  silently diverge. This bit us directly on 2026-09-03: a migration for
-  `memory_embeddings.importance` sat merged on `main` with main's own CI
-  red, and separately a `requireAgentToken` fix got PR-merged without its
-  migration read as "applied" anywhere but a passing PR check.
-- **Any branch whose diff includes new files under `migrations/` or
-  `scripts/data-ops/` must land via `npx tsx scripts/cross-tool-promote.ts
-  push <branch> --source <label>` (Replit's own dev checkout uses its
-  separate `source-control-service.ts` "source-promotion" path instead —
-  same guarantee, different caller), not a bare PR merge.** A change with
-  no migration/data-op is fine to land via a normal PR.
-- This is enforced by convention, not by GitHub — there's no required
-  check today that can tell whether a merge included a validated,
-  applied migration. Don't treat a green PR `test` check as proof a
-  migration reached production.
-- `cross-tool-promote.ts` (and the `gate` subcommand it calls) already
-  return the failure signal directly to whichever process invoked
-  them — a non-zero exit code plus an explicit `FAILED`/`SYNCED` line on
-  stdout, never a silent partial success. Whichever agent runs it is
-  responsible for reading that output and acting on it (don't assume
-  success from "the command returned" alone) — there's deliberately no
-  separate external notification channel (Slack, email, a GitHub issue)
-  for this; the calling agent's own turn is the notification.
+- Use the normal independently reviewed PR path and required checks for
+  changes under `migrations/` or `scripts/data-ops/`. The legacy
+  `cross-tool-promote.yml` workflow is disabled; do not use or re-enable it
+  as a migration requirement or as a bypass around current release controls.
+- Render's configured Pre-Deploy Command is
+  `npx tsx scripts/render-predeploy.ts`. For the selected release it applies
+  committed Drizzle migrations and then committed data-ops before starting
+  the new application release. The database target is derived only from
+  `NEON_SHARED_DATABASE_URL`; for Neon hosts, removing the pooled-host suffix
+  selects a direct connection to the same database, not a separate target.
+  A pre-deploy failure blocks that deployment; it does not undo the PR merge.
+- Green PR CI proves the migration chain applies to fresh schema-only
+  disposable Postgres. It does not prove compatibility with production data,
+  data-ops correctness against that data, or successful production application.
+  Review the SQL and data-ops and perform the required isolated validation
+  before landing. Do not use the shared database as a test fixture.
+- Verify the actual pre-deploy result and that the live `/health/release`
+  identifies the intended release commit before claiming rollout success.
+  A merged PR or passing CI alone is not evidence that production migrations
+  or data-ops ran.
+- A failed deployment does not roll back database changes already committed.
+  Migrations and data-ops must remain compatible with the currently deployed
+  application while the next release is prepared and deployed. Defer
+  incompatible cleanup to a separately reviewed later release.
+- Preserve applied migration history. Reconcile against current `main` and
+  regenerate conflicting new migration numbers rather than modifying
+  already-applied artifacts.
+- This process does not lift task-specific holds or authorize worker
+  execution, credential changes, or automatic unrelated rollouts.
 
-## Keeping a cross-tool promotion candidate fresh
+## Historical: keeping a cross-tool promotion candidate fresh
+
+The following describes the disabled legacy workflow, not the current landing
+path. Preserve it as historical implementation context; do not dispatch or
+re-enable it under these instructions.
 
 - `scripts/cross-tool-promote.ts push` fetches `origin/main` and merges it
   into the candidate branch (`git merge --no-edit`, never a rebase — the
@@ -375,7 +376,41 @@ effect on real production access, which stays founder-id-only exactly as
 before.
 
 `DEV_TEST_ACCOUNT_PASSWORD` is a new required secret: local `.env` (see
-`.env.template`) and the `cross-tool-promote` GitHub Actions secret (same
-value needed there so its automatic data-ops step can seed/verify the
-account in production too — the row exists there like any other, just never
-founder-equivalent at runtime).
+`.env.template`). The disabled `cross-tool-promote` workflow is not a reason
+to retain an Actions copy of this credential. Any seed/verify operation against
+production remains separately authorized; the account is never founder-equivalent
+at runtime.
+
+## Active-session Luca delivery and approved-build collaboration
+
+Once the founder approves a Luca-hat build design, the hats may coordinate
+directly and use as many hats as needed within that approved scope. Routine
+review and implementation iterations do not require founder relays. This does
+not authorize unrelated work, deployment, merges, credential changes or
+destructive operations.
+
+Throughout an active working session, every participating hat follows
+`docs/luca-session-notifications.md` and the independently approved shared-spec
+design `69668936-2c4b-454a-9175-85939dc2166a` /
+`3a025a66-c3c9-4cd7-bf41-b779b7f8c81e`. Use the actor-explicit portable listener
+with the runtime's supported notification adapter; listening is recipient-wide
+and session-wide, not scoped to one review. No arbitrary two-hour expiry.
+Until the approved listener and operating guide are available in a hat's
+checkout, keep that hat's existing verified runtime watcher and explicitly
+record use of the interim mechanism. Do not run missing files or claim the
+replacement is installed.
+
+Before yielding after handling a notification, mark each local receipt observed
+if work/reply remains open or processed if intake is finished, then re-arm the
+runtime-specific mechanism and record its native task ID. Observed open work
+remains durable and does not repeatedly wake the runtime. If arming fails or no
+supported adapter is known, report that limitation. Re-arming is an operating
+rule, not an installed platform hook.
+
+Preserve inbox storage, notification availability, actual runtime observation,
+finished intake and substantive reply as separate states. Heartbeat does not
+prove an armed monitor or awareness; reported arming is not independent proof.
+Process creation identity can establish process existence/absence, not attended
+chat-session state. Offline replay is supported; waking ended sessions is
+unproven. The listener sends no remote acknowledgement and grants no execution
+authority. Preserve independent coverage reports, including legacy gaps.
