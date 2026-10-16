@@ -19,6 +19,9 @@ jobs:
     env:
       CI_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/holahola_ci
       NEON_SHARED_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/holahola_ci
+      # Not a secret: deepgram-live-stt.ts refuses to load without a non-empty
+      # key, and no CI test calls Deepgram. CI receives no repository secrets.
+      DEEPGRAM_API_KEY: ci-placeholder-not-a-real-key
     services:
       postgres:
         image: postgres:16
@@ -105,6 +108,9 @@ jobs:
     env:
       CI_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/holahola_ci
       NEON_SHARED_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/holahola_ci
+      # Not a secret: deepgram-live-stt.ts refuses to load without a non-empty
+      # key, and no CI test calls Deepgram. CI receives no repository secrets.
+      DEEPGRAM_API_KEY: ci-placeholder-not-a-real-key
     services:
       postgres:
         image: postgres:16
@@ -159,6 +165,9 @@ jobs:
     env:
       CI_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/holahola_ci
       NEON_SHARED_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/holahola_ci
+      # Not a secret: deepgram-live-stt.ts refuses to load without a non-empty
+      # key, and no CI test calls Deepgram. CI receives no repository secrets.
+      DEEPGRAM_API_KEY: ci-placeholder-not-a-real-key
     services:
       postgres:
         image: postgres:16

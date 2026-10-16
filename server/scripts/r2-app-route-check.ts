@@ -2,7 +2,7 @@
  * r2-app-route-check.ts
  *
  * Shared, side-effect-free helper used by both:
- *   • test-r2-health-check.ts     (the main CI check)
+ *   • test-r2-health-check.ts     (the live check; manual, not PR CI)
  *   • test-r2-app-route-negative-path.ts  (the negative-path validator)
  *
  * Keeping this in a dedicated module means the negative-path test can import
