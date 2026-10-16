@@ -59,6 +59,8 @@ const PRODUCTION_ONLY: readonly InstanceRole[] = ['production'];
  * To let a task run on `dev`, list 'dev' in its roles in a reviewed change.
  */
 export const BACKGROUND_TASKS = {
+  'founder-embedding-scope-repair': { roles: PRODUCTION_ONLY, what: 'boot privacy repair of null-scoped founder embeddings (UPDATE/DELETE); dev runs a read-only fail-closed check instead' },
+  'agent-voice-transcript-autosave': { roles: PRODUCTION_ONLY, what: 'auto-save of expired Luca-Daniela voice transcripts to conversation_memories (registerRoutes); expiry itself runs on every role' },
   'boot-versioned-migrations': { roles: PRODUCTION_ONLY, what: 'legacy migration orchestrator at boot (schema changes)' },
   'boot-stripe-sync-and-seeds': { roles: PRODUCTION_ONLY, what: 'Stripe schema/backfill plus boot seeds and neural-network syncs' },
   'lesson-image-worker': { roles: PRODUCTION_ONLY, what: 'curriculum cover image generation' },
@@ -122,6 +124,27 @@ export interface BackgroundTaskSummary {
 export function isBackgroundTaskAllowed(role: InstanceRole, id: BackgroundTaskId): boolean {
   const task = BACKGROUND_TASKS[id];
   return Boolean(task) && (task.roles as readonly InstanceRole[]).includes(role);
+}
+
+export type BackgroundTaskGate = ReturnType<typeof createBackgroundTaskGate>;
+
+let processGate: BackgroundTaskGate | null = null;
+
+/** Creates the one gate for this process. server/index.ts calls it once at boot. */
+export function initProcessBackgroundTasks(role: InstanceRole): BackgroundTaskGate {
+  if (processGate) throw new InstanceRoleError('the process background-task gate is already initialized');
+  processGate = createBackgroundTaskGate(role);
+  return processGate;
+}
+
+/**
+ * The process gate, for modules that start background work outside server/index.ts
+ * (for example registerRoutes). Throws if boot has not resolved the role, so a
+ * caller can never run ungated by accident.
+ */
+export function getProcessBackgroundTasks(): BackgroundTaskGate {
+  if (!processGate) throw new InstanceRoleError('background-task gate used before the instance role was resolved');
+  return processGate;
 }
 
 export function createBackgroundTaskGate(role: InstanceRole, log: (line: string) => void = console.log) {

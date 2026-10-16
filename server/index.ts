@@ -28,7 +28,7 @@ import {
   startSourceControlScheduler,
   stopSourceControlScheduler,
 } from "./services/source-control-scheduler";
-import { resolveInstanceRole, createBackgroundTaskGate, type InstanceRole } from "./services/instance-role";
+import { resolveInstanceRole, initProcessBackgroundTasks, type InstanceRole } from "./services/instance-role";
 
 // Instance role (standard-controls plan efb1e3d1, S2.2): every process uses the
 // one live database, so it must say explicitly whether it may start production
@@ -40,7 +40,7 @@ try {
   console.error(`[Boot] CRITICAL: ${err instanceof Error ? err.message : err}`);
   process.exit(1);
 }
-const backgroundTasks = createBackgroundTaskGate(instanceRole);
+const backgroundTasks = initProcessBackgroundTasks(instanceRole);
 console.log(`[InstanceRole] ${instanceRole}`);
 
 const app = express();
@@ -623,7 +623,10 @@ const listeningPromise = new Promise<void>((resolve, reject) => {
   // FAIL CLOSED: if correction fails, abort startup rather than serve traffic
   // with an unsecured embedding pool.  A transient DB error here is a security
   // signal — better to restart cleanly than to expose founder transcripts globally.
-  try {
+  // Production repairs; a dev instance never mutates shared data to become
+  // ready, so it runs a read-only check instead and refuses to serve traffic if
+  // any repair is still needed (production repairs it on its next boot).
+  if (backgroundTasks.claim('founder-embedding-scope-repair')) try {
     const { correctFounderEmbeddingScopes } = await import('./services/memory-embedding-indexer');
     await correctFounderEmbeddingScopes();
     console.log('[Boot] Founder embedding scope correction complete');
@@ -631,6 +634,11 @@ const listeningPromise = new Promise<void>((resolve, reject) => {
     console.error('[Boot] CRITICAL: correctFounderEmbeddingScopes failed —', err?.message ?? err,
       '— aborting startup to prevent founder transcript disclosure in the global recall pool');
     throw err; // Fail closed: do not serve traffic with an unsecured embedding pool
+  } else {
+    const { countUnscopedFounderEmbeddings } = await import('./services/memory-embedding-indexer');
+    const { assertFounderEmbeddingScopesClean } = await import('./services/founder-embedding-scope-check');
+    await assertFounderEmbeddingScopesClean(countUnscopedFounderEmbeddings);
+    console.log('[Boot] Founder embedding scopes verified clean (read-only check)');
   }
 
   // Attach all socket transports in the same synchronous turn immediately
