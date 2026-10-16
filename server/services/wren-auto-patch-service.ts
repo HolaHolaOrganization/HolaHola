@@ -1,4 +1,5 @@
 import * as fs from 'fs';
+import { writeValidatedSourceFile } from './validated-source-write';
 import { type SecurityFinding } from './wren-security-audit-service';
 import { callGeminiWithSchema, GEMINI_MODELS } from '../gemini-utils';
 import { getSharedDb } from '../db';
@@ -158,7 +159,7 @@ function applyPatch(
     const after = lines.slice(lineEnd);
     const newLines = [...before, ...patchedCode.split('\n'), ...after];
 
-    fs.writeFileSync(filePath, newLines.join('\n'), 'utf-8');
+    writeValidatedSourceFile(filePath, newLines.join('\n'), raw);
     console.log(`[WrenAutoPatch] Applied patch to ${filePath}:${lineStart}-${lineEnd}`);
     return { success: true, beforeCode };
   } catch (err: any) {

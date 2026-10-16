@@ -8,6 +8,7 @@
  */
 
 import * as fs from 'fs';
+import { assertPackageEditMatches, writeValidatedSourceFile } from './validated-source-write';
 import * as path from 'path';
 import { spawn } from 'child_process';
 import Anthropic from '@anthropic-ai/sdk';
@@ -308,7 +309,7 @@ function applyChange(change: FileChange): { success: boolean; linesChanged: numb
     if (change.changeType === 'create') {
       const dir = path.dirname(change.filePath);
       fs.mkdirSync(dir, { recursive: true });
-      fs.writeFileSync(change.filePath, change.afterCode, 'utf-8');
+      writeValidatedSourceFile(change.filePath, change.afterCode, null);
       const linesChanged = change.afterCode.split('\n').length;
       console.log(`[AldenBuild] Created ${change.filePath} (${linesChanged} lines)`);
       return { success: true, linesChanged };
@@ -320,6 +321,8 @@ function applyChange(change: FileChange): { success: boolean; linesChanged: numb
 
     const raw = fs.readFileSync(change.filePath, 'utf-8');
     const lines = raw.split('\n');
+    assertPackageEditMatches(change.filePath, change.beforeCode,
+      lines.slice(change.lineStart - 1, change.lineEnd).join('\n'));
 
     if (change.lineStart > lines.length) {
       return { success: false, linesChanged: 0, error: `lineStart ${change.lineStart} exceeds file length ${lines.length} in ${change.filePath}` };
@@ -328,7 +331,7 @@ function applyChange(change: FileChange): { success: boolean; linesChanged: numb
     const before = lines.slice(0, change.lineStart - 1);
     const after = lines.slice(change.lineEnd);
     const newContent = [...before, ...change.afterCode.split('\n'), ...after].join('\n');
-    fs.writeFileSync(change.filePath, newContent, 'utf-8');
+    writeValidatedSourceFile(change.filePath, newContent, raw);
     const linesChanged = change.afterCode.split('\n').length;
     console.log(`[AldenBuild] Edited ${change.filePath}:${change.lineStart}-${change.lineEnd} (${linesChanged} new lines)`);
     return { success: true, linesChanged };

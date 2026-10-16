@@ -82,4 +82,9 @@ for meaningful communication. Notice and revisit what needs practice without
 turning every exchange into a recall test. This is a product direction, not a
 claim that all material will be retained automatically or that all adults learn
 identically to young children.
+Shared-memory updates that preserve principles do not preserve the actual
+conversation. Reflective, non-coding dialogue needs the same verbatim episode
+capture as engineering work. Verify recent original messages in the canonical
+record and its replica; a green capture status from an earlier session is
+not evidence that the current exchange is recorded.
 

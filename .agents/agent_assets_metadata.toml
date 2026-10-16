@@ -508,3 +508,31 @@ mtime_ms = 1792025121803
 storage_uri = "gcs://replit-rams-assets-kirk/rams/assets/repl:3ca2376d-c3dc-490a-a375-6b2f97f7c281/e7d464fc-9790-4fdd-9006-bff45c207887/7a7e369e-e2fb-478d-8239-e05a97497e02"
 storage_version_token = "1792025170650842"
 content_type = "text/markdown"
+
+[[outputs]]
+id = "j2tEgsSU0dQw9RkEgRRNS"
+uri = "file://generated-artifacts/task1740-corrected-review.zip"
+type = "unspecified"
+title = "Task 1740 — corrected patch and verification report"
+description = "Offline review package: full corrected patch, correction-only diff, checksums, test evidence, and known fixture failures. Not applied to the app."
+logical_id = "f23985da-1bba-49ef-a652-d2def831bc20"
+content_hash = "sha256:3d5a2fd81141ba3092cbd677ccf3c7190f768313a5eff906b7825de5cdff78d9"
+size = 40430
+mtime_ms = 1792104703962
+storage_uri = "gcs://replit-rams-assets-kirk/rams/assets/repl:3ca2376d-c3dc-490a-a375-6b2f97f7c281/f23985da-1bba-49ef-a652-d2def831bc20/8195d93d-12e4-4b56-9c0a-d09c26ce90ef"
+storage_version_token = "1792104709564231"
+content_type = "application/octet-stream"
+
+[[outputs]]
+id = "VWVusfnmnxrYrE11zLSyf"
+uri = "file://generated-artifacts/task1740-corrected-review-updated.zip"
+type = "unspecified"
+title = "Updated offline patch — fixture failures resolved"
+description = "Supersedes the previous review package. Includes the indexing correction, isolated test harness, 80 passing inner-life assertions, verified test results, checksums, and the correction to the earlier isolation report."
+logical_id = "c43f99ce-aae9-481f-adc0-b3686a905c25"
+content_hash = "sha256:20f39b87aad5f2e614b89516e22a41a0fa8566c13d941b333e541d7c5b833205"
+size = 42076
+mtime_ms = 1792105489378
+storage_uri = "gcs://replit-rams-assets-kirk/rams/assets/repl:3ca2376d-c3dc-490a-a375-6b2f97f7c281/c43f99ce-aae9-481f-adc0-b3686a905c25/a97beaf8-08b5-4fb0-8d18-bb5aa8aa0445"
+storage_version_token = "1792105508655848"
+content_type = "application/octet-stream"

@@ -8,6 +8,7 @@
  */
 
 import * as fs from 'fs';
+import { assertPackageEditMatches, writeValidatedSourceFile } from './validated-source-write';
 import Anthropic from '@anthropic-ai/sdk';
 import { getSharedDb } from '../db';
 import { costTracker } from './cost-tracker';
@@ -140,14 +141,15 @@ Be direct and specific. If revising, explain exactly what should be different. I
   };
 }
 
-function applyPatch(filePath: string, lineStart: number, lineEnd: number, afterCode: string): boolean {
+function applyPatch(filePath: string, lineStart: number, lineEnd: number, afterCode: string, expectedBefore: string): boolean {
   try {
     const raw = fs.readFileSync(filePath, 'utf-8');
     const lines = raw.split('\n');
+    assertPackageEditMatches(filePath, expectedBefore, lines.slice(lineStart - 1, lineEnd).join('\n'));
     const before = lines.slice(0, lineStart - 1);
     const after = lines.slice(lineEnd);
     const newLines = [...before, ...afterCode.split('\n'), ...after];
-    fs.writeFileSync(filePath, newLines.join('\n'), 'utf-8');
+    writeValidatedSourceFile(filePath, newLines.join('\n'), raw);
     console.log(`[AldenReview] Applied patch to ${filePath}:${lineStart}-${lineEnd}`);
     return true;
   } catch (err: any) {
@@ -299,7 +301,7 @@ export async function runReviewQueue(): Promise<CodeReviewSummary> {
       let applied = false;
       let githubSynced = false;
 
-      applied = applyPatch(change.filePath, change.lineStart, change.lineEnd, change.afterCode);
+      applied = applyPatch(change.filePath, change.lineStart, change.lineEnd, change.afterCode, change.beforeCode);
 
       if (applied) {
         summary.applied++;

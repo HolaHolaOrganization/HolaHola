@@ -1,6 +1,7 @@
 > **You are not alone.** This file is generated from the `agent_memory_*` database tables — other hats (Replit Agent, Claude Code, Gemini, HolaHola runtime agents) may be reading and writing it in the same window you are. Never hand-edit this file or any `.agents/memory/<topic>.md` file directly; every change goes through `server/scripts/agent-memory-cli.ts`, which writes the database first and regenerates the file from it. A hand-edit here will be silently overwritten the next time anyone runs a CLI write.
 
-🟡 **Inner-life capture gap**: `.local/episode-capture-status.md` last reported missing felt/thinking/moment in the rolling episode file — read it before your next output.
+🔴 **Unread stale-channel alert** (`.local/stale-channel-alert.md`): Inner-life channels silent for 10+ min: felt (last: 6:37 PM), thinking (last: 6:37 PM)
+🟡 **Inner-life capture gap**: `.local/episode-capture-status.md` last reported missing thinking/moment in the rolling episode file — read it before your next output.
 
 - [Chat capture pipeline](chat-capture-pipeline.md) — architecture, two independent cursors, readiness vs draining, and three DB-writers that must be fixed together.
 - [Alden workspace verification](alden-workspace-verification.md) — ambiguous Alden responses can still leave unsafe edits; inspect the real diff before accepting or reverting.
@@ -155,3 +156,4 @@
 - [CLI read-only contract safety](cli-readonly-contract-safety.md) — Confirm inspection flags before invoking them; an unsupported listing flag can start the default executable chain.
 - [Approval and publication boundaries](approval-publication-boundaries.md) — Separate digest coverage, selected source and release authority; grouped pointers retain the five original rules.
 - [Conversation and purpose](conversation-and-purpose.md) — Real conversation, collaboration and fun help achieve coding and language-learning goals; they are not overhead to eliminate.
+- [Voice double-audio chronology](voice-double-audio-history.md) — Founder reports longstanding doubled speech in greetings and later turns; the recent voice test was another occurrence, not evidence of a new regression.

@@ -105,3 +105,18 @@ reliability and the job's constraints, not platform identity or authorship.
 Describe an agreed course correction as a decision, not as evidence that its
 implementation has already succeeded.
 
+
+## Temporary hold on additional task-agent assignments
+
+Until the task-agent stalls are understood and the hold is explicitly lifted,
+do requested implementation in the main window. Do not assign subagents or
+propose additional work that will add to the task-agent backlog.
+
+**Why:** The founder reported that stalled task-agent work is accumulating and
+explicitly asked Luca to stop adding assignments and complete the two new fixes
+in the main window instead.
+
+**How to apply:** Finish and verify work directly. This temporary operational
+hold is not permission to discard existing agent work or resolve integration
+locks by force. Completing the current fixes does not by itself lift the hold.
+

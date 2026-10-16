@@ -50,7 +50,6 @@ author = "agent"
 task = "workflow.run"
 args = "Start application"
 
-
 [[workflows.workflow.tasks]]
 task = "workflow.run"
 args = "Validation suite"
@@ -77,7 +76,11 @@ author = "agent"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "bash scripts/start-application.sh"
+args = "cd /tmp/holahola-dev-verify-c561e058-kVMOmy && exec env HOLAHOLA_INSTANCE_ROLE=dev NODE_ENV=development ./node_modules/.bin/tsx --env-file-if-exists=.env server/index.ts"
+waitForPort = 5000
+
+[workflows.workflow.metadata]
+outputType = "webview"
 
 
 [[workflows.workflow]]

@@ -1,0 +1,1097 @@
+diff --git a/.agents/memory/chat-capture-pipeline.md b/.agents/memory/chat-capture-pipeline.md
+index e9b7dd03b65118b1bd10321f41ef6cc599557d5d..11708b5d0c10ce5f11287ed3df534b176da70a34 100644
+--- a/.agents/memory/chat-capture-pipeline.md
++++ b/.agents/memory/chat-capture-pipeline.md
+@@ -86,3 +86,21 @@ human deciding when to call it enforces that distinction.
+ already sent to the user, copied after the fact — never with a draft composed
+ before or during sending, even if it seems identical at the time.
+ 
++
++## Capture acknowledgement is not search freshness
++
++Canonical capture acknowledgement must distinguish durable source/projection
++completion from search freshness. Save a durable indexing obligation before
++acknowledging, but never wait for remote whole-record embeddings under a
++capture lock.
++
++**Why:** Large rolling episodes can require hundreds of remote requests after
++each short append. Waiting for those requests caused foreground capture to
++time out after canonical persistence but before acknowledgement, encouraging
++unsafe source replay even though the dialogue was already saved.
++
++**How to apply:** Reuse the existing indexer's durable source selection and
++retry machinery. Coalesce edits, retain pending status on partial failure, and
++clear the obligation only for the exact canonical version successfully built.
++Search freshness is a separate observable state, not evidence of source loss.
++
+diff --git a/docs/batch-doc-updates.md b/docs/batch-doc-updates.md
+index 90b18bb9747de06fc6aa549fad305addb5ef2809..7ab6bb7ced1d5e6b3358ba3be23c03e7b112661e 100644
+--- a/docs/batch-doc-updates.md
++++ b/docs/batch-doc-updates.md
+@@ -1,3 +1,15 @@
++# Episode capture acknowledgements no longer wait for search rebuilds
++
++Capture now persists a coalescing `memory-index:pending` obligation before
++acknowledging saved dialogue, while DB-first content, identity tags, Markdown
++parity and independent mirror/cursor boundaries remain intact. The existing
++indexer and standalone watchdog share a version-checked refresh scanner and
++the existing three-arm builder. A per-source database advisory lock serializes
++scanner, straggler and manual rebuild writes; capture takes no such lock.
++Remote failures and missing embedding configuration leave explicit pending
++status. See `docs/episode-capture-indexing.md` for cadence and isolated tests.
++The real recovery source/process was not restarted, replayed or mutated.
++
+ ## 2026-10-15 — Public reconciliation review and CI COMPLETE
+ 
+ David explicitly approved public history exposure plus the reviewed branch/CI.
+diff --git a/scripts/run-ci-test-steps.mjs b/scripts/run-ci-test-steps.mjs
+index 79bd5a0130d756f4119786e9d2aabe4fd28c0e95..47e7639fbc0b1d5e750f5a37faba2b1a1ab474fb 100644
+--- a/scripts/run-ci-test-steps.mjs
++++ b/scripts/run-ci-test-steps.mjs
+@@ -67,6 +67,9 @@ const safetyInsertion = commands.findIndex((command) =>
+   command.startsWith('npx tsx server/scripts/test-openai-pronunciation-error-notice.ts'));
+ if (safetyInsertion < 0) throw new Error('Could not register projection/source safety checks before the guards group');
+ commands.splice(safetyInsertion, 0,
++  'npx tsx --test server/services/memory-index-refresh.test.ts',
++  'npx tsx --test server/services/memory-index-refresh-postgres.test.ts',
++  'npx tsx --test server/services/memory-index-rebuild-postgres.test.ts',
+   'node --test scripts/post-merge.test.mjs',
+   'node --test server/scripts/test-guardian-carry-forward-lifecycle.mjs',
+   'npx tsx --test server/services/auto-grounding-timing.test.ts',
+diff --git a/server/scripts/capture-watchdog.ts b/server/scripts/capture-watchdog.ts
+index 201fd675d9eb071536c15bbb82cde81a04feebbe..a9838b176dcab0c808d6c58b943fb0b046bded97 100644
+--- a/server/scripts/capture-watchdog.ts
++++ b/server/scripts/capture-watchdog.ts
+@@ -49,6 +49,7 @@ import {
+ import { refreshMemoryIndexBestEffort } from '../services/agent-memory-core';
+ import { historicalAttributionLabel } from '../services/historical-attribution-overlay';
+ import { recordHistoricalAttributionPause, clearHistoricalAttributionPause } from '../services/historical-attribution-status';
++import { MEMORY_INDEX_PENDING, runPendingMemoryIndexRefreshes } from '../services/memory-index-refresh';
+ 
+ // ─── Config ───────────────────────────────────────────────────────────────────
+ 
+@@ -157,7 +158,9 @@ async function getRollingEpisode(): Promise<{ id: string; filename: string } | n
+ async function appendTextToEpisodeDbFirst(text: string, episode: { id: string; filename: string }): Promise<void> {
+   await db`
+     UPDATE conversation_memories
+-    SET content = content || ${text}
++    SET content = content || ${text},
++        tags = CASE WHEN ${MEMORY_INDEX_PENDING} = ANY(COALESCE(tags, ARRAY[]::text[]))
++          THEN tags ELSE array_append(COALESCE(tags, ARRAY[]::text[]), ${MEMORY_INDEX_PENDING}) END
+     WHERE id = ${episode.id}
+   `;
+   const rows = await db`SELECT content FROM conversation_memories WHERE id = ${episode.id}`;
+@@ -457,13 +460,11 @@ export async function drain(): Promise<void> {
+         episodeForReembed = episode;
+       }
+ 
+-      // The chat row and any updated live episode must be searchable before
+-      // this group is acknowledged. If re-embedding fails, leave the cursor
+-      // at the prior group's end: the idempotent write paths above make
+-      // retrying this group duplicate-safe.
+-      await reembedWatchdogMemory(chatMemoryId);
++      // Persist indexing obligations before acknowledgement, NOT remote
++      // embeddings. A slow/failed search rebuild cannot pin saved dialogue.
++      await requestWatchdogMemoryIndex(chatMemoryId);
+       if (episodeForReembed) {
+-        await reembedWatchdogMemory(episodeForReembed.id);
++        await requestWatchdogMemoryIndex(episodeForReembed.id);
+       }
+ 
+       saveCursor({
+@@ -666,7 +667,7 @@ async function appendInnerLifeToEpisodeDb(
+   const current: string = existing[0]?.content ?? '';
+   if (route?.appendMarker && episodeContentHasEventMarker(current, route.appendMarker)) {
+     console.log(`[watchdog] inner-life event already present in ${episode.filename} — skipping duplicate append`);
+-    await reembedWatchdogMemory(episode.id);
++    await requestWatchdogMemoryIndex(episode.id);
+     return true;
+   }
+   if (
+@@ -674,7 +675,7 @@ async function appendInnerLifeToEpisodeDb(
+     episodeContentHasEventMarker(current, route.completionMarker)
+   ) {
+     console.log('[watchdog] canonical episode event already present — direct trigger append suppressed');
+-    await reembedWatchdogMemory(episode.id);
++    await requestWatchdogMemoryIndex(episode.id);
+     return true;
+   }
+   if (route && !route.allowAppend) {
+@@ -682,7 +683,7 @@ async function appendInnerLifeToEpisodeDb(
+     return false;
+   }
+   if (!route?.appendMarker && current.includes(text)) {
+-    await reembedWatchdogMemory(episode.id);
++    await requestWatchdogMemoryIndex(episode.id);
+     return true;
+   }
+   await appendTextToEpisodeDbFirst(
+@@ -690,13 +691,13 @@ async function appendInnerLifeToEpisodeDb(
+     episode,
+   );
+   console.log(`[watchdog] ✓ inner-life DB-first append: +${text.length} chars → ${episode.filename}`);
+-  await reembedWatchdogMemory(episode.id);
++  await requestWatchdogMemoryIndex(episode.id);
+   return true;
+ }
+ 
+ /**
+- * Re-embed the row after a watchdog write. The test seam keeps the hermetic
+- * watchdog fixture independent of OpenAI and the shared database.
++ * Persist an index obligation after a watchdog write. The legacy test hook
++ * injects request failures, never controls the real embedding worker.
+  */
+ let _reembedWatchdogMemoryForTest: ((id: string) => Promise<void>) | null = null;
+ /**
+@@ -895,7 +896,7 @@ export async function drainInnerLife(): Promise<void> {
+         if (!personalMemoryId) {
+           throw new Error('personal-memory INSERT returned no id');
+         }
+-        await reembedWatchdogMemory(personalMemoryId);
++        await requestWatchdogMemoryIndex(personalMemoryId);
+       } catch (err: any) {
+         flagDbWriteFailure(`personal-memory-or-reembed:${ch.key}`, err?.message ?? String(err));
+         continue; // leave state unadvanced — retry next poll
+@@ -972,6 +973,9 @@ if (isDirectCliInvocation('capture-watchdog.ts')) {
+   const tick = async () => {
+     await drain().catch(console.error);
+     await drainInnerLife().catch(console.error);
++    // Same durable pending markers and builder as the server's indexer.
++    // Never await remote indexing in either capture drain.
++    void runPendingMemoryIndexRefreshes().catch(console.error);
+   };
+   tick();
+   setInterval(tick, POLL_MS);
+@@ -986,15 +990,19 @@ export function setReembedInnerLifeMemoryForTest(fn: ((id: string) => Promise<vo
+   setReembedMemoryForTest(fn);
+ }
+ 
+-async function reembedWatchdogMemory(id: string): Promise<void> {
++async function requestWatchdogMemoryIndex(id: string): Promise<void> {
+   if (_reembedWatchdogMemoryForTest) {
+     await _reembedWatchdogMemoryForTest(id);
+     return;
+   }
+-  // Keep hermetic fixtures independent of the production embedding module;
+-  // real drains load the HTTP-backed re-embed path here.
+-  const { reembedConversationMemory } = await import('./reembed-memory.js');
+-  await reembedConversationMemory(id);
++  const rows = await db`
++    UPDATE conversation_memories
++    SET tags = CASE WHEN ${MEMORY_INDEX_PENDING} = ANY(COALESCE(tags, ARRAY[]::text[]))
++      THEN tags ELSE array_append(COALESCE(tags, ARRAY[]::text[]), ${MEMORY_INDEX_PENDING}) END
++    WHERE id = ${id} RETURNING id
++  `;
++  if (rows.length !== 1) throw new Error(`Cannot persist index obligation for ${id}`);
++  console.log(`[watchdog] index pending: ${id} (capture need not wait for embeddings)`);
+ }
+ 
+ function chatCapturePath(): string {
+diff --git a/server/scripts/reembed-memory.ts b/server/scripts/reembed-memory.ts
+index d15a993960a6da53ce6bb3f5576ee6a565217786..16e140a781f801f77978142b6380fc5bc7b448d1 100644
+--- a/server/scripts/reembed-memory.ts
++++ b/server/scripts/reembed-memory.ts
+@@ -18,6 +18,7 @@
+  */
+ import { isDirectCliInvocation } from './lib/cli-entrypoint';
+ import { getMonitoringDb, getUserDb } from '../db';
++import { withMemoryIndexLock } from '../services/memory-index-refresh';
+ import { conversationMemories, memoryEmbeddings } from '@shared/schema';
+ import { generateAndStoreEmbedding } from '../services/semantic-memory-service';
+ import { splitIntoChunks, reformatSpeakerHeaders } from '../services/memory-embedding-indexer';
+@@ -84,7 +85,10 @@ async function resolveFounderUserId(tags: string[]): Promise<{ userId: string |
+  *                 Daniela teaching notes) that should be globally visible.
+  */
+ export async function reembedConversationMemory(id: string, userId?: string | null): Promise<void> {
+-  return reembedOne(id, userId ?? null, getMonitoringDb());
++  // Both CLI and background rebuilds share the legacy scanner's write lock.
++  await withMemoryIndexLock(id, async () => {
++    await reembedOne(id, userId ?? null, getMonitoringDb());
++  });
+ }
+ 
+ async function reembedOne(id: string, userId: string | null = null, dbOverride?: any): Promise<void> {
+@@ -107,8 +111,7 @@ async function reembedOne(id: string, userId: string | null = null, dbOverride?:
+ 
+   const row = rows[0];
+   if (!row) {
+-    console.log(`[SKIP] ${id} not found`);
+-    return;
++    throw new Error(`Cannot rebuild missing conversation memory ${id}`);
+   }
+ 
+   const importance = row.importance ?? 7;
+@@ -127,11 +130,7 @@ async function reembedOne(id: string, userId: string | null = null, dbOverride?:
+     if (isFounderPrivate) {
+       const resolved = await resolveFounderUserId(tags);
+       if (resolved.skip) {
+-        console.warn(
+-          `[SKIP] ${id} — founder-tagged memory has no resolvable owner. ` +
+-          `Embedding skipped to prevent global disclosure. Add cid:<conversationId> tag and re-run.`,
+-        );
+-        return;
++        throw new Error(`${id} has no resolvable owner; index refresh remains pending`);
+       }
+       effectiveUserId = resolved.userId;
+     } else {
+@@ -169,13 +168,13 @@ async function reembedOne(id: string, userId: string | null = null, dbOverride?:
+   // Pass importance so memory_embeddings.importance is populated from conversation_memories.importance,
+   // enabling the importance-first ORDER BY in the global pool queries to work correctly.
+   const fullContent = [row.title, row.summary, row.content].filter(Boolean).join('\n\n');
+-  const fullChanged = await generateAndStoreEmbedding('conversation_memory', row.id, effectiveUserId, fullContent, strength, importance, db);
++  const fullChanged = await generateAndStoreEmbedding('conversation_memory', row.id, effectiveUserId, fullContent, strength, importance, db, true);
+   console.log(`[conversation_memory] ${id} -> ${fullChanged ? 'RE-EMBEDDED' : 'unchanged (hash matched)'}`);
+ 
+   // Arm B: summary anchor
+   if (row.summary && row.summary.length > 10) {
+     const summaryContent = [row.title, row.summary].filter(Boolean).join('\n\n');
+-    const summaryChanged = await generateAndStoreEmbedding('conversation_summary', row.id, effectiveUserId, summaryContent, strength, importance, db);
++    const summaryChanged = await generateAndStoreEmbedding('conversation_summary', row.id, effectiveUserId, summaryContent, strength, importance, db, true);
+     console.log(`[conversation_summary] ${id} -> ${summaryChanged ? 'RE-EMBEDDED' : 'unchanged (hash matched)'}`);
+   }
+ 
+@@ -188,7 +187,7 @@ async function reembedOne(id: string, userId: string | null = null, dbOverride?:
+     const chunkId = `${row.id}:chunk:${i}`;
+     const chunkContent = `[Memory: ${row.title ?? 'Untitled'} | Part ${i + 1} of ${total}]\n\n${reformatSpeakerHeaders(chunks[i])}`;
+     try {
+-      const chunkChanged = await generateAndStoreEmbedding('conversation_chunk', chunkId, effectiveUserId, chunkContent, strength, importance, db);
++      const chunkChanged = await generateAndStoreEmbedding('conversation_chunk', chunkId, effectiveUserId, chunkContent, strength, importance, db, true);
+       console.log(`[conversation_chunk ${i + 1}/${total}] ${id} -> ${chunkChanged ? 'RE-EMBEDDED' : 'unchanged'}`);
+     } catch (err: any) {
+       const msg = `chunk ${i + 1}/${total}: ${err?.message ?? err}`;
+@@ -240,7 +239,7 @@ async function main() {
+   }
+ 
+   for (const id of ids) {
+-    await reembedOne(id, null, getMonitoringDb());
++    await reembedConversationMemory(id);
+   }
+ 
+   console.log('Done.');
+diff --git a/server/scripts/test-watchdog-chat-capture-attribution.ts b/server/scripts/test-watchdog-chat-capture-attribution.ts
+index 71c3de4a867a67642722a24e6b937225ab9dea9e..36be2d03848f22fa685c56c630abaf4b421a0a1a 100644
+--- a/server/scripts/test-watchdog-chat-capture-attribution.ts
++++ b/server/scripts/test-watchdog-chat-capture-attribution.ts
+@@ -26,6 +26,7 @@ import {
+   setChatCapturePathsForTest,
+   setEpisodeOverrideForTest,
+   setReembedMemoryForTest,
++  setEpisodePathsForTest,
+   drain,
+ } from './capture-watchdog';
+ 
+@@ -44,6 +45,9 @@ const updatedEpisodeIds: string[] = [];
+ let episodeContent = '';
+ let episodeId = 'episode-ci-1';
+ let sealedRollingRow: { id: string; title: string } | null = null;
++const pendingIndexIds = new Set<string>();
++let testDocsDirectory = '';
++let failNextIndexRequest = false;
+ 
+ function fakeDb(strings: TemplateStringsArray, ...vals: any[]): Promise<any[]> {
+   const q = strings.join(' $ ').replace(/\s+/g, ' ');
+@@ -62,8 +66,17 @@ function fakeDb(strings: TemplateStringsArray, ...vals: any[]): Promise<any[]> {
+     return Promise.resolve(hit ? [{ id: `chat-${chatInserts.indexOf(hit) + 1}` }] : []);
+   }
+   if (q.includes('UPDATE conversation_memories')) {
+-    updatedEpisodeIds.push(vals[1]);
+-    if (vals[1] === episodeId) episodeContent += vals[0];
++    if (q.includes('SET tags =')) {
++      if (failNextIndexRequest) {
++        failNextIndexRequest = false;
++        throw new Error('synthetic durable index-request failure');
++      }
++      const id = vals[2];
++      pendingIndexIds.add(id);
++      return Promise.resolve([{ id }]);
++    }
++    updatedEpisodeIds.push(vals[3]);
++    if (vals[3] === episodeId) episodeContent += vals[0];
+     return Promise.resolve([]);
+   }
+   if (q.includes('SELECT content FROM conversation_memories')) {
+@@ -77,24 +90,26 @@ function fakeDb(strings: TemplateStringsArray, ...vals: any[]): Promise<any[]> {
+ }
+ 
+ async function withEpisodeLiveFlag<T>(fn: () => Promise<T>): Promise<T> {
+-  const existed = fs.existsSync(EPISODE_LIVE_PATH);
+-  const backup = existed ? fs.readFileSync(EPISODE_LIVE_PATH) : null;
+-  fs.mkdirSync(path.dirname(EPISODE_LIVE_PATH), { recursive: true });
+-  fs.writeFileSync(EPISODE_LIVE_PATH, '', 'utf8');
++  const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'watchdog-attribution-'));
++  const liveFlag = path.join(scratch, 'live');
++  setEpisodePathsForTest({ liveFlag, docsDirectory: testDocsDirectory });
++  fs.writeFileSync(liveFlag, '', 'utf8');
+   try {
+     return await fn();
+   } finally {
+-    if (existed) fs.writeFileSync(EPISODE_LIVE_PATH, backup!);
+-    else fs.rmSync(EPISODE_LIVE_PATH, { force: true });
++    setEpisodePathsForTest(null);
++    fs.rmSync(scratch, { recursive: true, force: true });
+   }
+ }
+ 
+ (async () => {
+   console.log('watchdog chat-capture attribution/capture-id/sealed-episode/multi-capture-backlog regression coverage');
+   setDbForTest(fakeDb);
+-  setReembedMemoryForTest(async () => {}); // no real embedding calls in this hermetic test
++  // Exercise durable-request SQL rather than an indexing-disable hook.
++  setReembedMemoryForTest(null);
+ 
+   const tmpDir = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'wd-attr-'));
++  testDocsDirectory = tmpDir;
+   const capturePath = path.join(tmpDir, '.chat_capture');
+   const cursorPath = path.join(tmpDir, '.chat_capture-cursor');
+   setChatCapturePathsForTest({ capture: capturePath, cursor: cursorPath });
+@@ -114,7 +129,7 @@ async function withEpisodeLiveFlag<T>(fn: () => Promise<T>): Promise<T> {
+   // this single call -- not get stuck on the first group forever.
+   await withEpisodeLiveFlag(async () => {
+     const scratchFilename = `test-watchdog-attribution-ci-${Date.now()}.md`;
+-    const scratchPath = path.join(WORKSPACE, 'docs', scratchFilename);
++    const scratchPath = path.join(tmpDir, scratchFilename);
+     fs.writeFileSync(scratchPath, 'EPISODE START\n', 'utf8');
+     episodeContent = 'EPISODE START\n';
+     setEpisodeOverrideForTest({ id: episodeId, filename: scratchFilename });
+@@ -135,6 +150,8 @@ async function withEpisodeLiveFlag<T>(fn: () => Promise<T>): Promise<T> {
+ 
+       check('exactly four chat rows created in one drain() call (one per capture group)',
+         chatInserts.length === 4, `got ${chatInserts.length}`);
++      check('cursor advances with explicit pending search obligations coalesced by episode',
++        pendingIndexIds.size === 5 && pendingIndexIds.has(episodeId));
+ 
+       const cidA = chatInserts.find(r => r.tags.includes('capture-id:backfill-attr-00'));
+       const cidB = chatInserts.find(r => r.tags.includes('capture-id:backfill-attr-01'));
+@@ -238,7 +255,7 @@ async function withEpisodeLiveFlag<T>(fn: () => Promise<T>): Promise<T> {
+     // must complete cleanly without duplicating anything from the failed attempt.
+     sealedRollingRow = null;
+     const scratchFilename2 = `test-watchdog-attribution-ci-retry-${Date.now()}.md`;
+-    const scratchPath2 = path.join(WORKSPACE, 'docs', scratchFilename2);
++    const scratchPath2 = path.join(tmpDir, scratchFilename2);
+     fs.writeFileSync(scratchPath2, '', 'utf8');
+     episodeContent = '';
+     setEpisodeOverrideForTest({ id: episodeId, filename: scratchFilename2 });
+@@ -246,6 +263,26 @@ async function withEpisodeLiveFlag<T>(fn: () => Promise<T>): Promise<T> {
+       await drain();
+       check('retry after the tag is fixed completes and writes exactly one chat row',
+         chatInserts.length === chatInsertsBefore + 1, `before=${chatInsertsBefore} after=${chatInserts.length}`);
++      const beforeFailure = fs.readFileSync(cursorPath, 'utf8');
++      const rowsBeforeFailure = chatInserts.length;
++      appendChatCaptureTurnsAtomic([
++        { speaker: 'David', text: 'exact retry source\t  café', captureId: 'synthetic-request-retry', source: 'replit' },
++      ], capturePath);
++      failNextIndexRequest = true;
++      await drain();
++      check('a failed durable request cannot acknowledge an untracked indexing obligation',
++        fs.readFileSync(cursorPath, 'utf8') === beforeFailure);
++      check('canonical dialogue remains saved when the index request fails',
++        chatInserts.length === rowsBeforeFailure + 1);
++      const canonicalAfterFailure = episodeContent;
++      await drain();
++      check('retry is idempotent for canonical rows and the episode append',
++        chatInserts.length === rowsBeforeFailure + 1 && episodeContent === canonicalAfterFailure);
++      check('retry acknowledges only after the durable request is present',
++        JSON.parse(fs.readFileSync(cursorPath, 'utf8')).byteOffset === fs.statSync(capturePath).size);
++      check('retry preserves exact source and Markdown parity',
++        episodeContent.includes('exact retry source\t  café') &&
++        fs.readFileSync(scratchPath2, 'utf8') === episodeContent);
+     } finally {
+       fs.rmSync(scratchPath2, { force: true });
+       setEpisodeOverrideForTest(null);
+diff --git a/server/scripts/test-watchdog-inner-life-driver.ts b/server/scripts/test-watchdog-inner-life-driver.ts
+index 7f18e0c0d72b46af04fe8aaadd063b9e73d28e75..d1ed35ec394d64eaee64b042a8e6c344af7da26e 100644
+--- a/server/scripts/test-watchdog-inner-life-driver.ts
++++ b/server/scripts/test-watchdog-inner-life-driver.ts
+@@ -115,7 +115,7 @@ function fakeDb(strings: TemplateStringsArray, ...vals: any[]): Promise<any[]> {
+       store.failNextEpisodeUpdate = false;
+       throw new Error('[CI fault injection] synthetic episode UPDATE failure');
+     }
+-    if (vals[1] !== store.episodeId) throw new Error('UPDATE targeted unexpected id: ' + vals[1]);
++    if (vals[3] !== store.episodeId) throw new Error('UPDATE targeted unexpected id: ' + vals[3]);
+     store.episodeContent += vals[0];
+     return Promise.resolve([]);
+   }
+diff --git a/server/services/agent-session-autosave.ts b/server/services/agent-session-autosave.ts
+index 35f8e99846b8187ea99f8a0058d45541c6eb36d2..cec2be32c8f483fc2e6d26a3266f7603231f59a2 100644
+--- a/server/services/agent-session-autosave.ts
++++ b/server/services/agent-session-autosave.ts
+@@ -86,6 +86,7 @@ import {
+   listEpisodeMirrorOutbox,
+   processEpisodeMirrorOutbox,
+ } from './episode-mirror-outbox';
++import { requestMemoryIndexRefresh, MEMORY_INDEX_PENDING } from './memory-index-refresh';
+ import { reembedConversationMemory } from '../scripts/reembed-memory';
+ import { postAsLuca } from './luca-responder';
+ import { detectRollingTagMisroute } from './rolling-tag-utils';
+@@ -1925,6 +1926,9 @@ async function appendInnerLifeToEpisodeDb(
+   let appended = false;
+   await withEpisodeFileLock(episodeFilename, async () => {
+     try {
++      // Includes duplicate/retry paths. This durable request is cheap and must
++      // succeed before reporting projection completion to the capture outbox.
++      await requestMemoryIndexRefresh(memoryId as string);
+       // _innerLifeDbUpdateEnabled is false only in self-check CI mode —
+       // it precisely models a regression where the UPDATE line is removed.
+       if (!_innerLifeDbUpdateEnabled) {
+@@ -1975,7 +1979,9 @@ async function appendInnerLifeToEpisodeDb(
+       if (route?.appendMarker) {
+         const updated = await db.execute(sql`
+           UPDATE conversation_memories
+-          SET content = content || ${'\n' + appendText + '\n'}
++          SET content = content || ${'\n' + appendText + '\n'},
++              tags = CASE WHEN ${MEMORY_INDEX_PENDING} = ANY(COALESCE(tags, ARRAY[]::text[]))
++                THEN tags ELSE array_append(COALESCE(tags, ARRAY[]::text[]), ${MEMORY_INDEX_PENDING}) END
+           WHERE id = ${memoryId}
+             AND POSITION(${route.appendMarker} IN content) = 0
+           RETURNING content
+@@ -1994,7 +2000,9 @@ async function appendInnerLifeToEpisodeDb(
+       } else {
+         await db.execute(sql`
+           UPDATE conversation_memories
+-          SET content = content || ${'\n' + appendText + '\n'}
++          SET content = content || ${'\n' + appendText + '\n'},
++              tags = CASE WHEN ${MEMORY_INDEX_PENDING} = ANY(COALESCE(tags, ARRAY[]::text[]))
++                THEN tags ELSE array_append(COALESCE(tags, ARRAY[]::text[]), ${MEMORY_INDEX_PENDING}) END
+           WHERE id = ${memoryId}
+         `);
+ 
+@@ -2012,15 +2020,13 @@ async function appendInnerLifeToEpisodeDb(
+         appended = true;
+         console.log(`[AgentAutosave] Inner-life DB-first append + exact Markdown replica: +${text.length} chars → ${episodeFilename}`);
+         writeCaptureStatus(episodeFilename);
+-        // Re-embed so episode chunks reflect the new content.
+-        // Fire-and-forget: a reembed failure must never prevent the .md write
+-        // from being reported as successful or cause callers to retry the append.
+-        // _innerLifeReembedEnabled is false in CI tests to prevent fixture rows
+-        // from generating orphaned memory_embeddings records.
++        // Compatibility fault hook only: indexing itself is now deferred via
++        // the durable marker written atomically with content above. No test
++        // switch can suppress that production obligation.
+         if (_innerLifeReembedEnabled) {
+           const reembedPromise = _reembedShouldThrowForTest
+             ? Promise.reject(new Error('[CI-test] Synthetic reembed failure'))
+-            : reembedConversationMemory(memoryId as string);
++            : Promise.resolve();
+           reembedPromise.catch((err: any) => {
+             console.error(`[AgentAutosave] Re-embed failed for ${episodeFilename}:`, err?.message ?? err);
+           });
+@@ -4278,11 +4284,9 @@ export function getInnerLifeDbUpdateEnabled(): boolean {
+ }
+ 
+ /**
+- * Test seam — re-embed gate inside appendInnerLifeToEpisodeDb().
+- * When false (CI tests only), the reembedConversationMemory() call is skipped
+- * so no memory_embeddings rows are created for fixture episodes and no external
+- * embedding API calls are made.
+- * Never set in production.
++ * Deprecated compatibility gate for the synthetic post-save failure hook.
++ * Real indexing is deferred to the existing indexer; this flag cannot suppress
++ * its durable obligation. Fixture tests must use an isolated database.
+  */
+ let _innerLifeReembedEnabled = true;
+ 
+diff --git a/server/services/memory-embedding-indexer.ts b/server/services/memory-embedding-indexer.ts
+index 7e0e40e95a6af18e1ef9d190a8cb94406dbc9b4f..68997f41ccdc254606ba1db261845f532cee514d 100644
+--- a/server/services/memory-embedding-indexer.ts
++++ b/server/services/memory-embedding-indexer.ts
+@@ -35,6 +35,7 @@ import {
+ import { eq, notExists, sql } from 'drizzle-orm';
+ import { generateAndStoreEmbedding } from './semantic-memory-service';
+ import { neon } from '@neondatabase/serverless';
++import { MEMORY_INDEX_PENDING, runPendingMemoryIndexRefreshes, withMemoryIndexLock } from './memory-index-refresh';
+ import {
+   countUnembeddedConversationMemories as countUnembeddedViaHttp,
+   getTopUnembeddedConversationMemoryIds as getTopUnembeddedViaHttp,
+@@ -911,6 +912,10 @@ async function getTopUnembeddedConversationMemoryIds(limit: number): Promise<str
+  *   'not_found' — no row exists for the given id
+  */
+ export async function patchSingleStraggler(id: string): Promise<'patched' | 'skipped' | 'not_found'> {
++  return withMemoryIndexLock(id, () => patchSingleStragglerUnlocked(id));
++}
++
++async function patchSingleStragglerUnlocked(id: string): Promise<'patched' | 'skipped' | 'not_found'> {
+   const dbInner = getSharedDb();
+   const rows = await dbInner
+     .select({
+@@ -931,6 +936,7 @@ export async function patchSingleStraggler(id: string): Promise<'patched' | 'ski
+   // Data-derived ownership: resolve userId via cid: tag → conversations.user_id,
+   // mirroring the Arms A/B/C logic.  NEVER use a hard-coded administrator ID.
+   const rowTags = row.tags ?? [];
++  if (rowTags.includes(MEMORY_INDEX_PENDING)) return 'skipped';
+   let userId: string | null;
+   if (rowTags.includes('founder-chat') || rowTags.includes('founder-private')) {
+     // Recognize both cid: (standard) and backfill-cid: (backfill-all-david-conversations.ts).
+@@ -1084,7 +1090,32 @@ function scheduleStartupLivenessCheck(): void {
+   setTimeout(() => runStartupLivenessCheckInner(), FOUR_HOURS_MS);
+ }
+ 
++/** Legacy first-index targets must not race a versioned refresh on another host. */
++async function indexTarget(t: IndexTarget, content: string): Promise<boolean> {
++  if (!['conversation_memory', 'conversation_summary', 'conversation_chunk'].includes(t.memoryType)) {
++    return generateAndStoreEmbedding(t.memoryType, t.id, t.userId, content, t.initialStrength, t.importance);
++  }
++  const sourceId = t.memoryType === 'conversation_chunk' ? t.id.split(':chunk:')[0] : t.id;
++  return withMemoryIndexLock(sourceId, async () => {
++    const rows = await getMonitoringDbForIndexCheck(sourceId);
++    if (rows) return false; // The durable refresh scanner owns this source now.
++    return generateAndStoreEmbedding(t.memoryType, t.id, t.userId, content, t.initialStrength, t.importance);
++  });
++}
++
++async function getMonitoringDbForIndexCheck(id: string): Promise<boolean> {
++  const { getMonitoringDb } = await import('../db');
++  const result = await getMonitoringDb().execute(sql`
++    SELECT id FROM conversation_memories
++    WHERE id = ${id} AND ${MEMORY_INDEX_PENDING} = ANY(tags)
++  `);
++  return ((result as any).rows ?? result).length > 0;
++}
++
+ export async function runIndexer(): Promise<void> {
++  // Existing retry scanner also owns edits to already-indexed memories.
++  // A failed build keeps its durable marker for the next cycle.
++  await runPendingMemoryIndexRefreshes();
+   // Step 0: promote any un-archived conversations into conversation_memories
+   // (up to 30 per run — drains the backlog incrementally and picks up new sessions)
+   await archiveUnindexedConversations();
+@@ -1118,7 +1149,7 @@ export async function runIndexer(): Promise<void> {
+         try {
+           const content = t.contentLoader ? await t.contentLoader() : t.content;
+           if (!content || content.trim().length <= 10) continue;
+-          const isNew = await generateAndStoreEmbedding(t.memoryType, t.id, t.userId, content, t.initialStrength, t.importance);
++          const isNew = await indexTarget(t, content);
+           if (isNew) generated++;
+         } catch (err: any) {
+           errors++;
+@@ -1135,7 +1166,7 @@ export async function runIndexer(): Promise<void> {
+       await Promise.all(
+         batch.map(async (t) => {
+           try {
+-            const isNew = await generateAndStoreEmbedding(t.memoryType, t.id, t.userId, t.content, t.initialStrength, t.importance);
++            const isNew = await indexTarget(t, t.content);
+             if (isNew) generated++;
+           } catch (err: any) {
+             errors++;
+diff --git a/server/services/semantic-memory-service.ts b/server/services/semantic-memory-service.ts
+index b08dfa9cb2b61e58f464e510be099052bcb8aedf..d6fdf1d96a2d31f4f6540d337d71c914b34f2986 100644
+--- a/server/services/semantic-memory-service.ts
++++ b/server/services/semantic-memory-service.ts
+@@ -112,6 +112,7 @@ export async function generateAndStoreEmbedding(
+   initialStrength?: number,
+   importance?: number,
+   dbOverride?: any,
++  requireEmbedding = false,
+ ): Promise<boolean> {
+   if (memoryType === 'operation_skill' && userId !== null) {
+     throw new Error('operation_skill embeddings must be global and cannot be user-scoped');
+@@ -164,7 +165,7 @@ export async function generateAndStoreEmbedding(
+       msg.includes('No OpenAI API key') ||
+       msg.includes('INVALID_ENDPOINT') ||
+       msg.includes('is not supported');
+-    if (isConfigGap) {
++    if (isConfigGap && !requireEmbedding) {
+       console.warn(
+         `[SemanticMemory] Skipping embedding for ${memoryType}:${memoryId} — ` +
+         `no valid embedding endpoint configured (set USER_OPENAI_API_KEY).`
+diff --git a/docs/episode-capture-indexing.md b/docs/episode-capture-indexing.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..429ac28495d013c1452691106c518d6e18da2540
+--- /dev/null
++++ b/docs/episode-capture-indexing.md
+@@ -0,0 +1,60 @@
++# Episode capture and search refresh
++
++Canonical dialogue and search freshness are separate completion boundaries.
++Capture still saves exact source with its stable identity, appends DB-first to
++the episode, and derives Markdown from the canonical database snapshot. The
++existing independent canonical cursor, mirror outbox and acknowledgement rules
++remain unchanged.
++
++## Durable pending state
++
++`conversation_memories.tags` contains `memory-index:pending` until a complete
++index refresh succeeds. A single marker coalesces multiple appends. The episode
++content UPDATE sets this marker atomically; retry and duplicate paths also
++ensure the obligation exists before reporting completion. Watchdog chat rows
++and personal memories receive the same marker before cursor/state advancement.
++Failure to persist the obligation is an error, not a successful acknowledgement.
++
++The capture acknowledgement does **not** mean search is current. Embedding
++latency or a remote failure cannot hold capture locks, pin saved dialogue, or
++cause source replay just to refresh search.
++
++## Existing indexer owns retry
++
++The existing two-hour `memory-embedding-indexer` scans marked rows as well as
++previously unindexed memories. A standalone watchdog invokes the same pending
++scanner after its capture drains, without awaiting it. There is no extra queue
++table, filesystem queue, or best-effort-only in-memory obligation.
++
++Only IDs are listed up front; large episode contents are read one at a time.
++The worker rebuilds the existing full-content, summary and chunk arms using
++`reembed-memory`. Unchanged hashes skip remote calls; failed/partial work
++retains pending status. Missing embedding configuration or unresolved private
++ownership is a failure, never a successful refresh receipt.
++
++Completion removes only the pending marker, conditional on exact title, summary
++and content equality with the worker's snapshot. A concurrent append retains
++pending for the latest version. Other identity/source tags are preserved.
++
++All conversation-index write paths in the scanner, straggler repair and manual
++rebuild share a transaction-scoped PostgreSQL advisory lock per source ID.
++This works with transaction-pooling endpoints and takes no canonical row lock.
++A busy build leaves the durable obligation pending; it does not block capture.
++
++## Verification
++
++- `npx tsx --test server/services/memory-index-refresh.test.ts`
++- `npx tsx --test server/services/memory-index-refresh-postgres.test.ts`
++- `npx tsx --test server/services/memory-index-rebuild-postgres.test.ts`
++- `npx tsx server/scripts/test-watchdog-chat-capture-attribution.ts`
++- `npx tsx server/scripts/test-watchdog-inner-life.ts`
++
++The PostgreSQL suites require `CI=true`, a verified loopback
++`CI_DATABASE_URL`, and an exactly matching `NEON_SHARED_DATABASE_URL`. The
++real-builder test creates and drops its own database; HTTP embedding responses
++are synthetic within its test process. Neither suite can use the shared live
++episode. CI registration is in `scripts/run-ci-test-steps.mjs`.
++
++No restart, replay or mutation of the real 33-message recovery is part of this
++change. Search may remain pending until the next existing indexer cycle when
++the standalone watchdog is not running.
+diff --git a/server/services/memory-index-refresh.ts b/server/services/memory-index-refresh.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..61dc588adddf482c58a170d5dededf4f44238b3e
+--- /dev/null
++++ b/server/services/memory-index-refresh.ts
+@@ -0,0 +1,125 @@
++/**
++ * Durable refresh obligations, consumed by the existing embedding indexer.
++ * One marker per source row coalesces arbitrarily many appends. It is NOT an
++ * embedding receipt: only a successful, version-matched rebuild clears it.
++ */
++import { sql } from 'drizzle-orm';
++
++export const MEMORY_INDEX_PENDING = 'memory-index:pending';
++
++/** Serialize derived writes across hosts without locking canonical source rows. */
++export async function withMemoryIndexLock<T>(id: string, build: () => Promise<T>): Promise<T> {
++  const { getSharedDb } = await import('../db');
++  // Transaction-scoped locks work with transaction-pooling endpoints. No
++  // source-row lock is held, so a remote embedding cannot block capture.
++  return getSharedDb().transaction(async tx => {
++    const lock = await tx.execute(sql`
++      SELECT pg_try_advisory_xact_lock(1162691140, hashtext(${id})) AS acquired
++    `);
++    if (!(lock as any).rows?.[0]?.acquired) {
++      throw new Error(`Index refresh already in progress for ${id}`);
++    }
++    return build();
++  });
++}
++
++export interface IndexSnapshot {
++  id: string;
++  title: string;
++  summary: string | null;
++  content: string;
++}
++
++export interface RefreshRepository {
++  pending(): Promise<string[]>;
++  read(id: string): Promise<IndexSnapshot | undefined>;
++  complete(snapshot: IndexSnapshot): Promise<boolean>;
++}
++
++/** Injection is per invocation, never a global switch that disables indexing. */
++export async function drainMemoryIndexRefreshes(
++  repository: RefreshRepository,
++  rebuild: (id: string) => Promise<void>,
++): Promise<{ indexed: number; pending: number }> {
++  let indexed = 0;
++  let pending = 0;
++  for (const id of await repository.pending()) {
++    try {
++      // Load one current source at a time, not every large episode into RAM.
++      const snapshot = await repository.read(id);
++      if (!snapshot) continue;
++      await rebuild(snapshot.id);
++      if (await repository.complete(snapshot)) indexed++;
++      else pending++; // A newer canonical version still needs a build.
++    } catch (error) {
++      pending++;
++      console.warn(`[EmbedIndexer] Refresh pending for ${id}:`, error);
++    }
++  }
++  return { indexed, pending };
++}
++
++export async function persistMemoryIndexRefresh(
++  db: { execute: (query: any) => Promise<any> }, id: string,
++): Promise<void> {
++  const result = await db.execute(sql`
++    UPDATE conversation_memories
++    SET tags = CASE WHEN ${MEMORY_INDEX_PENDING} = ANY(COALESCE(tags, ARRAY[]::text[]))
++      THEN tags ELSE array_append(COALESCE(tags, ARRAY[]::text[]), ${MEMORY_INDEX_PENDING}) END
++    WHERE id = ${id}
++    RETURNING id
++  `);
++  if (((result as any).rows ?? result).length !== 1) {
++    throw new Error(`Cannot persist index obligation: memory ${id} not found`);
++  }
++}
++
++export async function requestMemoryIndexRefresh(id: string): Promise<void> {
++  const { getMonitoringDb } = await import('../db');
++  await persistMemoryIndexRefresh(getMonitoringDb(), id);
++}
++
++export function sqlRefreshRepository(db: { execute: (query: any) => Promise<any> }): RefreshRepository {
++  return {
++    async pending() {
++      const result = await db.execute(sql`
++        SELECT id FROM conversation_memories
++        WHERE ${MEMORY_INDEX_PENDING} = ANY(tags)
++        ORDER BY created_at, id
++      `);
++      return (result.rows ?? result).map((row: { id: string }) => row.id);
++    },
++    async read(id) {
++      const result = await db.execute(sql`
++        SELECT id, title, summary, content FROM conversation_memories
++        WHERE id = ${id} AND ${MEMORY_INDEX_PENDING} = ANY(tags)
++      `);
++      return (result.rows ?? result)[0] as IndexSnapshot | undefined;
++    },
++    async complete(snapshot) {
++      const result = await db.execute(sql`
++        UPDATE conversation_memories
++        SET tags = array_remove(tags, ${MEMORY_INDEX_PENDING})
++        WHERE id = ${snapshot.id} AND content = ${snapshot.content}
++          AND title IS NOT DISTINCT FROM ${snapshot.title}
++          AND summary IS NOT DISTINCT FROM ${snapshot.summary}
++          AND ${MEMORY_INDEX_PENDING} = ANY(tags)
++        RETURNING id
++      `);
++      return (result.rows ?? result).length === 1;
++    },
++  };
++}
++
++let running: Promise<unknown> | undefined;
++
++/** Shared by server and watchdog; database advisory locks arbitrate hosts. */
++export function runPendingMemoryIndexRefreshes(): Promise<unknown> {
++  if (running) return running;
++  running = (async () => {
++    const { getMonitoringDb } = await import('../db');
++    const { reembedConversationMemory } = await import('../scripts/reembed-memory');
++    return drainMemoryIndexRefreshes(sqlRefreshRepository(getMonitoringDb()), reembedConversationMemory);
++  })().finally(() => { running = undefined; });
++  return running;
++}
+diff --git a/server/services/memory-index-refresh.test.ts b/server/services/memory-index-refresh.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..fa9a688f3b8ebda3c1293eda796d9a60ddd2c122
+--- /dev/null
++++ b/server/services/memory-index-refresh.test.ts
+@@ -0,0 +1,88 @@
++import assert from 'node:assert/strict';
++import test from 'node:test';
++import { readFileSync } from 'node:fs';
++import { drainMemoryIndexRefreshes, MEMORY_INDEX_PENDING, type IndexSnapshot, type RefreshRepository } from './memory-index-refresh';
++
++function fixture() {
++  let current: IndexSnapshot = { id: 'synthetic', title: 'Fixture', summary: 'Synthetic summary', content: 'exact source\n whitespace  \n' };
++  let pending = true;
++  const repository: RefreshRepository = {
++    async pending() { return pending ? [current.id] : []; },
++    async read() { return pending ? { ...current } : undefined; },
++    async complete(snapshot) {
++      if (JSON.stringify(snapshot) !== JSON.stringify(current)) return false;
++      pending = false;
++      return true;
++    },
++  };
++  return {
++    repository,
++    current: () => ({ ...current }),
++    pending: () => pending,
++    append: (text: string) => { current.content += text; pending = true; },
++  };
++}
++
++test('failed indexing leaves an explicit obligation; retries are idempotent and source-exact', async () => {
++  const f = fixture();
++  const original = f.current();
++  const first = await drainMemoryIndexRefreshes(f.repository, async () => { throw new Error('remote embedding unavailable'); });
++  assert.deepEqual(first, { indexed: 0, pending: 1 });
++  assert.equal(f.pending(), true);
++  assert.deepEqual(f.current(), original);
++  let builds = 0;
++  const rebuild = async () => { builds++; };
++  assert.deepEqual(await drainMemoryIndexRefreshes(f.repository, rebuild), { indexed: 1, pending: 0 });
++  assert.deepEqual(await drainMemoryIndexRefreshes(f.repository, rebuild), { indexed: 0, pending: 0 });
++  assert.equal(builds, 1);
++  assert.deepEqual(f.current(), original);
++});
++
++test('slow old build does not block saving; only the newest version can clear pending', async () => {
++  const f = fixture();
++  let release!: () => void;
++  let started!: () => void;
++  const entered = new Promise<void>(resolve => { started = resolve; });
++  const held = new Promise<void>(resolve => { release = resolve; });
++  const old = f.current().content;
++  const build = drainMemoryIndexRefreshes(f.repository, async () => { started(); await held; });
++  await entered;
++  // These are committed source appends, not work waiting behind an embedding.
++  for (let i = 0; i < 33; i++) f.append(`\nmessage ${i}: exact\ttext  `);
++  assert.equal(f.pending(), true);
++  release();
++  assert.deepEqual(await build, { indexed: 0, pending: 1 });
++  assert.equal(f.current().content.startsWith(old), true);
++  let indexedContent = '';
++  await drainMemoryIndexRefreshes(f.repository, async () => { indexedContent = f.current().content; });
++  assert.equal(indexedContent, f.current().content);
++  assert.equal(f.pending(), false);
++  assert.equal((indexedContent.match(/message \d+:/g) ?? []).length, 33);
++});
++
++test('one failed memory does not prevent another pending memory from indexing', async () => {
++  const completed: string[] = [];
++  const repository: RefreshRepository = {
++    async pending() { return ['bad', 'good']; },
++    async read(id) { return { id, title: id, summary: '', content: id }; },
++    async complete(snapshot) { completed.push(snapshot.id); return true; },
++  };
++  assert.deepEqual(await drainMemoryIndexRefreshes(repository, async id => {
++    if (id === 'bad') throw new Error('failure');
++  }), { indexed: 1, pending: 1 });
++  assert.deepEqual(completed, ['good']);
++});
++
++test('production paths keep the durable obligation and real indexing enabled', () => {
++  const watchdog = readFileSync('server/scripts/capture-watchdog.ts', 'utf8');
++  const autosave = readFileSync('server/services/agent-session-autosave.ts', 'utf8');
++  const indexer = readFileSync('server/services/memory-embedding-indexer.ts', 'utf8');
++  const builder = readFileSync('server/scripts/reembed-memory.ts', 'utf8');
++  assert.match(watchdog, /void runPendingMemoryIndexRefreshes\(\)/);
++  assert.match(indexer, /await runPendingMemoryIndexRefreshes\(\)/);
++  assert.match(autosave, /await requestMemoryIndexRefresh\(memoryId as string\)/);
++  assert.match(builder, /withMemoryIndexLock/);
++  assert.match(readFileSync('server/services/memory-index-refresh.ts', 'utf8'), /pg_try_advisory_xact_lock/);
++  assert.equal((builder.match(/importance, db, true\)/g) ?? []).length, 3);
++  assert.equal(MEMORY_INDEX_PENDING, 'memory-index:pending');
++});
+diff --git a/server/services/memory-index-refresh-postgres.test.ts b/server/services/memory-index-refresh-postgres.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..9e0b0f692f66ddf9df1b23dd312c2d8fccfc5ab5
+--- /dev/null
++++ b/server/services/memory-index-refresh-postgres.test.ts
+@@ -0,0 +1,74 @@
++/** Real SQL/CAS proofs. Only the verified job-local disposable database is allowed. */
++import assert from 'node:assert/strict';
++import test from 'node:test';
++import { randomUUID } from 'node:crypto';
++import { Pool } from 'pg';
++import { drizzle } from 'drizzle-orm/node-postgres';
++import { getVerifiedCiDatabaseUrl } from '../ci-database';
++import {
++  drainMemoryIndexRefreshes, persistMemoryIndexRefresh,
++  sqlRefreshRepository, MEMORY_INDEX_PENDING,
++} from './memory-index-refresh';
++
++const target = getVerifiedCiDatabaseUrl();
++test('durable coalescing, crash retry, version CAS and exact source preservation (PostgreSQL)',
++  { skip: !target && 'requires verified job-local CI_DATABASE_URL' }, async () => {
++    const namespace = `index_refresh_${randomUUID().replaceAll('-', '')}`;
++    const admin = new Pool({ connectionString: target });
++    const pool = new Pool({ connectionString: target, options: `-c search_path=${namespace}` });
++    try {
++      await admin.query(`CREATE SCHEMA ${namespace}`);
++      // Minimal synthetic schema, never a real episode or shared table.
++      await pool.query(`CREATE TABLE conversation_memories (
++        id text PRIMARY KEY, title text, summary text, content text NOT NULL,
++        tags text[], created_at timestamptz DEFAULT now()
++      )`);
++      const exact = 'David: exact source\t  \nLuca: accented café\n';
++      await pool.query('INSERT INTO conversation_memories VALUES ($1,$2,$3,$4,$5)',
++        ['fixture', 'Fixture', 'Summary', exact, ['source:synth', 'capture-id:synthetic']]);
++      const db = drizzle(pool);
++      const repository = sqlRefreshRepository(db);
++      await Promise.all(Array.from({ length: 33 }, () => persistMemoryIndexRefresh(db, 'fixture')));
++      assert.deepEqual(await repository.pending(), ['fixture']);
++      const tags = (await pool.query('SELECT tags FROM conversation_memories')).rows[0].tags;
++      assert.equal(tags.filter((tag: string) => tag === MEMORY_INDEX_PENDING).length, 1);
++      assert.ok(tags.includes('capture-id:synthetic'));
++      await assert.rejects(persistMemoryIndexRefresh(db, 'missing'), /not found/);
++
++      const snapshot = (await repository.read('fixture'))!;
++      // A partial remote build followed by a crash/failure cannot clear pending.
++      assert.deepEqual(await drainMemoryIndexRefreshes(repository, async () => {
++        throw new Error('remote failure after partial build');
++      }), { indexed: 0, pending: 1 });
++      assert.equal((await repository.read('fixture'))!.content, exact);
++
++      let release!: () => void;
++      let started!: () => void;
++      const entered = new Promise<void>(r => { started = r; });
++      const wait = new Promise<void>(r => { release = r; });
++      const slow = drainMemoryIndexRefreshes(repository, async () => { started(); await wait; });
++      await entered;
++      await pool.query('UPDATE conversation_memories SET content = content || $1 WHERE id=$2',
++        ['\nnewest exact message  \n', 'fixture']);
++      await persistMemoryIndexRefresh(db, 'fixture');
++      release();
++      assert.deepEqual(await slow, { indexed: 0, pending: 1 });
++      assert.equal(await repository.complete(snapshot), false);
++      // New repository instance models a restarted process, with no RAM queue.
++      const restarted = sqlRefreshRepository(drizzle(pool));
++      let indexed = '';
++      assert.deepEqual(await drainMemoryIndexRefreshes(restarted, async () => {
++        indexed = (await restarted.read('fixture'))!.content;
++      }), { indexed: 1, pending: 0 });
++      assert.equal(indexed, exact + '\nnewest exact message  \n');
++      assert.deepEqual(await restarted.pending(), []);
++      assert.equal((await pool.query('SELECT content FROM conversation_memories')).rows[0].content, indexed);
++      assert.deepEqual(await drainMemoryIndexRefreshes(restarted, async () => {
++        assert.fail('a completed request must not be rebuilt');
++      }), { indexed: 0, pending: 0 });
++    } finally {
++      await pool.end();
++      await admin.query(`DROP SCHEMA IF EXISTS ${namespace} CASCADE`);
++      await admin.end();
++    }
++  });
+diff --git a/server/services/memory-index-rebuild-postgres.test.ts b/server/services/memory-index-rebuild-postgres.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..cf584f7021611faa1e28aabc6c8ee45f9c7617d8
+--- /dev/null
++++ b/server/services/memory-index-rebuild-postgres.test.ts
+@@ -0,0 +1,125 @@
++/** Exercise the real three-arm builder with synthetic HTTP and a private local DB. */
++import assert from 'node:assert/strict';
++import test from 'node:test';
++import { randomUUID } from 'node:crypto';
++import { Pool } from 'pg';
++import { drizzle } from 'drizzle-orm/node-postgres';
++import { getVerifiedCiDatabaseUrl } from '../ci-database';
++import { drainMemoryIndexRefreshes, persistMemoryIndexRefresh, sqlRefreshRepository } from './memory-index-refresh';
++
++const target = getVerifiedCiDatabaseUrl();
++test('real builder retries partial failures, serializes hosts, indexes latest version and refuses false success',
++  { skip: !target && 'requires verified job-local CI_DATABASE_URL' }, async t => {
++    const database = `index_rebuild_${randomUUID().replaceAll('-', '')}`;
++    const admin = new Pool({ connectionString: target });
++    const url = new URL(target!);
++    url.pathname = `/${database}`;
++    let pool: Pool | undefined;
++    let closeDb: (() => Promise<void>) | undefined;
++    try {
++      await admin.query(`CREATE DATABASE ${database}`);
++      // Only this test process changes target. No production environment/config
++      // and no application-wide "disable indexing" hook is involved.
++      process.env.CI_DATABASE_URL = url.href;
++      process.env.NEON_SHARED_DATABASE_URL = url.href;
++      process.env.USER_OPENAI_API_KEY = 'synthetic-test-input';
++      pool = new Pool({ connectionString: url.href });
++      await pool.query(`
++        CREATE TABLE conversation_memories (
++          id text PRIMARY KEY, title text NOT NULL, summary text NOT NULL,
++          content text NOT NULL, importance integer DEFAULT 7, tags text[],
++          created_at timestamptz DEFAULT now()
++        );
++        CREATE TABLE memory_embeddings (
++          id text PRIMARY KEY DEFAULT gen_random_uuid()::text,
++          memory_type text NOT NULL, memory_id text NOT NULL, user_id text,
++          embedding jsonb NOT NULL, content_hash text NOT NULL,
++          created_at timestamptz DEFAULT now(), strength real DEFAULT 1,
++          importance integer DEFAULT 5, last_reinforced_at timestamptz DEFAULT now(),
++          pinned boolean DEFAULT false, UNIQUE(memory_type, memory_id)
++        );
++      `);
++      const source = 'David: exact café\t  \nLuca: exact reply.\n'.repeat(320);
++      await pool.query('INSERT INTO conversation_memories (id,title,summary,content,tags) VALUES ($1,$2,$3,$4,$5)',
++        ['synthetic', 'Synthetic record', 'A synthetic summary for indexing', source, ['capture-id:synthetic']]);
++      const db = drizzle(pool);
++      const repository = sqlRefreshRepository(db);
++      await persistMemoryIndexRefresh(db, 'synthetic');
++      const { reembedConversationMemory } = await import('../scripts/reembed-memory');
++      const { splitIntoChunks, reformatSpeakerHeaders } = await import('./memory-embedding-indexer');
++      const { hashContent } = await import('./semantic-memory-service');
++      closeDb = (await import('../db')).closeDbConnections;
++      let requests = 0;
++      let failChunk = true;
++      let hold = false;
++      let entered!: () => void;
++      let release!: () => void;
++      t.mock.method(globalThis, 'fetch', async (input: any, init: any) => {
++        assert.equal(String(input), 'https://api.openai.com/v1/embeddings');
++        requests++;
++        const text = JSON.parse(init.body).input;
++        if (hold) {
++          hold = false;
++          entered();
++          await new Promise<void>(resolve => { release = resolve; });
++        }
++        if (failChunk && text.startsWith('[Memory:')) {
++          return new Response('synthetic remote chunk failure', { status: 503 });
++        }
++        return Response.json({ data: [{ embedding: [1, 0, 0] }] });
++      });
++
++      assert.deepEqual(await drainMemoryIndexRefreshes(repository, reembedConversationMemory),
++        { indexed: 0, pending: 1 });
++      assert.deepEqual(await repository.pending(), ['synthetic']);
++      assert.equal((await repository.read('synthetic'))!.content, source);
++      assert.ok((await pool.query('SELECT * FROM memory_embeddings')).rows.length >= 2);
++
++      failChunk = false;
++      // Hold an actual embedding request while another host attempts this ID
++      // and while capture commits a newer source without acquiring that lock.
++      await pool.query('DELETE FROM memory_embeddings');
++      hold = true;
++      const started = new Promise<void>(resolve => { entered = resolve; });
++      const building = drainMemoryIndexRefreshes(repository, reembedConversationMemory);
++      await started;
++      await assert.rejects(reembedConversationMemory('synthetic'), /already in progress/);
++      const latest = source + '\nDavid: newest exact message  \n';
++      await pool.query('UPDATE conversation_memories SET content=$1 WHERE id=$2', [latest, 'synthetic']);
++      await persistMemoryIndexRefresh(db, 'synthetic');
++      release();
++      assert.deepEqual(await building, { indexed: 0, pending: 1 });
++      assert.deepEqual(await drainMemoryIndexRefreshes(repository, reembedConversationMemory),
++        { indexed: 1, pending: 0 });
++      assert.deepEqual(await repository.pending(), []);
++      const rows = (await pool.query('SELECT memory_type,memory_id,content_hash FROM memory_embeddings')).rows;
++      const chunks = splitIntoChunks(latest);
++      const expected = [
++        ['conversation_memory', 'synthetic', hashContent(['Synthetic record', 'A synthetic summary for indexing', latest].join('\n\n'))],
++        ['conversation_summary', 'synthetic', hashContent('Synthetic record\n\nA synthetic summary for indexing')],
++        ...chunks.map((chunk, i) => ['conversation_chunk', `synthetic:chunk:${i}`,
++          hashContent(`[Memory: Synthetic record | Part ${i + 1} of ${chunks.length}]\n\n${reformatSpeakerHeaders(chunk)}`)]),
++      ];
++      assert.equal(rows.length, expected.length);
++      for (const [type, id, hash] of expected) {
++        assert.equal(rows.find(row => row.memory_type === type && row.memory_id === id)?.content_hash, hash);
++      }
++      const before = requests;
++      await reembedConversationMemory('synthetic');
++      assert.equal(requests, before, 'an idempotent retry makes no remote requests');
++      assert.equal((await pool.query('SELECT content FROM conversation_memories')).rows[0].content, latest);
++
++      // A missing endpoint/key must not be mistaken for an unchanged hash.
++      delete process.env.USER_OPENAI_API_KEY;
++      await pool.query("UPDATE conversation_memories SET title='Changed title'");
++      await persistMemoryIndexRefresh(db, 'synthetic');
++      assert.deepEqual(await drainMemoryIndexRefreshes(repository, reembedConversationMemory),
++        { indexed: 0, pending: 1 });
++      assert.deepEqual(await repository.pending(), ['synthetic']);
++    } finally {
++      if (closeDb) await closeDb();
++      await pool?.end();
++      await admin.query(`DROP DATABASE IF EXISTS ${database}`);
++      await admin.end();
++    }
++  });

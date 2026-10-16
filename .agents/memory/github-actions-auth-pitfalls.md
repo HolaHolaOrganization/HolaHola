@@ -187,3 +187,38 @@ Repository push authentication and pull-request creation can use different exist
 
 **How to apply:** Treat a successful contents push as evidence only for contents access, not pull-request write access. Use the existing authenticated integration for review operations when its permissions allow them; never infer authorization from repo role metadata, expand permissions silently, expose tokens, or republish source merely to retry PR creation.
 
+
+## Protected Environments do not protect repository-secret copies
+
+An approval-required GitHub Environment protects its environment-scoped
+credentials, not copies of the same credentials stored as repository or
+organization secrets. CODEOWNERS approval at merge is also not a boundary
+against earlier execution of a same-repository PR workflow.
+
+**Why:** Another workflow can omit the protected Environment and request the
+repository or organization copy. Protecting one named job is therefore not
+equivalent to restricting the credential's availability.
+
+**How to apply:** Inventory every secret store and effective credential
+permission before claiming a protected PR or deployment path. Move privileged
+credentials into the intended approval boundary, remove unprotected copies,
+and protect or retire legacy consumers in the same transition. Preserve
+legitimate restricted consumers. Verify locations through metadata and
+behavior with harmless canaries; never print or exfiltrate real credentials
+as a test.
+
+
+## Distinguish proxy rejection from credential failure
+
+A proxy's HTTP 403 is not sufficient evidence of a GitHub credential failure.
+Check the response issuer and format before proposing reauthorization.
+
+**Why:** A repository contents request returned a Cloudflare HTML rejection
+while other reads through the same connection worked and its authorization
+context reported healthy. That was not a GitHub JSON permissions response.
+
+**How to apply:** Distinguish CDN/proxy failures from provider authentication
+errors. Do not expand scopes or ask for new credentials without evidence.
+Prefer the project's established extension points when they fit the change;
+do not work around an intentional access restriction.
+

@@ -19,16 +19,16 @@
 
 'use strict';
 
-const fs = require('fs');
-const http = require('http');
-const path = require('path');
-const { execFileSync } = require('child_process');
+import fs from 'node:fs';
+import http from 'node:http';
+import path from 'node:path';
+import { execFileSync } from 'node:child_process';
 
 const MANIFEST_PATH = '/tmp/alden-guardian-manifest.json';
 const INITIAL_WAIT_MS = 14000;   // tsx typically restarts within 8-12 seconds
 const POLL_INTERVAL_MS = 2500;
 const MAX_POLL_MS = 35000;       // Total post-initial polling window
-const GUARDIAN_TOKEN = 'alden-guardian-internal-2024';
+const GUARDIAN_TOKEN = process.env.GUARDIAN_TOKEN;
 const SOURCE_CONTROL_RESULT_PREFIX = 'SOURCE_CONTROL_RESULT_JSON:';
 
 function sleep(ms) {
@@ -122,6 +122,9 @@ function postToServer(port, endpointPath, payload) {
 }
 
 async function main() {
+  if (!GUARDIAN_TOKEN || !GUARDIAN_TOKEN.trim()) {
+    throw new Error('GUARDIAN_TOKEN must be configured; refusing unauthenticated Guardian callbacks.');
+  }
   console.log('[Guardian] Starting up');
 
   // Read manifest

@@ -18,6 +18,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import { validatePackageCandidate, writeValidatedSourceFile } from './validated-source-write';
 import { spawn } from 'child_process';
 import Anthropic from '@anthropic-ai/sdk';
 import { getUserDb } from '../db';
@@ -328,6 +329,11 @@ export async function attemptAutoRepair(
 
     console.log(`[AutoRepair] Plan: ${plan.changes.length} file(s) — ${plan.explanation.substring(0, 80)}`);
 
+    // Reject malformed complete manifests before notifications or Guardian setup.
+    for (const change of plan.changes) {
+      validatePackageCandidate(change.filePath, change.newContent);
+    }
+
     const changeList = plan.changes
       .map(c => `• ${path.basename(c.filePath)}: ${c.description}`)
       .join('\n');
@@ -372,7 +378,7 @@ export async function attemptAutoRepair(
     }
 
     for (const change of plan.changes) {
-      fs.writeFileSync(change.filePath, change.newContent, 'utf-8');
+      writeValidatedSourceFile(change.filePath, change.newContent, change.originalContent);
       console.log(`[AutoRepair] Wrote: ${change.filePath}`);
     }
 

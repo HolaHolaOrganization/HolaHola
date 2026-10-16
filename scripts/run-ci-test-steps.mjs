@@ -17,6 +17,44 @@ import { fileURLToPath } from 'node:url';
 // doubled drive letter ("C:\C:\Users\..."). fileURLToPath handles this
 // correctly on every platform.
 const root = fileURLToPath(new URL('..', import.meta.url));
+const GROUPS = {
+  unit: {
+    startsWith: 'npx tsx --test server/scripts/gemini-gate-check.test.ts',
+    endsWith: 'server/scripts/test-agent-note-coordination-ingress.test.ts',
+  },
+  guards: {
+    startsWith: 'npx tsx server/scripts/test-openai-pronunciation-error-notice.ts',
+    endsWith: 'server/scripts/test-reach-north-star-response-field.ts',
+  },
+  episodes: {
+    startsWith: 'npx tsx server/scripts/seed-episode1.ts',
+    endsWith: 'server/scripts/test-north-star-resync-debounce.ts',
+  },
+};
+const usage = 'Usage: node scripts/run-ci-test-steps.mjs [--group=unit|guards|episodes] [--list] [--help]';
+let groupName;
+let listOnly = false;
+let showHelp = false;
+for (const argument of process.argv.slice(2)) {
+  if (argument === '--list' && !listOnly) {
+    listOnly = true;
+  } else if (argument === '--help' && !showHelp) {
+    showHelp = true;
+  } else if (argument.startsWith('--group=') && groupName === undefined) {
+    groupName = argument.slice('--group='.length);
+    if (!Object.hasOwn(GROUPS, groupName)) {
+      console.error(`Unknown CI test group "${groupName}". ${usage}`);
+      process.exit(2);
+    }
+  } else {
+    console.error(`Unsupported or duplicate argument "${argument}". ${usage}`);
+    process.exit(2);
+  }
+}
+if (showHelp) {
+  console.log(usage);
+  process.exit(0);
+}
 const packageJson = JSON.parse(readFileSync(resolve(root, 'package.json'), 'utf8'));
 const testChain = packageJson.scripts?.test;
 
@@ -49,8 +87,6 @@ function assertSafeCiDatabaseConfiguration() {
   }
 }
 
-assertSafeCiDatabaseConfiguration();
-
 if (typeof testChain !== 'string' || !testChain.trim()) {
   throw new Error('package.json must define a non-empty scripts.test command');
 }
@@ -67,6 +103,9 @@ const safetyInsertion = commands.findIndex((command) =>
   command.startsWith('npx tsx server/scripts/test-openai-pronunciation-error-notice.ts'));
 if (safetyInsertion < 0) throw new Error('Could not register projection/source safety checks before the guards group');
 commands.splice(safetyInsertion, 0,
+  'node --test scripts/run-ci-test-steps.test.mjs',
+  'npx tsx --test server/services/validated-source-write.test.ts',
+  'node --test scripts/alden-build-guardian.test.cjs',
   'node --test scripts/post-merge.test.mjs',
   'node --test server/scripts/test-guardian-carry-forward-lifecycle.mjs',
   'npx tsx --test server/services/auto-grounding-timing.test.ts',
@@ -311,21 +350,6 @@ if (commands.length === 0) {
   throw new Error('No executable commands were found in package.json scripts.test');
 }
 
-const GROUPS = {
-  unit: {
-    startsWith: 'npx tsx --test server/scripts/gemini-gate-check.test.ts',
-    endsWith: 'server/scripts/test-agent-note-coordination-ingress.test.ts',
-  },
-  guards: {
-    startsWith: 'npx tsx server/scripts/test-openai-pronunciation-error-notice.ts',
-    endsWith: 'server/scripts/test-reach-north-star-response-field.ts',
-  },
-  episodes: {
-    startsWith: 'npx tsx server/scripts/seed-episode1.ts',
-    endsWith: 'server/scripts/test-north-star-resync-debounce.ts',
-  },
-};
-
 function findGroupRange(name, definition) {
   const start = commands.findIndex((command) => command.startsWith(definition.startsWith));
   const end = commands.findIndex((command) => command.endsWith(definition.endsWith));
@@ -356,9 +380,6 @@ if (
   throw new Error('CI test groups must cover the canonical test command chain contiguously');
 }
 
-const requestedGroup = process.argv.slice(2).find((argument) => argument.startsWith('--group='));
-const groupName = requestedGroup?.slice('--group='.length);
-
 if (groupName && !Object.hasOwn(groupRanges, groupName)) {
   throw new Error(
     `Unknown CI test group "${groupName}". Expected one of: ${Object.keys(groupRanges).join(', ')}`,
@@ -367,6 +388,11 @@ if (groupName && !Object.hasOwn(groupRanges, groupName)) {
 
 const selectedRange = groupName ? groupRanges[groupName] : { start: 0, end: commands.length - 1 };
 const selectedCommands = commands.slice(selectedRange.start, selectedRange.end + 1);
+if (listOnly) {
+  console.log(selectedCommands.join('\n'));
+  process.exit(0);
+}
+assertSafeCiDatabaseConfiguration();
 
 // This DB-backed ownership test is deterministic on its own but races with
 // other test files when Node launches the large multi-file batch in parallel.

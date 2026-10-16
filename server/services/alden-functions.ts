@@ -36,6 +36,7 @@ import { sql, desc, eq, and, gte, isNull, inArray } from "drizzle-orm";
 import { computeHealthStatus } from "./voice-health-monitor";
 import { founderCollabService } from "./founder-collaboration-service";
 import * as fs from "fs";
+import { validatePackageCandidate, writeValidatedSourceFile } from "./validated-source-write";
 import * as path from "path";
 import { execSync, spawn } from "child_process";
 import { randomUUID } from "crypto";
@@ -2240,6 +2241,8 @@ export async function executeAldenTool(
           backup = fs.readFileSync(filePath, 'utf-8');
         }
 
+        validatePackageCandidate(filePath, new_content);
+
         // Write guardian manifest before touching the file
         const GUARDIAN_MANIFEST_PATH = '/tmp/alden-guardian-manifest.json';
         const manifest = {
@@ -2275,7 +2278,7 @@ export async function executeAldenTool(
 
         // Apply the change
         fs.mkdirSync(path.dirname(filePath), { recursive: true });
-        fs.writeFileSync(filePath, new_content, 'utf-8');
+        writeValidatedSourceFile(filePath, new_content, backup);
         console.log(`[Alden Tool] Applied change to: ${file_path}`);
 
         return {
@@ -2309,7 +2312,7 @@ export async function executeAldenTool(
         }
 
         const patched = original.replace(old_string, new_str);
-        fs.writeFileSync(filePath, patched, 'utf-8');
+        writeValidatedSourceFile(filePath, patched, original);
         console.log(`[Alden Tool] patch_file: "${description}" in ${file_path}`);
 
         return {
