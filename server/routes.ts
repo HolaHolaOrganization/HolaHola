@@ -197,6 +197,7 @@ import {
   sourcePromotionApiEnabled,
   sourcePromotionConfigurationError,
 } from "./services/source-promotion-service";
+import { getProcessBackgroundTasks } from "./services/instance-role";
 
 // ============================================================================
 // AI PROVIDERS: Gemini (Text) + Deepgram (Voice STT) + Google Cloud (Voice TTS)
@@ -25312,12 +25313,15 @@ Current conversation context:
     conversationTranscript: string[];
     topicHint: string;
   }>();
+  // Expiry runs on every instance role; only production writes the expired
+  // transcript to the shared conversation_memories (plan efb1e3d1 S2.2).
+  const autoSaveExpiredVoiceTranscripts = getProcessBackgroundTasks().claim('agent-voice-transcript-autosave');
   setInterval(async () => {
     const cutoff = Date.now() - 60 * 60 * 1000;
     for (const [id, s] of agentVoiceSessions) {
       if (s.createdAt < cutoff) {
         // If the session accumulated any transcript, auto-save it before expiry so nothing is lost.
-        if (s.conversationTranscript.length > 0) {
+        if (autoSaveExpiredVoiceTranscripts && s.conversationTranscript.length > 0) {
           try {
             const { sql: sqlTag } = await import('drizzle-orm');
             const db = getUserDb();

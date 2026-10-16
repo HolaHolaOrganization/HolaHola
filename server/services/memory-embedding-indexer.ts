@@ -748,6 +748,30 @@ async function archiveUnindexedConversations(): Promise<number> {
  *   catches those already-indexed rows and corrects their scope directly — no
  *   re-embedding needed since only userId changes.
  */
+/**
+ * Read-only: how many founder-tagged conversation memories still have
+ * null-scoped embeddings (the rows correctFounderEmbeddingScopes would repair).
+ * Same predicate as the repair below; SELECT only.
+ */
+export async function countUnscopedFounderEmbeddings(): Promise<number> {
+  const result = await getSharedDb().execute(sql`
+    SELECT COUNT(DISTINCT cm.id)::int AS n
+    FROM conversation_memories cm
+    WHERE (
+      cm.tags @> ARRAY['founder-chat']::text[]
+      OR cm.tags @> ARRAY['founder-private']::text[]
+    )
+    AND EXISTS (
+      SELECT 1 FROM memory_embeddings me
+      WHERE me.user_id IS NULL
+        AND me.memory_type IN ('conversation_memory', 'conversation_summary', 'conversation_chunk')
+        AND SPLIT_PART(me.memory_id, ':chunk:', 1) = cm.id::text
+    )
+  `);
+  const { parseFounderScopeCount } = await import('./founder-embedding-scope-check');
+  return parseFounderScopeCount(result);
+}
+
 export async function correctFounderEmbeddingScopes(): Promise<void> {
   try {
     const sharedDb = getSharedDb();

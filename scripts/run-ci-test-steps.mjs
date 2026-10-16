@@ -69,6 +69,7 @@ if (safetyInsertion < 0) throw new Error('Could not register projection/source s
 commands.splice(safetyInsertion, 0,
   'node --test scripts/alden-build-guardian.test.cjs',
   'npx tsx --test server/services/guardian-token.test.ts',
+  'npx tsx --test server/services/instance-role.test.ts',
   'node --test scripts/post-merge.test.mjs',
   'npx tsx --test server/scripts/test-episode-claude-attribution-repair.test.ts',
   'npx tsx --test server/scripts/test-episode-attribution-repair-postgres.test.ts',

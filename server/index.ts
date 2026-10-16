@@ -28,6 +28,20 @@ import {
   startSourceControlScheduler,
   stopSourceControlScheduler,
 } from "./services/source-control-scheduler";
+import { resolveInstanceRole, initProcessBackgroundTasks, type InstanceRole } from "./services/instance-role";
+
+// Instance role (standard-controls plan efb1e3d1, S2.2): every process uses the
+// one live database, so it must say explicitly whether it may start production
+// background work. A missing or unknown HOLAHOLA_INSTANCE_ROLE refuses boot.
+let instanceRole: InstanceRole;
+try {
+  instanceRole = resolveInstanceRole();
+} catch (err) {
+  console.error(`[Boot] CRITICAL: ${err instanceof Error ? err.message : err}`);
+  process.exit(1);
+}
+const backgroundTasks = initProcessBackgroundTasks(instanceRole);
+console.log(`[InstanceRole] ${instanceRole}`);
 
 const app = express();
 const startupReadiness = createStartupReadinessGate();
@@ -85,8 +99,9 @@ const stripeInitPromise = (async function initStripe() {
   const secretKey = await getStripeSecretKey();
   const webhookSecret = await getStripeWebhookSecret();
   
-  // Always run versioned migrations — even without Stripe credentials
-  try {
+  // Always run versioned migrations — even without Stripe credentials.
+  // Production only: a dev instance never changes the schema (plan S2.2/S2.3).
+  if (backgroundTasks.claim('boot-versioned-migrations')) try {
     console.log('Running database migrations...');
     const migrationResult = await migrationOrchestrator.runMigrations();
     if (migrationResult.applied.length > 0) {
@@ -97,6 +112,13 @@ const stripeInitPromise = (async function initStripe() {
     }
   } catch (migErr: any) {
     console.error('Migration error (non-fatal):', migErr.message);
+  }
+
+  // Stripe schema/backfill, boot seeds and neural-network syncs all write to the
+  // shared database; only the production instance runs them.
+  if (!backgroundTasks.claim('boot-stripe-sync-and-seeds')) {
+    stripeReady = false;
+    return;
   }
 
   if (!secretKey || !webhookSecret) {
@@ -282,22 +304,22 @@ const stripeInitPromise = (async function initStripe() {
 
     // Generate cover images for curriculum lessons — continuous background worker
     // Runs batches back-to-back with a short cooldown until all lessons are covered
-    import('./services/lesson-image-generator').then(({ startLessonImageWorker }) => {
+    backgroundTasks.run('lesson-image-worker', () => import('./services/lesson-image-generator').then(({ startLessonImageWorker }) => {
       startLessonImageWorker();
-    }).catch(err => console.error('Failed to import lesson-image-generator:', err));
+    }).catch(err => console.error('Failed to import lesson-image-generator:', err)));
 
     // Generate cover images for all 27 practice scenarios — one-shot background worker
-    import('./services/scenario-image-generator').then(({ startScenarioImageWorker }) => {
+    backgroundTasks.run('scenario-image-worker', () => import('./services/scenario-image-generator').then(({ startScenarioImageWorker }) => {
       startScenarioImageWorker();
-    }).catch(err => console.error('Failed to import scenario-image-generator:', err));
+    }).catch(err => console.error('Failed to import scenario-image-generator:', err)));
 
     // Augment Level 3-5 curriculum paths with thematic topic units — one-shot background worker
     // Adds Technology, Travel, Health (L3), Business, Science, Arts (L4), Finance, Media, Heritage (L5)
-    setTimeout(() => {
+    backgroundTasks.run('curriculum-augmentor', () => setTimeout(() => {
       import('./services/curriculum-augmentor').then(({ startCurriculumAugmentor }) => {
         startCurriculumAugmentor();
       }).catch(err => console.error('Failed to import curriculum-augmentor:', err));
-    }, 15000); // 15s delay — let the server stabilize before generating content
+    }, 15000)); // 15s delay — let the server stabilize before generating content
 
     // Initialize procedural memory cache for tool knowledge
     try {
@@ -486,8 +508,10 @@ const listeningPromise = new Promise<void>((resolve, reject) => {
   // intake/health routes exist so unrelated boot workers cannot postpone it.
   // Its readiness is exposed separately; general application readiness remains
   // independent so a recorder problem does not make the teaching app unavailable.
-  const { startAgentSessionAutosave } = await import('./services/agent-session-autosave');
-  startAgentSessionAutosave();
+  if (backgroundTasks.claim('canonical-capture-autosave')) {
+    const { startAgentSessionAutosave } = await import('./services/agent-session-autosave');
+    startAgentSessionAutosave();
+  }
 
   // Sofia student-support resolve endpoint
   app.post('/api/sofia/incidents/:id/resolve', async (req: Request, res: Response) => {
@@ -507,8 +531,10 @@ const listeningPromise = new Promise<void>((resolve, reject) => {
 
   // Luca's autonomous session watchdog — scans active sessions every 30s for
   // SOS signals, tool error spikes, stalled sessions, and degraded vision pipeline.
-  const { startSessionMonitor } = await import('./services/session-monitor');
-  startSessionMonitor();
+  if (backgroundTasks.claim('session-monitor')) {
+    const { startSessionMonitor } = await import('./services/session-monitor');
+    startSessionMonitor();
+  }
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
@@ -597,7 +623,10 @@ const listeningPromise = new Promise<void>((resolve, reject) => {
   // FAIL CLOSED: if correction fails, abort startup rather than serve traffic
   // with an unsecured embedding pool.  A transient DB error here is a security
   // signal — better to restart cleanly than to expose founder transcripts globally.
-  try {
+  // Production repairs; a dev instance never mutates shared data to become
+  // ready, so it runs a read-only check instead and refuses to serve traffic if
+  // any repair is still needed (production repairs it on its next boot).
+  if (backgroundTasks.claim('founder-embedding-scope-repair')) try {
     const { correctFounderEmbeddingScopes } = await import('./services/memory-embedding-indexer');
     await correctFounderEmbeddingScopes();
     console.log('[Boot] Founder embedding scope correction complete');
@@ -605,6 +634,11 @@ const listeningPromise = new Promise<void>((resolve, reject) => {
     console.error('[Boot] CRITICAL: correctFounderEmbeddingScopes failed —', err?.message ?? err,
       '— aborting startup to prevent founder transcript disclosure in the global recall pool');
     throw err; // Fail closed: do not serve traffic with an unsecured embedding pool
+  } else {
+    const { countUnscopedFounderEmbeddings } = await import('./services/memory-embedding-indexer');
+    const { assertFounderEmbeddingScopesClean } = await import('./services/founder-embedding-scope-check');
+    await assertFounderEmbeddingScopesClean(countUnscopedFounderEmbeddings);
+    console.log('[Boot] Founder embedding scopes verified clean (read-only check)');
   }
 
   // Attach all socket transports in the same synchronous turn immediately
@@ -631,7 +665,7 @@ const listeningPromise = new Promise<void>((resolve, reject) => {
 
   {
 
-    startSourceControlScheduler();
+    backgroundTasks.run('source-control-scheduler', () => startSourceControlScheduler());
 
     // Browser-dependent diagnostics are optional to server startup, but the
     // capability state must be explicit so local development can repair it.
@@ -646,7 +680,7 @@ const listeningPromise = new Promise<void>((resolve, reject) => {
     // while the service was down.  Synchronous, no DB, runs BEFORE the 85s
     // delayed worker block so Luca sees the alert at her very first session
     // turn even after a cold restart.
-    try {
+    if (backgroundTasks.claim('stale-channel-boot-alert')) try {
       const { seedStaleChannelAlertAtBoot } = await import('./services/agent-session-autosave');
       seedStaleChannelAlertAtBoot();
     } catch (err: any) {
@@ -656,7 +690,7 @@ const listeningPromise = new Promise<void>((resolve, reject) => {
     // Log which object-storage backend is active and probe credentials.
     // On failure, post a founder-visible alert to the Express Lane so the
     // broken configuration is caught immediately rather than silently.
-    try {
+    if (backgroundTasks.claim('storage-probe-startup')) try {
       const { logStorageBackend } = await import('./replit_integrations/object_storage/objectStorage');
       const { runStartupStorageProbe } = await import('./services/storage-probe-alerter');
       await runStartupStorageProbe(logStorageBackend, founderCollabService, founderCollabWSBroker);
@@ -667,7 +701,7 @@ const listeningPromise = new Promise<void>((resolve, reject) => {
     // Periodic storage probe — re-runs every 30 minutes so a credential
     // rotation or bucket-policy change mid-session is caught and alerted
     // without waiting for the next server restart.
-    setInterval(async () => {
+    backgroundTasks.run('storage-probe-periodic', () => setInterval(async () => {
       try {
         const { logStorageBackend } = await import('./replit_integrations/object_storage/objectStorage');
         const { runPeriodicStorageProbe } = await import('./services/storage-probe-alerter');
@@ -675,11 +709,11 @@ const listeningPromise = new Promise<void>((resolve, reject) => {
       } catch (err: any) {
         console.warn('[ObjectStorage] Periodic probe threw unexpectedly:', err?.message ?? err);
       }
-    }, 30 * 60 * 1000).unref();
+    }, 30 * 60 * 1000).unref());
 
     // Run CopyObject probe — detects whether the S3 bucket supports in-place
     // metadata updates.  Failure logs a WARN but does not block startup.
-    try {
+    if (backgroundTasks.claim('storage-copyobject-probe')) try {
       const { runCopyObjectProbeAtStartup } = await import('./replit_integrations/object_storage/objectStorage');
       await runCopyObjectProbeAtStartup();
     } catch (err: any) {
@@ -731,7 +765,7 @@ const listeningPromise = new Promise<void>((resolve, reject) => {
     // Immediate (fire-and-forget): pre-warm North Star principle embeddings so the
     // first reach_north_star call is fast even after a cold deploy or new principle add.
     // Guard: skip in test environments to avoid unexpected OpenAI calls during CI.
-    if (process.env.NODE_ENV !== 'test') {
+    if (process.env.NODE_ENV !== 'test') backgroundTasks.run('principle-embeddings-warmup', () => {
       setImmediate(async () => {
         try {
           const { populatePrincipleEmbeddings } = await import('./scripts/populate-principle-embeddings');
@@ -741,11 +775,11 @@ const listeningPromise = new Promise<void>((resolve, reject) => {
           console.warn('[PrincipleEmbeddings] Boot warm-up failed (non-fatal):', err?.message);
         }
       });
-    }
+    });
 
     // +2s: Luca Presence — establish Luca's live WebSocket identity in the Team Room.
     // Deferred slightly so the HTTP server is fully ready before we self-connect.
-    setTimeout(async () => {
+    backgroundTasks.run('luca-presence', () => setTimeout(async () => {
       try {
         const { connectLucaToTeamRoom } = await import('./services/luca-presence');
         connectLucaToTeamRoom();
@@ -754,10 +788,10 @@ const listeningPromise = new Promise<void>((resolve, reject) => {
       } catch (err: any) {
         console.warn('[LucaPresence] Startup error:', err.message);
       }
-    }, 2000);
+    }, 2000));
 
     // Immediate: Hive Consciousness (lightweight event listener)
-    hiveConsciousnessService.startListening();
+    backgroundTasks.run('hive-sync', () => hiveConsciousnessService.startListening());
     
     // Immediate: Voice telemetry (in-memory batching, 2s flush)
     const { voiceTelemetry } = await import('./services/voice-pipeline-telemetry');
@@ -766,17 +800,17 @@ const listeningPromise = new Promise<void>((resolve, reject) => {
     console.log('[CONSOLIDATION] Sync-bridge retired - Neon routing is primary');
 
     // +3s: Memory Recovery Worker
-    setTimeout(() => {
+    backgroundTasks.run('memory-recovery-worker', () => setTimeout(() => {
       memoryRecoveryWorker.start(5);
-    }, 3000);
+    }, 3000));
     
     // +6s: Sofia Issue Monitoring Worker
-    setTimeout(() => {
+    backgroundTasks.run('sofia-issue-monitoring', () => setTimeout(() => {
       supportPersonaService.startIssueMonitoringWorker(5);
-    }, 6000);
+    }, 6000));
     
     // +9s: Zombie session cleanup
-    setTimeout(async () => {
+    backgroundTasks.run('zombie-session-cleanup', () => setTimeout(async () => {
       const { usageService } = await import('./services/usage-service');
       const ZOMBIE_CLEANUP_INTERVAL_MS = 5 * 60 * 1000;
       const ZOMBIE_MAX_AGE_SECONDS = 1800; // 30 min — GL idle timeout (5 min) is primary guard; this is the safety net
@@ -790,93 +824,93 @@ const listeningPromise = new Promise<void>((resolve, reject) => {
           console.warn(`[ZombieCleanup] Error:`, err.message);
         }
       }, ZOMBIE_CLEANUP_INTERVAL_MS);
-    }, 9000);
+    }, 9000));
 
     // +12s: Voice Health Monitor
-    setTimeout(async () => {
+    backgroundTasks.run('voice-health-monitor', () => setTimeout(async () => {
       const { startVoiceHealthMonitor, onHealthStatusChange } = await import('./services/voice-health-monitor');
       onHealthStatusChange(async (transition) => {
         await supportPersonaService.handleHealthTransition(transition);
       });
       startVoiceHealthMonitor();
-    }, 12000);
+    }, 12000));
 
     // +15s: Context Health Monitor
-    setTimeout(async () => {
+    backgroundTasks.run('context-health-monitor', () => setTimeout(async () => {
       const { startContextHealthMonitor, onContextHealthStatusChange } = await import('./services/context-health-monitor');
       onContextHealthStatusChange(async (transition) => {
         await supportPersonaService.handleContextHealthTransition(transition);
       });
       startContextHealthMonitor();
-    }, 15000);
+    }, 15000));
 
     // +18s: Brain Health Aggregator
-    setTimeout(async () => {
+    backgroundTasks.run('brain-health-aggregator', () => setTimeout(async () => {
       const { startBrainHealthAggregator, onBrainHealthStatusChange } = await import('./services/brain-health-aggregator');
       onBrainHealthStatusChange(async (transition) => {
         await supportPersonaService.handleBrainHealthTransition(transition);
       });
       startBrainHealthAggregator();
-    }, 18000);
+    }, 18000));
 
     // +25s: Wren Security Audit Worker
-    setTimeout(async () => {
+    backgroundTasks.run('wren-security-audit', () => setTimeout(async () => {
       const { startSecurityAuditWorker } = await import('./services/wren-security-audit-worker');
       startSecurityAuditWorker();
-    }, 25000);
+    }, 25000));
 
     // +30s: Reading Module Pre-generation (shared cache for all students)
-    setTimeout(async () => {
+    backgroundTasks.run('reading-module-prefetch', () => setTimeout(async () => {
       const { startBackgroundPrefetch } = await import('./services/reading-module-prefetch');
       startBackgroundPrefetch();
-    }, 30000);
+    }, 30000));
 
     // +35s: Lyra Learning Experience Analyst Worker
-    setTimeout(async () => {
+    backgroundTasks.run('lyra-analytics', () => setTimeout(async () => {
       const { startLyraAnalyticsWorker } = await import('./services/lyra-analytics-worker');
       startLyraAnalyticsWorker();
-    }, 35000);
+    }, 35000));
 
     // +40s: Alden Weekly Digest Worker (CAP-002)
-    setTimeout(async () => {
+    backgroundTasks.run('alden-digest', () => setTimeout(async () => {
       const { startAldenDigestWorker } = await import('./services/alden-digest-worker');
       startAldenDigestWorker();
-    }, 40000);
+    }, 40000));
 
     // +45s: Alden Watch Worker — proactive notifications (CAP-009)
-    setTimeout(async () => {
+    backgroundTasks.run('alden-watch', () => setTimeout(async () => {
       const { startAldenWatchWorker } = await import('./services/alden-watch-worker');
       startAldenWatchWorker();
-    }, 45000);
+    }, 45000));
 
     // +46s: Thread Weaver Monthly Refresh — re-weave identity threads if stale (> 28 days)
-    setTimeout(async () => {
+    backgroundTasks.run('thread-weaver-refresh', () => setTimeout(async () => {
       const { runMonthlyThreadRefresh } = await import('./services/thread-weaver-service');
       await runMonthlyThreadRefresh();
-    }, 46000);
+    }, 46000));
 
     // +47s: Shared Lobe Snapshot — regenerate docs/shared-lobe-snapshot.md from DB,
     //       then start the staleness watcher (polls every 5 min for direct-SQL inserts).
-    setTimeout(async () => {
+    backgroundTasks.run('shared-lobe-snapshot', () => setTimeout(async () => {
       const { generateSharedLobeSnapshot, startSharedLobeWatcher } = await import('./services/shared-lobe-snapshot');
       await generateSharedLobeSnapshot();
       startSharedLobeWatcher();
-    }, 46000);
+    }, 46000));
 
     // +47s: Agent Notes Snapshot — regenerate live internal inbox snapshots
-    setTimeout(async () => {
+    backgroundTasks.run('agent-notes-snapshot', () => setTimeout(async () => {
       const { generateAgentNotesSnapshot } = await import('./services/agent-notes-snapshot');
       await generateAgentNotesSnapshot();
-    }, 47000);
+    }, 47000));
 
     // +48s: Agent Briefing — regenerate docs/agent-briefing.md (the Agent's room at session start)
-    setTimeout(async () => {
+    backgroundTasks.run('agent-briefing', () => setTimeout(async () => {
       const { generateAgentBriefing } = await import('./services/agent-briefing');
       await generateAgentBriefing();
-    }, 48000);
+    }, 48000));
 
     // +55s: Menu Image Worker — auto-resume if there are still pending food images
-    setTimeout(async () => {
+    backgroundTasks.run('menu-image-worker', () => setTimeout(async () => {
       const { startMenuImageWorker } = await import('./services/menu-image-worker');
       const result = await startMenuImageWorker({ batchLimit: 1000, delayBetween: 2000, silent: false });
       if (result.ok) {
@@ -884,26 +918,26 @@ const listeningPromise = new Promise<void>((resolve, reject) => {
       } else if (result.pending === 0) {
         console.log('[MenuWorker] Boot check: all food images already generated');
       }
-    }, 55000);
+    }, 55000));
 
     // +50s: Sofia Issue Cleanup Worker (CAP-005)
-    setTimeout(async () => {
+    backgroundTasks.run('sofia-issue-cleanup', () => setTimeout(async () => {
       const { startSofiaCleanupWorker } = await import('./services/sofia-issue-cleanup-worker');
       startSofiaCleanupWorker();
-    }, 50000);
+    }, 50000));
 
     // +55s: Sophia Student Support Worker (ph-spelling — student-facing incident layer)
-    setTimeout(async () => {
+    backgroundTasks.run('sophia-student-support', () => setTimeout(async () => {
       const { startSophiaWorker } = await import('./services/sophia-worker');
       startSophiaWorker();
-    }, 55000);
+    }, 55000));
 
     // +70s: Vocab Image Library — fill any gaps since cache hits are free/instant.
     // Processes all textbook vocab words for all languages; skips words that already
     // have a cached watercolor image. Only calls the image engine on true misses.
     // SKIP CHECK: If seeder ran within the last 24h, skip this startup run entirely
     // to avoid DB pool saturation during /chat session init.
-    setTimeout(async () => {
+    backgroundTasks.run('vocab-image-seed', () => setTimeout(async () => {
       try {
         const { getSharedDb } = await import('./neon-db');
         const { sql } = await import('drizzle-orm');
@@ -930,16 +964,16 @@ const listeningPromise = new Promise<void>((resolve, reject) => {
       } catch (err: any) {
         console.warn('[VocabImageSeed] Failed to start:', err.message);
       }
-    }, 70000);
+    }, 70000));
 
     // +65s: Fact Confidence Decay Worker — weekly 15% decay on unreinforced time-sensitive facts
-    setTimeout(async () => {
+    backgroundTasks.run('fact-confidence-decay', () => setTimeout(async () => {
       const { startFactConfidenceDecayWorker } = await import('./services/fact-confidence-decay-worker');
       startFactConfidenceDecayWorker();
-    }, 65000);
+    }, 65000));
 
     // +60s: Diagnostic retention (daily cleanup, no rush)
-    setTimeout(async () => {
+    backgroundTasks.run('diagnostic-retention', () => setTimeout(async () => {
       const DIAG_RETENTION_DAYS = 30;
       const DIAG_CLEANUP_INTERVAL_MS = 24 * 60 * 60 * 1000;
       const { generateDailySummary } = await import('./services/voice-health-monitor');
@@ -965,17 +999,17 @@ const listeningPromise = new Promise<void>((resolve, reject) => {
       };
       runDiagRetention();
       setInterval(runDiagRetention, DIAG_CLEANUP_INTERVAL_MS);
-    }, 60000);
+    }, 60000));
 
     // +80s: Daniela Absence Worker — daily check for absent students, Express Lane nudge
-    setTimeout(async () => {
+    backgroundTasks.run('daniela-absence', () => setTimeout(async () => {
       const { startDanielaAbsenceWorker } = await import('./services/daniela-absence-worker');
       startDanielaAbsenceWorker();
-    }, 80000);
+    }, 80000));
 
     // +85s: Daniela Presence Worker — generates narrative "where I am with this student"
     // doc every 30min so Daniela arrives oriented, not blank, at each session start
-    setTimeout(async () => {
+    backgroundTasks.run('agent-and-daniela-workers', () => setTimeout(async () => {
       const { startDanielaPresenceWorker } = await import('./services/daniela-presence-worker');
       startDanielaPresenceWorker();
 
@@ -1011,70 +1045,70 @@ const listeningPromise = new Promise<void>((resolve, reject) => {
       // coordination-lifecycle-reaper-service.ts.
       const { startCoordinationLifecycleReaperWorker } = await import('./services/coordination-lifecycle-reaper-worker');
       startCoordinationLifecycleReaperWorker();
-    }, 85000);
+    }, 85000));
 
     // +55s: Learning Goals Migration — idempotent CREATE TABLE IF NOT EXISTS for
     // learning_goals table. Tracks outcome-based goals + capability arcs for
     // self-directed students and business travelers. Safe to run every boot.
-    setTimeout(async () => {
+    backgroundTasks.run('learning-goals-migration', () => setTimeout(async () => {
       const { runLearningGoalsMigration } = await import('./services/learning-goal-service');
       runLearningGoalsMigration().catch((err: Error) =>
         console.warn('[LearningGoals] Migration skipped:', err.message)
       );
-    }, 55000);
+    }, 55000));
 
 
     // +95s: Memory Embedding Indexer — generates Gemini text-embedding-004 vectors
     // for all memory records (student_insights, hive_snapshots, personal_facts, growth_memories)
     // enabling semantic similarity search in the recall scatter-gather tool
-    setTimeout(async () => {
+    backgroundTasks.run('memory-embedding-indexer', () => setTimeout(async () => {
       const { startMemoryEmbeddingIndexer } = await import('./services/memory-embedding-indexer');
       startMemoryEmbeddingIndexer();
-    }, 95000);
+    }, 95000));
 
     // +100s: Daniela Tool Indexer — embeds all function declarations into neural memory
     // (memoryType='daniela_tool', userId=null, pinned=true). Daniela can recall what
     // tools she has and when to use them even if context injection is degraded.
-    setTimeout(async () => {
+    backgroundTasks.run('daniela-tool-indexer', () => setTimeout(async () => {
       const { runDanielaToolIndexer } = await import('./services/daniela-tool-indexer');
       runDanielaToolIndexer().catch((err: Error) =>
         console.warn('[ToolIndexer] Skipped:', err.message)
       );
-    }, 100000);
+    }, 100000));
 
     // +105s: Learning Goal Capability Indexer — embeds all active + recently-archived
     // goal capabilities into neural memory (memoryType='goal_capability', userId=studentId).
     // Daniela can recall capability status and evidence notes via semantic search.
-    setTimeout(async () => {
+    backgroundTasks.run('goal-capability-indexer', () => setTimeout(async () => {
       const { indexAllActiveGoalCapabilities } = await import('./services/learning-goal-service');
       indexAllActiveGoalCapabilities().catch((err: Error) =>
         console.warn('[LearningGoal] Capability index skipped:', err.message)
       );
-    }, 105000);
+    }, 105000));
 
     // +115s: Agent Operation Indexer — embeds the static operations catalogue in
     // a dedicated, pinned namespace. operation_skill is intentionally excluded
     // from Daniela's default recall pool and is searched only by the authenticated
     // coordination discovery endpoint.
-    setTimeout(async () => {
+    backgroundTasks.run('operation-skill-indexer', () => setTimeout(async () => {
       const { runOperationSkillIndexer } = await import('./services/operation-skill-indexer');
       runOperationSkillIndexer().catch((err: Error) =>
         console.warn('[OperationIndexer] Skipped:', err.message)
       );
-    }, 115000);
+    }, 115000));
 
     // +108s: Shadow Auditor Stale-Session Reaper — suspends any active pedagogical
     // loops whose GL sessions closed without a clean stop() call (e.g., tab closed,
     // network drop). Runs every 30 minutes. Loops are marked 'suspended' so they
     // can be resumed next session via get_current_teaching_context.
-    setTimeout(async () => {
+    backgroundTasks.run('shadow-auditor-reaper', () => setTimeout(async () => {
       const { reapStaleSessions } = await import('./services/shadow-auditor');
       const runReaper = () => reapStaleSessions().catch((err: Error) =>
         console.warn('[ShadowAudit] Reaper error:', err.message)
       );
       runReaper();
       setInterval(runReaper, 30 * 60 * 1000); // every 30 min
-    }, 108000);
+    }, 108000));
 
     // +300s outer + 90s inner = +390s total: Madrigal Unit Embedding Indexer
     // Embeds each Madrigal pedagogical unit into memory_embeddings (type='madrigal_unit',
@@ -1084,49 +1118,49 @@ const listeningPromise = new Promise<void>((resolve, reject) => {
     // (+100s) and EmbedIndexer (+95s) which pushed heap to 2033 MB → OOM crash. See embed-indexer-oom.md.
     // Outer delay bumped from 110s→300s: VocabImageSeed (+70s) takes 4-5 min in production;
     // overlap with MadrigalIndexer at +200s caused second OOM. 390s total ensures no overlap.
-    setTimeout(async () => {
+    backgroundTasks.run('madrigal-indexing', () => setTimeout(async () => {
       const { scheduleMadrigalIndexing } = await import('./services/madrigal-embedding-indexer');
       scheduleMadrigalIndexing(); // uses default 90s inner delay → total +390s from boot
-    }, 300000);
+    }, 300000));
 
     // +120s: Memory Consolidation Worker — weekly job that merges related session_summary
     // snapshots into aggregate_analytics entries, reducing noise in long-running students
-    setTimeout(async () => {
+    backgroundTasks.run('memory-consolidator', () => setTimeout(async () => {
       const { startMemoryConsolidator } = await import('./services/memory-consolidator');
       startMemoryConsolidator();
-    }, 120000);
+    }, 120000));
 
     // +125s: Session Insight Consolidation Worker (T003 + T006)
     // Runs every 6 hours. Synthesizes student_insight memories (what each student is working
     // on, struggling with, growing toward) and growth_memory entries (Daniela's between-session
     // reflection in her own voice). Both stored as memory_embeddings for neural net recall.
     // Also triggers voice drift check after each cycle (T004).
-    setTimeout(async () => {
+    backgroundTasks.run('session-insight-consolidation', () => setTimeout(async () => {
       const { startConsolidationWorker } = await import('./services/memory-consolidation-worker');
       startConsolidationWorker();
-    }, 125000);
+    }, 125000));
 
     // +135s: Voice Drift Baseline — build once if no baseline exists yet (T004).
     // The drift check itself fires after each consolidation cycle.
-    setTimeout(async () => {
+    backgroundTasks.run('voice-drift-baseline', () => setTimeout(async () => {
       const { ensureVoiceDriftBaseline } = await import('./services/voice-drift-service');
       ensureVoiceDriftBaseline().catch((err: Error) =>
         console.warn('[VoiceDrift] Baseline skipped:', err.message)
       );
-    }, 135000);
+    }, 135000));
 
     // +130s: Conversation Curator — daily job that finds substantive conversations not yet
     // in conversation_memories and saves them as verbatim-transcript memories. Idempotent.
-    setTimeout(async () => {
+    backgroundTasks.run('conversation-curator', () => setTimeout(async () => {
       const { startConversationCurator } = await import('./services/history-backfill-service');
       startConversationCurator();
-    }, 130000);
+    }, 130000));
 
     // +75s: Curriculum Enrichment Auto-Resume
     // Fires on every boot. The enrichment service skips already-enriched lessons
     // (within 7 days), so this is safe to run repeatedly and acts as a self-healing
     // resume mechanism when server restarts interrupt a bulk enrichment run.
-    setTimeout(async () => {
+    backgroundTasks.run('curriculum-enrichment-resume', () => setTimeout(async () => {
       try {
         const { Pool } = await import('pg');
         const pool = new Pool({ connectionString: process.env.NEON_SHARED_DATABASE_URL });
@@ -1148,7 +1182,13 @@ const listeningPromise = new Promise<void>((resolve, reject) => {
       } catch (err: any) {
         console.warn('[CurriculumEnrich] Boot-resume check failed:', err.message);
       }
-    }, 75000);
+    }, 75000));
+
+    {
+      const summary = backgroundTasks.summary();
+      console.log(`[InstanceRole] ${summary.role}: ${summary.started.length} background task(s) scheduled, ${summary.skipped.length} not started` +
+        (summary.skipped.length ? ` (${summary.skipped.join(', ')})` : ''));
+    }
 
     // GRACEFUL SHUTDOWN: Drain active sessions and flush data before exit
     const gracefulShutdown = async (signal: string) => {
