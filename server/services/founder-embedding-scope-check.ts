@@ -7,6 +7,24 @@
  * or DELETE). A dev instance must not mutate shared data to become ready, so it
  * only counts them and refuses to serve traffic if any exist.
  */
+/**
+ * Parses the single-row `SELECT COUNT(...)::int AS n` result. Fail closed: the
+ * aggregate always owes exactly one row with a present, non-null, non-negative
+ * integer `n` (a number, or a string of digits as some drivers return). Any other
+ * shape throws, so unavailable count data can never be read as "clean".
+ */
+export function parseFounderScopeCount(result: unknown): number {
+  const rows = (result as { rows?: unknown } | null | undefined)?.rows;
+  if (!Array.isArray(rows) || rows.length !== 1) {
+    throw new Error('[Boot] Founder embedding scope check: expected exactly one count row; refusing to serve traffic.');
+  }
+  const row = rows[0] as Record<string, unknown> | null;
+  const raw = row && typeof row === 'object' ? row.n : undefined;
+  if (typeof raw === 'number' && Number.isSafeInteger(raw) && raw >= 0) return raw;
+  if (typeof raw === 'string' && /^\d+$/.test(raw) && Number.isSafeInteger(Number(raw))) return Number(raw);
+  throw new Error(`[Boot] Founder embedding scope check: count is missing or invalid (${JSON.stringify(raw ?? null)}); refusing to serve traffic.`);
+}
+
 export async function assertFounderEmbeddingScopesClean(countUnscoped: () => Promise<number>): Promise<void> {
   const unscoped = await countUnscoped();
   if (!Number.isInteger(unscoped) || unscoped < 0) {

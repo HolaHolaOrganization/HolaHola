@@ -768,7 +768,8 @@ export async function countUnscopedFounderEmbeddings(): Promise<number> {
         AND SPLIT_PART(me.memory_id, ':chunk:', 1) = cm.id::text
     )
   `);
-  return Number(((result as any).rows ?? [])[0]?.n ?? 0);
+  const { parseFounderScopeCount } = await import('./founder-embedding-scope-check');
+  return parseFounderScopeCount(result);
 }
 
 export async function correctFounderEmbeddingScopes(): Promise<void> {

@@ -9,7 +9,7 @@ import {
   resolveInstanceRole,
   type BackgroundTaskId,
 } from './instance-role';
-import { assertFounderEmbeddingScopesClean } from './founder-embedding-scope-check';
+import { assertFounderEmbeddingScopesClean, parseFounderScopeCount } from './founder-embedding-scope-check';
 import { auditBootTimers } from '../scripts/audit-boot-timers';
 
 const TASK_IDS = Object.keys(BACKGROUND_TASKS) as BackgroundTaskId[];
@@ -78,6 +78,25 @@ test('dev founder-embedding check: dirty or invalid state refuses to serve', asy
   await assert.rejects(assertFounderEmbeddingScopesClean(async () => { throw new Error('db down'); }), /db down/);
 });
 
+test('dev founder-embedding count parser: genuine counts pass, malformed results fail closed', async () => {
+  assert.equal(parseFounderScopeCount({ rows: [{ n: 0 }] }), 0);
+  assert.equal(parseFounderScopeCount({ rows: [{ n: 3 }] }), 3);
+  assert.equal(parseFounderScopeCount({ rows: [{ n: '0' }] }), 0);
+  assert.equal(parseFounderScopeCount({ rows: [{ n: '7' }] }), 7);
+  const malformed: unknown[] = [
+    undefined, null, {}, { rows: null }, { rows: [] }, { rows: [{}] }, { rows: [{ n: null }] },
+    { rows: [{ n: undefined }] }, { rows: [{ n: '' }] }, { rows: [{ n: ' ' }] }, { rows: [{ n: '-1' }] },
+    { rows: [{ n: -1 }] }, { rows: [{ n: 1.5 }] }, { rows: [{ n: Number.NaN }] }, { rows: [{ n: '3a' }] },
+    { rows: [{ n: true }] }, { rows: [{ n: 0 }, { n: 0 }] }, { rows: [null] }, [{ n: 0 }],
+  ];
+  for (const result of malformed) {
+    assert.throws(() => parseFounderScopeCount(result), /refusing to serve traffic/, JSON.stringify(result));
+  }
+  // End to end through the boot assertion: a malformed result never reads as clean.
+  await assert.rejects(assertFounderEmbeddingScopesClean(async () => parseFounderScopeCount({ rows: [] })), /refusing to serve traffic/);
+  await assertFounderEmbeddingScopesClean(async () => parseFounderScopeCount({ rows: [{ n: 0 }] }));
+});
+
 test('the dev count query is SELECT-only and uses the repair predicate', () => {
   const start = INDEXER_SOURCE.indexOf('export async function countUnscopedFounderEmbeddings');
   const end = INDEXER_SOURCE.indexOf('export async function correctFounderEmbeddingScopes');
@@ -86,6 +105,8 @@ test('the dev count query is SELECT-only and uses the repair predicate', () => {
   assert.doesNotMatch(body, /\b(UPDATE|DELETE|INSERT|ALTER|DROP|TRUNCATE)\b/);
   assert.match(body, /SELECT COUNT\(DISTINCT cm\.id\)/);
   assert.match(body, /me\.user_id IS NULL/);
+  assert.match(body, /return parseFounderScopeCount\(result\);/);
+  assert.doesNotMatch(body, /\?\? 0/);
 });
 
 test('index.ts repairs only under the claim and otherwise runs the read-only check', () => {
