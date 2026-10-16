@@ -1,8 +1,13 @@
 /**
  * test-r2-health-check.ts
  *
- * CI guard for the R2 object-storage read paths used by student-facing media
- * routes (/api/media/ai-image/:file and /api/media/vm-audio/:file).
+ * Live health check for the R2 object-storage read paths used by student-facing
+ * media routes (/api/media/ai-image/:file and /api/media/vm-audio/:file).
+ *
+ * Not part of PR CI since 2026-10-15 (Phase S, plan efb1e3d1): it needs the real
+ * storage credentials, and PR CI receives no repository secrets. Production's own
+ * startup + periodic storage probe (storage-probe-alerter.ts) covers live
+ * reachability. Run it by hand where the credentials already exist.
  *
  * Three outcomes:
  *   PASS – credentials are valid and both prefixes are reachable (empty or not)
