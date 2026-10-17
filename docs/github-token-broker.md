@@ -63,3 +63,5 @@ Denial reasons:
 - `installation_mismatch`
 - `github_unavailable`
 - `token_scope_exceeded`
+
+<!-- A0.2 enforcement test (2026-10-17): this PR must not be mergeable without an independent approval. It will be closed, not merged. -->
