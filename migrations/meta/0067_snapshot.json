@@ -1,5 +1,5 @@
 {
-  "id": "75c717c6-8cc9-4882-b5d2-c7b39a2729ef",
+  "id": "d5d548e2-6b8c-4da3-8f43-d299bd260655",
   "prevId": "2c30790f-dac0-4b66-9efd-23f6a924ec73",
   "version": "7",
   "dialect": "postgresql",
@@ -24639,6 +24639,38 @@
           "columns": [
             {
               "expression": "actor",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"github_app_grants\".\"state\" in ('active', 'disabled')",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "uq_github_app_grants_live_app": {
+          "name": "uq_github_app_grants_live_app",
+          "columns": [
+            {
+              "expression": "app_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"github_app_grants\".\"state\" in ('active', 'disabled')",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "uq_github_app_grants_live_installation": {
+          "name": "uq_github_app_grants_live_installation",
+          "columns": [
+            {
+              "expression": "installation_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"

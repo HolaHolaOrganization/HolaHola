@@ -7,8 +7,9 @@
  * - POST /api/coordination/github-token                  mint a token for the CALLER's own App (agent credential)
  *
  * The mint route reads nothing from the request body: the actor comes from the
- * authenticated credential, and App, installation, repository and permissions
- * come from the grant and server constants.
+ * authenticated credential (which must be the actor's own BROKER credential),
+ * and App, installation, repository and permissions come from the grant and
+ * server constants.
  */
 import type { Application, RequestHandler, Response } from 'express';
 import {
@@ -120,7 +121,12 @@ export function registerGithubTokenBrokerRoutes(app: Application, mintDeps?: Par
       res.status(401).json({ error: 'Coordination token required (x-coordination-token header)' });
       return;
     }
-    const result = await mintAgentGithubToken(actor, {
+    const result = await mintAgentGithubToken({
+      actor,
+      authType: req.coordinationAuthType,
+      runtimeId: req.coordinationCredential?.runtimeId,
+      credentialId: req.coordinationCredential?.credentialId,
+    }, {
       store: githubTokenBrokerStore,
       github: githubAppApi,
       loadPrivateKey: (appId) => loadPrivateKeyFromEnv(appId),

@@ -25,7 +25,7 @@ test('unique violations are recognized directly and when wrapped by the query la
   assert.equal(isUniqueViolation(undefined), false);
 });
 
-test('grant store: founder transitions are conditional, one live grant per actor, revoke is terminal', async (t) => {
+test('grant store: conditional transitions, exclusive actor/App/installation, decisions serialized behind mints', async (t) => {
   if (!ciUrl) {
     t.skip('requires the job-local CI database (CI=true, CI_DATABASE_URL)');
     return;
@@ -37,7 +37,8 @@ test('grant store: founder transitions are conditional, one live grant per actor
   const { githubTokenBrokerStore, GithubGrantError } = await import('./github-token-broker-store');
   const db = getSharedDb();
   const actor = 'luca-cursor';
-  await db.delete(githubAppGrants).where(eq(githubAppGrants.actor, actor));
+  const otherActor = 'luca-openai-agents';
+  await db.delete(githubAppGrants).where(inArray(githubAppGrants.actor, [actor, otherActor]));
 
   const created: string[] = [];
   try {
@@ -82,6 +83,39 @@ test('grant store: founder transitions are conditional, one live grant per actor
       (error: unknown) => error instanceof GithubGrantError && error.code === 'NOT_FOUND');
     assert.equal(await githubTokenBrokerStore.findLiveGrant(actor), null);
 
+    // R4: no two actors may hold the same App or installation live.
+    const mine = await githubTokenBrokerStore.propose({ actor, appId: 555, installationId: 666 }, 'david');
+    const sameApp = await githubTokenBrokerStore.propose({ actor: otherActor, appId: 555, installationId: 999 }, 'david');
+    const sameInstall = await githubTokenBrokerStore.propose({ actor: otherActor, appId: 998, installationId: 666 }, 'david');
+    created.push(mine.id, sameApp.id, sameInstall.id);
+    await githubTokenBrokerStore.decide(mine.id, 'approve', 'david');
+    for (const collision of [sameApp, sameInstall]) {
+      await assert.rejects(githubTokenBrokerStore.decide(collision.id, 'approve', 'david'),
+        (error: unknown) => error instanceof GithubGrantError && error.code === 'CONFLICT');
+    }
+
+    // R1: a founder decision blocks behind an in-flight mint's share lock.
+    let releaseMint!: () => void;
+    const mintHeld = new Promise<void>((resolve) => { releaseMint = resolve; });
+    let lockedGrantState: string | undefined;
+    const mint = githubTokenBrokerStore.withMintLock(actor, async (lockedGrant) => {
+      lockedGrantState = lockedGrant?.state;
+      await mintHeld;
+      return 'minted';
+    });
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    let revokeDone = false;
+    const revoke = githubTokenBrokerStore.decide(mine.id, 'revoke', 'david').then((g) => { revokeDone = true; return g; });
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    assert.equal(revokeDone, false, 'the revoke must wait for the in-flight mint');
+    releaseMint();
+    assert.equal(await mint, 'minted');
+    assert.equal(lockedGrantState, 'active');
+    assert.equal((await revoke).state, 'revoked');
+    assert.equal(revokeDone, true);
+    // The next mint sees the committed revoke.
+    assert.equal(await githubTokenBrokerStore.withMintLock(actor, async (g) => g), null);
+
     // Audit rows exist for every decision and carry no credential material.
     await githubTokenBrokerStore.audit({ eventType: 'token_denied', success: false, actor, metadata: { token: 'ghs_secret', note: 'ok' } });
     const audits = await db.select().from(githubTokenAuditEvents).where(eq(githubTokenAuditEvents.actor, actor));
@@ -89,6 +123,6 @@ test('grant store: founder transitions are conditional, one live grant per actor
     assert.ok(!JSON.stringify(audits).includes('ghs_secret'));
   } finally {
     if (created.length) await db.delete(githubAppGrants).where(inArray(githubAppGrants.id, created));
-    await db.delete(githubTokenAuditEvents).where(eq(githubTokenAuditEvents.actor, actor));
+    await db.delete(githubTokenAuditEvents).where(inArray(githubTokenAuditEvents.actor, [actor, otherActor]));
   }
 });

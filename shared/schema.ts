@@ -8695,9 +8695,18 @@ export const githubAppGrants = pgTable("github_app_grants", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, (table) => [
-  // At most one live (active or disabled) grant per actor.
+  // At most one live (active or disabled) grant per actor, per App and per
+  // installation: two actors can never share one App identity. Moving an App
+  // to another actor means revoking the old grant first (its already-issued
+  // tokens expire within 1 hour), then approving a new one.
   uniqueIndex("uq_github_app_grants_live_actor")
     .on(table.actor)
+    .where(sql`${table.state} in ('active', 'disabled')`),
+  uniqueIndex("uq_github_app_grants_live_app")
+    .on(table.appId)
+    .where(sql`${table.state} in ('active', 'disabled')`),
+  uniqueIndex("uq_github_app_grants_live_installation")
+    .on(table.installationId)
     .where(sql`${table.state} in ('active', 'disabled')`),
   index("idx_github_app_grants_state").on(table.state, table.updatedAt),
   check("github_app_grants_state_valid", sql`${table.state} in ('pending', 'active', 'disabled', 'rejected', 'revoked')`),
@@ -8706,8 +8715,9 @@ export const githubAppGrants = pgTable("github_app_grants", {
 ]);
 export type GithubAppGrant = typeof githubAppGrants.$inferSelect;
 
-// Issuance and denial audit for the GitHub token broker. Never contains a
-// token, a JWT or key material; the broker strips those before writing.
+// Issuance and denial audit for the GitHub token broker. Metadata is built from
+// a typed allowlist (buildAuditMetadata): never a token, a JWT, key material or
+// an arbitrary upstream object.
 export const githubTokenAuditEvents = pgTable("github_token_audit_events", {
   id: bigserial("id", { mode: 'number' }).primaryKey(),
   eventType: varchar("event_type", { length: 40 }).notNull(),

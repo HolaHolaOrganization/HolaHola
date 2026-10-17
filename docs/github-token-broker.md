@@ -10,7 +10,11 @@ Every token is minted for exactly one repository (`davidwmcintosh/HolaHola`, id 
 - pull_requests: write
 - metadata, checks and statuses: read
 
-It never includes workflows, administration, secrets or environments, whatever the App installation itself has been granted. The broker sends the repository and permissions on every mint, and checks GitHub's response again before returning the token. Tokens expire within 1 hour.
+It never includes workflows, administration, secrets or environments, whatever the App installation itself has been granted.
+
+The broker sends the repository and permissions on every mint, and checks GitHub's response again before returning the token: exactly one repository, permissions within the ceiling, and an expiry in the future and at most 1 hour away (plus a 60-second clock tolerance). A token that fails these checks is revoked immediately and never returned.
+
+Each App and each installation can be live for one agent only. Moving an App to another agent means revoking the old grant first.
 
 ## Founder: bring an agent on
 
@@ -23,10 +27,14 @@ It never includes workflows, administration, secrets or environments, whatever t
 
 ## Founder: stop an agent
 
-- **Disable or revoke** the grant in the admin panel. New tokens stop immediately. Tokens already issued stay valid until they expire, within 1 hour.
+- **Disable or revoke** the grant in the admin panel.
+  - New tokens stop immediately. A decision that arrives while a token is being issued waits for that issue to finish (at most about 30 seconds).
+  - Tokens already issued stay valid until they expire, within 1 hour.
 - **Immediate cut-off:** suspend the App's installation on GitHub, which revokes all of its tokens at once.
 
 ## Agent: get a token
+
+Minting requires the agent's own **broker** credential, a short-lived credential from runtime onboarding. Legacy fixed coordination tokens are refused (`broker_credential_required`).
 
 ```
 POST /api/coordination/github-token
@@ -41,11 +49,14 @@ Mints only happen on the production instance (`HOLAHOLA_INSTANCE_ROLE=production
 
 ## Audit
 
-Every issuance, denial, proposal and decision is recorded in `github_token_audit_events`. These records never contain a token, a JWT or key material.
+Every issuance, denial, proposal and decision is recorded in `github_token_audit_events`, including the auth type, runtime and credential IDs.
+
+Metadata is built from a typed allowlist, so it never contains a token, a JWT, key material or an arbitrary upstream object.
 
 Denial reasons:
 - `not_production_instance`
 - `actor_not_eligible`
+- `broker_credential_required`
 - `no_active_grant`
 - `grant_expired`
 - `app_key_unavailable`

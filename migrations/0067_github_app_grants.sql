@@ -31,6 +31,8 @@ CREATE TABLE "github_token_audit_events" (
 );
 --> statement-breakpoint
 CREATE UNIQUE INDEX "uq_github_app_grants_live_actor" ON "github_app_grants" USING btree ("actor") WHERE "github_app_grants"."state" in ('active', 'disabled');--> statement-breakpoint
+CREATE UNIQUE INDEX "uq_github_app_grants_live_app" ON "github_app_grants" USING btree ("app_id") WHERE "github_app_grants"."state" in ('active', 'disabled');--> statement-breakpoint
+CREATE UNIQUE INDEX "uq_github_app_grants_live_installation" ON "github_app_grants" USING btree ("installation_id") WHERE "github_app_grants"."state" in ('active', 'disabled');--> statement-breakpoint
 CREATE INDEX "idx_github_app_grants_state" ON "github_app_grants" USING btree ("state","updated_at");--> statement-breakpoint
 CREATE INDEX "idx_github_token_audit_actor" ON "github_token_audit_events" USING btree ("actor","created_at");--> statement-breakpoint
 CREATE INDEX "idx_github_token_audit_grant" ON "github_token_audit_events" USING btree ("grant_id","created_at");

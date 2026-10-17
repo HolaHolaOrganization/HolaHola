@@ -4,23 +4,33 @@
  * Each agent (a coordination actor) has its own GitHub App. The App's private
  * key lives only in this server's environment (a Render service-level secret,
  * `GITHUB_AGENT_APP_PRIVATE_KEY_<appId>`); it never reaches an agent machine.
- * An agent authenticated by its own coordination credential asks for a token;
- * the broker mints a GitHub installation token for THAT agent's App only:
+ * An agent authenticated by its own BROKER credential asks for a token; the
+ * broker mints a GitHub installation token for THAT agent's App only:
  *
  * - only with an ACTIVE, founder-approved, unexpired grant for that actor;
- * - App ID and installation ID come from the grant, never from the request;
+ * - App ID and installation ID come from the grant, never from the request,
+ *   and each App/installation can be live for one actor only;
  * - the repository and permission ceiling are fixed constants below, sent
  *   explicitly on every mint, and checked again on GitHub's response, so a
  *   token never exceeds them even if the App installation later gains more
  *   permissions or repositories;
  * - only on the production instance (instance-role gate);
- * - every issuance and denial is audited, and audits never contain a token,
- *   a JWT or key material.
+ * - every issuance and denial is audited with typed, allowlisted metadata
+ *   that never contains a token, a JWT or key material.
  *
- * Revocation: revoking or disabling a grant stops NEW mints immediately.
- * Tokens already issued stay valid until they expire (at most 1 hour, GitHub's
- * installation-token lifetime). For immediate cut-off, the founder suspends
- * the App installation on GitHub, which revokes all of its tokens.
+ * Authorization boundary (review R1): the whole mint — grant check, GitHub
+ * calls, response check — runs inside one database transaction holding a
+ * FOR SHARE lock on the grant row. Founder decisions UPDATE that row, so a
+ * revoke/disable that arrives during a mint waits until the mint finishes;
+ * a decision that commits first is seen by the mint. Expiry is checked
+ * against the database clock inside the lock.
+ *
+ * Revocation: revoking or disabling a grant stops NEW mints immediately (after
+ * any in-flight mint). Tokens already issued stay valid until they expire: at
+ * most 1 hour (GitHub's installation-token lifetime; a 60-second tolerance
+ * covers clock difference with GitHub). For immediate cut-off, the founder
+ * suspends the App installation on GitHub, which revokes all of its tokens.
+ * A token that fails the response check is revoked at once, best effort.
  */
 import crypto from 'node:crypto';
 import type { GithubAppGrant } from '@shared/schema';
@@ -31,18 +41,20 @@ export const HOLAHOLA_REPOSITORY_ID = 1170208766;
 export const HOLAHOLA_OWNER_ACCOUNT_ID = 34244604;
 
 /** Fixed ceiling for every agent token. Workflows/administration/secrets are never granted. */
-export const AGENT_TOKEN_PERMISSIONS = Object.freeze({
+export const AGENT_TOKEN_PERMISSIONS: Readonly<Record<string, 'read' | 'write'>> = Object.freeze({
   contents: 'write',
   pull_requests: 'write',
   metadata: 'read',
   checks: 'read',
   statuses: 'read',
-} as const);
+});
 
 /** Grant lifetime from founder approval; renewal is a new founder approval. */
 export const GRANT_LIFETIME_DAYS = 90;
-const MAX_TOKEN_LIFETIME_MS = 60 * 60 * 1000;
-const CLOCK_SKEW_MS = 5 * 60 * 1000;
+/** GitHub installation tokens live 1 hour. */
+export const MAX_TOKEN_LIFETIME_MS = 60 * 60 * 1000;
+/** Only tolerance on that hour: clock difference between this server and GitHub. */
+export const TOKEN_EXPIRY_CLOCK_TOLERANCE_MS = 60 * 1000;
 
 /** Coordination actors that may hold a GitHub App grant (agents, not people or Daniela). */
 export const GITHUB_GRANT_ACTORS = [
@@ -59,12 +71,21 @@ export const GITHUB_GRANT_ACTORS = [
 export type BrokerDenial =
   | 'not_production_instance'
   | 'actor_not_eligible'
+  | 'broker_credential_required'
   | 'no_active_grant'
   | 'grant_expired'
   | 'app_key_unavailable'
   | 'installation_mismatch'
   | 'github_unavailable'
   | 'token_scope_exceeded';
+
+export interface MintPrincipal {
+  actor: string;
+  /** 'broker' = the actor's own short-lived broker credential (required). */
+  authType: 'broker' | 'legacy' | undefined;
+  runtimeId?: string;
+  credentialId?: string;
+}
 
 export type MintResult =
   | {
@@ -76,6 +97,67 @@ export type MintResult =
       permissions: Record<string, string>;
     }
   | { ok: false; status: 403 | 503; reason: BrokerDenial };
+
+// ── Typed audit metadata (review R3) ─────────────────────────────────────────
+
+type AuditScalar = string | number | boolean | null;
+type AuditValue = AuditScalar | AuditScalar[];
+
+const ID_PATTERN = /^[A-Za-z0-9._:-]{1,120}$/;
+const PERMISSION_PAIR = /^[a-z_]{1,40}:(read|write|admin)$/;
+const ISO_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/;
+const CREDENTIAL_LIKE = /(gh[pousr]_[A-Za-z0-9]{8,})|(eyJ[\w-]{4,}\.)|(PRIVATE KEY)/;
+
+const shortText = (pattern: RegExp) => (value: unknown): AuditValue | undefined =>
+  typeof value === 'string' && pattern.test(value) && !CREDENTIAL_LIKE.test(value) ? value : undefined;
+const safeInteger = (value: unknown): AuditValue | undefined =>
+  typeof value === 'number' && Number.isSafeInteger(value) ? value : value === null ? null : undefined;
+const integerList = (value: unknown): AuditValue | undefined =>
+  Array.isArray(value) ? value.filter((v): v is number => typeof v === 'number' && Number.isSafeInteger(v)).slice(0, 20) : undefined;
+/** Permissions are stored as "name:level" strings only, never as an upstream object. */
+const permissionList = (value: unknown): AuditValue | undefined => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return value === null ? null : undefined;
+  return Object.keys(value)
+    .filter((name) => Object.prototype.hasOwnProperty.call(value, name))
+    .map((name) => `${name}:${String((value as Record<string, unknown>)[name])}`)
+    .filter((pair) => PERMISSION_PAIR.test(pair))
+    .sort()
+    .slice(0, 40);
+};
+
+const AUDIT_FIELDS: Record<string, (value: unknown) => AuditValue | undefined> = {
+  authType: shortText(/^(broker|legacy|none)$/),
+  runtimeId: shortText(ID_PATTERN),
+  credentialId: shortText(ID_PATTERN),
+  state: shortText(/^(pending|active|disabled|rejected|revoked)$/),
+  step: shortText(/^(get_installation|create_token|revoke_token)$/),
+  detail: shortText(/^[a-z_ ]{1,80}$/),
+  proposedBy: shortText(ID_PATTERN),
+  founder: shortText(ID_PATTERN),
+  installationAppId: safeInteger,
+  installationAccountId: safeInteger,
+  repositoryId: safeInteger,
+  repositoryIds: integerList,
+  permissions: permissionList,
+  expiresAt: shortText(ISO_INSTANT),
+  revokedRejectedToken: (value) => (typeof value === 'boolean' ? value : undefined),
+};
+
+/**
+ * Builds audit metadata from an allowlist: unknown fields are dropped, each
+ * known field must match its type, nested objects never pass through, and any
+ * string that looks like a token, a JWT or a key is dropped.
+ */
+export function buildAuditMetadata(input: Record<string, unknown> | undefined): Record<string, AuditValue> {
+  const out: Record<string, AuditValue> = {};
+  if (!input || typeof input !== 'object') return out;
+  for (const name of Object.keys(input)) {
+    if (!Object.prototype.hasOwnProperty.call(AUDIT_FIELDS, name)) continue;
+    const value = AUDIT_FIELDS[name](input[name]);
+    if (value !== undefined) out[name] = value;
+  }
+  return out;
+}
 
 export interface GithubTokenAuditEvent {
   eventType: 'token_issued' | 'token_denied' | 'grant_proposed' | 'grant_decided';
@@ -89,8 +171,12 @@ export interface GithubTokenAuditEvent {
 }
 
 export interface GithubTokenBrokerStore {
-  /** The single live grant (active or disabled) for this actor, if any. */
-  findLiveGrant(actor: string): Promise<GithubAppGrant | null>;
+  /**
+   * Runs `fn` while holding a FOR SHARE lock on the actor's single live grant
+   * (active or disabled), inside one transaction. `dbNow` is the database
+   * clock at lock time. Founder decisions block until `fn` returns.
+   */
+  withMintLock<T>(actor: string, fn: (grant: GithubAppGrant | null, dbNow: Date) => Promise<T>): Promise<T>;
   audit(event: GithubTokenAuditEvent): Promise<void>;
 }
 
@@ -114,6 +200,8 @@ export interface GithubAppApi {
     installationId: number,
     body: { repository_ids: number[]; permissions: Record<string, string> },
   ): Promise<GithubAccessTokenResponse>;
+  /** Revokes an installation token immediately (DELETE /installation/token). */
+  revokeInstallationToken(token: string): Promise<void>;
 }
 
 export interface MintDependencies {
@@ -125,18 +213,32 @@ export interface MintDependencies {
   now?: () => Date;
 }
 
-const PERMISSION_RANK: Record<string, number> = { read: 1, write: 2, admin: 3 };
+const PERMISSION_RANK: Readonly<Record<string, number>> = Object.freeze({ read: 1, write: 2, admin: 3 });
 
-/** True when every granted permission is within AGENT_TOKEN_PERMISSIONS. */
-export function permissionsWithinCeiling(granted: Record<string, string> | undefined): boolean {
-  if (!granted || typeof granted !== 'object') return false;
-  for (const [name, level] of Object.entries(granted)) {
-    const ceiling = (AGENT_TOKEN_PERMISSIONS as Record<string, string>)[name];
-    if (!ceiling) return false;
-    const rank = PERMISSION_RANK[level];
-    if (!rank || rank > PERMISSION_RANK[ceiling]) return false;
+/**
+ * True when `granted` is a plain object whose OWN properties are all named in
+ * the ceiling, with string levels no higher than the ceiling (review R5).
+ */
+export function permissionsWithinCeiling(granted: unknown): boolean {
+  if (!granted || typeof granted !== 'object' || Array.isArray(granted)) return false;
+  const proto = Object.getPrototypeOf(granted);
+  if (proto !== Object.prototype && proto !== null) return false;
+  for (const name of Reflect.ownKeys(granted)) {
+    if (typeof name !== 'string') return false;
+    if (!Object.prototype.hasOwnProperty.call(AGENT_TOKEN_PERMISSIONS, name)) return false;
+    const level = (granted as Record<string, unknown>)[name];
+    if (typeof level !== 'string' || !Object.prototype.hasOwnProperty.call(PERMISSION_RANK, level)) return false;
+    if (PERMISSION_RANK[level] > PERMISSION_RANK[AGENT_TOKEN_PERMISSIONS[name]]) return false;
   }
   return true;
+}
+
+/** A token expiry must be in the future and at most 1 hour (+60s clock tolerance) away (review R2). */
+export function tokenExpiryAcceptable(expiresAt: unknown, now: Date): boolean {
+  if (typeof expiresAt !== 'string' || !ISO_INSTANT.test(expiresAt)) return false;
+  const ms = Date.parse(expiresAt);
+  if (!Number.isFinite(ms)) return false;
+  return ms > now.getTime() && ms <= now.getTime() + MAX_TOKEN_LIFETIME_MS + TOKEN_EXPIRY_CLOCK_TOLERANCE_MS;
 }
 
 function base64url(input: Buffer | string): string {
@@ -161,11 +263,16 @@ export function loadPrivateKeyFromEnv(appId: number, env: NodeJS.ProcessEnv = pr
 }
 
 /**
- * Mints an installation token for `actor`'s own App. `actor` is the
- * authenticated principal; nothing else from the request is consulted.
+ * Mints an installation token for the principal's own App. Only the
+ * authenticated principal is consulted; nothing else from the request.
  */
-export async function mintAgentGithubToken(actor: string, deps: MintDependencies): Promise<MintResult> {
-  const now = deps.now?.() ?? new Date();
+export async function mintAgentGithubToken(principal: MintPrincipal, deps: MintDependencies): Promise<MintResult> {
+  const actor = principal.actor;
+  const who = {
+    authType: principal.authType ?? 'none',
+    runtimeId: principal.runtimeId,
+    credentialId: principal.credentialId,
+  };
   const deny = async (
     status: 403 | 503,
     reason: BrokerDenial,
@@ -180,99 +287,97 @@ export async function mintAgentGithubToken(actor: string, deps: MintDependencies
       appId: grant?.appId,
       installationId: grant?.installationId,
       reason,
-      metadata,
+      metadata: { ...who, ...metadata },
     });
     return { ok: false, status, reason };
   };
 
   if (deps.instanceRole !== 'production') return deny(503, 'not_production_instance');
   if (!(GITHUB_GRANT_ACTORS as readonly string[]).includes(actor)) return deny(403, 'actor_not_eligible');
+  if (principal.authType !== 'broker') return deny(403, 'broker_credential_required');
 
-  const grant = await deps.store.findLiveGrant(actor);
-  if (!grant || grant.actor !== actor || grant.state !== 'active') {
-    return deny(403, 'no_active_grant', grant, grant ? { state: grant.state } : undefined);
-  }
-  if (!grant.expiresAt || grant.expiresAt.getTime() <= now.getTime()) return deny(403, 'grant_expired', grant);
+  return deps.store.withMintLock(actor, async (grant, dbNow) => {
+    if (!grant || grant.actor !== actor || grant.state !== 'active') {
+      return deny(403, 'no_active_grant', grant, grant ? { state: grant.state } : undefined);
+    }
+    if (!grant.expiresAt || grant.expiresAt.getTime() <= dbNow.getTime()) return deny(403, 'grant_expired', grant);
 
-  const key = deps.loadPrivateKey(grant.appId);
-  if (!key) return deny(503, 'app_key_unavailable', grant);
+    const key = deps.loadPrivateKey(grant.appId);
+    if (!key) return deny(503, 'app_key_unavailable', grant);
 
-  let jwt: string;
-  try {
-    jwt = createAppJwt(grant.appId, key, now);
-  } catch {
-    return deny(503, 'app_key_unavailable', grant, { detail: 'key could not sign' });
-  }
+    let jwt: string;
+    try {
+      jwt = createAppJwt(grant.appId, key, deps.now?.() ?? new Date());
+    } catch {
+      return deny(503, 'app_key_unavailable', grant, { detail: 'key could not sign' });
+    }
 
-  let installation: GithubInstallationInfo;
-  try {
-    installation = await deps.github.getInstallation(jwt, grant.installationId);
-  } catch {
-    return deny(503, 'github_unavailable', grant, { step: 'get_installation' });
-  }
-  if (installation.app_id !== grant.appId || installation.account?.id !== HOLAHOLA_OWNER_ACCOUNT_ID) {
-    return deny(403, 'installation_mismatch', grant, {
-      installationAppId: installation.app_id,
-      installationAccountId: installation.account?.id ?? null,
+    let installation: GithubInstallationInfo;
+    try {
+      installation = await deps.github.getInstallation(jwt, grant.installationId);
+    } catch {
+      return deny(503, 'github_unavailable', grant, { step: 'get_installation' });
+    }
+    if (installation?.app_id !== grant.appId || installation.account?.id !== HOLAHOLA_OWNER_ACCOUNT_ID) {
+      return deny(403, 'installation_mismatch', grant, {
+        installationAppId: installation?.app_id ?? null,
+        installationAccountId: installation?.account?.id ?? null,
+      });
+    }
+
+    let response: GithubAccessTokenResponse;
+    try {
+      response = await deps.github.createInstallationToken(jwt, grant.installationId, {
+        repository_ids: [HOLAHOLA_REPOSITORY_ID],
+        permissions: { ...AGENT_TOKEN_PERMISSIONS },
+      });
+    } catch {
+      return deny(503, 'github_unavailable', grant, { step: 'create_token' });
+    }
+
+    const checkedAt = deps.now?.() ?? new Date();
+    const repositories = Array.isArray(response?.repositories) ? response.repositories : [];
+    const scopeOk = typeof response?.token === 'string' && response.token.length > 0
+      && repositories.length === 1 && repositories[0]?.id === HOLAHOLA_REPOSITORY_ID
+      && permissionsWithinCeiling(response.permissions)
+      && tokenExpiryAcceptable(response.expires_at, checkedAt);
+    if (!scopeOk) {
+      // Never returned. Revoke it now rather than leaving it to expire.
+      let revoked = false;
+      if (typeof response?.token === 'string' && response.token) {
+        try {
+          await deps.github.revokeInstallationToken(response.token);
+          revoked = true;
+        } catch {
+          revoked = false;
+        }
+      }
+      return deny(403, 'token_scope_exceeded', grant, {
+        permissions: response?.permissions ?? null,
+        repositoryIds: repositories.map((r) => r?.id),
+        expiresAt: response?.expires_at,
+        revokedRejectedToken: revoked,
+      });
+    }
+
+    await deps.store.audit({
+      eventType: 'token_issued',
+      success: true,
+      actor,
+      grantId: grant.id,
+      appId: grant.appId,
+      installationId: grant.installationId,
+      metadata: { ...who, permissions: response.permissions, repositoryId: HOLAHOLA_REPOSITORY_ID, expiresAt: response.expires_at },
     });
-  }
-
-  let response: GithubAccessTokenResponse;
-  try {
-    response = await deps.github.createInstallationToken(jwt, grant.installationId, {
-      repository_ids: [HOLAHOLA_REPOSITORY_ID],
-      permissions: { ...AGENT_TOKEN_PERMISSIONS },
-    });
-  } catch {
-    return deny(503, 'github_unavailable', grant, { step: 'create_token' });
-  }
-
-  const repositories = response.repositories ?? [];
-  const expiresAtMs = Date.parse(response.expires_at);
-  const scopeOk = typeof response.token === 'string' && response.token.length > 0
-    && repositories.length === 1 && repositories[0]?.id === HOLAHOLA_REPOSITORY_ID
-    && permissionsWithinCeiling(response.permissions)
-    && Number.isFinite(expiresAtMs)
-    && expiresAtMs <= now.getTime() + MAX_TOKEN_LIFETIME_MS + CLOCK_SKEW_MS;
-  if (!scopeOk) {
-    // The token is discarded, never returned. GitHub expires it within the hour.
-    return deny(403, 'token_scope_exceeded', grant, {
-      permissions: response.permissions ?? null,
-      repositoryIds: repositories.map((r) => r.id),
-      expiresAt: response.expires_at ?? null,
-    });
-  }
-
-  await deps.store.audit({
-    eventType: 'token_issued',
-    success: true,
-    actor,
-    grantId: grant.id,
-    appId: grant.appId,
-    installationId: grant.installationId,
-    metadata: { permissions: response.permissions, repositoryId: HOLAHOLA_REPOSITORY_ID, expiresAt: response.expires_at },
+    return {
+      ok: true as const,
+      token: response.token,
+      expiresAt: response.expires_at,
+      appId: grant.appId,
+      repositoryId: HOLAHOLA_REPOSITORY_ID,
+      permissions: { ...response.permissions },
+    };
   });
-  return {
-    ok: true,
-    token: response.token,
-    expiresAt: response.expires_at,
-    appId: grant.appId,
-    repositoryId: HOLAHOLA_REPOSITORY_ID,
-    permissions: response.permissions ?? {},
-  };
-}
-
-const SECRET_KEY_PATTERN = /token|jwt|key|secret|authorization/i;
-
-/** Audit metadata never carries credential material, whatever a caller passes. */
-export function scrubAuditMetadata(metadata: Record<string, unknown> | undefined): Record<string, unknown> {
-  const out: Record<string, unknown> = {};
-  for (const [name, value] of Object.entries(metadata ?? {})) {
-    if (SECRET_KEY_PATTERN.test(name)) continue;
-    if (typeof value === 'string' && (/^gh[spu]_/.test(value) || /^eyJ[\w-]+\./.test(value) || value.includes('PRIVATE KEY'))) continue;
-    out[name] = value;
-  }
-  return out;
 }
 
 // ── Grant lifecycle (founder decisions) ─────────────────────────────────────
@@ -313,11 +418,11 @@ export function validateGrantProposal(input: unknown): { ok: true; proposal: Gra
 
 const GITHUB_API = 'https://api.github.com';
 
-async function githubFetch<T>(jwt: string, path: string, init?: { method: string; body?: unknown }): Promise<T> {
+async function githubFetch<T>(bearer: string, path: string, init?: { method: string; body?: unknown }): Promise<T> {
   const response = await fetch(`${GITHUB_API}${path}`, {
     method: init?.method ?? 'GET',
     headers: {
-      Authorization: `Bearer ${jwt}`,
+      Authorization: `Bearer ${bearer}`,
       Accept: 'application/vnd.github+json',
       'X-GitHub-Api-Version': '2022-11-28',
       'User-Agent': 'holahola-github-token-broker',
@@ -328,7 +433,7 @@ async function githubFetch<T>(jwt: string, path: string, init?: { method: string
     signal: AbortSignal.timeout(15_000),
   });
   if (!response.ok) throw new Error(`GitHub API ${path} returned ${response.status}`);
-  return response.json() as Promise<T>;
+  return (response.status === 204 ? undefined : await response.json()) as T;
 }
 
 export const githubAppApi: GithubAppApi = {
@@ -336,4 +441,7 @@ export const githubAppApi: GithubAppApi = {
     githubFetch<GithubInstallationInfo>(jwt, `/app/installations/${installationId}`),
   createInstallationToken: (jwt, installationId, body) =>
     githubFetch<GithubAccessTokenResponse>(jwt, `/app/installations/${installationId}/access_tokens`, { method: 'POST', body }),
+  revokeInstallationToken: async (token) => {
+    await githubFetch<void>(token, '/installation/token', { method: 'DELETE' });
+  },
 };
