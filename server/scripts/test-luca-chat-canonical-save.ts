@@ -44,6 +44,7 @@ import { randomUUID } from 'crypto';
 import { assertCanonicalSaveIsolation } from './luca-chat-canonical-isolation';
 import { runCanonicalSaveSandbox } from './luca-chat-canonical-sandbox';
 import { sql } from 'drizzle-orm';
+import { holdUnlessDisposableTarget } from './lib/launch-hold';
 
 let getMonitoringDb: typeof import('../db').getMonitoringDb;
 
@@ -550,6 +551,10 @@ async function isolatedMain(): Promise<void> {
   AUTH_HEADERS = getAgentAuthHeaders() ?? {};
   await main();
 }
+
+// O2/O3 containment: inserts and deletes rows through the live route; held
+// unless the target is the verified disposable CI database.
+holdUnlessDisposableTarget('luca-chat-canonical-save');
 
 isolatedMain().catch((err) => {
   console.error(R('FATAL:'), err.message ?? err);

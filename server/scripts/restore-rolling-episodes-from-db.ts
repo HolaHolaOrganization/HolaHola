@@ -47,6 +47,7 @@ import { neon } from '@neondatabase/serverless';
 import { Pool } from 'pg';
 import { getVerifiedCiDatabaseUrl } from '../ci-database';
 import { writeProjectionAtomically } from '../services/projection-receipts';
+import { holdUnlessDisposableTarget } from './lib/launch-hold';
 
 const G = (s: string) => `\x1b[32m${s}\x1b[0m`;
 const R = (s: string) => `\x1b[31m${s}\x1b[0m`;
@@ -458,6 +459,10 @@ async function main() {
 
   process.exit(0);
 }
+
+// O2/O3 containment: this writes conversation_memories; held unless the target
+// is the verified disposable CI database.
+holdUnlessDisposableTarget('rolling-episode-restore');
 
 main().catch(err => {
   console.error(R(`\nUnhandled error: ${err?.message ?? err}`));

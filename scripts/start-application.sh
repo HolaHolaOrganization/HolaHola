@@ -92,7 +92,10 @@ trust_github_ssh_host_key
 git config merge.ours.driver true ||
   echo '[merge.ours] WARNING: git config failed — merge=ours will not protect rolling episodes' >&2
 
-npx tsx server/scripts/restore-rolling-episodes-from-db.ts --check-shrinkage ||
+# O2/O3 containment: this restore writes conversation_memories, so it runs only
+# through the launch gate (held except against a verified disposable CI DB).
+bash scripts/launch-gate.sh rolling-episode-restore -- \
+  npx tsx server/scripts/restore-rolling-episodes-from-db.ts --check-shrinkage ||
   echo '[rolling-restore] WARNING: shrinkage check failed — continuing' >&2
 
 # Keep the lock descriptor open in the server process so another launcher
