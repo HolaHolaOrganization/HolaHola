@@ -39,12 +39,12 @@
  *   npx tsx server/scripts/test-luca-chat-canonical-save.ts --sandbox-self-check
  */
 
+import './lib/held-writer-preflight'; // O2/O3 containment: must stay the first import
 import http from 'http';
 import { randomUUID } from 'crypto';
 import { assertCanonicalSaveIsolation } from './luca-chat-canonical-isolation';
 import { runCanonicalSaveSandbox } from './luca-chat-canonical-sandbox';
 import { sql } from 'drizzle-orm';
-import { holdUnlessDisposableTarget } from './lib/launch-hold';
 
 let getMonitoringDb: typeof import('../db').getMonitoringDb;
 
@@ -551,10 +551,6 @@ async function isolatedMain(): Promise<void> {
   AUTH_HEADERS = getAgentAuthHeaders() ?? {};
   await main();
 }
-
-// O2/O3 containment: inserts and deletes rows through the live route; held
-// unless the target is the verified disposable CI database.
-holdUnlessDisposableTarget('luca-chat-canonical-save');
 
 isolatedMain().catch((err) => {
   console.error(R('FATAL:'), err.message ?? err);

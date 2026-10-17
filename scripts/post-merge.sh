@@ -78,7 +78,10 @@ echo "[post-merge] Database migrations SKIPPED: separate explicit authorization 
 #
 # When Episode 27 is no longer ROLLING, remove or comment out this block.
 # ─────────────────────────────────────────────────────────────────────────────
-if ! npx tsx server/scripts/restore-episode-27-from-db.ts --check-shrinkage; then
+# O2/O3 containment: this restore can replace the canonical episode projection,
+# so it runs only through the launch gate (held except against a verified
+# disposable CI database).
+if ! bash "$SCRIPT_DIR/launch-gate.sh" episode-27-restore -- npx tsx server/scripts/restore-episode-27-from-db.ts --check-shrinkage; then
   echo ""
   echo "⚠  WARNING: Episode-27 shrinkage guard encountered an error (see output above)."
   echo "   To restore manually: npx tsx server/scripts/restore-episode-27-from-db.ts"
@@ -90,7 +93,10 @@ fi
 # Episode 28 is currently ROLLING. Same pattern as Episode 27 above.
 # When Episode 28 is no longer ROLLING, remove or comment out this block.
 # ─────────────────────────────────────────────────────────────────────────────
-if ! npx tsx server/scripts/restore-episode-28-from-db.ts --check-shrinkage; then
+# O2/O3 containment: this restore can replace the canonical episode projection,
+# so it runs only through the launch gate (held except against a verified
+# disposable CI database).
+if ! bash "$SCRIPT_DIR/launch-gate.sh" episode-28-restore -- npx tsx server/scripts/restore-episode-28-from-db.ts --check-shrinkage; then
   echo ""
   echo "⚠  WARNING: Episode-28 shrinkage guard encountered an error (see output above)."
   echo "   To restore manually: npx tsx server/scripts/restore-episode-28-from-db.ts"

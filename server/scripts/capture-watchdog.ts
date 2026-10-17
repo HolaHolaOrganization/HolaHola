@@ -49,7 +49,6 @@ import {
 import { refreshMemoryIndexBestEffort } from '../services/agent-memory-core';
 import { historicalAttributionLabel } from '../services/historical-attribution-overlay';
 import { recordHistoricalAttributionPause, clearHistoricalAttributionPause } from '../services/historical-attribution-status';
-import { holdUnlessDisposableTarget } from './lib/launch-hold';
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 
@@ -966,8 +965,6 @@ export async function drainInnerLife(): Promise<void> {
 // A substring check here would also fire when a test file that imports this
 // module (e.g. test-watchdog-inner-life-driver.ts) is the actual entry point.
 if (isDirectCliInvocation('capture-watchdog.ts')) {
-  // O2/O3 containment: held unless the target is the verified disposable CI DB.
-  holdUnlessDisposableTarget('capture-watchdog');
   console.log(`[watchdog] started (pid=${process.pid}) — polling every ${POLL_MS / 1000}s`);
   // Serialize the two drains: the chat drain must finish its DB-first episode
   // append before the inner-life drain derives the .md again, so they can

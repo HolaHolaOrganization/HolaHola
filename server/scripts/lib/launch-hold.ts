@@ -10,12 +10,16 @@
  */
 import { getVerifiedCiDatabaseUrl } from '../../ci-database';
 
-export const HELD_WRITERS = [
-  'capture-watchdog',
-  'rolling-episode-restore',
-  'luca-chat-canonical-save',
-] as const;
-export type HeldWriterId = (typeof HELD_WRITERS)[number];
+/** Exact script basename -> launch-gate id, for every held standalone writer. */
+export const HELD_WRITER_SCRIPTS = {
+  'capture-watchdog.ts': 'capture-watchdog',
+  'restore-rolling-episodes-from-db.ts': 'rolling-episode-restore',
+  'test-luca-chat-canonical-save.ts': 'luca-chat-canonical-save',
+  'restore-episode-27-from-db.ts': 'episode-27-restore',
+  'restore-episode-28-from-db.ts': 'episode-28-restore',
+} as const;
+export type HeldWriterId = (typeof HELD_WRITER_SCRIPTS)[keyof typeof HELD_WRITER_SCRIPTS];
+export const HELD_WRITERS: readonly HeldWriterId[] = Object.values(HELD_WRITER_SCRIPTS);
 
 export function heldWriterMayRun(env: NodeJS.ProcessEnv = process.env): boolean {
   try {
@@ -27,6 +31,6 @@ export function heldWriterMayRun(env: NodeJS.ProcessEnv = process.env): boolean 
 
 export function holdUnlessDisposableTarget(id: HeldWriterId, env: NodeJS.ProcessEnv = process.env): void {
   if (heldWriterMayRun(env)) return;
-  console.log(`[launch-hold] NOT RUN: '${id}' is HELD — it writes shared state and may run only against a verified disposable CI database (instance role: ${env.HOLAHOLA_INSTANCE_ROLE ?? 'unset'}).`);
+  console.log(`[launch-hold] NOT RUN: '${id}' is HELD — it writes shared state and may run only against a verified disposable CI database (instance role: ${env.HOLAHOLA_INSTANCE_ROLE ?? 'unset'}). This is a hold, not a passing run.`);
   process.exit(0);
 }

@@ -27,6 +27,13 @@
 #                        have at least one embedding; fails if cohort < 618
 #   workflow-safety   – retired named CI checks kept in the consolidated gate
 
+# O2/O3 containment: these groups contain DB-writing checks, so the runner holds
+# itself (even when launched directly, not through scripts/launch-gate.sh)
+# unless the target is the verified disposable CI database.
+# shellcheck source=../../scripts/lib/disposable-target.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/scripts/lib/disposable-target.sh"
+hold_unless_disposable_target consolidated-ci
+
 # ── Parse arguments ─────────────────────────────────────────────────────────
 ONLY_GROUP=""
 SELF_TEST=0

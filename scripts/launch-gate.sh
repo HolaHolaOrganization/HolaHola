@@ -25,6 +25,8 @@ REGISTERED_IDS=(
   validation-suite          # server/scripts/run-validation-suite.sh (contains DB-writing checks)
   consolidated-ci           # server/scripts/test-all-consolidated-ci.sh
   luca-chat-canonical-save  # inserts and deletes rows through the live route
+  episode-27-restore        # restore-episode-27-from-db.ts (replaces the episode projection)
+  episode-28-restore        # restore-episode-28-from-db.ts (replaces the episode projection)
 )
 
 id="${1:-}"
@@ -43,18 +45,7 @@ if [[ "$registered" != true ]]; then
   exit 2
 fi
 
-disposable_target() {
-  [[ "${CI:-}" == "true" ]] || return 1
-  local url="${CI_DATABASE_URL:-}"
-  [[ -n "$url" ]] || return 1
-  [[ "${NEON_SHARED_DATABASE_URL:-}" == "$url" ]] || return 1
-  [[ "$url" =~ ^postgres(ql)?://([^@/]*@)?(127\.0\.0\.1|localhost)(:[0-9]+)?/ ]] || return 1
-  return 0
-}
-
-if disposable_target; then
-  exec "$@"
-fi
-
-echo "[launch-gate] NOT RUN: '${id}' is HELD — it writes shared state and may run only against a verified disposable CI database (instance role: ${HOLAHOLA_INSTANCE_ROLE:-unset})."
-exit 0
+# shellcheck source=lib/disposable-target.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/disposable-target.sh"
+hold_unless_disposable_target "$id"
+exec "$@"
