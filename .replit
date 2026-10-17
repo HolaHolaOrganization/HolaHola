@@ -61,7 +61,7 @@ args = "Consolidated CI"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "npx tsx server/scripts/capture-watchdog.ts"
+args = "bash scripts/launch-gate.sh capture-watchdog -- npx tsx server/scripts/capture-watchdog.ts"
 
 [[workflows.workflow.tasks]]
 task = "workflow.run"
@@ -86,7 +86,7 @@ author = "agent"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "bash server/scripts/run-validation-suite.sh"
+args = "bash scripts/launch-gate.sh validation-suite -- bash server/scripts/run-validation-suite.sh"
 
 [workflows.workflow.metadata]
 isValidation = true
@@ -98,7 +98,7 @@ author = "agent"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "bash server/scripts/test-all-consolidated-ci.sh"
+args = "bash scripts/launch-gate.sh consolidated-ci -- bash server/scripts/test-all-consolidated-ci.sh"
 
 [workflows.workflow.metadata]
 isValidation = true
@@ -110,7 +110,7 @@ author = "agent"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "npx tsx server/scripts/test-luca-chat-canonical-save.ts"
+args = "bash scripts/launch-gate.sh luca-chat-canonical-save -- npx tsx server/scripts/test-luca-chat-canonical-save.ts"
 
 [workflows.workflow.metadata]
 isValidation = true
