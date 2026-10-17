@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, timestamp, integer, boolean, real, bigint, bigserial, index, unique, uniqueIndex, jsonb, pgEnum, date, doublePrecision, check, customType, foreignKey } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, timestamp, integer, boolean, real, bigint, bigserial, index, unique, uniqueIndex, jsonb, pgEnum, date, doublePrecision, check, customType, foreignKey, primaryKey } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { RESOLUTION_TYPE_VALUES } from "./absence-types";
@@ -8696,9 +8696,8 @@ export const githubAppGrants = pgTable("github_app_grants", {
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, (table) => [
   // At most one live (active or disabled) grant per actor, per App and per
-  // installation. In addition, approval refuses any App or installation that
-  // has EVER been live for a different actor (github-token-broker-store.ts):
-  // an App identity is permanently bound to one actor.
+  // installation. Permanent App-to-actor binding is enforced separately by
+  // github_app_identity_bindings, written at first founder approval.
   uniqueIndex("uq_github_app_grants_live_actor")
     .on(table.actor)
     .where(sql`${table.state} in ('active', 'disabled')`),
@@ -8714,6 +8713,25 @@ export const githubAppGrants = pgTable("github_app_grants", {
   check("github_app_grants_live_has_expiry", sql`${table.state} not in ('active', 'disabled') or ${table.expiresAt} is not null`),
 ]);
 export type GithubAppGrant = typeof githubAppGrants.$inferSelect;
+
+// Permanent GitHub App identity bindings. Written (insert-if-absent) at the
+// first founder APPROVAL of a grant: one row per App ID and one per
+// installation ID, each naming the actor. Rows are never updated or deleted,
+// so an App identity can only ever be approved for that one actor. The
+// primary key makes concurrent first approvals for different actors
+// serialize: the second insert waits for the first, then finds its row.
+export const GITHUB_APP_BINDING_KINDS = ['app', 'installation'] as const;
+export const githubAppIdentityBindings = pgTable("github_app_identity_bindings", {
+  kind: varchar("kind", { length: 16 }).notNull(),
+  externalId: bigint("external_id", { mode: 'number' }).notNull(),
+  actor: varchar("actor", { length: 80 }).notNull(),
+  grantId: varchar("grant_id").notNull(),
+  boundAt: timestamp("bound_at").notNull().defaultNow(),
+}, (table) => [
+  primaryKey({ columns: [table.kind, table.externalId] }),
+  check("github_app_identity_bindings_kind_valid", sql`${table.kind} in ('app', 'installation')`),
+  check("github_app_identity_bindings_id_positive", sql`${table.externalId} > 0`),
+]);
 
 // Issuance and denial audit for the GitHub token broker. Metadata is built from
 // a typed allowlist (buildAuditMetadata): never a token, a JWT, key material or

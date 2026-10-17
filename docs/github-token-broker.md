@@ -14,7 +14,7 @@ It never includes workflows, administration, secrets or environments, whatever t
 
 The broker sends the repository and permissions on every mint, and checks GitHub's response again before returning the token: exactly one repository, permissions within the ceiling, and an expiry in the future and at most 1 hour away, with no tolerance. A token that fails these checks is revoked immediately and never returned.
 
-Each App and each installation is **permanently bound** to the first agent approved for it. No other agent can ever be approved for it, even after a revoke. That way two agents can never hold tokens for the same GitHub identity at the same time. To give a different agent access, create a new App.
+Each App and each installation is **permanently bound** to the first agent the founder **approves** for it. The binding is recorded in `github_app_identity_bindings` at approval, and concurrent approvals serialize there. A proposal that is revoked before approval binds nothing. No other agent can ever be approved for it, even after a revoke. That way two agents can never hold tokens for the same GitHub identity at the same time. To give a different agent access, create a new App.
 
 ## Founder: bring an agent on
 

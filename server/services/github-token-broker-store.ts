@@ -8,12 +8,13 @@
  *   finish, and a decision that commits first is seen by the next mint.
  * - Every decision is a conditional UPDATE on the expected prior state.
  * - Partial unique indexes keep one live grant per actor, per App and per
- *   installation, and approval refuses any App or installation that has ever
- *   been live for a DIFFERENT actor: an App identity is permanently bound to
- *   one actor, so no two actors can hold its tokens even during a residual.
+ *   installation. github_app_identity_bindings permanently binds an App and
+ *   its installation to the first actor the founder APPROVES for them, so no
+ *   two actors can ever hold tokens for one GitHub identity, even during a
+ *   residual. Concurrent approvals serialize on that table's primary key.
  */
 import { and, desc, eq, inArray, sql } from 'drizzle-orm';
-import { githubAppGrants, githubTokenAuditEvents, type GithubAppGrant } from '@shared/schema';
+import { githubAppGrants, githubAppIdentityBindings, githubTokenAuditEvents, type GithubAppGrant } from '@shared/schema';
 import { getSharedDb } from '../db';
 import {
   GRANT_LIFETIME_DAYS,
@@ -120,25 +121,6 @@ export const githubTokenBrokerStore: GithubTokenBrokerStore & {
           set.revokedBy = founder;
           set.revokedAt = nowExpr;
         }
-        if (decision === 'approve' || decision === 'enable') {
-          // An App identity is permanently bound to the first actor approved for
-          // it: once any grant for an App or installation has been live (active,
-          // disabled or revoked), no OTHER actor may ever be approved for it, so
-          // two actors can never hold tokens for the same GitHub identity, even
-          // during the <= 1h residual after a revoke. Reassignment means a new App.
-          const [target] = await tx.select().from(githubAppGrants).where(eq(githubAppGrants.id, id)).for('update');
-          if (target) {
-            const bound = await tx.select({ id: githubAppGrants.id }).from(githubAppGrants)
-              .where(and(
-                sql`(${githubAppGrants.appId} = ${target.appId} or ${githubAppGrants.installationId} = ${target.installationId})`,
-                sql`${githubAppGrants.actor} <> ${target.actor}`,
-                inArray(githubAppGrants.state, ['active', 'disabled', 'revoked']),
-              ))
-              .limit(1)
-              .for('update');
-            if (bound.length) throw new GithubGrantError('CONFLICT');
-          }
-        }
         const updated = await tx.update(githubAppGrants).set(set)
           .where(and(
             eq(githubAppGrants.id, id),
@@ -152,6 +134,24 @@ export const githubTokenBrokerStore: GithubTokenBrokerStore & {
           throw new GithubGrantError(existing ? 'CONFLICT' : 'NOT_FOUND');
         }
         const grant = updated[0];
+        if (decision === 'approve' || decision === 'enable') {
+          // Permanent identity binding: record (insert-if-absent) that this App
+          // and installation belong to this actor, then require every binding
+          // for them to name this actor. The primary key serializes concurrent
+          // first approvals: a second insert waits for the first transaction,
+          // then sees its committed row. Only founder approval binds; proposals,
+          // rejections and revoked-while-pending grants never do.
+          await tx.insert(githubAppIdentityBindings).values([
+            { kind: 'app', externalId: grant.appId, actor: grant.actor, grantId: grant.id },
+            { kind: 'installation', externalId: grant.installationId, actor: grant.actor, grantId: grant.id },
+          ]).onConflictDoNothing();
+          const bindings = await tx.select().from(githubAppIdentityBindings).where(sql`
+            (${githubAppIdentityBindings.kind} = 'app' and ${githubAppIdentityBindings.externalId} = ${grant.appId})
+            or (${githubAppIdentityBindings.kind} = 'installation' and ${githubAppIdentityBindings.externalId} = ${grant.installationId})`);
+          if (bindings.length !== 2 || bindings.some((binding) => binding.actor !== grant.actor)) {
+            throw new GithubGrantError('CONFLICT');
+          }
+        }
         await writeAudit(tx, {
           eventType: 'grant_decided', success: true, actor: grant.actor, grantId: grant.id,
           appId: grant.appId, installationId: grant.installationId, reason: decision,

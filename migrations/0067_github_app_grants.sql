@@ -17,6 +17,17 @@ CREATE TABLE "github_app_grants" (
 	CONSTRAINT "github_app_grants_live_has_expiry" CHECK ("github_app_grants"."state" not in ('active', 'disabled') or "github_app_grants"."expires_at" is not null)
 );
 --> statement-breakpoint
+CREATE TABLE "github_app_identity_bindings" (
+	"kind" varchar(16) NOT NULL,
+	"external_id" bigint NOT NULL,
+	"actor" varchar(80) NOT NULL,
+	"grant_id" varchar NOT NULL,
+	"bound_at" timestamp DEFAULT now() NOT NULL,
+	CONSTRAINT "github_app_identity_bindings_kind_external_id_pk" PRIMARY KEY("kind","external_id"),
+	CONSTRAINT "github_app_identity_bindings_kind_valid" CHECK ("github_app_identity_bindings"."kind" in ('app', 'installation')),
+	CONSTRAINT "github_app_identity_bindings_id_positive" CHECK ("github_app_identity_bindings"."external_id" > 0)
+);
+--> statement-breakpoint
 CREATE TABLE "github_token_audit_events" (
 	"id" bigserial PRIMARY KEY NOT NULL,
 	"event_type" varchar(40) NOT NULL,

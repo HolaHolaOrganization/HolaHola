@@ -27,14 +27,14 @@ test('unique violations are recognized directly and when wrapped by the query la
   assert.equal(isUniqueViolation(undefined), false);
 });
 
-test('grant store on PostgreSQL: transitions, permanent App binding, fresh clock, decisions behind mints', async (t) => {
+test('grant store on PostgreSQL: transitions, permanent App binding incl. races, fresh clock, decisions behind mints', async (t) => {
   if (!ciUrl) {
     t.skip('requires the job-local CI database (CI=true, CI_DATABASE_URL)');
     return;
   }
   opened = true;
   const { eq, inArray, sql } = await import('drizzle-orm');
-  const { githubAppGrants, githubTokenAuditEvents } = await import('@shared/schema');
+  const { githubAppGrants, githubAppIdentityBindings, githubTokenAuditEvents } = await import('@shared/schema');
   const { getSharedDb } = await import('../db');
   const { githubTokenBrokerStore: store, GithubGrantError } = await import('./github-token-broker-store');
   const db = getSharedDb();
@@ -43,7 +43,11 @@ test('grant store on PostgreSQL: transitions, permanent App binding, fresh clock
   const actors = [actorA, actorB];
   const conflict = (error: unknown) => error instanceof GithubGrantError && error.code === 'CONFLICT';
   const liveFor = (actor: string) => store.withMintLock(actor, async (grant) => grant);
-  await db.delete(githubAppGrants).where(inArray(githubAppGrants.actor, actors));
+  const cleanup = async () => {
+    await db.delete(githubAppGrants).where(inArray(githubAppGrants.actor, actors));
+    await db.delete(githubAppIdentityBindings).where(inArray(githubAppIdentityBindings.actor, actors));
+  };
+  await cleanup();
 
   try {
     // ── Transitions ──────────────────────────────────────────────────────
@@ -81,6 +85,42 @@ test('grant store on PostgreSQL: transitions, permanent App binding, fresh clock
     // While A is live, B cannot take the App either.
     const bWhileLive = await store.propose({ actor: actorB, appId: 111, installationId: 902 }, 'david');
     await assert.rejects(store.decide(bWhileLive.id, 'approve', 'david'), conflict);
+
+    // Only founder APPROVAL binds: a proposal revoked while still pending never does.
+    const aNeverApproved = await store.propose({ actor: actorA, appId: 700, installationId: 701 }, 'david');
+    assert.equal((await store.decide(aNeverApproved.id, 'revoke', 'david')).state, 'revoked');
+    const bAfterPendingRevoke = await store.propose({ actor: actorB, appId: 700, installationId: 701 }, 'david');
+    assert.equal((await store.decide(bAfterPendingRevoke.id, 'approve', 'david')).state, 'active',
+      'propose(A) -> revoke(pending A) -> approve(B) is allowed');
+    assert.equal((await store.decide(bAfterPendingRevoke.id, 'revoke', 'david')).state, 'revoked');
+
+    // Deterministic interleaving: while A's first approval of App 800 is in flight
+    // (binding inserted, not committed), B's approval of App 800 must wait, then fail.
+    let releaseA!: () => void;
+    const aHeld = new Promise<void>((resolve) => { releaseA = resolve; });
+    let aInserted!: () => void;
+    const aReady = new Promise<void>((resolve) => { aInserted = resolve; });
+    const aInFlight = db.transaction(async (tx) => {
+      await tx.insert(githubAppIdentityBindings).values([
+        { kind: 'app', externalId: 800, actor: actorA, grantId: 'in-flight-a' },
+        { kind: 'installation', externalId: 801, actor: actorA, grantId: 'in-flight-a' },
+      ]);
+      aInserted();
+      await aHeld;
+    });
+    await aReady;
+    const bRacing = await store.propose({ actor: actorB, appId: 800, installationId: 802 }, 'david');
+    let bSettled = false;
+    const bDecision = store.decide(bRacing.id, 'approve', 'david').then(
+      () => { bSettled = true; return 'approved'; },
+      (error: unknown) => { bSettled = true; return conflict(error) ? 'conflict' : `error: ${String(error)}`; },
+    );
+    await sleep(400);
+    assert.equal(bSettled, false, "B's approval must wait for A's in-flight binding");
+    releaseA();
+    await aInFlight;
+    assert.equal(await bDecision, 'conflict', 'B loses once A has committed the binding');
+    assert.equal((await liveFor(actorB)), null);
 
     // ── Fresh clock: expiry during the lock wait is caught (review item 1) ─
     await db.update(githubAppGrants).set({ expiresAt: sql`clock_timestamp() + interval '1 second'` }).where(eq(githubAppGrants.id, aAgain.id));
@@ -120,13 +160,30 @@ test('grant store on PostgreSQL: transitions, permanent App binding, fresh clock
     assert.equal((await revoke).state, 'revoked');
     assert.equal(await liveFor(actorA), null, 'the next mint sees the committed revoke');
 
+    // ── Truly concurrent first approvals for one new App: exactly one wins ─
+    const raceA = await store.propose({ actor: actorA, appId: 850, installationId: 851 }, 'david');
+    const raceB = await store.propose({ actor: actorB, appId: 850, installationId: 852 }, 'david');
+    const outcomes = await Promise.allSettled([
+      store.decide(raceA.id, 'approve', 'david'),
+      store.decide(raceB.id, 'approve', 'david'),
+    ]);
+    const winners = outcomes.filter((o) => o.status === 'fulfilled');
+    const losers = outcomes.filter((o) => o.status === 'rejected');
+    assert.equal(winners.length, 1, 'exactly one concurrent approval may bind App 850');
+    assert.ok(losers.every((o) => conflict((o as PromiseRejectedResult).reason)));
+    const winner = (winners[0] as PromiseFulfilledResult<{ id: string; actor: string }>).value;
+    const loserGrant = winner.id === raceA.id ? raceB : raceA;
+    await store.decide(winner.id, 'revoke', 'david');
+    await assert.rejects(store.decide(loserGrant.id, 'approve', 'david'), conflict,
+      'after the winner is revoked, the loser still can never be approved');
+
     // ── Audit rows are typed and scrubbed ────────────────────────────────
     await store.audit({ eventType: 'token_denied', success: false, actor: actorA, metadata: { token: 'ghs_secretmarker', nested: { token: 'ghs_secretmarker' }, authType: 'broker' } });
     const audits = await db.select().from(githubTokenAuditEvents).where(inArray(githubTokenAuditEvents.actor, actors));
     assert.ok(audits.length >= 8);
     assert.ok(!JSON.stringify(audits).includes('ghs_secretmarker'));
   } finally {
-    await db.delete(githubAppGrants).where(inArray(githubAppGrants.actor, actors));
+    await cleanup();
     await db.delete(githubTokenAuditEvents).where(inArray(githubTokenAuditEvents.actor, actors));
   }
 });

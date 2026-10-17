@@ -1,5 +1,5 @@
 {
-  "id": "d5d548e2-6b8c-4da3-8f43-d299bd260655",
+  "id": "59b0a105-f4ca-4df8-9a14-af4e381970ca",
   "prevId": "2c30790f-dac0-4b66-9efd-23f6a924ec73",
   "version": "7",
   "dialect": "postgresql",
@@ -24720,6 +24720,67 @@
         "github_app_grants_live_has_expiry": {
           "name": "github_app_grants_live_has_expiry",
           "value": "\"github_app_grants\".\"state\" not in ('active', 'disabled') or \"github_app_grants\".\"expires_at\" is not null"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.github_app_identity_bindings": {
+      "name": "github_app_identity_bindings",
+      "schema": "",
+      "columns": {
+        "kind": {
+          "name": "kind",
+          "type": "varchar(16)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "external_id": {
+          "name": "external_id",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "actor": {
+          "name": "actor",
+          "type": "varchar(80)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "grant_id": {
+          "name": "grant_id",
+          "type": "varchar",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "bound_at": {
+          "name": "bound_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "github_app_identity_bindings_kind_external_id_pk": {
+          "name": "github_app_identity_bindings_kind_external_id_pk",
+          "columns": [
+            "kind",
+            "external_id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "github_app_identity_bindings_kind_valid": {
+          "name": "github_app_identity_bindings_kind_valid",
+          "value": "\"github_app_identity_bindings\".\"kind\" in ('app', 'installation')"
+        },
+        "github_app_identity_bindings_id_positive": {
+          "name": "github_app_identity_bindings_id_positive",
+          "value": "\"github_app_identity_bindings\".\"external_id\" > 0"
         }
       },
       "isRLSEnabled": false
