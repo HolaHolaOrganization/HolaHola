@@ -1,0 +1,58 @@
+# Code owners — standard-controls plan efb1e3d1 rev 10, A0.1 (with B1).
+#
+# Paths below need the founder's review once the ruleset requires code-owner
+# review (A0.2). They cover the credential, identity, authorization, release
+# and schema boundaries: the token broker and the runtime that holds App keys,
+# runtime onboarding and coordination credentials, founder/ownership approvals,
+# the instance-role gate, deploy-time migrations, CI and workflow definitions,
+# and the build/dependency surface. This file lives under /.github/, so a
+# change to it is itself owned.
+
+/.github/                                            @davidwmcintosh
+
+# Schema, migrations and data operations
+/migrations/                                         @davidwmcintosh
+/scripts/data-ops/                                   @davidwmcintosh
+/shared/schema.ts                                    @davidwmcintosh
+
+# Release, deploy and build surface
+/render.yaml                                         @davidwmcintosh
+/Dockerfile                                          @davidwmcintosh
+/package.json                                        @davidwmcintosh
+/package-lock.json                                   @davidwmcintosh
+/scripts/render-predeploy.ts                         @davidwmcintosh
+/scripts/run-ci-test-steps.mjs                       @davidwmcintosh
+
+# Instance role and boot gating
+/server/index.ts                                     @davidwmcintosh
+/server/services/instance-role.ts                    @davidwmcintosh
+
+# GitHub token broker (per-agent Apps; holds App keys via the server env)
+/server/services/github-token-broker.ts              @davidwmcintosh
+/server/services/github-token-broker-store.ts        @davidwmcintosh
+/server/routes/github-token-broker-routes.ts         @davidwmcintosh
+
+# Coordination credentials, runtime onboarding and authentication
+/server/services/coordination-credential-broker.ts   @davidwmcintosh
+/server/routes/coordination-credential-routes.ts     @davidwmcintosh
+/server/services/runtime-onboarding-service.ts       @davidwmcintosh
+/server/services/runtime-onboarding-store.ts         @davidwmcintosh
+/server/routes/runtime-onboarding-routes.ts          @davidwmcintosh
+/server/middleware/coordination-auth.ts              @davidwmcintosh
+/server/middleware/coordination-v2-host-auth.ts      @davidwmcintosh
+/server/middleware/rbac.ts                           @davidwmcintosh
+/server/services/guardian-token.ts                   @davidwmcintosh
+
+# Founder approvals, task ownership and Gate 3
+/server/services/founder-task-ownership-service.ts   @davidwmcintosh
+/server/routes/founder-task-ownership-routes.ts      @davidwmcintosh
+/server/services/task-ownership-service.ts           @davidwmcintosh
+/server/services/task-ownership-key-custody.ts       @davidwmcintosh
+/server/services/ownership-approval-scope.ts         @davidwmcintosh
+/server/services/coordination-gate3-proof-grant-service.ts       @davidwmcintosh
+/server/services/coordination-gate3-assignment-window-service.ts @davidwmcintosh
+/scripts/antigravity-gate3.ps1                       @davidwmcintosh
+
+# Source control and promotion
+/server/services/source-control-service.ts           @davidwmcintosh
+/server/routes/source-promotion-routes.ts            @davidwmcintosh
