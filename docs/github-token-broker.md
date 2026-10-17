@@ -51,6 +51,20 @@ The actor comes from the credential. The App, installation, repository and permi
 
 Mints only happen on the production instance (`HOLAHOLA_INSTANCE_ROLE=production`).
 
+### From the coordination CLI (`github-exec`)
+
+A runtime with a coordination runtime broker credential (bootstrap or cache; see `docs/coordination-clients.md`) can mint and use its token without handling it:
+
+```
+env -u COORDINATION_<ACTOR>_TOKEN COORDINATION_ACTOR=<actor> COORDINATION_API_URL=https://getholahola.com   npx tsx server/scripts/coordination-cli.ts github-exec -- gh pr view 42
+```
+
+- It mints once. A denied or malformed mint exits non-zero and runs nothing.
+- It runs exactly the given argv (no shell) with `GH_TOKEN`/`GITHUB_TOKEN` added to that child's environment only. The child's exit code is propagated.
+- From the child's environment it removes only `COORDINATION_RUNTIME_BOOTSTRAP_TOKEN` and the actors' legacy `COORDINATION_*_TOKEN` variables. Every other inherited environment variable (including other coordination secrets, signing keys and cache paths) still passes through. The child runs as the same user with the same filesystem access, so it is not sandboxed: it can read those, and the runtime's credential cache files.
+- A configured legacy `COORDINATION_*_TOKEN` takes precedence in the client, so it must be unset for this process. `mintGithubToken()` refuses it locally rather than sending it.
+- Security contract: the wrapper itself never prints, logs, caches or writes the token, and never puts it in argv. It cannot control what the child does with its own environment, so use trusted commands that do not print or store the token (for example `gh pr review`, `gh api`, or `git push` through `gh auth git-credential`). The token stays valid on GitHub until its expiry (at most 1 hour) unless it is revoked.
+
 ## Audit
 
 Every issuance, denial, proposal and decision is recorded in `github_token_audit_events`, including the auth type, runtime and credential IDs.
