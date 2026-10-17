@@ -16,6 +16,15 @@ import {
   scrubAuditMetadata,
 } from './github-token-broker';
 
+/** PostgreSQL unique violation, whether raised directly or wrapped by the query layer. */
+export function isUniqueViolation(error: unknown): boolean {
+  for (let current: unknown = error, depth = 0; current && depth < 5; depth++) {
+    if ((current as { code?: unknown }).code === '23505') return true;
+    current = (current as { cause?: unknown }).cause;
+  }
+  return false;
+}
+
 export class GithubGrantError extends Error {
   constructor(readonly code: 'NOT_FOUND' | 'CONFLICT' | 'INVALID_INPUT') {
     super(code);
@@ -91,7 +100,7 @@ export const githubTokenBrokerStore: GithubTokenBrokerStore & {
         .returning();
     } catch (error) {
       // Unique violation: another live grant already exists for this actor.
-      if ((error as { code?: string })?.code === '23505') throw new GithubGrantError('CONFLICT');
+      if (isUniqueViolation(error)) throw new GithubGrantError('CONFLICT');
       throw error;
     }
     if (updated.length !== 1) {

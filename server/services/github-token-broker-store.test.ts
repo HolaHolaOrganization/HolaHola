@@ -16,6 +16,15 @@ after(async () => {
   }
 });
 
+test('unique violations are recognized directly and when wrapped by the query layer', async () => {
+  const { isUniqueViolation } = await import('./github-token-broker-store');
+  assert.equal(isUniqueViolation({ code: '23505' }), true);
+  assert.equal(isUniqueViolation(Object.assign(new Error('Failed query'), { cause: { code: '23505' } })), true);
+  assert.equal(isUniqueViolation(Object.assign(new Error('Failed query'), { cause: { code: '23503' } })), false);
+  assert.equal(isUniqueViolation(new Error('other')), false);
+  assert.equal(isUniqueViolation(undefined), false);
+});
+
 test('grant store: founder transitions are conditional, one live grant per actor, revoke is terminal', async (t) => {
   if (!ciUrl) {
     t.skip('requires the job-local CI database (CI=true, CI_DATABASE_URL)');
