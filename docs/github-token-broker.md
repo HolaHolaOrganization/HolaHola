@@ -2,6 +2,10 @@
 
 Standard-controls plan efb1e3d1, revision 10, Phase A1b. Each agent (coordination actor) has its own GitHub App. The App's private key lives only in the production server's environment. Agents get short-lived tokens for their own App and never hold a long-lived GitHub credential.
 
+## Status
+
+Activated for `luca-claude-code` (App 5350010) on 2026-10-17, after the A0 cut-over: CODEOWNERS (founder-only), ruleset with 1 approval, code-owner review and last-push approval, no bypass. A test PR proved that neither a normal merge nor a founder `--admin` merge can skip review. The first broker-minted token was scoped to HolaHola with contents/pull_requests write and checks/statuses/metadata read, expiring within 1 hour. This PR is the first one authored through it.
+
 ## What a token can do
 
 Every token is minted for exactly one repository (`davidwmcintosh/HolaHola`, id 1170208766) with this fixed ceiling:
