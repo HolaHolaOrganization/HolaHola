@@ -35,3 +35,10 @@
 
 # The whole server: the process that holds App keys and every module it loads
 /server/                                             @davidwmcintosh
+
+# TEMPORARY, D3 native cross-App proof (plan efb1e3d1 rev 13 step 3;
+# shared-spec 5c823a71). This one inert plaintext file has NO code owners, so
+# one agent App's review can be measured natively on another agent App's PR.
+# It must stay the LAST rule. The guard rejects any other ownerless rule. The
+# restore PR removes it.
+/docs/probes/d3-cross-app-probe.txt
