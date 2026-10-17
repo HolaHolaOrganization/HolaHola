@@ -248,6 +248,7 @@ test('a token covering other or additional repositories is discarded', async () 
 
 test('R2: a token living over an hour, already expired, or with an invalid expiry is discarded', async () => {
   const at = (ms: number) => new Date(NOW.getTime() + ms).toISOString().replace(/\.\d+Z$/, 'Z');
+  await expectScopeRejected(goodToken({ expires_at: at(61 * 60_000) }));
   await expectScopeRejected(goodToken({ expires_at: at(64 * 60_000) }));
   await expectScopeRejected(goodToken({ expires_at: at(3 * 3_600_000) }));
   await expectScopeRejected(goodToken({ expires_at: at(-1000) }));
@@ -256,11 +257,11 @@ test('R2: a token living over an hour, already expired, or with an invalid expir
   await expectScopeRejected(goodToken({ token: '' }));
 });
 
-test('R2: expiry window is (now, now + 1h + 60s clock tolerance]', () => {
+test('R2: expiry window is (now, now + 1h] with no tolerance', () => {
   const at = (ms: number) => new Date(NOW.getTime() + ms).toISOString();
   assert.equal(tokenExpiryAcceptable(at(3_600_000), NOW), true);
-  assert.equal(tokenExpiryAcceptable(at(3_660_000), NOW), true);
-  assert.equal(tokenExpiryAcceptable(at(3_661_000), NOW), false);
+  assert.equal(tokenExpiryAcceptable(at(3_600_001), NOW), false);
+  assert.equal(tokenExpiryAcceptable(at(3_660_000), NOW), false);
   assert.equal(tokenExpiryAcceptable(at(1), NOW), true);
   assert.equal(tokenExpiryAcceptable(at(0), NOW), false);
   assert.equal(tokenExpiryAcceptable(1_000, NOW), false);

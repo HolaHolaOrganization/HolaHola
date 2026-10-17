@@ -16,6 +16,8 @@ after(async () => {
   }
 });
 
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
 test('unique violations are recognized directly and when wrapped by the query layer', async () => {
   const { isUniqueViolation } = await import('./github-token-broker-store');
   assert.equal(isUniqueViolation({ code: '23505' }), true);
@@ -25,7 +27,7 @@ test('unique violations are recognized directly and when wrapped by the query la
   assert.equal(isUniqueViolation(undefined), false);
 });
 
-test('grant store: conditional transitions, exclusive actor/App/installation, decisions serialized behind mints', async (t) => {
+test('grant store on PostgreSQL: transitions, permanent App binding, fresh clock, decisions behind mints', async (t) => {
   if (!ciUrl) {
     t.skip('requires the job-local CI database (CI=true, CI_DATABASE_URL)');
     return;
@@ -34,95 +36,97 @@ test('grant store: conditional transitions, exclusive actor/App/installation, de
   const { eq, inArray, sql } = await import('drizzle-orm');
   const { githubAppGrants, githubTokenAuditEvents } = await import('@shared/schema');
   const { getSharedDb } = await import('../db');
-  const { githubTokenBrokerStore, GithubGrantError } = await import('./github-token-broker-store');
+  const { githubTokenBrokerStore: store, GithubGrantError } = await import('./github-token-broker-store');
   const db = getSharedDb();
-  const actor = 'luca-cursor';
-  const otherActor = 'luca-openai-agents';
-  await db.delete(githubAppGrants).where(inArray(githubAppGrants.actor, [actor, otherActor]));
+  const actorA = 'luca-cursor';
+  const actorB = 'luca-openai-agents';
+  const actors = [actorA, actorB];
+  const conflict = (error: unknown) => error instanceof GithubGrantError && error.code === 'CONFLICT';
+  const liveFor = (actor: string) => store.withMintLock(actor, async (grant) => grant);
+  await db.delete(githubAppGrants).where(inArray(githubAppGrants.actor, actors));
 
-  const created: string[] = [];
   try {
-    const first = await githubTokenBrokerStore.propose({ actor, appId: 111, installationId: 222 }, 'david');
-    created.push(first.id);
+    // ── Transitions ──────────────────────────────────────────────────────
+    const first = await store.propose({ actor: actorA, appId: 111, installationId: 222 }, 'david');
     assert.equal(first.state, 'pending');
-    assert.equal(await githubTokenBrokerStore.findLiveGrant(actor), null, 'a pending grant is not live');
-
-    const approved = await githubTokenBrokerStore.decide(first.id, 'approve', 'david');
+    assert.equal(await liveFor(actorA), null, 'a pending grant is not live');
+    const approved = await store.decide(first.id, 'approve', 'david');
     assert.equal(approved.state, 'active');
     assert.ok(approved.expiresAt && approved.expiresAt.getTime() > Date.now());
-    assert.equal((await githubTokenBrokerStore.findLiveGrant(actor))?.id, first.id);
+    assert.equal((await liveFor(actorA))?.id, first.id);
 
-    // A second live grant for the same actor is refused by the partial unique index.
-    const second = await githubTokenBrokerStore.propose({ actor, appId: 333, installationId: 444 }, 'david');
-    created.push(second.id);
-    await assert.rejects(githubTokenBrokerStore.decide(second.id, 'approve', 'david'),
-      (error: unknown) => error instanceof GithubGrantError && error.code === 'CONFLICT');
-
-    // No skipping: approve twice, enable an active grant.
-    await assert.rejects(githubTokenBrokerStore.decide(first.id, 'approve', 'david'),
-      (error: unknown) => error instanceof GithubGrantError && error.code === 'CONFLICT');
-    await assert.rejects(githubTokenBrokerStore.decide(first.id, 'enable', 'david'),
-      (error: unknown) => error instanceof GithubGrantError && error.code === 'CONFLICT');
-
-    assert.equal((await githubTokenBrokerStore.decide(first.id, 'disable', 'david')).state, 'disabled');
-    assert.equal((await githubTokenBrokerStore.findLiveGrant(actor))?.state, 'disabled');
-
-    // Re-enabling never resurrects an expired grant.
+    const secondForA = await store.propose({ actor: actorA, appId: 333, installationId: 444 }, 'david');
+    await assert.rejects(store.decide(secondForA.id, 'approve', 'david'), conflict, 'one live grant per actor');
+    await assert.rejects(store.decide(first.id, 'approve', 'david'), conflict, 'no re-approve');
+    await assert.rejects(store.decide(first.id, 'enable', 'david'), conflict, 'cannot enable an active grant');
+    assert.equal((await store.decide(first.id, 'disable', 'david')).state, 'disabled');
     await db.update(githubAppGrants).set({ expiresAt: sql`now() - interval '1 minute'` }).where(eq(githubAppGrants.id, first.id));
-    await assert.rejects(githubTokenBrokerStore.decide(first.id, 'enable', 'david'),
-      (error: unknown) => error instanceof GithubGrantError && error.code === 'CONFLICT');
-
-    const revoked = await githubTokenBrokerStore.decide(first.id, 'revoke', 'david');
-    assert.equal(revoked.state, 'revoked');
-    assert.ok(revoked.revokedAt);
+    await assert.rejects(store.decide(first.id, 'enable', 'david'), conflict, 'never resurrect an expired grant');
+    assert.equal((await store.decide(first.id, 'revoke', 'david')).state, 'revoked');
     for (const decision of ['approve', 'enable', 'disable', 'revoke', 'reject'] as const) {
-      await assert.rejects(githubTokenBrokerStore.decide(first.id, decision, 'david'),
-        (error: unknown) => error instanceof GithubGrantError && error.code === 'CONFLICT', decision);
+      await assert.rejects(store.decide(first.id, decision, 'david'), conflict, `revoked is terminal: ${decision}`);
     }
-    await assert.rejects(githubTokenBrokerStore.decide('00000000-0000-0000-0000-000000000000', 'approve', 'david'),
+    await assert.rejects(store.decide('00000000-0000-0000-0000-000000000000', 'approve', 'david'),
       (error: unknown) => error instanceof GithubGrantError && error.code === 'NOT_FOUND');
-    assert.equal(await githubTokenBrokerStore.findLiveGrant(actor), null);
 
-    // R4: no two actors may hold the same App or installation live.
-    const mine = await githubTokenBrokerStore.propose({ actor, appId: 555, installationId: 666 }, 'david');
-    const sameApp = await githubTokenBrokerStore.propose({ actor: otherActor, appId: 555, installationId: 999 }, 'david');
-    const sameInstall = await githubTokenBrokerStore.propose({ actor: otherActor, appId: 998, installationId: 666 }, 'david');
-    created.push(mine.id, sameApp.id, sameInstall.id);
-    await githubTokenBrokerStore.decide(mine.id, 'approve', 'david');
-    for (const collision of [sameApp, sameInstall]) {
-      await assert.rejects(githubTokenBrokerStore.decide(collision.id, 'approve', 'david'),
-        (error: unknown) => error instanceof GithubGrantError && error.code === 'CONFLICT');
-    }
+    // ── Permanent App binding (review R4 follow-up) ─────────────────────
+    // App 111 / installation 222 were live for A (now revoked). B may never get them.
+    const bSameApp = await store.propose({ actor: actorB, appId: 111, installationId: 900 }, 'david');
+    const bSameInstall = await store.propose({ actor: actorB, appId: 901, installationId: 222 }, 'david');
+    await assert.rejects(store.decide(bSameApp.id, 'approve', 'david'), conflict, 'revoked App stays bound to A');
+    await assert.rejects(store.decide(bSameInstall.id, 'approve', 'david'), conflict, 'revoked installation stays bound to A');
+    // A itself may be re-approved for its own App after a revoke.
+    const aAgain = await store.propose({ actor: actorA, appId: 111, installationId: 222 }, 'david');
+    assert.equal((await store.decide(aAgain.id, 'approve', 'david')).state, 'active');
+    // While A is live, B cannot take the App either.
+    const bWhileLive = await store.propose({ actor: actorB, appId: 111, installationId: 902 }, 'david');
+    await assert.rejects(store.decide(bWhileLive.id, 'approve', 'david'), conflict);
 
-    // R1: a founder decision blocks behind an in-flight mint's share lock.
+    // ── Fresh clock: expiry during the lock wait is caught (review item 1) ─
+    await db.update(githubAppGrants).set({ expiresAt: sql`clock_timestamp() + interval '1 second'` }).where(eq(githubAppGrants.id, aAgain.id));
+    let releaseBlocker!: () => void;
+    const blockerHeld = new Promise<void>((resolve) => { releaseBlocker = resolve; });
+    let blockerLocked!: () => void;
+    const blockerReady = new Promise<void>((resolve) => { blockerLocked = resolve; });
+    const blocker = db.transaction(async (tx) => {
+      await tx.select().from(githubAppGrants).where(eq(githubAppGrants.id, aAgain.id)).for('update');
+      blockerLocked();
+      await blockerHeld;
+    });
+    await blockerReady;
+    const observed = store.withMintLock(actorA, async (grant, dbNow) => ({ grant, dbNow }));
+    await sleep(1500); // the grant expires while the mint waits for its lock
+    releaseBlocker();
+    await blocker;
+    const { grant: lockedGrant, dbNow } = await observed;
+    assert.ok(lockedGrant?.expiresAt, 'grant row visible under the lock');
+    assert.ok(dbNow.getTime() > lockedGrant.expiresAt.getTime(),
+      'the clock read after acquiring the lock must show the grant as expired');
+
+    // ── Decisions block behind an in-flight mint (review R1) ─────────────
+    await db.update(githubAppGrants).set({ expiresAt: sql`now() + interval '1 day'` }).where(eq(githubAppGrants.id, aAgain.id));
     let releaseMint!: () => void;
     const mintHeld = new Promise<void>((resolve) => { releaseMint = resolve; });
-    let lockedGrantState: string | undefined;
-    const mint = githubTokenBrokerStore.withMintLock(actor, async (lockedGrant) => {
-      lockedGrantState = lockedGrant?.state;
-      await mintHeld;
-      return 'minted';
-    });
-    await new Promise((resolve) => setTimeout(resolve, 200));
+    let lockedState: string | undefined;
+    const mint = store.withMintLock(actorA, async (grant) => { lockedState = grant?.state; await mintHeld; return 'minted'; });
+    await sleep(200);
     let revokeDone = false;
-    const revoke = githubTokenBrokerStore.decide(mine.id, 'revoke', 'david').then((g) => { revokeDone = true; return g; });
-    await new Promise((resolve) => setTimeout(resolve, 500));
+    const revoke = store.decide(aAgain.id, 'revoke', 'david').then((g) => { revokeDone = true; return g; });
+    await sleep(500);
     assert.equal(revokeDone, false, 'the revoke must wait for the in-flight mint');
     releaseMint();
     assert.equal(await mint, 'minted');
-    assert.equal(lockedGrantState, 'active');
+    assert.equal(lockedState, 'active');
     assert.equal((await revoke).state, 'revoked');
-    assert.equal(revokeDone, true);
-    // The next mint sees the committed revoke.
-    assert.equal(await githubTokenBrokerStore.withMintLock(actor, async (g) => g), null);
+    assert.equal(await liveFor(actorA), null, 'the next mint sees the committed revoke');
 
-    // Audit rows exist for every decision and carry no credential material.
-    await githubTokenBrokerStore.audit({ eventType: 'token_denied', success: false, actor, metadata: { token: 'ghs_secret', note: 'ok' } });
-    const audits = await db.select().from(githubTokenAuditEvents).where(eq(githubTokenAuditEvents.actor, actor));
-    assert.ok(audits.length >= 5);
-    assert.ok(!JSON.stringify(audits).includes('ghs_secret'));
+    // ── Audit rows are typed and scrubbed ────────────────────────────────
+    await store.audit({ eventType: 'token_denied', success: false, actor: actorA, metadata: { token: 'ghs_secretmarker', nested: { token: 'ghs_secretmarker' }, authType: 'broker' } });
+    const audits = await db.select().from(githubTokenAuditEvents).where(inArray(githubTokenAuditEvents.actor, actors));
+    assert.ok(audits.length >= 8);
+    assert.ok(!JSON.stringify(audits).includes('ghs_secretmarker'));
   } finally {
-    if (created.length) await db.delete(githubAppGrants).where(inArray(githubAppGrants.id, created));
-    await db.delete(githubTokenAuditEvents).where(inArray(githubTokenAuditEvents.actor, [actor, otherActor]));
+    await db.delete(githubAppGrants).where(inArray(githubAppGrants.actor, actors));
+    await db.delete(githubTokenAuditEvents).where(inArray(githubTokenAuditEvents.actor, actors));
   }
 });

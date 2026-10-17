@@ -8696,9 +8696,9 @@ export const githubAppGrants = pgTable("github_app_grants", {
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, (table) => [
   // At most one live (active or disabled) grant per actor, per App and per
-  // installation: two actors can never share one App identity. Moving an App
-  // to another actor means revoking the old grant first (its already-issued
-  // tokens expire within 1 hour), then approving a new one.
+  // installation. In addition, approval refuses any App or installation that
+  // has EVER been live for a different actor (github-token-broker-store.ts):
+  // an App identity is permanently bound to one actor.
   uniqueIndex("uq_github_app_grants_live_actor")
     .on(table.actor)
     .where(sql`${table.state} in ('active', 'disabled')`),

@@ -8,7 +8,9 @@
  *   finish, and a decision that commits first is seen by the next mint.
  * - Every decision is a conditional UPDATE on the expected prior state.
  * - Partial unique indexes keep one live grant per actor, per App and per
- *   installation, so two actors can never share an App identity.
+ *   installation, and approval refuses any App or installation that has ever
+ *   been live for a DIFFERENT actor: an App identity is permanently bound to
+ *   one actor, so no two actors can hold its tokens even during a residual.
  */
 import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import { githubAppGrants, githubTokenAuditEvents, type GithubAppGrant } from '@shared/schema';
@@ -70,7 +72,9 @@ export const githubTokenBrokerStore: GithubTokenBrokerStore & {
         .where(and(eq(githubAppGrants.actor, actor), inArray(githubAppGrants.state, ['active', 'disabled'])))
         .limit(2)
         .for('share');
-      const clock = await tx.execute(sql`select now() as now`);
+      // clock_timestamp(), not now(): now() is the transaction START, which can
+      // precede a long lock wait. Read the clock only after the lock is held.
+      const clock = await tx.execute(sql`select clock_timestamp() as now`);
       const now = ((clock as unknown as { rows?: Array<{ now: Date | string }> }).rows ?? [])[0]?.now;
       if (!now) throw new Error('database clock unavailable');
       // The partial unique index allows at most one; more would be corruption, so fail closed.
@@ -115,6 +119,25 @@ export const githubTokenBrokerStore: GithubTokenBrokerStore & {
         } else if (decision === 'revoke') {
           set.revokedBy = founder;
           set.revokedAt = nowExpr;
+        }
+        if (decision === 'approve' || decision === 'enable') {
+          // An App identity is permanently bound to the first actor approved for
+          // it: once any grant for an App or installation has been live (active,
+          // disabled or revoked), no OTHER actor may ever be approved for it, so
+          // two actors can never hold tokens for the same GitHub identity, even
+          // during the <= 1h residual after a revoke. Reassignment means a new App.
+          const [target] = await tx.select().from(githubAppGrants).where(eq(githubAppGrants.id, id)).for('update');
+          if (target) {
+            const bound = await tx.select({ id: githubAppGrants.id }).from(githubAppGrants)
+              .where(and(
+                sql`(${githubAppGrants.appId} = ${target.appId} or ${githubAppGrants.installationId} = ${target.installationId})`,
+                sql`${githubAppGrants.actor} <> ${target.actor}`,
+                inArray(githubAppGrants.state, ['active', 'disabled', 'revoked']),
+              ))
+              .limit(1)
+              .for('update');
+            if (bound.length) throw new GithubGrantError('CONFLICT');
+          }
         }
         const updated = await tx.update(githubAppGrants).set(set)
           .where(and(

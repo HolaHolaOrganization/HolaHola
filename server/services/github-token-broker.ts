@@ -9,7 +9,7 @@
  *
  * - only with an ACTIVE, founder-approved, unexpired grant for that actor;
  * - App ID and installation ID come from the grant, never from the request,
- *   and each App/installation can be live for one actor only;
+ *   and each App/installation is permanently bound to one actor;
  * - the repository and permission ceiling are fixed constants below, sent
  *   explicitly on every mint, and checked again on GitHub's response, so a
  *   token never exceeds them even if the App installation later gains more
@@ -23,12 +23,12 @@
  * FOR SHARE lock on the grant row. Founder decisions UPDATE that row, so a
  * revoke/disable that arrives during a mint waits until the mint finishes;
  * a decision that commits first is seen by the mint. Expiry is checked
- * against the database clock inside the lock.
+ * against clock_timestamp() read AFTER the lock is acquired.
  *
  * Revocation: revoking or disabling a grant stops NEW mints immediately (after
  * any in-flight mint). Tokens already issued stay valid until they expire: at
- * most 1 hour (GitHub's installation-token lifetime; a 60-second tolerance
- * covers clock difference with GitHub). For immediate cut-off, the founder
+ * most 1 hour (GitHub's installation-token lifetime; the broker refuses any
+ * token expiring later than 1 hour from its own clock). For immediate cut-off, the founder
  * suspends the App installation on GitHub, which revokes all of its tokens.
  * A token that fails the response check is revoked at once, best effort.
  */
@@ -53,8 +53,12 @@ export const AGENT_TOKEN_PERMISSIONS: Readonly<Record<string, 'read' | 'write'>>
 export const GRANT_LIFETIME_DAYS = 90;
 /** GitHub installation tokens live 1 hour. */
 export const MAX_TOKEN_LIFETIME_MS = 60 * 60 * 1000;
-/** Only tolerance on that hour: clock difference between this server and GitHub. */
-export const TOKEN_EXPIRY_CLOCK_TOLERANCE_MS = 60 * 1000;
+/**
+ * No tolerance: a token is accepted only if it expires at most 1 hour after
+ * this server's clock at check time (the approved residual). If this server's
+ * clock lags GitHub's, mints fail closed rather than widen the bound.
+ */
+export const TOKEN_EXPIRY_CLOCK_TOLERANCE_MS = 0;
 
 /** Coordination actors that may hold a GitHub App grant (agents, not people or Daniela). */
 export const GITHUB_GRANT_ACTORS = [
@@ -233,7 +237,7 @@ export function permissionsWithinCeiling(granted: unknown): boolean {
   return true;
 }
 
-/** A token expiry must be in the future and at most 1 hour (+60s clock tolerance) away (review R2). */
+/** A token expiry must be in the future and at most 1 hour away (review R2; no tolerance). */
 export function tokenExpiryAcceptable(expiresAt: unknown, now: Date): boolean {
   if (typeof expiresAt !== 'string' || !ISO_INSTANT.test(expiresAt)) return false;
   const ms = Date.parse(expiresAt);
