@@ -5,7 +5,8 @@
  * GitHub's codeowners/errors API proves syntax and owner validity, not that the
  * right paths are covered. This check resolves the effective owner of every
  * tracked file (last matching pattern wins, as GitHub does) and requires:
- *   - the founder owns EVERY tracked file during the bootstrap, because the
+ *   - the founder is the ONLY owner of EVERY tracked file during the bootstrap
+ *     (an additional listed owner could satisfy code-owner review alone), because the
  *     App-key broker runs in the main application process;
  *   - each named credential/auth/boot boundary below is founder-owned;
  *   - CODEOWNERS uses only the pattern forms this resolver understands, so an
@@ -58,6 +59,13 @@ export function parseCodeowners(text: string): Rule[] {
     if (!(pattern === '*' || /^\/[A-Za-z0-9._\-/]+$/.test(pattern)) || pattern.includes('*', 1) || pattern.includes('..')) {
       throw new Error(`CODEOWNERS line ${index + 1}: unsupported pattern ${JSON.stringify(pattern)}`);
     }
+    for (const owner of owners) {
+      const user = /^@[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})(?:\/[A-Za-z0-9._-]+)?$/;
+      const email = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+      if (!user.test(owner) && !email.test(owner)) {
+        throw new Error(`CODEOWNERS line ${index + 1}: invalid owner ${JSON.stringify(owner)}`);
+      }
+    }
     rules.push({ pattern, owners, line: index + 1 });
   });
   return rules;
@@ -86,7 +94,10 @@ export function coverageFailures(text: string, trackedFiles: string[]): string[]
   const failures: string[] = [];
   for (const path of new Set([...trackedFiles, ...REQUIRED_BOUNDARIES])) {
     const owners = ownersOf(rules, path);
-    if (!owners.includes(FOUNDER)) failures.push(`${path} is not owned by ${FOUNDER} (owners: ${owners.join(' ') || 'none'})`);
+    // Founder-ONLY: any additional listed owner could satisfy code-owner review alone.
+    if (owners.length !== 1 || owners[0] !== FOUNDER) {
+      failures.push(`${path} must be owned by ${FOUNDER} alone (owners: ${owners.join(' ') || 'none'})`);
+    }
   }
   return failures;
 }
@@ -104,6 +115,11 @@ function selfCheck(text: string, tracked: string[]): string[] {
   expectFailure('a later rule hands server/db.ts to someone else', `${text}\n/server/db.ts @someone-else\n`, 'server/db.ts');
   expectFailure('a later rule leaves server/routes.ts ownerless', `${text}\n/server/routes.ts\n`, 'server/routes.ts');
   expectFailure('an unsupported glob pattern', `${text}\nserver/**/*.ts @davidwmcintosh\n`, 'unsupported pattern');
+  expectFailure('founder PLUS another owner on server/db.ts', `${text}\n/server/db.ts @davidwmcintosh @someone-else\n`, 'server/db.ts');
+  expectFailure('founder PLUS a team on the catch-all',
+    text.replace(/^\*\s+@davidwmcintosh\s*$/m, '* @davidwmcintosh @org/team').replace(/^\/server\/\s+@davidwmcintosh\s*$/m, ''),
+    'server/replitAuth.ts');
+  expectFailure('an invalid owner token', `${text}\n/server/db.ts @davidwmcintosh not-an-owner\n`, 'invalid owner');
   return problems;
 }
 
@@ -123,7 +139,7 @@ function main(): void {
       for (const problem of problems) console.error(`  - ${problem}`);
       process.exit(1);
     }
-    console.log('CODEOWNERS coverage self-check PASS: 5 deliberate removals/overrides each fail.');
+    console.log('CODEOWNERS coverage self-check PASS: 8 deliberate removals/overrides/additions each fail.');
   }
 }
 
