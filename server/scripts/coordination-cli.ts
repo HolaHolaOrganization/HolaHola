@@ -1,3 +1,5 @@
+import { spawn } from 'node:child_process';
+import { constants as osConstants } from 'node:os';
 import {
   createCoordinationActorClient,
   type CoordinationClientActor,
@@ -34,7 +36,7 @@ function fail(message: string, exitCode = 64): never {
 
 function usage(): never {
   return fail(
-    'Commands: create, list, ack-feed, show, accept, progress, evidence, block, complete, acknowledge, reopen, reassign, comment, reply-and-verify, complete-with-linked-outcome. ' +
+    'Commands: create, list, ack-feed, show, accept, progress, evidence, block, complete, acknowledge, reopen, reassign, comment, reply-and-verify, complete-with-linked-outcome, github-exec. ' +
     'Configuration: COORDINATION_API_URL, COORDINATION_ACTOR, and that actor’s dedicated COORDINATION_*_TOKEN. ' +
     'There is no shared coordination token. --url overrides the API URL. ' +
     'Mutations require --idempotency-key; event mutations require --id and --expected-sequence. ' +
@@ -219,7 +221,99 @@ function optionalJson(options: Options, name: string): unknown {
   }
 }
 
+/**
+ * `github-exec [--url <api>] -- <command> [args...]`: mint this actor's own
+ * GitHub App token once (broker credential only) and run exactly that command
+ * with the token in its environment. See docs/github-token-broker.md.
+ */
+export function parseGithubExecArgs(args: readonly string[]): { url?: string; childArgv: string[] } {
+  const separator = args.indexOf('--');
+  if (separator < 0) throw new Error('github-exec requires -- followed by the command to run');
+  const before = args.slice(0, separator);
+  const childArgv = args.slice(separator + 1);
+  if (childArgv.length === 0 || !childArgv[0]) throw new Error('github-exec requires a command after --');
+  let url: string | undefined;
+  for (let index = 0; index < before.length; index += 1) {
+    const value = before[index + 1];
+    if (before[index] === '--url' && url === undefined && value && !value.startsWith('--')) {
+      url = value;
+      index += 1;
+    } else {
+      throw new Error(`Unsupported github-exec argument: ${before[index]}`);
+    }
+  }
+  return { ...(url ? { url } : {}), childArgv };
+}
+
+/** Coordination credentials the child never needs; only the GitHub token is added. */
+export function githubExecChildEnvironment(environment: NodeJS.ProcessEnv, token: string): NodeJS.ProcessEnv {
+  const child: NodeJS.ProcessEnv = {};
+  for (const [name, value] of Object.entries(environment)) {
+    if (name === 'COORDINATION_RUNTIME_BOOTSTRAP_TOKEN' || /^COORDINATION_[A-Z_]+_TOKEN$/.test(name)) continue;
+    child[name] = value;
+  }
+  child.GH_TOKEN = token;
+  child.GITHUB_TOKEN = token;
+  return child;
+}
+
+export type GithubExecDependencies = {
+  mint: () => Promise<{ token: string }>;
+  spawnImpl?: typeof spawn;
+  environment?: NodeJS.ProcessEnv;
+};
+
+/**
+ * Mint once, then spawn exactly `childArgv` (no shell) and resolve to the exit
+ * code to propagate. A denied or malformed mint rejects before anything is
+ * spawned. The wrapper never prints, logs, caches or writes the token and never
+ * puts it in argv; what the child does with its own environment is the
+ * caller's responsibility (use trusted, non-token-printing commands).
+ */
+export async function runGithubExec(childArgv: readonly string[], dependencies: GithubExecDependencies): Promise<number> {
+  const { token } = await dependencies.mint();
+  const spawnImpl = dependencies.spawnImpl ?? spawn;
+  return new Promise<number>((resolve, reject) => {
+    const child = spawnImpl(childArgv[0], childArgv.slice(1), {
+      shell: false,
+      stdio: 'inherit',
+      env: githubExecChildEnvironment(dependencies.environment ?? process.env, token),
+    });
+    child.once('error', (error: NodeJS.ErrnoException) => {
+      reject(new Error(`github-exec could not start ${childArgv[0]}: ${error.code ?? error.message}`));
+    });
+    child.once('close', (code, signal) => {
+      if (signal) resolve(128 + (osConstants.signals[signal] ?? 0));
+      else resolve(code ?? 1);
+    });
+  });
+}
+
+function configuredActor(): CoordinationClientActor {
+  const actorValue = process.env.COORDINATION_ACTOR;
+  if (!actorValue) fail('COORDINATION_ACTOR is required; set it to the identity running this client');
+  if (!isSupportedCoordinationActor(actorValue)) fail(`Unsupported COORDINATION_ACTOR: ${actorValue}`);
+  return actorValue;
+}
+
+async function githubExecMain(args: string[]): Promise<void> {
+  let parsed: ReturnType<typeof parseGithubExecArgs>;
+  try {
+    parsed = parseGithubExecArgs(args);
+  } catch (error) {
+    fail(error instanceof Error ? error.message : String(error));
+  }
+  const apiUrl = parsed.url ?? process.env.COORDINATION_API_URL;
+  if (!apiUrl) fail('COORDINATION_API_URL is required (or provide --url)');
+  const client = createCoordinationActorClient(configuredActor(), {
+    apiUrl,
+    credentialCache: new FileCoordinationCliCredentialCache(),
+  });
+  process.exitCode = await runGithubExec(parsed.childArgv, { mint: () => client.mintGithubToken() });
+}
+
 async function main(): Promise<void> {
+  if (process.argv[2] === 'github-exec') return githubExecMain(process.argv.slice(3));
   const { command, options } = parseArgs(process.argv.slice(2));
   const unsupported = unsupportedCoordinationCliOptions(command, options);
   if (unsupported.length > 0) {

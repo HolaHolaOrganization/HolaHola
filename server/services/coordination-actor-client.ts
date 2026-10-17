@@ -29,7 +29,17 @@ export type CoordinationClientAction =
   | 'reassign'
   | 'comment'
   | 'reply-and-verify'
-  | 'complete-with-linked-outcome';
+  | 'complete-with-linked-outcome'
+  | 'github-token';
+
+/** A broker-minted GitHub App installation token (docs/github-token-broker.md). */
+export type CoordinationGithubToken = {
+  token: string;
+  expiresAt: string;
+  appId: unknown;
+  repositoryId: unknown;
+  permissions: unknown;
+};
 
 const DIRECT_CLIENT_ACTIONS: Record<DirectCoordinationActor, ReadonlySet<CoordinationClientAction>> = {
   'luca-holahola': new Set(['list', 'acknowledge-feed', 'list-inbox', 'acknowledge-inbox', 'show', 'create', 'reassign', 'comment']),
@@ -602,6 +612,48 @@ export class CoordinationActorClient {
 
   /** Returns delivered only after the server rereads the exact reply row from
    * the recipient inbox. This intentionally says nothing about later states. */
+  /**
+   * Mint this actor's own short-lived GitHub App token from the founder-approved
+   * grant (POST /api/coordination/github-token). The broker accepts only a
+   * broker-issued credential, so this refuses locally rather than sending a
+   * legacy COORDINATION_*_TOKEN. Errors carry the broker's denial code only,
+   * never the token or the response body.
+   */
+  async mintGithubToken(): Promise<CoordinationGithubToken> {
+    this.assertAllowed('github-token');
+    const credential = await this.currentCredential();
+    if (!credential.broker) {
+      throw new Error(
+        `GitHub token mint requires a broker credential; ${COORDINATION_TOKEN_ENV_BY_ACTOR[this.actor]} is configured, `
+        + 'so unset it for this process to use the runtime bootstrap/cache instead',
+      );
+    }
+    const response = await this.fetchImpl(new URL('/api/coordination/github-token', `${this.baseUrl}/`), {
+      method: 'POST',
+      headers: { accept: 'application/json', 'x-coordination-token': credential.token },
+    });
+    const result = apiResult(await response.text());
+    const record = typeof result === 'object' && result !== null ? result as Record<string, unknown> : {};
+    if (!response.ok) {
+      const error = record.error;
+      const code = typeof error === 'object' && error !== null && typeof (error as Record<string, unknown>).code === 'string'
+        ? (error as Record<string, unknown>).code as string
+        : typeof error === 'string' ? error : 'unknown';
+      throw new Error(`GitHub token mint denied (${response.status}): ${code}`);
+    }
+    const expiresAt = typeof record.expiresAt === 'string' ? Date.parse(record.expiresAt) : Number.NaN;
+    if (typeof record.token !== 'string' || !record.token || !(expiresAt > Date.now())) {
+      throw new Error('GitHub token mint returned a malformed response');
+    }
+    return {
+      token: record.token,
+      expiresAt: record.expiresAt as string,
+      appId: record.appId,
+      repositoryId: record.repositoryId,
+      permissions: record.permissions,
+    };
+  }
+
   replyAndVerify(input: AgentNoteReplyInput): Promise<unknown> {
     if (this.actor !== 'luca-replit' && this.actor !== 'luca-claude-code') {
       throw new Error(`${this.actor} coordination client cannot reply to an agent note`);
