@@ -21,6 +21,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { apiRequest, getQueryFn } from "@/lib/queryClient";
+import { GithubAppGrantsPanel } from "@/components/admin/GithubAppGrantsPanel";
 import type { RuntimeOnboardingClientType } from "@shared/schema";
 import type {
   RuntimeOnboardingInvitationView,
@@ -560,6 +561,8 @@ export default function RuntimeOnboarding() {
           <div className="flex items-center gap-2 text-xs text-muted-foreground"><Clock3 className="h-3.5 w-3.5" />Status refreshes automatically every 30 seconds. Use Refresh to check immediately.</div>
         </>
       )}
+
+      <GithubAppGrantsPanel />
 
       <AlertDialog open={Boolean(confirmAction)} onOpenChange={closeConfirmation}>
         <AlertDialogContent>
