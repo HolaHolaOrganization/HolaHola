@@ -74,7 +74,7 @@ function actorFromAdminRequest(req: RouteRequest): typeof COORDINATION_ACTOR_IDS
   return 'david';
 }
 
-function sessionCsrfToken(req: RouteRequest): string {
+export function sessionCsrfToken(req: RouteRequest): string {
   const session = req.session;
   if (!session) return '';
   if (typeof session.runtimeOnboardingCsrfToken !== 'string') {
@@ -83,7 +83,7 @@ function sessionCsrfToken(req: RouteRequest): string {
   return session.runtimeOnboardingCsrfToken as string;
 }
 
-function csrfAndSameOrigin(req: RouteRequest): boolean {
+export function csrfAndSameOrigin(req: RouteRequest): boolean {
   const origin = req.get('origin');
   const expectedOrigin = `${req.protocol}://${req.get('host')}`;
   const supplied = req.body?.csrfToken;

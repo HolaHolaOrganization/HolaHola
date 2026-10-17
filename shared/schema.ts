@@ -8671,6 +8671,59 @@ export const coordinationCredentialAuditEvents = pgTable("coordination_credentia
   index("idx_coordination_credential_audit_failures").on(table.success, table.createdAt),
 ]);
 
+// Per-agent GitHub App token grants (standard-controls plan efb1e3d1 rev 10,
+// Phase A1b). A grant binds one coordination actor to one GitHub App and one
+// installation. The repository and permission ceiling are NOT stored: they are
+// fixed server-side constants in server/services/github-token-broker.ts, so no
+// grant row, proposer or caller can widen them. Only an ACTIVE, founder-decided,
+// unexpired grant can mint a token. App private keys are never stored here.
+export const GITHUB_APP_GRANT_STATES = ['pending', 'active', 'disabled', 'rejected', 'revoked'] as const;
+export type GithubAppGrantState = typeof GITHUB_APP_GRANT_STATES[number];
+
+export const githubAppGrants = pgTable("github_app_grants", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  actor: varchar("actor", { length: 80 }).notNull(),
+  appId: bigint("app_id", { mode: 'number' }).notNull(),
+  installationId: bigint("installation_id", { mode: 'number' }).notNull(),
+  state: varchar("state", { length: 16 }).notNull().default('pending'),
+  proposedBy: varchar("proposed_by", { length: 120 }).notNull(),
+  decidedBy: varchar("decided_by", { length: 120 }),
+  decidedAt: timestamp("decided_at"),
+  expiresAt: timestamp("expires_at"),
+  revokedBy: varchar("revoked_by", { length: 120 }),
+  revokedAt: timestamp("revoked_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => [
+  // At most one live (active or disabled) grant per actor.
+  uniqueIndex("uq_github_app_grants_live_actor")
+    .on(table.actor)
+    .where(sql`${table.state} in ('active', 'disabled')`),
+  index("idx_github_app_grants_state").on(table.state, table.updatedAt),
+  check("github_app_grants_state_valid", sql`${table.state} in ('pending', 'active', 'disabled', 'rejected', 'revoked')`),
+  check("github_app_grants_ids_positive", sql`${table.appId} > 0 and ${table.installationId} > 0`),
+  check("github_app_grants_live_has_expiry", sql`${table.state} not in ('active', 'disabled') or ${table.expiresAt} is not null`),
+]);
+export type GithubAppGrant = typeof githubAppGrants.$inferSelect;
+
+// Issuance and denial audit for the GitHub token broker. Never contains a
+// token, a JWT or key material; the broker strips those before writing.
+export const githubTokenAuditEvents = pgTable("github_token_audit_events", {
+  id: bigserial("id", { mode: 'number' }).primaryKey(),
+  eventType: varchar("event_type", { length: 40 }).notNull(),
+  success: boolean("success").notNull(),
+  actor: varchar("actor", { length: 80 }),
+  grantId: varchar("grant_id"),
+  appId: bigint("app_id", { mode: 'number' }),
+  installationId: bigint("installation_id", { mode: 'number' }),
+  reason: varchar("reason", { length: 160 }),
+  metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  index("idx_github_token_audit_actor").on(table.actor, table.createdAt),
+  index("idx_github_token_audit_grant").on(table.grantId, table.createdAt),
+]);
+
 // Reusable runtime enrollment is deliberately provider-neutral and separate
 // from the Coordinator V2 host enrollment state machine. Invitation scope is
 // immutable; founder decisions and proof challenges are durable lifecycle
