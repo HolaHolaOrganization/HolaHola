@@ -119,7 +119,6 @@
 - [CLI stdout/stderr diagnostic separation](cli-stdout-stderr-diagnostics.md) — shared modules (e.g. server/db.ts) imported by --json CLIs must route diagnostics to stderr; never mask a broken stdout contract with test-side filtering
 - [Luca hat naming: platform, not persona or model](luca-hat-naming-convention.md) — hat = the platform/IDE Luca runs through, not a persona or the model name; one model can back several different hats
 - [Required tool field via existing payload field](tool-required-field-via-payload.md) — add a new required tool arg without a DB migration -- validate it at dispatch, store it in an existing optional payload field instead.
-- [Live server keeps running pre-edit code until restarted](dev-server-stale-code-until-restart.md) — a fresh tsx/CLI process reflects a backend edit immediately; the running dev server doesn't until restarted -- verify via restart, not a live check.
 - [MCP SSE response framing](mcp-sse-response-framing.md) — SDK 406s without both Accept values; success responses are always SSE-framed, even for one-shot calls -- parse the data: line.
 - [Git operational gotchas](git-operational-gotchas.md) — Git scripting, historical-object recovery, and linked-worktree verification pitfalls — see topic file for each.
 - [Long validation runs can hit the poll-budget limit](validation-run-poll-budget.md) — startValidationRun can time out (POLL_BUDGET_EXCEEDED, STOPPED exitCode -1) on a 10+ minute suite -- not a real failure; use backgrounded ShellExec + Monitor instead.
@@ -157,3 +156,4 @@
 - [Approval and publication boundaries](approval-publication-boundaries.md) — Separate digest coverage, selected source and release authority; grouped pointers retain the five original rules.
 - [Conversation and purpose](conversation-and-purpose.md) — Real conversation, collaboration and fun help achieve coding and language-learning goals; they are not overhead to eliminate.
 - [Voice double-audio chronology](voice-double-audio-history.md) — Founder reports longstanding doubled speech in greetings and later turns; the recent voice test was another occurrence, not evidence of a new regression.
+- [Replit post-merge process holds](replit-post-merge-process-holds.md) — Stopping workflows alone does not preserve a hold across platform merges; standalone shared-state writers need their own enforced boundary.

@@ -120,3 +120,23 @@ in the main window instead.
 hold is not permission to discard existing agent work or resolve integration
 locks by force. Completing the current fixes does not by itself lift the hold.
 
+
+## Exception-only founder review is the target, not a bypass
+
+For authorized routine work, the target is independent agent review and CI through merge and automatic production deployment without a founder PR-approval click. Founder review should be exception-only for genuinely new authority and the reviewed sensitive control surface, not a routine technical-review responsibility.
+
+**Why:** On 2026-10-17, LCC conveyed the founder’s explicit request to remove routine GitHub-approval overhead. This extends the earlier authorized-through-production decision; it is not permission to bypass the controls that currently require founder code-owner approval.
+
+**How to apply:** Treat this as the desired governance contract. Change ownership and approval policy only through a reviewed design, independently reviewed source/config changes, and native enforcement proof. Until those changes land, obey the effective founder-only ownership rules. Do not ask the founder to relay routine cross-hat reviews. Credential, new-authority, irreversible-action and unrelated worker/capture holds remain separate boundaries.
+
+**Source:** Shared-spec document efb1e3d1-6af6-4bf4-ba40-fd68f1cec3a4, immutable revision 1cddd9b0-b5bd-4845-9422-49dc9b3693c9, founder-direction section. The direction is recorded here; the proposed architecture in that revision was returned for changes, not approved.
+
+
+## Strategic direction before correctness-only review
+
+Reviews must assess strategic direction before implementation correctness: whether a proposal advances HolaHola’s actual goals, whether an existing standard process can do the job, what operational burden it adds, and whether a smaller approach would deliver the needed capability.
+
+**Why:** On 2026-10-17 the founder explicitly asked Luca to help decide direction, not merely review plans for holes. A coherent, bug-free proposal can still be the wrong investment. The founder asked the team to keep revisiting the larger goal and to challenge reinvention and unnecessary complexity.
+
+**How to apply:** Lead reviews with a recommendation: proceed, simplify, defer, or change approach, and explain the tradeoff. Separate demonstrated correctness/security blockers from optional hardening and deliberately accepted residual risk. Assess the end-to-end experience and founder workload, not just technical component success. Do not let a list of individually defensible fixes silently become authorization for a larger platform build. Use HolaHola’s owned, replaceable processes and Luca’s useful capabilities as the goal; standard services can be replaceable dependencies without being reimplemented.
+

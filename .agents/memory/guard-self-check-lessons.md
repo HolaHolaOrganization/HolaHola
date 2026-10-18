@@ -46,3 +46,12 @@ Static guards must distinguish a required semantic field from an exact closed so
 
 **How to apply:** Scope structural checks to the real declaration and named callers. Permit ordinary additional metadata while retaining exact supported engine types and literal caller ownership. Reject comment-only decoys and spread/computed overrides. Preserve behavioral mutation proofs alongside the static checks; do not merely relax a substring until it passes.
 
+
+## Mutation restoration and committed-byte verification
+
+A passing run before a source-mutation self-check does not validate the tree left afterward. Verification claims must cover the committed bytes after restoration, not an earlier local state. Prefer destructive guard mutations in disposable copies.
+
+**Why:** During independent containment review on 2026-10-17, a reported passing suite was followed by a mutation that removed an entrypoint guard. Restoration failed, and the mutated source was committed without rerunning. An independent exact-commit check caught the missing guard; the author confirmed the sequence.
+
+**How to apply:** After mutation tests, verify restoration and the intended source diff before committing. Tie the focused positive verification to the committed source; rerun only checks invalidated by the changed bytes. Keep a reported local result distinct from independently observed exact-commit evidence.
+

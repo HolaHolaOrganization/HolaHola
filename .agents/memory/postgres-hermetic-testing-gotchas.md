@@ -139,3 +139,21 @@ canonical bytes.
 digest mismatch is resolved. Keep stored evidence unchanged and compare full
 canonical digests, rather than accepting approximate timestamp equivalence.
 
+
+## Authorization expiry after row-lock waits
+
+Use a genuinely fresh database clock when checking authorization expiry after a lock wait: PostgreSQL now() and CURRENT_TIMESTAMP are fixed at transaction start, even if selected after the lock is acquired. clock_timestamp() reports current wall-clock time.
+
+**Why:** A real disposable PostgreSQL race test began authorization before grant expiry, blocked on a row lock until after expiry, then showed that now() still accepted the expired grant while clock_timestamp() correctly rejected it. Moving the SELECT below the lock did not make the clock fresh.
+
+**How to apply:** For time-sensitive authorization after waiting, read the fresh clock inside the authoritative lock boundary. Test by beginning before expiry and releasing the conflicting row lock after expiry; injecting a preselected later time does not prove actual PostgreSQL behavior.
+
+
+## Shared-identity ownership and empty historical lookups
+
+Permanent identity ownership must be serialized by the shared identity being assigned, not only by each request or grant row. SELECT ... FOR UPDATE locks matching rows; an empty historical-ownership lookup does not reserve an unused identity.
+
+**Why:** A real disposable PostgreSQL interleaving let two actors lock distinct pending grants for one identity and both observe no approved history. The first actor approved and revoked before the second performed its update. Live-only unique indexes then allowed the second approval, despite the permanent-binding rule and potentially overlapping residual tokens.
+
+**How to apply:** Establish immutable identity-owner rows/constraints, or acquire stable, consistently ordered identity-level transaction locks before the fresh ownership lookup. Test the approve/revoke/approve interleaving, not only sequential reuse. A cancelled proposal that was never approved must not become historical ownership merely because its terminal state is revoked.
+

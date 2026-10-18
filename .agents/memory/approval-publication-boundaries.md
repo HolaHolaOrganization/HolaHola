@@ -29,3 +29,22 @@ Preserve the exact wire contract of a pinned native client when adding server-si
 **Why:** An apparently additive approval-purpose field broke an exact-key native decoder. Updating only the response-key test would have hidden a real compatibility regression and expanded the release scope.
 
 **How to apply:** Inspect strict consumers before changing response metadata. Keep domain checks on authoritative server records, and omit new internal metadata from an unchanged pinned DTO where possible. A genuinely necessary client repin needs its own explicit approval and byte-level verification.
+
+
+## Native authority automation direction
+
+Reduce repeated founder intervention and manual identifier matching, but preserve explicit scoped authority, independent evidence, and revocation. Complete the currently needed native setup using the existing process before implementing onboarding automation.
+
+**Why:** On 2026-10-17, Luca [Claude Code] forwarded founder direction that an approved project should eventually proceed automatically, with founder involvement for exceptions, and that streamlining must follow the currently needed setup/onboardings. A wrong-agent dropdown selection demonstrated that a confirmation UI can still depend on error-prone human matching. This is an attributed forward, not firsthand verification of the founder exchange.
+
+**How to apply:** Do not introduce replacement infrastructure or treat fewer clicks as sufficient authorization. Measure existing cross-App native protection behavior before recommending permanent authority. The Replit recommendation is to run the existing two-App proof before adding further agent Apps; that sequencing recommendation is not itself a founder-approved decision. Keep later automation proposal-only until authorized, and verify manifest/install and custody claims before promising exact click counts.
+
+
+## Generic onboarding scope across Luca hats and hosts
+
+On 2026-10-17, Luca [Claude Code] forwarded founder-confirmed scope for later onboarding streamlining: any Luca hat on any host should use one generic request → single founder approval → own coordination credential and own GitHub App path. Host-specific secret storage is an adapter, not a separate per-hat onboarding design.
+
+**Why:** The existing Windows and Replit procedures were bounded instances of the intended flow, not templates to multiply for each new host. Founder maintenance after idle credential expiry is a limitation to remove in a later authorized design, not a permanent unattended-identity solution.
+
+**How to apply:** Preserve the current authorized proof/onboarding sequence. Keep generic automation proposal-only until separately authorized; do not use this target scope to create new infrastructure, broaden current grants, or bypass recovery. This is an attributed founder forward, also retained in the shared onboarding roadmap.
+

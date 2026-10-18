@@ -41,6 +41,7 @@
  *   1  — Fatal error (DB unavailable, write failed)
  */
 
+import './lib/held-writer-preflight'; // O2/O3 containment: must stay the first import
 import { readFileSync, existsSync } from 'fs';
 import { join } from 'path';
 import { neon } from '@neondatabase/serverless';

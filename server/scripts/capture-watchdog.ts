@@ -18,6 +18,7 @@
  * skips gracefully.
  */
 
+import './lib/held-writer-preflight'; // O2/O3 containment: must stay the first import
 import { neon } from '@neondatabase/serverless';
 import * as crypto from 'crypto';
 import * as fs from 'fs';

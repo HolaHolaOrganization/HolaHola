@@ -274,3 +274,21 @@ Ordinary coding-hat participation in HolaHola messaging and shared documents is 
 
 **How to apply:** Start with a repository copy, the tool’s project instructions, its own attributed coordination identity/credential, and verification of canonical inbox/message and shared-spec access. Treat V2 execution-host acceptance as a separately requested capability. Do not impersonate Claude Code or reuse its credentials for another hat. The reported working Claude Code baseline is product evidence; it is not proof that another runtime’s credentials or access have already been verified.
 
+
+## Hosted-runtime readiness before founder setup
+
+Prove the actual hosted runtime can securely enroll and renew before giving the founder App-creation or credential-grant steps. Desktop or generic Linux SDK support does not establish hosted Replit readiness, and platform Secrets are not automatically an SDK-native credential store.
+
+**Why:** During review on 2026-10-17, an onboarding draft assumed the Replit hat could follow the desktop flow and keep its credential in platform Secrets. The inspected host lacked the Secret Service tool required by the SDK’s Linux adapter, and its broker-runtime configuration had not been established. Sending the founder into App creation first would not have produced a usable client.
+
+**How to apply:** Inspect the real host’s approved storage, enrollment and renewal path without reading secret values. Prefer an already-supported path; if none fits, report the capability gap and reconsider the smallest useful proof rather than building a credential subsystem by implication. Keep runtime readiness, App installation and native review-authority proof as separate evidence boundaries.
+
+
+## Proof-only credentials versus unattended identity
+
+A manually recoverable short-lived credential may be accepted for a bounded native-identity proof without approving it as the permanent unattended identity model. Keep those two approvals separate.
+
+**Why:** The GitHub App proof deliberately reused the existing headless credential path and accepted founder recovery after cold idle expiry rather than building a desktop-store adapter or keepalive service. This kept the proof small; it did not solve continuous identity or remove the founder’s future recovery burden.
+
+**How to apply:** State the proof-only recovery limitation explicitly. Persistent credential files do not extend server-side validity. Before recommending a permanent authority model, separately assess unattended renewal and founder workload; do not transfer a narrow proof concession into routine operations or silently expand permissions, token lifetimes or background services.
+

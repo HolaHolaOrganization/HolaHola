@@ -39,6 +39,7 @@
  *   npx tsx server/scripts/test-luca-chat-canonical-save.ts --sandbox-self-check
  */
 
+import './lib/held-writer-preflight'; // O2/O3 containment: must stay the first import
 import http from 'http';
 import { randomUUID } from 'crypto';
 import { assertCanonicalSaveIsolation } from './luca-chat-canonical-isolation';

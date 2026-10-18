@@ -248,3 +248,26 @@ Distinguish a validation subprocess from a persistent runtime helper before wait
 
 **How to apply:** Inspect the exact child executable and service arguments. Exclude only the verified persistent esbuild service from test-completion waiting; wait for real validation children through exit events. Preserve pause ownership and resume-on-exit protection. Never infer child exit from a missing proc children interface or a quiet log.
 
+
+## Related backend refresh verification
+
+The standard restart-after-backend-edit recipe is retained at [Backend source refresh](dev-server-stale-code-until-restart.md). Fresh CLI processes and the already-running server may exercise different source versions; the full original evidence stays in that topic. This related pointer replaces a separate top-level index entry; no original topic content is removed.
+
+
+## Focused tests and protected workspace Git writes
+
+Do not override hosted-workspace Git-write protections merely to run a focused test. A test described as hermetic can still execute repository-local setup or encounter repository-write restrictions. Use a separate regular source copy, without the original .git directory or hard-linked mutable files, when that preserves the exact measured code and dependency resolution.
+
+**Why:** On 2026-10-17 in-place containment verification was interrupted by protection of .git/config.lock, then .git/index.lock even after the untested Git-config operation was replaced by a recording shim. The exact same launch tests completed in an isolated full source copy. The origin of the second attempted Git write was not established.
+
+**How to apply:** Copy the required source and project-root markers, retain the same dependencies and checkout-relative TypeScript resolution, and compare tested source bytes back to the working tree. Report isolated-copy proof separately from an in-place run, retain any genuine failing inventory check, and do not rerun checks whose measured source has not changed.
+
+
+## Agent versus interactive Shell command discovery
+
+Do not assume that command discovery in Agent tools matches the founder’s interactive Replit Shell.
+
+**Why:** In the same workspace, the Agent could resolve Node/npm/npx while the founder’s Shell reported npx missing. The runtime and local TypeScript loader were already installed; installing another toolchain was unnecessary.
+
+**How to apply:** Diagnose availability independently of the project code. Verify the existing Node executable and local loader, then provide a direct invocation if needed. Do not persist a specific Nix store path in instructions or memory, because it can change with the environment. Terminal paste-control characters are a separate input problem, not proof that dependencies are absent.
+

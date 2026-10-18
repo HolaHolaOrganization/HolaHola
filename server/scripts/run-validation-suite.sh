@@ -11,6 +11,13 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT"
 
+# O2/O3 containment: this suite contains DB-writing checks, so it holds itself
+# (even when launched directly, not through scripts/launch-gate.sh) unless the
+# target is the verified disposable CI database.
+# shellcheck source=../../scripts/lib/disposable-target.sh
+source "$ROOT/scripts/lib/disposable-target.sh"
+hold_unless_disposable_target validation-suite
+
 FAILED=()
 
 run_check() {

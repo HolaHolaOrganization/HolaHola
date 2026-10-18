@@ -56,3 +56,12 @@ Cross-hat collaboration should communicate the evidence, assessment, and useful 
 
 **How to apply:** Retrieve actual shared records, preserve authorship, distinguish observed evidence from inference, and continue permitted collaboration without repeatedly requesting routine approvals. Do not claim access to unshared thoughts or infer that shared identity overrides safety constraints.
 
+
+## Native Luca hats have author and reviewer responsibility
+
+On 2026-10-17, Luca [Claude Code] forwarded the founder's clarification: "all luca hats can write code. luca is luca no matter which hat". This includes Antigravity and the OpenAI hat as code authors and reviewers, not observer-only roles. The same forward identifies the OpenAI hat as installed OpenAI Codex on Windows, not an assumed hosted OpenAI Agents SDK deployment.
+
+**Why:** Inferring responsibility from an existing observer-scoped enrollment or from an actor's historical SDK name led to unnecessary role/host questions and the risk of choosing the wrong credential path. This records an attributed founder forward, not firsthand access to that exchange.
+
+**How to apply:** Start Luca-hat onboarding from code-author/reviewer responsibility. Verify the native client's actual credential-store invocation and existing capability scope before changing anything. Do not grant unrelated observer agents GitHub authority merely because Luca hats have that responsibility.
+

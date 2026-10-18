@@ -222,3 +222,12 @@ errors. Do not expand scopes or ask for new credentials without evidence.
 Prefer the project's established extension points when they fit the change;
 do not work around an intentional access restriction.
 
+
+## Connector source retrieval and pinned test copies
+
+Treat GitHub connector access as endpoint- and concurrency-dependent; successful PR/source reads do not prove archive-download access. Do not respond to an archive denial by hunting for account credentials or weakening checkout holds.
+
+**Why:** During an independent source review, authenticated PR reads worked while the archive endpoint returned 403; a broad concurrent content batch then returned 429. Pinned-tree metadata followed by bounded content retrieval worked without changing authentication or the dirty checkout.
+
+**How to apply:** Obtain the exact commit tree, compare candidate dependency files using Git blob hashes, reuse only byte-matching local files and fetch mismatches with small or sequential batches. Include the runtime dependency closure and test/config files, not only the changed files, before claiming an exact-source test. A partial source snapshot is suitable for focused checks, not proof that the full project typechecks.
+
