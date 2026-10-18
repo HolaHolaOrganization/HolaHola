@@ -95,7 +95,12 @@
  *
  * Skips (exit 0) when RULESET_MONITOR_TOKEN_GITHUB is not present in the
  * environment, e.g. an isolated task-agent worktree that does not inherit
- * this secret.
+ * this secret — EXCEPT inside the scheduled monitor workflow (GitHub sets
+ * GITHUB_WORKFLOW to its name, MONITOR_WORKFLOW_NAME below) or wherever
+ * RULESET_MONITOR_REQUIRED=true. There a missing token FAILS (exit 1), so the
+ * monitor can never go silently green without having actually checked the live
+ * ruleset. test-github-branch-bypass-guard-required.test.ts pins the workflow
+ * name to MONITOR_WORKFLOW_NAME so a rename cannot silently disable this.
  */
 export {};
 
@@ -137,6 +142,20 @@ interface BranchState {
 
 function hasCredentials(): boolean {
   return Boolean(process.env.RULESET_MONITOR_TOKEN_GITHUB);
+}
+
+/** Must match the `name:` of .github/workflows/github-branch-bypass-monitor.yml. */
+const MONITOR_WORKFLOW_NAME = 'GitHub branch bypass monitor';
+
+/** Missing token: SKIP (exit 0) by default; FAIL (exit 1) where the monitor requires it. */
+function exitForMissingCredentials(): never {
+  const required = process.env.RULESET_MONITOR_REQUIRED === 'true' || process.env.GITHUB_WORKFLOW === MONITOR_WORKFLOW_NAME;
+  if (required) {
+    console.log(`  ${R('✗')} RULESET_MONITOR_TOKEN_GITHUB is not set, but this is the scheduled monitor (or RULESET_MONITOR_REQUIRED=true) — it cannot check the live ruleset. Failing instead of skipping.`);
+    process.exit(1);
+  }
+  console.log(`  ${B('SKIP')}: RULESET_MONITOR_TOKEN_GITHUB not set in this environment.`);
+  process.exit(0);
 }
 
 function assertRulesetBypass(ruleset: RulesetState): string[] {
@@ -212,11 +231,7 @@ async function runRealCheck(): Promise<void> {
   console.log(B(`and that classic branch protection has not reappeared on ${BRANCH}.`));
   sep();
 
-  if (!hasCredentials()) {
-    console.log(`  ${B('SKIP')}: RULESET_MONITOR_TOKEN_GITHUB not set in this environment.`);
-    process.exit(0);
-    return;
-  }
+  if (!hasCredentials()) exitForMissingCredentials();
 
   const { ruleset, branch } = await fetchLiveState();
   const failures = [...assertRulesetBypass(ruleset), ...assertNoClassicProtection(branch)];
@@ -241,11 +256,7 @@ async function selfCheck(): Promise<void> {
   console.log(B('SELF-CHECK: verifying this guard fails against known-bad ruleset/protection states'));
   sep();
 
-  if (!hasCredentials()) {
-    console.log(`  ${B('SKIP')}: RULESET_MONITOR_TOKEN_GITHUB not set in this environment.`);
-    process.exit(0);
-    return;
-  }
+  if (!hasCredentials()) exitForMissingCredentials();
 
   // Baseline: the real live state must currently pass. This is a read-only
   // GET against the real ruleset and branch — never a mutation. Actually
