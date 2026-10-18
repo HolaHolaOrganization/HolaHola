@@ -8538,3 +8538,8 @@ The proof fixture/cases and original renewal imports remain byte-identical to
 the reviewed snapshot; registry-only imports account for the larger entrypoint.
 Source remains unpublished. The separate scope-visibility work is not included;
 no shared migration, promotion, worker/model launch or key rotation occurred.
+
+
+## Listener-only Replit boot recovery — 2026-10-18
+
+Listener-only boot recovery implementation prepared under direct founder approval and independently reviewed design. New launcher/supervisor/core and hermetic tests only; dedicated .replit onBoot hook will land through founder-reviewed PR, not be enabled by an unreviewed local config edit. No app, validation, capture or canonical-save start; no signing-key or deploy-key operation. Final coherent checks passed: 52 focused checks covering eight boot cases, CI registry contracts and source-write guard/self-checks; npm run typecheck passed. Tests live beside the existing listener core tests under server/scripts/lib and are registered in the existing CI runner; no guard allowlist was broadened. The held whole-application verification and validation workflows were not run. Real workspace boot proof is pending PR landing and founder-controlled restart, not claimed by process-only tests. Long-downtime expiry residual remains accepted. Documentation: docs/coordination-listener-boot.md.
