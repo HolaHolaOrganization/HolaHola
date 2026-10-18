@@ -696,7 +696,12 @@ describe('Static source-code scan — no raw storage.googleapis.com literals out
 // No database connection is required.
 // ---------------------------------------------------------------------------
 
-describe('Static source-code scan — scanner self-validation (end-to-end with a real file)', () => {
+// These self-validation cases run the scanner's per-line logic against an
+// in-memory source at a path under each scanned root. They deliberately do NOT
+// write a temporary file into the real source tree: doing so raced with the
+// other directory-walking scanner tests that run concurrently in the same CI
+// batch (ENOENT when a temp file vanished between listing and reading).
+describe('Static source-code scan — scanner self-validation (in-memory source at a scanned path)', () => {
   const thisFile2 = fileURLToPath(import.meta.url);
   const scriptsDir2 = path.dirname(thisFile2);
   const workspaceRoot2 = path.resolve(scriptsDir2, '..', '..');
@@ -737,13 +742,12 @@ describe('Static source-code scan — scanner self-validation (end-to-end with a
       `export async function writeImage() { return imageUrl; }`,
     ].join('\n');
 
-    fs.writeFileSync(TEMP_FILE, source, 'utf8');
-    try {
+    {
       assert.ok(
         !isExemptSelfTest(TEMP_FILE),
         'Temp file must not be exempt so the scanner actually processes it',
       );
-      const lines = fs.readFileSync(TEMP_FILE, 'utf8').split('\n');
+      const lines = source.split('\n');
       const violations = scanLines(TEMP_FILE, lines);
       assert.equal(
         violations.length,
@@ -755,8 +759,6 @@ describe('Static source-code scan — scanner self-validation (end-to-end with a
         violations[0].includes('storage.googleapis.com'),
         'Violation message must name the offending GCS URL',
       );
-    } finally {
-      fs.unlinkSync(TEMP_FILE);
     }
   });
 
@@ -769,9 +771,8 @@ describe('Static source-code scan — scanner self-validation (end-to-end with a
       `export async function writeImage() { return imageUrl; }`,
     ].join('\n');
 
-    fs.writeFileSync(TEMP_FILE, source, 'utf8');
-    try {
-      const lines = fs.readFileSync(TEMP_FILE, 'utf8').split('\n');
+    {
+      const lines = source.split('\n');
       const violations = scanLines(TEMP_FILE, lines);
       assert.equal(
         violations.length,
@@ -779,8 +780,6 @@ describe('Static source-code scan — scanner self-validation (end-to-end with a
         `Scanner must not flag comment lines but found ${violations.length} violation(s).\n` +
         `Violations: ${JSON.stringify(violations)}`,
       );
-    } finally {
-      fs.unlinkSync(TEMP_FILE);
     }
   });
 
@@ -800,10 +799,6 @@ describe('Static source-code scan — scanner self-validation (end-to-end with a
     // migration script and the source-code scanner would never see it.  This test
     // proves the scanner now covers the repo-root scripts/ directory.
     const scriptsRoot = path.resolve(workspaceRoot2, 'scripts');
-    if (!fs.existsSync(scriptsRoot)) {
-      // If scripts/ doesn't exist yet, create a temp directory so the test can run.
-      fs.mkdirSync(scriptsRoot, { recursive: true });
-    }
 
     const TEMP_SCRIPTS_FILE = path.resolve(scriptsRoot, '__gcs-source-selftest-scripts-tmp__.ts');
     const source = [
@@ -812,13 +807,12 @@ describe('Static source-code scan — scanner self-validation (end-to-end with a
       `export async function seedImages() { return seedUrl; }`,
     ].join('\n');
 
-    fs.writeFileSync(TEMP_SCRIPTS_FILE, source, 'utf8');
-    try {
+    {
       assert.ok(
         !isExemptSelfTest(TEMP_SCRIPTS_FILE),
         'Temp file in scripts/ must not be exempt so the scanner actually processes it',
       );
-      const lines = fs.readFileSync(TEMP_SCRIPTS_FILE, 'utf8').split('\n');
+      const lines = source.split('\n');
       const violations = scanLines(TEMP_SCRIPTS_FILE, lines);
       assert.equal(
         violations.length,
@@ -830,8 +824,6 @@ describe('Static source-code scan — scanner self-validation (end-to-end with a
         violations[0].includes('storage.googleapis.com'),
         'Violation message must name the offending GCS URL',
       );
-    } finally {
-      fs.unlinkSync(TEMP_SCRIPTS_FILE);
     }
   });
 
@@ -840,9 +832,6 @@ describe('Static source-code scan — scanner self-validation (end-to-end with a
     // builder or normaliser helper that hardcodes a raw GCS URL would be caught
     // here before it could be imported by server or client code.
     const sharedRoot = path.resolve(workspaceRoot2, 'shared');
-    if (!fs.existsSync(sharedRoot)) {
-      fs.mkdirSync(sharedRoot, { recursive: true });
-    }
 
     const TEMP_SHARED_FILE = path.resolve(sharedRoot, '__gcs-source-selftest-shared-tmp__.ts');
     const source = [
@@ -851,13 +840,12 @@ describe('Static source-code scan — scanner self-validation (end-to-end with a
       `export function buildImageUrl() { return helperUrl; }`,
     ].join('\n');
 
-    fs.writeFileSync(TEMP_SHARED_FILE, source, 'utf8');
-    try {
+    {
       assert.ok(
         !isExemptSelfTest(TEMP_SHARED_FILE),
         'Temp file in shared/ must not be exempt so the scanner actually processes it',
       );
-      const lines = fs.readFileSync(TEMP_SHARED_FILE, 'utf8').split('\n');
+      const lines = source.split('\n');
       const violations = scanLines(TEMP_SHARED_FILE, lines);
       assert.equal(
         violations.length,
@@ -869,8 +857,6 @@ describe('Static source-code scan — scanner self-validation (end-to-end with a
         violations[0].includes('storage.googleapis.com'),
         'Violation message must name the offending GCS URL',
       );
-    } finally {
-      fs.unlinkSync(TEMP_SHARED_FILE);
     }
   });
 });
