@@ -209,8 +209,6 @@ const ALLOWLIST: AllowlistEntry[] = [
   //    repeated convention, not an accident -- kept as an explicit allowlist
   //    entry (rather than an automatic exemption) so it stays visible. ──
   { kind: 'target', file: 'scan-unwrapped-image-uploads.test.ts', target: 'server/scripts/__gcs-guard-selftest-tmp__.ts', reason: 'scanner self-validation scratch file, deleted in finally (established convention)' },
-  { kind: 'target', file: 'scan-gcs-urls.test.ts', target: 'server/scripts/__gcs-source-selftest-tmp__.ts', reason: 'scanner self-validation scratch file, deleted in finally (established convention)' },
-  { kind: 'target', file: 'scan-gcs-urls.test.ts', target: 'shared/__gcs-source-selftest-shared-tmp__.ts', reason: 'scanner self-validation scratch file, deleted in finally (established convention)' },
 
   // ── Unresolved: traces to a `.local/`-relative or otherwise non-tracked
   //    WORKSPACE constant, verified by reading the constant's own
