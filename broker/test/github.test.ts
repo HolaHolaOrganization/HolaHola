@@ -3,7 +3,7 @@ import { createHash, generateKeyPairSync, verify } from 'node:crypto';
 import { describe, test } from 'node:test';
 import { executeOnce } from '../src/claims.ts';
 import {
-  createAppJwt, type Fetch, GitHubApi, GitHubError, GitHubLedger, GitHubPolicySource, InstallationToken, TOKEN_REFRESH_MARGIN_MS,
+  createAppJwt, type Fetch, GitHubApi, GitHubError, GitHubLedger, GitHubPolicySource, InstallationToken, LedgerOverwriteError, TOKEN_REFRESH_MARGIN_MS,
 } from '../src/github.ts';
 import { gitBlobSha, PolicyLoader, REPOSITORY_ID } from '../src/policy.ts';
 
@@ -209,6 +209,41 @@ describe('audit-repository ledger', () => {
     const stale = await ledger.head();
     await ledger.commit(stale, { 'x.json': '1' }, 'first');
     assert.deepEqual(await ledger.commit(stale, { 'y.json': '2' }, 'second'), { ok: false });
+  });
+
+  // luca-replit review 5566908783: additions replace content, so the adapter
+  // itself must refuse existing destinations at the expected head.
+  test('refuses to overwrite an existing claim or outcome at the current head, committing nothing', async () => {
+    const github = new FakeGitHub();
+    const ledger = ledgerFor(github);
+    const first = await ledger.commit(await ledger.head(), { 'outcomes/fixture/op.json': '{"status":"applied"}\n' }, 'outcome');
+    assert.equal(first.ok, true);
+    const head = await ledger.head();
+    const commitsBefore = github.commits.length;
+    await assert.rejects(ledger.commit(head, { 'outcomes/fixture/op.json': '{"status":"failed"}\n' }, 'outcome'), LedgerOverwriteError);
+    assert.equal(github.commits.length, commitsBefore);
+    assert.equal(await ledger.read(await ledger.head(), 'outcomes/fixture/op.json'), '{"status":"applied"}\n');
+  });
+
+  test('a mixed batch with one existing destination is rejected atomically', async () => {
+    const github = new FakeGitHub();
+    const ledger = ledgerFor(github);
+    await ledger.commit(await ledger.head(), { 'claims/fixture/op-a.json': 'a\n' }, 'claim');
+    const head = await ledger.head();
+    const commitsBefore = github.commits.length;
+    await assert.rejects(ledger.commit(head, { 'claims/fixture/op-b.json': 'b\n', 'claims/fixture/op-a.json': 'x\n' }, 'claim'), LedgerOverwriteError);
+    assert.equal(github.commits.length, commitsBefore);
+    assert.equal(await ledger.read(await ledger.head(), 'claims/fixture/op-b.json'), null, 'the new file in the batch was not written either');
+  });
+
+  test('absence is checked at the expected head, not the moving tip', async () => {
+    const github = new FakeGitHub();
+    const ledger = ledgerFor(github);
+    const stale = await ledger.head();
+    await ledger.commit(stale, { 'x.json': '1' }, 'first');
+    // x.json is absent at `stale`, so the absence check passes and the CAS then loses: no overwrite, no error.
+    assert.deepEqual(await ledger.commit(stale, { 'x.json': '2' }, 'second'), { ok: false });
+    assert.equal(await ledger.read(await ledger.head(), 'x.json'), '1');
   });
 
   test('any other GraphQL error throws, so the caller denies', async () => {

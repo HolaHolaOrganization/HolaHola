@@ -169,6 +169,13 @@ export class GitHubPolicySource implements PolicySource {
 
 const SHA1_HEX = /^[0-9a-f]{40}$/;
 
+/** A ledger commit named a file that already exists. Never retried: the ledger is append-only. */
+export class LedgerOverwriteError extends Error {
+  constructor(path: string) {
+    super(`ledger refuses to overwrite ${path}`);
+  }
+}
+
 const CREATE_COMMIT = `mutation($input: CreateCommitOnBranchInput!) {
   createCommitOnBranch(input: $input) { commit { oid } }
 }`;
@@ -214,8 +221,19 @@ export class GitHubLedger implements Ledger {
     return Buffer.from(file.content, 'base64').toString('utf8');
   }
 
+  /**
+   * createCommitOnBranch "additions" REPLACE existing files, so the
+   * never-overwrite contract is enforced here: every destination must be absent
+   * at exactly `expectedHead`. Commits are immutable and the CAS below applies
+   * only while the branch still points at `expectedHead`, so absence checked at
+   * that head holds at the moment the commit lands -- check and write are one
+   * atomic step. Any existing destination rejects the whole batch.
+   */
   async commit(expectedHead: string, files: Record<string, string>, message: string): Promise<{ ok: true; head: string } | { ok: false }> {
     if (!SHA1_HEX.test(expectedHead)) throw new TypeError('expected head must be a commit sha');
+    for (const path of Object.keys(files)) {
+      if ((await this.read(expectedHead, path)) !== null) throw new LedgerOverwriteError(path);
+    }
     const additions = Object.entries(files).map(([path, contents]) => ({ path, contents: Buffer.from(contents, 'utf8').toString('base64') }));
     const { data, errors } = await this.api.graphql(await this.token(), CREATE_COMMIT, {
       input: {
