@@ -8553,7 +8553,7 @@ arguments, raw output, errors or remote bodies. Existing status/import paths
 remain read-only, diagnostic failures do not replace launcher results, and
 the supervisor/child environment drops the diagnostic tag.
 
-Verification: 13 diagnostic tests passed; 8 existing boot tests passed;
+Verification: 14 diagnostic tests passed; 8 existing boot tests passed;
 typecheck and shell syntax checks passed. Synthetic tests cover exact exec
 argv/PID, exit preservation, missing Node/early failure, local write boundaries,
 private permissions, symlink/hardlink rejection, real CLI status/import

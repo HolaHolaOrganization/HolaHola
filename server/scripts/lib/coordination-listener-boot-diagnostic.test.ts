@@ -55,6 +55,19 @@ async function marker(root: string) {
   return directory;
 }
 
+test('prepared hook pins the absolute Replit workspace path independent of startup cwd', async () => {
+  const hook = await readFile(resolve('server/scripts/coordination-listener-boot-diagnostic.onboot.toml'), 'utf8');
+  assert.equal(hook,
+    'onBoot = "/bin/sh /home/runner/workspace/server/scripts/coordination-listener-boot-diagnostic.sh"\n');
+  assert.equal(hook.trim(), (await readFile(resolve('docs/coordination-listener-boot-diagnostic.md'), 'utf8'))
+    .split('\n').find(line => line.startsWith('onBoot = ')));
+  // CI reads the actual PR config; local preparation deliberately leaves the
+  // active workspace hook unchanged until independent review and authorization.
+  if (process.env.CI === 'true') {
+    const config = await readFile(resolve('.replit'), 'utf8');
+    assert.equal(config.split('\n').filter(line => /^onBoot\s*=/.test(line)).join('\n'), hook.trim());
+  }
+});
 test('wrapper records private fixed phases and execs exact launcher with the same PID', async t => {
   const root = await fixture(t);
   await fakeNode(root);

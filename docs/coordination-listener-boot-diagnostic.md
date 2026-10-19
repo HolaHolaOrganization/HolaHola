@@ -12,12 +12,18 @@ background task worked. These observations do not establish a platform cause.
 ## Candidate hook (requires exact-source independent review)
 
 ```toml
-onBoot = "/bin/sh server/scripts/coordination-listener-boot-diagnostic.sh"
+onBoot = "/bin/sh /home/runner/workspace/server/scripts/coordination-listener-boot-diagnostic.sh"
 ```
 
 This line is prepared in the PR only. Do not replace the active workspace
 hook, start the wrapper against live state or restart compute just to prepare
 the diagnostic. Existing manually restored listener and holds stay unchanged.
+
+The exact candidate line is also in
+`server/scripts/coordination-listener-boot-diagnostic.onboot.toml` and pinned
+by a focused test. The absolute path is deliberate: startup's working directory
+is not assumed to be the workspace. CI checks the actual PR `.replit` against
+this template; local tests leave the active hook untouched.
 
 ## Design and privacy
 
@@ -62,6 +68,12 @@ Compare same-invocation PIDs and times with current process creation identities,
 supervisor/child parentage and a fresh successful inbox-fetch heartbeat. Old
 files and spawn acknowledgements are never current liveness proof. Manual
 invocation is always manual recovery, even if a reused protocol says post-boot.
+
+Read the markers together with supervisor lock/log state, not in isolation.
+After diagnosis and a reviewed retirement decision, retain any needed evidence
+and remove only obsolete diagnostic invocation directories with no invocation
+in flight. Never remove listener cursors, receipts, ownership guards or caches.
+There is no automatic pruning or diagnostic retirement in this change.
 
 ## Verification and activation boundary
 
