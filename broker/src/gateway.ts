@@ -16,8 +16,8 @@
 
 import { type KeyObject } from 'node:crypto';
 import { decide, type LoaderFor } from './authorize.ts';
-import { type ClaimEntry, type EffectResult, executeOnce, type ExecutionOutcome, type Ledger, type Reconciler } from './claims.ts';
-import { type Envelope, type Operation } from './envelope.ts';
+import { type ClaimEntry, type EffectResult, executeOnce, type ExecutionOutcome, type Ledger, type Reconciler, statusOf } from './claims.ts';
+import { type Envelope, type Operation, verifyOriginalSignature } from './envelope.ts';
 import { type GitHubApi, GitHubError, InstallationToken } from './github.ts';
 
 export type ActorBinding = {
@@ -48,6 +48,7 @@ const SHA1_HEX = /^[0-9a-f]{40}$/;
 const MAX_TEXT = 60_000;
 const PROTECTED_BRANCHES = new Set(['main']);
 const WRITE_PERMISSIONS = { contents: 'write', pull_requests: 'write', issues: 'write' } as const;
+const READ_PERMISSIONS = { contents: 'read', pull_requests: 'read', issues: 'read' } as const;
 
 type Payload = Record<string, unknown>;
 
@@ -74,7 +75,11 @@ export function validatePayload(envelope: Envelope, payload: unknown): Payload |
   const needsPr = envelope.pr !== null && envelope.headSha !== null;
   switch (envelope.operation) {
     case 'read':
-      return envelope.pr !== null ? exact(payload, []) : null;
+      return needsPr ? exact(payload, []) : null;
+    case 'status': {
+      const p = exact(payload, ['original']);
+      return p && envelope.pr === null && envelope.headSha === null && typeof p.original === 'object' && p.original !== null ? p : null;
+    }
     case 'pr.comment': {
       const p = exact(payload, ['body']);
       return p && needsPr && text(p.body) ? p : null;
@@ -143,6 +148,7 @@ export class Gateway {
   private readonly config: GatewayConfig;
   private readonly now: () => number;
   private readonly tokens = new Map<string, InstallationToken>();
+  private readonly readTokens = new Map<string, InstallationToken>();
 
   constructor(config: GatewayConfig) {
     this.config = config;
@@ -163,6 +169,34 @@ export class Gateway {
       this.tokens.set(actor, token);
     }
     return token;
+  }
+
+  private readTokenFor(actor: string, binding: ActorBinding): InstallationToken {
+    let token = this.readTokens.get(actor);
+    if (!token) {
+      token = new InstallationToken(this.config.api, {
+        appId: binding.appId, installationId: binding.installationId, privateKey: binding.privateKey,
+        repositoryId: this.config.repo.id, permissions: { ...READ_PERMISSIONS },
+      }, this.now);
+      this.readTokens.set(actor, token);
+    }
+    return token;
+  }
+
+  /**
+   * Full re-authorization of the signed request after preparatory awaits:
+   * fresh policy and clock, the same digest and epoch as on arrival, and the
+   * configured App/installation equal to the policy's binding for the actor.
+   */
+  private async reauthorize(body: unknown, envelope: Envelope, digest: string, epoch: string, binding: ActorBinding): Promise<{ ok: true } | { ok: false; reason: string }> {
+    const again = await decide(body, this.config.loaderFor, this.now);
+    if (again.decision !== 'allow') return { ok: false, reason: again.reason };
+    if (again.authorized.digest !== digest || again.authorized.policy.epoch !== epoch) return { ok: false, reason: 'stale_policy_epoch' };
+    const policyActor = again.authorized.policy.actors.get(envelope.actor);
+    if (!policyActor || policyActor.appId !== binding.appId || policyActor.installationId !== binding.installationId) {
+      return { ok: false, reason: 'binding_mismatch' };
+    }
+    return { ok: true };
   }
 
   private async getPull(token: string, pr: number): Promise<Pull> {
@@ -186,23 +220,18 @@ export class Gateway {
     const valid = validatePayload(envelope, payload);
     if (!valid) return deny('malformed_payload');
 
-    if (envelope.operation === 'read') return this.read(envelope, binding);
+    if (envelope.operation === 'read') return this.read(body, envelope, digest, epoch, valid, binding);
+    if (envelope.operation === 'status') return this.status(body, envelope, digest, epoch, valid.original, binding);
 
     const ctx: Context = { token: '' };
     const marker = markerFor(envelope.operationId, digest);
     const preflight = async (): Promise<{ ok: true } | { ok: false; reason: string }> => {
-      ctx.token = await this.tokenFor(envelope.actor, binding).get();
-      const live = await this.liveCheck(envelope, valid, binding, ctx);
+      const readToken = await this.readTokenFor(envelope.actor, binding).get();
+      const live = await this.liveCheck(envelope, valid, binding, readToken, ctx);
       if (!live.ok) return live;
+      ctx.token = await this.tokenFor(envelope.actor, binding).get();
       // Last: full re-authorization after every preparatory await.
-      const again = await decide(body, this.config.loaderFor, this.now);
-      if (again.decision !== 'allow') return { ok: false, reason: again.reason };
-      if (again.authorized.digest !== digest || again.authorized.policy.epoch !== epoch) return { ok: false, reason: 'stale_policy_epoch' };
-      const policyActor = again.authorized.policy.actors.get(envelope.actor);
-      if (!policyActor || policyActor.appId !== binding.appId || policyActor.installationId !== binding.installationId) {
-        return { ok: false, reason: 'binding_mismatch' };
-      }
-      return { ok: true };
+      return this.reauthorize(body, envelope, digest, epoch, binding);
     };
 
     const entry: ClaimEntry = {
@@ -223,9 +252,14 @@ export class Gateway {
     return toResult(outcome, envelope.operationId);
   }
 
-  private async read(envelope: Envelope, binding: ActorBinding): Promise<GatewayResult> {
-    const token = await this.tokenFor(envelope.actor, binding).get();
-    const pull = await this.getPull(token, envelope.pr as number);
+  private async read(body: unknown, envelope: Envelope, digest: string, epoch: string, payload: Payload, binding: ActorBinding): Promise<GatewayResult> {
+    const deny = (reason: string) => ({ status: 403, body: { decision: 'deny' as const, reason, operationId: envelope.operationId } });
+    const ctx: Context = { token: '' };
+    const live = await this.liveCheck(envelope, payload, binding, await this.readTokenFor(envelope.actor, binding).get(), ctx);
+    if (!live.ok) return deny(live.reason);
+    const again = await this.reauthorize(body, envelope, digest, epoch, binding);
+    if (!again.ok) return deny(again.reason);
+    const pull = ctx.pull as Pull;
     return {
       status: 200,
       body: {
@@ -235,21 +269,58 @@ export class Gateway {
     };
   }
 
+  /**
+   * Status of an earlier operation (luca-replit phase 2b review, finding 1).
+   * The status request itself was fully authorized on arrival (fresh
+   * signature, current policy, not closed). It carries the ORIGINAL signed
+   * request, which is authenticated by signature only, so its digest equals
+   * the stored claim's. It must name the same actor. The claim is looked up,
+   * never created; its recorded outcome is returned or positively
+   * reconciled; nothing is ever executed or resent.
+   */
+  private async status(body: unknown, envelope: Envelope, digest: string, epoch: string, original: unknown, binding: ActorBinding): Promise<GatewayResult> {
+    const deny = (reason: string) => ({ status: 403, body: { decision: 'deny' as const, reason, operationId: envelope.operationId } });
+    const policy = await this.config.loaderFor(envelope.actor)?.current();
+    if (!policy) return deny('no_policy');
+    const verified = verifyOriginalSignature(original, policy);
+    if (!verified.ok) return deny(`original_${verified.reason}`);
+    const origin = verified.envelope;
+    if (origin.actor !== envelope.actor) return deny('actor_mismatch');
+    if (origin.operation === 'status' || origin.operation === 'read') return deny('not_a_claim');
+    const originPayload = validatePayload(origin, (original as { payload: unknown }).payload);
+    if (!originPayload) return deny('original_malformed_payload');
+    await this.readTokenFor(envelope.actor, binding).get();
+    const again = await this.reauthorize(body, envelope, digest, epoch, binding);
+    if (!again.ok) return deny(again.reason);
+    const entry: ClaimEntry = {
+      actor: origin.actor, operationId: origin.operationId, digest: verified.digest, operation: origin.operation,
+      pr: origin.pr, headSha: origin.headSha, policyEpoch: origin.policyEpoch,
+    };
+    let outcome: ExecutionOutcome;
+    try {
+      outcome = await statusOf(this.config.ledger, entry,
+        this.reconciler(origin, originPayload, markerFor(origin.operationId, verified.digest), binding), this.now);
+    } catch {
+      return deny('ledger_unavailable');
+    }
+    return toResult(outcome, origin.operationId);
+  }
+
   /** Binds the request to live GitHub state. Runs inside the preflight, after the token await. */
-  private async liveCheck(envelope: Envelope, payload: Payload, binding: ActorBinding, ctx: Context): Promise<{ ok: true } | { ok: false; reason: string }> {
+  private async liveCheck(envelope: Envelope, payload: Payload, binding: ActorBinding, readToken: string, ctx: Context): Promise<{ ok: true } | { ok: false; reason: string }> {
     if (envelope.pr !== null) {
-      const pull = await this.getPull(ctx.token, envelope.pr);
+      const pull = await this.getPull(readToken, envelope.pr);
       ctx.pull = pull;
       if (pull.base.repo.id !== this.config.repo.id) return { ok: false, reason: 'wrong_repository' };
       if (pull.head.repo?.id !== this.config.repo.id) return { ok: false, reason: 'fork_head' };
-      if (pull.state !== 'open') return { ok: false, reason: 'pr_not_open' };
+      if (pull.state !== 'open' && envelope.operation !== 'read') return { ok: false, reason: 'pr_not_open' };
       if (pull.head.sha !== envelope.headSha) return { ok: false, reason: 'head_moved' };
       if (envelope.operation === 'pr.review' && pull.user.login === binding.botLogin) return { ok: false, reason: 'self_review' };
       if (envelope.operation === 'commit.write' && pull.head.ref !== payload.branch) return { ok: false, reason: 'branch_not_pr_head' };
       return { ok: true };
     }
     const branch = payload.branch as string;
-    const sha = await this.refSha(ctx.token, branch);
+    const sha = await this.refSha(readToken, branch);
     if (envelope.operation === 'branch.create') return sha === null ? { ok: true } : { ok: false, reason: 'branch_exists' };
     if (sha !== envelope.headSha) return { ok: false, reason: 'head_moved' };
     return { ok: true };
@@ -306,11 +377,14 @@ export class Gateway {
               fileChanges: { additions, deletions },
             },
           });
-          // A GraphQL error in a completed response is GitHub declining the whole mutation.
-          if (errors.length > 0) return { status: 'failed', result: { graphql: errors[0].type ?? 'error' } };
+          // luca-replit phase 2b review, finding 2: GraphQL can report errors
+          // alongside an applied mutation, and no error class (including
+          // STALE_DATA, pending live qualification) is yet proven to mean "not
+          // applied". So only a returned commit oid is terminal (succeeded);
+          // any other response is unknown and stays uncertain -- never "failed".
           const oid = (data as { createCommitOnBranch?: { commit?: { oid?: string } } } | null)?.createCommitOnBranch?.commit?.oid;
-          if (typeof oid !== 'string' || !SHA1_HEX.test(oid)) throw new Error('commit result missing');
-          return { status: 'succeeded', result: { commitSha: oid } };
+          if (typeof oid === 'string' && SHA1_HEX.test(oid)) return { status: 'succeeded', result: { commitSha: oid } };
+          throw new Error(`commit result unknown (${errors.length} graphql errors)`);
         }
       }
     } catch (error) {
@@ -332,7 +406,7 @@ export class Gateway {
       const api = this.config.api, repo = this.repoPath(), pr = envelope.pr, head = envelope.headSha;
       let token: string;
       try {
-        token = await this.tokenFor(envelope.actor, binding).get();
+        token = await this.readTokenFor(envelope.actor, binding).get();
       } catch {
         return { status: 'ambiguous' };
       }
@@ -406,5 +480,6 @@ function toResult(outcome: ExecutionOutcome, operationId: string): GatewayResult
     case 'pending': return { status: 202, body: { decision: 'pending', operationId } };
     case 'uncertain': return { status: 202, body: { decision: 'uncertain', operationId } };
     case 'digest_conflict': return { status: 409, body: { decision: 'deny', reason: 'digest_conflict', operationId } };
+    case 'not_found': return { status: 404, body: { decision: 'not_found', operationId } };
   }
 }

@@ -62,7 +62,8 @@ export type ExecutionOutcome =
   | { kind: 'recorded'; outcome: OutcomeRecord }
   | { kind: 'pending' }
   | { kind: 'uncertain' }
-  | { kind: 'digest_conflict' };
+  | { kind: 'digest_conflict' }
+  | { kind: 'not_found' };
 
 export class LedgerContendedError extends Error {}
 
@@ -161,6 +162,42 @@ export const EFFECT_START_BUDGET_MS = 10_000;
  * and is surfaced; retrying it under a NEW operation id is a deliberate
  * decision, because the original may still apply.
  */
+/** An existing claim: report its outcome, or reconcile positively after the deadline. Never executes. */
+async function settleExisting(
+  ledger: Ledger, entry: ClaimEntry, claimRecord: ClaimRecord, outcome: OutcomeRecord | null, reconcile: Reconciler, now: () => number,
+): Promise<ExecutionOutcome> {
+  if (outcome) return { kind: 'recorded', outcome };
+  if (now() - claimRecord.claimedAt < EXECUTION_DEADLINE_MS) return { kind: 'pending' };
+  const found = await reconcile();
+  if (found.status !== 'applied') {
+    // Not seeing the effect proves nothing; another caller may have recorded one meanwhile.
+    const head = await ledger.head();
+    const existing = await ledger.read(head, outcomePath(entry.actor, entry.operationId));
+    return existing === null ? { kind: 'uncertain' } : { kind: 'recorded', outcome: JSON.parse(existing) as OutcomeRecord };
+  }
+  const recorded = await recordOutcome(ledger, {
+    actor: entry.actor, operationId: entry.operationId, digest: entry.digest,
+    status: 'applied', result: found.result, reconciled: true, recordedAt: now(),
+  });
+  return { kind: 'recorded', outcome: recorded };
+}
+
+/**
+ * Status of an existing claim, for the authenticated status path
+ * (luca-replit phase 2b review, finding 1). It never claims and never
+ * executes: no claim is "not_found", a different digest is a conflict, and
+ * otherwise the recorded outcome is returned or positively reconciled.
+ */
+export async function statusOf(ledger: Ledger, entry: ClaimEntry, reconcile: Reconciler, now: () => number = Date.now): Promise<ExecutionOutcome> {
+  const head = await ledger.head();
+  const raw = await ledger.read(head, claimPath(entry.actor, entry.operationId));
+  if (raw === null) return { kind: 'not_found' };
+  const record = JSON.parse(raw) as ClaimRecord;
+  if (record.digest !== entry.digest) return { kind: 'digest_conflict' };
+  const outcome = await ledger.read(head, outcomePath(entry.actor, entry.operationId));
+  return settleExisting(ledger, entry, record, outcome === null ? null : (JSON.parse(outcome) as OutcomeRecord), reconcile, now);
+}
+
 export async function executeOnce(
   ledger: Ledger,
   entry: ClaimEntry,
@@ -173,22 +210,7 @@ export async function executeOnce(
   const claimed = await claim(ledger, entry, claimedAt);
   if (claimed.kind === 'digest_conflict') return { kind: 'digest_conflict' };
 
-  if (claimed.kind === 'exists') {
-    if (claimed.outcome) return { kind: 'recorded', outcome: claimed.outcome };
-    if (now() - claimed.claim.claimedAt < EXECUTION_DEADLINE_MS) return { kind: 'pending' };
-    const found = await reconcile();
-    if (found.status !== 'applied') {
-      // Not seeing the effect proves nothing; another caller may have recorded one meanwhile.
-      const head = await ledger.head();
-      const existing = await ledger.read(head, outcomePath(entry.actor, entry.operationId));
-      return existing === null ? { kind: 'uncertain' } : { kind: 'recorded', outcome: JSON.parse(existing) as OutcomeRecord };
-    }
-    const outcome = await recordOutcome(ledger, {
-      actor: entry.actor, operationId: entry.operationId, digest: entry.digest,
-      status: 'applied', result: found.result, reconciled: true, recordedAt: now(),
-    });
-    return { kind: 'recorded', outcome };
-  }
+  if (claimed.kind === 'exists') return settleExisting(ledger, entry, claimed.claim, claimed.outcome, reconcile, now);
 
   // The winner's own pre-effect checks. Any failure here means the mutation
   // is provably never started, so the winner may record "aborted".

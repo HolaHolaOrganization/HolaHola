@@ -366,3 +366,146 @@ describe('gateway: qualification binds the exact (PR, head)', () => {
     assert.equal(moved.body.reason, 'not_qualified');
   });
 });
+
+// ---------------------------------------------------------------------------
+// luca-replit phase 2b review: findings 1-3, exercised through the real HTTP
+// server rather than by calling the gateway directly.
+// ---------------------------------------------------------------------------
+describe('through the HTTP server (review findings 1-3)', () => {
+  type Post = (body: unknown) => Promise<{ status: number; body: Record<string, unknown> }>;
+  async function serve(h: Harness, use: (post: Post) => Promise<void>) {
+    const { createBrokerServer } = await import('../src/server.ts');
+    const server = createBrokerServer({ loaderFor: (actor) => (actor === 'luca-claude-code' ? h.loader : undefined), healthLoader: h.loader, gateway: h.gateway, now: () => h.clock.now });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const { port } = server.address() as import('node:net').AddressInfo;
+    try {
+      await use(async (body) => {
+        const res = await fetch(`http://127.0.0.1:${port}/v1/operations`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+        return { status: res.status, body: await res.json() as Record<string, unknown> };
+      });
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  }
+
+  let statusCounter = 0;
+  function statusRequest(h: Harness, original: unknown, overrides: Partial<Envelope> = {}) {
+    statusCounter += 1;
+    return request(h, { operation: 'status', pr: null, headSha: null, operationId: `op-status-${String(statusCounter).padStart(10, '0')}`, ...overrides }, { original });
+  }
+
+  function gatewayWith(h: Harness, fetchImpl: Fetch): Gateway {
+    return new Gateway({
+      repo: REPO, actors: new Map([['luca-claude-code', { appId: 5350010, installationId: 172194780, privateKey: rsa.privateKey, botLogin: BOT }]]),
+      api: new GitHubApi(fetchImpl), ledger: h.ledger, loaderFor: () => h.loader, now: () => h.clock.now,
+    });
+  }
+
+  const commitPayload = { branch: 'lcc/feature', message: 'm', additions: [{ path: 'a.md', contentBase64: 'YQ==' }], deletions: [] };
+
+  test('finding 1: an uncertain operation is resolved by an authenticated status request; the expired original is refused; exactly one effect', async () => {
+    const h = harness();
+    h.repo.failAfterApply = 502;
+    await serve(h, async (post) => {
+      const original = request(h, {}, { body: 'hello' });
+      assert.equal((await post(original)).body.decision, 'uncertain');
+      h.repo.failAfterApply = null;
+      assert.equal((await post(statusRequest(h, original))).body.decision, 'pending', 'before the deadline the winner may still be running');
+      h.clock.now += EXECUTION_DEADLINE_MS;
+      assert.equal((await post(original)).body.reason, 'expired', 'an expired execution envelope is never accepted');
+      const status = await post(statusRequest(h, original));
+      assert.equal(status.body.decision, 'recorded');
+      assert.equal(status.body.status, 'applied');
+      assert.equal((await post(statusRequest(h, original))).body.status, 'applied');
+      assert.equal(h.repo.count('POST', '/comments'), 1);
+    });
+  });
+
+  test('finding 1: with no evidence the status stays uncertain and nothing is executed', async () => {
+    const h = harness();
+    h.repo.failAfterApply = 502;
+    await serve(h, async (post) => {
+      const original = request(h, {}, { body: 'hello' });
+      await post(original);
+      h.repo.comments.length = 0;
+      h.repo.failAfterApply = null;
+      h.clock.now += EXECUTION_DEADLINE_MS;
+      assert.equal((await post(statusRequest(h, original))).body.decision, 'uncertain');
+      assert.equal(h.repo.count('POST', '/comments'), 1);
+    });
+  });
+
+  test('finding 1: status never creates a claim, is bound to actor and digest, and is refused when closed', async () => {
+    const h = harness();
+    await serve(h, async (post) => {
+      const neverSent = request(h, { operationId: 'op-never-sent-00001' }, { body: 'hello' });
+      assert.equal((await post(statusRequest(h, neverSent))).body.decision, 'not_found');
+      assert.equal(h.repo.count('POST', '/comments'), 0);
+      assert.equal((await post(statusRequest(h, { ...neverSent, payload: { body: 'other' } }))).body.reason, 'original_payload_mismatch');
+      assert.equal((await post(statusRequest(h, statusRequest(h, neverSent)))).body.reason, 'not_a_claim');
+      h.policy.bytes = policyBytes('closed');
+      h.clock.now += 2;
+      assert.equal((await post(statusRequest(h, neverSent))).body.reason, 'policy_closed');
+    });
+  });
+
+  test('finding 2: a GraphQL response carrying a commit oid plus errors is success, never failure', async () => {
+    const h = harness();
+    const gql = { data: { createCommitOnBranch: { commit: { oid: 'e'.repeat(40) } } }, errors: [{ type: 'INTERNAL', message: 'partial' }] };
+    const gateway = gatewayWith(h, async (url, init) => (new URL(url).pathname === '/graphql' ? new Response(JSON.stringify(gql), { status: 200 }) : h.repo.fetch(url, init)));
+    const body = request(h, { operation: 'commit.write' }, commitPayload);
+    const d = await decide(body, () => h.loader, () => h.clock.now);
+    if (d.decision !== 'allow') throw new Error('expected allow');
+    const result = await gateway.execute(body, d.authorized.envelope, d.authorized.digest, d.authorized.payload, d.authorized.policy.epoch) as Result;
+    assert.equal(result.body.status, 'succeeded');
+    assert.deepEqual(result.body.result, { commitSha: 'e'.repeat(40) });
+  });
+
+  const unknown: Array<[string, unknown]> = [
+    ['null data with an INTERNAL error', { data: null, errors: [{ type: 'INTERNAL', message: 'boom' }] }],
+    ['STALE_DATA, not yet qualified as definite', { data: null, errors: [{ type: 'STALE_DATA', message: 'Expected branch to point to x' }] }],
+  ];
+  for (const [name, gql] of unknown) {
+    test(`finding 2: ${name} stays uncertain and is not resent`, async () => {
+      const h = harness();
+      let graphqlCalls = 0;
+      const gateway = gatewayWith(h, async (url, init) => {
+        if (new URL(url).pathname === '/graphql') { graphqlCalls += 1; return new Response(JSON.stringify(gql), { status: 200 }); }
+        return h.repo.fetch(url, init);
+      });
+      const body = request(h, { operation: 'commit.write' }, commitPayload);
+      const d = await decide(body, () => h.loader, () => h.clock.now);
+      if (d.decision !== 'allow') throw new Error('expected allow');
+      const result = await gateway.execute(body, d.authorized.envelope, d.authorized.digest, d.authorized.payload, d.authorized.policy.epoch) as Result;
+      assert.equal(result.body.decision, 'uncertain');
+      assert.equal(graphqlCalls, 1);
+      assert.equal(h.ledger.file(outcomePath('luca-claude-code', 'op-gateway-000000001')), null);
+    });
+  }
+
+  test('finding 3: read is re-authorized, identity- and head-bound, and uses only a read-only token', async () => {
+    const mismatched = harness({ configAppId: 999 });
+    await serve(mismatched, async (post) => {
+      assert.equal((await post(request(mismatched, { operation: 'read' }, {}))).body.reason, 'binding_mismatch');
+    });
+    const closing = harness();
+    closing.repo.onMint = () => { closing.policy.bytes = policyBytes('closed'); closing.clock.now += 2; };
+    await serve(closing, async (post) => {
+      const result = await post(request(closing, { operation: 'read' }, {}));
+      assert.equal(result.status, 403);
+      assert.equal(result.body.pull, undefined, 'nothing is disclosed after a failed re-authorization');
+    });
+    const moved = harness({ state: 'qualification' });
+    moved.repo.onPullRead = () => { moved.repo.pulls.get(48)!.head.sha = OTHER; };
+    await serve(moved, async (post) => {
+      assert.equal((await post(request(moved, { operation: 'read' }, {}))).body.reason, 'head_moved');
+    });
+    const ok = harness();
+    await serve(ok, async (post) => {
+      assert.equal((await post(request(ok, { operation: 'read' }, {}))).body.decision, 'read');
+      const mints = ok.repo.calls.filter((c) => c.path.endsWith('/access_tokens'));
+      assert.equal(mints.length, 1, 'a read never mints a write token');
+      assert.deepEqual((mints[0].body as { permissions: unknown }).permissions, { contents: 'read', pull_requests: 'read', issues: 'read' });
+    });
+  });
+});

@@ -29,6 +29,7 @@ export const OPERATIONS = [
   'pr.update-branch',
   'pr.merge',
   'read',
+  'status',
 ] as const;
 export type Operation = (typeof OPERATIONS)[number];
 
@@ -160,5 +161,40 @@ export function verifySignedRequest(body: unknown, policy: Policy, now: number):
   if (envelope.policyEpoch !== policy.epoch) return { ok: false, reason: 'stale_policy_epoch' };
   if (payloadDigest(payload) !== envelope.payloadSha256) return { ok: false, reason: 'payload_mismatch' };
 
+  return { ok: true, envelope, digest: sha256Hex(signed) };
+}
+
+/**
+ * Authenticates an ORIGINAL request carried inside a status request
+ * (luca-replit phase 2b review, finding 1). It checks shape, fixed
+ * bindings, the actor's key in the current policy, the signature, the
+ * validity-window structure and the payload digest -- but NOT expiry or
+ * policy epoch, because a status check arrives after the original expired.
+ * It therefore authenticates who signed which exact request; it never
+ * authorizes executing it. The returned digest must match the stored claim.
+ */
+export function verifyOriginalSignature(body: unknown, policy: Policy): EnvelopeResult {
+  const request = parseSignedRequest(body);
+  if (!request) return { ok: false, reason: 'malformed' };
+  const { envelope, signature, payload } = request;
+  if (envelope.audience !== AUDIENCE) return { ok: false, reason: 'wrong_audience' };
+  if (envelope.protocol !== PROTOCOL) return { ok: false, reason: 'wrong_protocol' };
+  if (envelope.repositoryId !== REPOSITORY_ID) return { ok: false, reason: 'wrong_repository' };
+  const actor = policy.actors.get(envelope.actor);
+  if (!actor) return { ok: false, reason: 'unknown_actor' };
+  const key = actor.signingKeys.find((candidate) => candidate.id === envelope.keyId);
+  if (!key) return { ok: false, reason: 'unknown_key' };
+  const signed = canonicalJson(envelope);
+  let valid = false;
+  try {
+    valid = verify(null, Buffer.from(signed, 'utf8'), key.publicKey, Buffer.from(signature, 'base64'));
+  } catch {
+    valid = false;
+  }
+  if (!valid) return { ok: false, reason: 'bad_signature' };
+  if (envelope.expiresAt - envelope.issuedAt > MAX_VALIDITY_MS || envelope.expiresAt <= envelope.issuedAt) {
+    return { ok: false, reason: 'validity_too_long' };
+  }
+  if (payloadDigest(payload) !== envelope.payloadSha256) return { ok: false, reason: 'payload_mismatch' };
   return { ok: true, envelope, digest: sha256Hex(signed) };
 }
