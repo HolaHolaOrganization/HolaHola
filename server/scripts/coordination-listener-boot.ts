@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { isDirectCliInvocation } from './lib/cli-entrypoint';
 import { launchBootSupervisor, superviseBootListener, workspaceBootConfig, writeBootFailure } from './lib/coordination-listener-boot';
 import { closeProcessIdentityReader } from './lib/coordination-listener-identity';
+import { recordBootDiagnosticEntry } from './lib/coordination-listener-boot-diagnostic';
 
 const entry = fileURLToPath(import.meta.url);
 const config = workspaceBootConfig(resolve(dirname(entry), '../..'));
@@ -28,7 +29,11 @@ export async function listenerBootCli(args = process.argv.slice(2)) {
 }
 
 if (isDirectCliInvocation('coordination-listener-boot.ts')) {
-  listenerBootCli().catch(async () => {
+  (async () => {
+    // Status/import remain read-only. No wrapper tag means no diagnostic write.
+    if (!process.argv[2] || process.argv[2] === 'launch') await recordBootDiagnosticEntry(config.root);
+    await listenerBootCli();
+  })().catch(async () => {
     // No underlying error, environment, cache body, or remote response is printable.
     console.error('LUCABOOT failed-closed recovery-required');
     if (process.argv[2] === 'status') { process.exitCode = 1; return; }
