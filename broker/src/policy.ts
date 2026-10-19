@@ -139,35 +139,55 @@ export const MAX_POLICY_TTL_MS = 60_000;
 
 /**
  * Caches the parsed policy for at most `ttlMs` (never more than 60 s, the
- * documented secondary-stop bound). There is no stale fallback: once the
- * cache expires, a failed or unverifiable fetch yields no policy.
+ * documented secondary-stop bound), with no stale fallback.
+ *
+ * Freshness is measured from when a fetch STARTED, not when it resolved, so a
+ * slow fetch can never extend the bound: a result that arrives `ttlMs` or
+ * more after its fetch began is discarded. Fetches are single-flight, and
+ * each one carries a generation number; only the newest generation may
+ * populate the cache, so a late, older result can never overwrite a newer
+ * one. A fetch still pending after `ttlMs` is abandoned and superseded.
  */
 export class PolicyLoader {
-  private cached: { policy: Policy; fetchedAt: number } | null = null;
+  private readonly source: PolicySource;
+  private readonly now: () => number;
   private readonly ttlMs: number;
+  private cached: { policy: Policy; fetchedAt: number } | null = null;
+  private inflight: { promise: Promise<Policy | null>; startedAt: number } | null = null;
+  private generation = 0;
 
-  constructor(
-    private readonly source: PolicySource,
-    private readonly now: () => number = Date.now,
-    ttlMs: number = MAX_POLICY_TTL_MS,
-  ) {
+  constructor(source: PolicySource, now: () => number = Date.now, ttlMs: number = MAX_POLICY_TTL_MS) {
     if (!(ttlMs > 0 && ttlMs <= MAX_POLICY_TTL_MS)) throw new RangeError('policy TTL must be in (0, 60000] ms');
+    this.source = source;
+    this.now = now;
     this.ttlMs = ttlMs;
   }
 
   /** Returns the current policy, or null when it cannot be proven. Never throws. */
-  async current(): Promise<Policy | null> {
+  current(): Promise<Policy | null> {
     const now = this.now();
-    if (this.cached && now - this.cached.fetchedAt < this.ttlMs) return this.cached.policy;
+    if (this.cached && now - this.cached.fetchedAt < this.ttlMs) return Promise.resolve(this.cached.policy);
     this.cached = null;
+    if (this.inflight && now - this.inflight.startedAt < this.ttlMs) return this.inflight.promise;
+    const generation = ++this.generation;
+    const promise = this.load(now, generation);
+    this.inflight = { promise, startedAt: now };
+    return promise;
+  }
+
+  private async load(startedAt: number, generation: number): Promise<Policy | null> {
+    let policy: Policy | null = null;
     try {
       const snapshot = await this.source.fetch();
-      if (gitBlobSha(snapshot.bytes) !== snapshot.blobSha) return null;
-      const policy = parsePolicy(snapshot.bytes);
-      this.cached = { policy, fetchedAt: now };
-      return policy;
+      if (gitBlobSha(snapshot.bytes) === snapshot.blobSha) policy = parsePolicy(snapshot.bytes);
     } catch {
-      return null;
+      policy = null;
     }
+    const superseded = generation !== this.generation;
+    if (!superseded) this.inflight = null;
+    if (superseded || policy === null) return null;
+    if (this.now() - startedAt >= this.ttlMs) return null;
+    this.cached = { policy, fetchedAt: startedAt };
+    return policy;
   }
 }

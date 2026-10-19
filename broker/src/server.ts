@@ -48,7 +48,7 @@ export function createBrokerServer(loader: PolicyLoader, now: () => number = Dat
       } catch {
         return send(res, 400, { decision: 'deny', reason: 'malformed' });
       }
-      const decision = await decide(body, loader, now());
+      const decision = await decide(body, loader, now);
       return send(res, decision.decision === 'allow' ? 200 : 403, decision);
     } catch {
       if (!res.headersSent) send(res, 500, { decision: 'deny', reason: 'internal_error' });
