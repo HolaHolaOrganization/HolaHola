@@ -55,3 +55,20 @@ A passing run before a source-mutation self-check does not validate the tree lef
 
 **How to apply:** After mutation tests, verify restoration and the intended source diff before committing. Tie the focused positive verification to the committed source; rerun only checks invalidated by the changed bytes. Keep a reported local result distinct from independently observed exact-commit evidence.
 
+
+## Independent root oracles and production path resolution
+
+Scanner coverage tests need an independent oracle for mandatory roots and
+must exercise the same root-resolution path as the real scan.
+
+**Why:** Building fixtures and expectations from the very list under test
+allows a misspelled or removed root to pass: the test adapts to the same bug.
+Testing only a recursive file walker also leaves a broken production
+root-resolution mapping undetected.
+
+**How to apply:** Keep fixtures outside the source tree, explicitly assert the
+externally required root set, and invoke the production root resolver on the
+disposable fixture tree. Mutation-check root removal/typos and broken mapping
+as well as recursion and extension filtering. A passing walker mutation check
+does not establish root selection coverage.
+
