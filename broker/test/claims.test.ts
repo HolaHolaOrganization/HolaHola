@@ -143,12 +143,15 @@ describe('unique-executor operation claims', () => {
     let actualEffects = 0;
     let release!: () => void;
     const gate = new Promise<void>((resolve) => { release = resolve; });
+    let entered!: () => void;
+    const effectEntered = new Promise<void>((resolve) => { entered = resolve; });
     const winner = executeOnce(ledger, entry(), async () => {
+      entered();
       await gate; // still in flight
       actualEffects += 1;
       return { status: 'succeeded', result: { commentId: 7 } };
     }, neverReconcile, () => clock);
-    await new Promise((resolve) => setTimeout(resolve, 20)); // let the winner commit its claim and enter the effect
+    await effectEntered; // the winner has claimed, passed its start fence and entered the effect
     clock += 120_000;
     const replay = await executeOnce(ledger, entry(), counter().effect, async () => ({ status: 'not_observed' }), () => clock);
     assert.deepEqual(replay, { kind: 'uncertain' });
@@ -249,12 +252,15 @@ describe('unique-executor operation claims', () => {
     let actualEffects = 0;
     let release!: () => void;
     const gate = new Promise<void>((resolve) => { release = resolve; });
+    let entered!: () => void;
+    const effectEntered = new Promise<void>((resolve) => { entered = resolve; });
     const winner = executeOnce(ledger, entry(), async () => {
+      entered();
       actualEffects += 1; // applied remotely, response still in flight
       await gate;
       return { status: 'succeeded', result: { commentId: 7 } };
     }, neverReconcile, () => clock);
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    await effectEntered;
     clock += 120_000;
     const replay = await executeOnce(ledger, entry(), counter().effect, async () => ({ status: 'applied', result: { commentId: 7 } }), () => clock);
     assert.equal(replay.kind === 'recorded' && replay.outcome.status, 'applied');
@@ -269,8 +275,10 @@ describe('unique-executor operation claims', () => {
     let clock = NOW;
     let release!: () => void;
     const gate = new Promise<void>((resolve) => { release = resolve; });
-    const winner = executeOnce(ledger, entry(), async () => { await gate; return { status: 'failed', result: { http: 422 } }; }, neverReconcile, () => clock);
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    let entered!: () => void;
+    const effectEntered = new Promise<void>((resolve) => { entered = resolve; });
+    const winner = executeOnce(ledger, entry(), async () => { entered(); await gate; return { status: 'failed', result: { http: 422 } }; }, neverReconcile, () => clock);
+    await effectEntered;
     clock += 120_000;
     await executeOnce(ledger, entry(), counter().effect, async () => ({ status: 'applied', result: { commentId: 7 } }), () => clock);
     release();
