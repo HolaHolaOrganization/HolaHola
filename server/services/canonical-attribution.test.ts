@@ -182,6 +182,17 @@ describe('provenance verification', () => {
     assert.equal(v.status === 'invalid' && v.runs[0].hat, 'replit');
   });
 
+  test('vendor-map failures name the rule that failed', () => {
+    const reason = (mutate: (run: Record<string, unknown>) => void) => {
+      const p = provenanceFor(text, [], ['claude-opus-5-5']);
+      mutate(p.runs[0] as Record<string, unknown>);
+      const v = verifyProvenance(p, text, 'claude-code');
+      return v.status === 'invalid' ? v.reason : v.status;
+    };
+    assert.match(reason(r => { r.model = 'unreviewed-model'; }), /not in the reviewed vendor map/);
+    assert.match(reason(r => { r.provider = 'openai'; }), /contradicts the reviewed vendor map/);
+  });
+
   test('the reviewed vendor map: exact prefix only, model required beyond the prefix', async () => {
     const { vendorForModelV1, MODEL_VENDOR_MAP_V1 } = await import('./model-vendor-map');
     assert.equal(vendorForModelV1('claude-opus-5-5'), 'anthropic');
