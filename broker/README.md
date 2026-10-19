@@ -11,7 +11,10 @@ The isolated GitHub operation broker from costed plan `ff04f70e`. The founder ap
 - `src/claims.ts`: unique-executor operation claims, from plan revision 4.
   - Each write is a compare-and-swap on the ledger branch head, so at most one broker instance executes a given `(actor, operationId)`.
   - The same id with a different digest is denied.
-  - A claim with no outcome is `pending` until its deadline and `uncertain` after it. An uncertain claim is reconciled against GitHub and never re-executed.
+  - A claim with no outcome is `pending` until its deadline and `uncertain` after it. An uncertain claim is never re-executed.
+  - Reconciliation is positive-only: it records `applied` when GitHub shows the effect, and never a negative outcome, because a deadline does not prove a slow winner has stopped.
+  - A winner past the start budget does not begin its effect.
+  - Retrying under a new operation id is a deliberate decision, never automatic.
   - The ledger is an interface. The real audit-repository ledger comes in phase 2.
 - `src/server.ts`: two routes, `GET /healthz` and `POST /v1/operations`. There is no passthrough and no admin route.
 

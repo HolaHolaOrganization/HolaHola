@@ -10,9 +10,10 @@
 //   outcomes/<actor>/<operationId>.json  written once, after execution or reconciliation
 //
 // A claim with no outcome is "pending" until its execution deadline and
-// "uncertain" after it. An uncertain operation is never re-executed: it is
-// reconciled against GitHub's actual state, and if that is ambiguous it stays
-// uncertain and is surfaced, not retried. Retrying needs a new operation id.
+// "uncertain" after it. An uncertain operation is never re-executed. It may be
+// reconciled to "applied" when GitHub shows the effect; otherwise it stays
+// uncertain and is surfaced. Retrying under a new operation id is a deliberate
+// decision, never automatic, because the original may still apply.
 
 import { canonicalJson } from './canonical.ts';
 
@@ -37,7 +38,8 @@ export type ClaimEntry = {
 
 export type ClaimRecord = ClaimEntry & { decision: 'allow'; status: 'claimed'; claimedAt: number };
 
-export type OutcomeStatus = 'succeeded' | 'failed' | 'applied' | 'not_applied';
+/** "applied" is the only status reconciliation writes; there is deliberately no negative one. */
+export type OutcomeStatus = 'succeeded' | 'failed' | 'applied';
 export type OutcomeRecord = {
   actor: string;
   operationId: string;
@@ -117,16 +119,34 @@ async function recordOutcome(ledger: Ledger, outcome: OutcomeRecord): Promise<Ou
 }
 
 export type EffectResult = { status: 'succeeded' | 'failed'; result: Record<string, string | number | null> };
-/** Inspects GitHub for this operation's specific effect. */
+/**
+ * Inspects GitHub for this operation's specific effect. Only "applied" is
+ * evidence: "not_observed" means the effect was not seen YET, which cannot
+ * prove a slow winner will not still apply it.
+ */
 export type Reconciler = () => Promise<
-  { status: 'applied' | 'not_applied'; result: Record<string, string | number | null> } | { status: 'ambiguous' }
+  { status: 'applied'; result: Record<string, string | number | null> } | { status: 'not_observed' | 'ambiguous' }
 >;
+
+/**
+ * A claim winner may START its effect only this long after claiming; past it,
+ * the winner does not act. This bounds how late a winner can begin, but it
+ * cannot bound a request already in flight, so reconciliation never records a
+ * negative outcome (see executeOnce).
+ */
+export const EFFECT_START_BUDGET_MS = 10_000;
 
 /**
  * Runs `effect` at most once per (actor, operationId) across every broker
  * instance. `effect` should throw only when the outcome is unknown (for
  * example a network error after sending); a definite GitHub rejection is
  * returned as status "failed".
+ *
+ * Reconciliation is positive-only (luca-replit review 5566472383): a deadline
+ * is not proof that the original winner has stopped, so "not observed" is
+ * never written as a durable negative outcome. The operation stays uncertain
+ * and is surfaced; retrying it under a NEW operation id is a deliberate
+ * decision, because the original may still apply.
  */
 export async function executeOnce(
   ledger: Ledger,
@@ -135,36 +155,52 @@ export async function executeOnce(
   reconcile: Reconciler,
   now: () => number = Date.now,
 ): Promise<ExecutionOutcome> {
-  const claimed = await claim(ledger, entry, now());
+  const claimedAt = now();
+  const claimed = await claim(ledger, entry, claimedAt);
   if (claimed.kind === 'digest_conflict') return { kind: 'digest_conflict' };
 
   if (claimed.kind === 'exists') {
     if (claimed.outcome) return { kind: 'recorded', outcome: claimed.outcome };
     if (now() - claimed.claim.claimedAt < EXECUTION_DEADLINE_MS) return { kind: 'pending' };
     const found = await reconcile();
-    if (found.status === 'ambiguous') return { kind: 'uncertain' };
+    if (found.status !== 'applied') {
+      // Not seeing the effect proves nothing; another caller may have recorded one meanwhile.
+      const head = await ledger.head();
+      const existing = await ledger.read(head, outcomePath(entry.actor, entry.operationId));
+      return existing === null ? { kind: 'uncertain' } : { kind: 'recorded', outcome: JSON.parse(existing) as OutcomeRecord };
+    }
     const outcome = await recordOutcome(ledger, {
       actor: entry.actor, operationId: entry.operationId, digest: entry.digest,
-      status: found.status, result: found.result, reconciled: true, recordedAt: now(),
+      status: 'applied', result: found.result, reconciled: true, recordedAt: now(),
     });
     return { kind: 'recorded', outcome };
   }
+
+  // Fence: a winner that reaches this point too late does not start the effect.
+  if (now() - claimedAt >= EFFECT_START_BUDGET_MS) return { kind: 'uncertain' };
 
   let done: EffectResult;
   try {
     done = await effect();
   } catch {
     // The effect may or may not have happened. Leave the claim without an
-    // outcome; after the deadline a later request reconciles it.
+    // outcome; after the deadline a later request can reconcile it if applied.
     return { kind: 'uncertain' };
   }
+  const own: OutcomeRecord = {
+    actor: entry.actor, operationId: entry.operationId, digest: entry.digest,
+    status: done.status, result: done.result, reconciled: false, recordedAt: now(),
+  };
+  let onLedger: OutcomeRecord;
   try {
-    const outcome = await recordOutcome(ledger, {
-      actor: entry.actor, operationId: entry.operationId, digest: entry.digest,
-      status: done.status, result: done.result, reconciled: false, recordedAt: now(),
-    });
-    return { kind: 'executed', outcome };
+    onLedger = await recordOutcome(ledger, own);
   } catch {
     return { kind: 'uncertain' };
   }
+  if (onLedger === own) return { kind: 'executed', outcome: own };
+  // Someone reconciled first. Only "applied" can be on the ledger, which agrees
+  // with our success; a failure contradicting it is surfaced, not relabelled.
+  return done.status === 'succeeded' && onLedger.status === 'applied'
+    ? { kind: 'recorded', outcome: onLedger }
+    : { kind: 'uncertain' };
 }

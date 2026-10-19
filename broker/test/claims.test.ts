@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import {
-  claimPath, type ClaimEntry, EXECUTION_DEADLINE_MS, executeOnce, type Ledger, LedgerContendedError, outcomePath,
+  claimPath, type ClaimEntry, EFFECT_START_BUDGET_MS, EXECUTION_DEADLINE_MS, executeOnce, type Ledger, LedgerContendedError, outcomePath,
   type Reconciler,
 } from '../src/claims.ts';
 
@@ -116,7 +116,7 @@ describe('unique-executor operation claims', () => {
     assert.equal(effects.count, 1);
   });
 
-  test('crash after claim, before effect: pending, then uncertain, reconciled to not_applied; a retry needs a new id', async () => {
+  test('crash after claim, before effect: pending, then uncertain; not observing the effect records nothing', async () => {
     const ledger = new MemoryLedger();
     const crashed = await executeOnce(ledger, entry(), async () => { throw new Error('process died'); }, neverReconcile, () => NOW);
     assert.equal(crashed.kind, 'uncertain');
@@ -128,19 +128,85 @@ describe('unique-executor operation claims', () => {
     assert.equal(early.kind, 'pending');
 
     let reconciles = 0;
-    const reconciled = await executeOnce(ledger, entry(), effects.effect, async () => { reconciles += 1; return { status: 'not_applied', result: {} }; }, () => NOW + EXECUTION_DEADLINE_MS);
-    assert.equal(reconciled.kind, 'recorded');
-    assert.equal(reconciled.kind === 'recorded' && reconciled.outcome.status, 'not_applied');
-    assert.equal(reconciled.kind === 'recorded' && reconciled.outcome.reconciled, true);
+    const reconciled = await executeOnce(ledger, entry(), effects.effect, async () => { reconciles += 1; return { status: 'not_observed' }; }, () => NOW + EXECUTION_DEADLINE_MS);
+    assert.deepEqual(reconciled, { kind: 'uncertain' });
     assert.equal(reconciles, 1);
-
-    const sameId = await executeOnce(ledger, entry(), effects.effect, neverReconcile, () => NOW + 2 * EXECUTION_DEADLINE_MS);
-    assert.equal(sameId.kind, 'recorded');
+    assert.equal(ledger.file(outcomePath('luca-claude-code', 'op-0000000000000001')), null, 'no durable negative outcome');
     assert.equal(effects.count, 0, 'the same operation id is never re-executed');
+  });
 
-    const retry = await executeOnce(ledger, entry('op-0000000000000002'), effects.effect, neverReconcile, () => NOW + 2 * EXECUTION_DEADLINE_MS);
-    assert.equal(retry.kind, 'executed');
-    assert.equal(effects.count, 1);
+  // luca-replit review 5566472383: a winner that is slow, not dead, must not be
+  // contradicted by a durable "not applied" written while it is still running.
+  test('live slow winner: reconciliation during its effect writes nothing, winner records the real outcome', async () => {
+    const ledger = new MemoryLedger();
+    let clock = NOW;
+    let actualEffects = 0;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const winner = executeOnce(ledger, entry(), async () => {
+      await gate; // still in flight
+      actualEffects += 1;
+      return { status: 'succeeded', result: { commentId: 7 } };
+    }, neverReconcile, () => clock);
+    await new Promise((resolve) => setTimeout(resolve, 20)); // let the winner commit its claim and enter the effect
+    clock += 120_000;
+    const replay = await executeOnce(ledger, entry(), counter().effect, async () => ({ status: 'not_observed' }), () => clock);
+    assert.deepEqual(replay, { kind: 'uncertain' });
+    assert.equal(ledger.file(outcomePath('luca-claude-code', 'op-0000000000000001')), null);
+    release();
+    const done = await winner;
+    assert.equal(actualEffects, 1);
+    assert.equal(done.kind, 'executed');
+    assert.equal(done.kind === 'executed' && done.outcome.status, 'succeeded');
+    assert.equal((ledger.file(outcomePath('luca-claude-code', 'op-0000000000000001')) as { status: string }).status, 'succeeded');
+  });
+
+  test('a winner that reaches its effect after the start budget does not act', async () => {
+    const ledger = new MemoryLedger();
+    let clock = NOW;
+    const effects = counter();
+    const slowLedger: Ledger = {
+      head: () => ledger.head(),
+      read: (head, path) => ledger.read(head, path),
+      commit: async (expected, files) => { const result = await ledger.commit(expected, files); clock += EFFECT_START_BUDGET_MS; return result; },
+    };
+    const result = await executeOnce(slowLedger, entry(), effects.effect, neverReconcile, () => clock);
+    assert.deepEqual(result, { kind: 'uncertain' });
+    assert.equal(effects.count, 0);
+  });
+
+  test('reconciler sees the effect while the winner still runs: one effect, consistent result', async () => {
+    const ledger = new MemoryLedger();
+    let clock = NOW;
+    let actualEffects = 0;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const winner = executeOnce(ledger, entry(), async () => {
+      actualEffects += 1; // applied remotely, response still in flight
+      await gate;
+      return { status: 'succeeded', result: { commentId: 7 } };
+    }, neverReconcile, () => clock);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    clock += 120_000;
+    const replay = await executeOnce(ledger, entry(), counter().effect, async () => ({ status: 'applied', result: { commentId: 7 } }), () => clock);
+    assert.equal(replay.kind === 'recorded' && replay.outcome.status, 'applied');
+    release();
+    const done = await winner;
+    assert.equal(actualEffects, 1);
+    assert.equal(done.kind === 'recorded' && done.outcome.status, 'applied');
+  });
+
+  test('a winner failure contradicting a recorded "applied" is surfaced as uncertain, not relabelled', async () => {
+    const ledger = new MemoryLedger();
+    let clock = NOW;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const winner = executeOnce(ledger, entry(), async () => { await gate; return { status: 'failed', result: { http: 422 } }; }, neverReconcile, () => clock);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    clock += 120_000;
+    await executeOnce(ledger, entry(), counter().effect, async () => ({ status: 'applied', result: { commentId: 7 } }), () => clock);
+    release();
+    assert.deepEqual(await winner, { kind: 'uncertain' });
   });
 
   test('crash after effect, before outcome: reconciled to applied, no second effect', async () => {
@@ -177,14 +243,34 @@ describe('unique-executor operation claims', () => {
     const ledger = new MemoryLedger();
     await executeOnce(ledger, entry(), async () => { throw new Error('unknown'); }, neverReconcile, () => NOW);
     const later = () => NOW + EXECUTION_DEADLINE_MS;
-    const [one, two] = await Promise.all([
+    const [one, two, three] = await Promise.all([
       executeOnce(ledger, entry(), counter().effect, async () => ({ status: 'applied', result: { commentId: 7 } }), later),
-      executeOnce(ledger, entry(), counter().effect, async () => ({ status: 'not_applied', result: {} }), later),
+      executeOnce(ledger, entry(), counter().effect, async () => ({ status: 'applied', result: { commentId: 8 } }), later),
+      executeOnce(ledger, entry(), counter().effect, async () => ({ status: 'not_observed' }), later),
     ]);
-    const onLedger = ledger.file(outcomePath('luca-claude-code', 'op-0000000000000001'));
+    const onLedger = ledger.file(outcomePath('luca-claude-code', 'op-0000000000000001')) as { status: string } | null;
     assert.ok(onLedger);
+    assert.equal(onLedger.status, 'applied');
+    // Every caller that reports an outcome reports exactly the one on the ledger.
+    for (const result of [one, two, three]) {
+      if (result.kind === 'recorded') assert.deepEqual(result.outcome, onLedger);
+      else assert.equal(result.kind, 'uncertain');
+    }
     assert.deepEqual(one.kind === 'recorded' && one.outcome, onLedger);
-    assert.deepEqual(two.kind === 'recorded' && two.outcome, onLedger);
+  });
+
+  test('not observing the effect still returns an outcome another caller recorded meanwhile', async () => {
+    const ledger = new MemoryLedger();
+    await executeOnce(ledger, entry(), async () => { throw new Error('unknown'); }, neverReconcile, () => NOW);
+    const later = () => NOW + EXECUTION_DEADLINE_MS;
+    const result = await executeOnce(ledger, entry(), counter().effect, async () => {
+      // While this check runs, another instance observes and records the effect.
+      await executeOnce(ledger, entry(), counter().effect, async () => ({ status: 'applied', result: { commentId: 7 } }), later);
+      return { status: 'not_observed' };
+    }, later);
+    const onLedger = ledger.file(outcomePath('luca-claude-code', 'op-0000000000000001'));
+    assert.equal(result.kind, 'recorded');
+    assert.deepEqual(result.kind === 'recorded' && result.outcome, onLedger);
   });
 
   test('a failed claim write denies without executing', async () => {
