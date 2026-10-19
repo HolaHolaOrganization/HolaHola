@@ -22,11 +22,14 @@ export type StateRejection = 'policy_closed' | 'not_qualified' | 'not_implemente
  * - routine: every named operation.
  * branch.delete is denied in every state: REST DELETE /git/refs has no
  * expected-old-sha, so a read-then-delete is not a compare-and-swap.
+ * status (checking an existing claim) is denied when closed like everything
+ * else; in qualification it is exempt from the PR target check because it
+ * names a claim, not a PR, and that claim was itself qualified when created.
  */
 export function stateAllows(policy: Policy, envelope: Envelope): { ok: true } | { ok: false; reason: StateRejection } {
   if (policy.state === 'closed') return { ok: false, reason: 'policy_closed' };
   if (envelope.operation === 'branch.delete') return { ok: false, reason: 'not_implemented' };
-  if (policy.state === 'qualification') {
+  if (policy.state === 'qualification' && envelope.operation !== 'status') {
     const listed = envelope.pr !== null && envelope.headSha !== null
       && policy.qualification.some((entry) => entry.pr === envelope.pr && entry.headSha === envelope.headSha);
     if (!listed) return { ok: false, reason: 'not_qualified' };

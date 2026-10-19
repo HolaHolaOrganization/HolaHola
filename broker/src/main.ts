@@ -74,6 +74,10 @@ export function loadConfig(env: Env): BrokerConfig {
   if (!Array.isArray(list) || list.length === 0) throw new ConfigError('invalid BROKER_ACTORS');
   const actors = new Map<string, ActorBinding>();
   const installations = new Set<number>();
+  // Isolation contract: every actor is its own App (distinct App id, installation
+  // and bot login), and the audit App is none of them.
+  const appIds = new Set<number>();
+  const botLogins = new Set<string>();
   for (const item of list) {
     const entry = item as Record<string, unknown>;
     const keys = typeof item === 'object' && item !== null ? Object.keys(item).sort().join(',') : '';
@@ -82,8 +86,10 @@ export function loadConfig(env: Env): BrokerConfig {
     if (typeof actor !== 'string' || !ACTOR.test(actor) || actors.has(actor)) throw new ConfigError('invalid BROKER_ACTORS');
     if (!Number.isSafeInteger(appId) || (appId as number) <= 0 || !Number.isSafeInteger(installationId) || (installationId as number) <= 0) throw new ConfigError('invalid BROKER_ACTORS');
     if (typeof botLogin !== 'string' || !BOT_LOGIN.test(botLogin)) throw new ConfigError('invalid BROKER_ACTORS');
-    if (installations.has(installationId as number)) throw new ConfigError('invalid BROKER_ACTORS');
+    if (installations.has(installationId as number) || appIds.has(appId as number) || botLogins.has(botLogin)) throw new ConfigError('invalid BROKER_ACTORS');
     installations.add(installationId as number);
+    appIds.add(appId as number);
+    botLogins.add(botLogin);
     actors.set(actor, {
       appId: appId as number, installationId: installationId as number, botLogin,
       privateKey: appKey(env, `BROKER_APP_PRIVATE_KEY_${appId}`),
@@ -96,13 +102,15 @@ export function loadConfig(env: Env): BrokerConfig {
   const [owner, name] = auditRepo.split('/');
   const auditInstallation = positiveInt(env, 'BROKER_AUDIT_INSTALLATION_ID');
   if (installations.has(auditInstallation)) throw new ConfigError('invalid BROKER_AUDIT_INSTALLATION_ID');
+  const auditAppId = positiveInt(env, 'BROKER_AUDIT_APP_ID');
+  if (appIds.has(auditAppId)) throw new ConfigError('invalid BROKER_AUDIT_APP_ID');
   const port = env.PORT === undefined ? 10_000 : Number(env.PORT);
   if (!Number.isSafeInteger(port) || port <= 0 || port > 65_535) throw new ConfigError('invalid PORT');
   return {
     actors,
     audit: {
       repo: { owner, name }, repositoryId: positiveInt(env, 'BROKER_AUDIT_REPO_ID'),
-      appId: positiveInt(env, 'BROKER_AUDIT_APP_ID'), installationId: auditInstallation, privateKey: appKey(env, 'BROKER_AUDIT_APP_PRIVATE_KEY'),
+      appId: auditAppId, installationId: auditInstallation, privateKey: appKey(env, 'BROKER_AUDIT_APP_PRIVATE_KEY'),
     },
     port,
   };
