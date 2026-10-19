@@ -11,6 +11,18 @@
           }
         ]
       }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node .claude/hooks/record-stop-turn.mjs",
+            "timeout": 25,
+            "statusMessage": "Recording turn..."
+          }
+        ]
+      }
     ]
   }
 }
