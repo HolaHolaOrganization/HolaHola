@@ -247,7 +247,7 @@ describe('policy loader races (luca-replit review 5566308774)', () => {
     let clock = NOW;
     const bytes = bytesOf(policyJson());
     const loader = new PolicyLoader({ fetch: async () => { clock += 31_000; return { bytes, blobSha: gitBlobSha(bytes) }; } }, () => clock);
-    const result = await decide(signedRequest(gitBlobSha(bytes)), loader, () => clock);
+    const result = await decide(signedRequest(gitBlobSha(bytes)), () => loader, () => clock);
     assert.deepEqual(result, { decision: 'deny', reason: 'expired' });
   });
 });
@@ -322,28 +322,52 @@ describe('envelope verification', () => {
 describe('decision', () => {
   test('no policy denies everything', async () => {
     const loader = new PolicyLoader({ fetch: async () => { throw new Error('down'); } }, () => NOW);
-    assert.deepEqual(await decide({}, loader, () => NOW), { decision: 'deny', reason: 'no_policy' });
+    assert.deepEqual(await decide(signedRequest('c'.repeat(40)), () => loader, () => NOW), { decision: 'deny', reason: 'no_policy' });
+  });
+
+  test('a malformed body or an actor with no configured loader is denied before any policy read', async () => {
+    let reads = 0;
+    const loader = new PolicyLoader({ fetch: async () => { reads += 1; throw new Error('unused'); } }, () => NOW);
+    assert.deepEqual(await decide({}, () => loader, () => NOW), { decision: 'deny', reason: 'malformed' });
+    assert.deepEqual(await decide(signedRequest('c'.repeat(40)), () => undefined, () => NOW), { decision: 'deny', reason: 'unknown_actor' });
+    assert.equal(reads, 0);
   });
 
   test('closed denies a valid signed request', async () => {
     const loader = loaderFor(policyJson());
     const epoch = (await loader.current())!.epoch;
-    assert.deepEqual(await decide(signedRequest(epoch), loader, () => NOW), { decision: 'deny', reason: 'policy_closed', operationId: 'op-0123456789abcdef' });
+    assert.deepEqual(await decide(signedRequest(epoch), () => loader, () => NOW), { decision: 'deny', reason: 'policy_closed', operationId: 'op-0123456789abcdef' });
   });
 
-  test('no state allows anything in phase 1', async () => {
-    for (const state of ['qualification', 'routine']) {
-      const loader = loaderFor(policyJson({ state }));
-      const epoch = (await loader.current())!.epoch;
-      const result = await decide(signedRequest(epoch), loader, () => NOW);
-      assert.equal(result.decision, 'deny');
+  test('routine allows a verified request and returns the verified envelope', async () => {
+    const loader = loaderFor(policyJson({ state: 'routine' }));
+    const epoch = (await loader.current())!.epoch;
+    const result = await decide(signedRequest(epoch), () => loader, () => NOW);
+    assert.equal(result.decision, 'allow');
+    assert.equal(result.decision === 'allow' && result.authorized.envelope.pr, 48);
+  });
+
+  test('qualification allows only the exact listed (PR, head), never unlisted or PR-less operations', async () => {
+    const listed = loaderFor(policyJson({ state: 'qualification', qualification: [{ pr: 48, headSha: HEAD }] }));
+    const epoch = (await listed.current())!.epoch;
+    assert.equal((await decide(signedRequest(epoch), () => listed, () => NOW)).decision, 'allow');
+    for (const overrides of [{ pr: 49 }, { headSha: 'b'.repeat(40) }, { pr: null, operation: 'pr.open' as const }]) {
+      const result = await decide(signedRequest(epoch, overrides), () => listed, () => NOW);
+      assert.deepEqual(result, { decision: 'deny', reason: 'not_qualified', operationId: 'op-0123456789abcdef' });
     }
+  });
+
+  test('branch.delete is denied in every state (no compare-and-delete exists)', async () => {
+    const loader = loaderFor(policyJson({ state: 'routine' }));
+    const epoch = (await loader.current())!.epoch;
+    const result = await decide(signedRequest(epoch, { operation: 'branch.delete' }), () => loader, () => NOW);
+    assert.deepEqual(result, { decision: 'deny', reason: 'not_implemented', operationId: 'op-0123456789abcdef' });
   });
 });
 
 describe('http server', () => {
   async function withServer(loader: PolicyLoader, run: (base: string) => Promise<void>): Promise<void> {
-    const server = createBrokerServer(loader, () => NOW);
+    const server = createBrokerServer({ loaderFor: () => loader, healthLoader: loader, now: () => NOW });
     await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
     const { port } = server.address() as AddressInfo;
     try {
