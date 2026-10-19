@@ -39,7 +39,12 @@ export type ClaimEntry = {
 export type ClaimRecord = ClaimEntry & { decision: 'allow'; status: 'claimed'; claimedAt: number };
 
 /** "applied" is the only status reconciliation writes; there is deliberately no negative one. */
-export type OutcomeStatus = 'succeeded' | 'failed' | 'applied';
+/**
+ * "aborted" is written only by the claim winner, from its own control flow,
+ * before it started the GitHub mutation -- positive evidence about the
+ * broker's own process, never an inference from absent remote state.
+ */
+export type OutcomeStatus = 'succeeded' | 'failed' | 'applied' | 'aborted';
 export type OutcomeRecord = {
   actor: string;
   operationId: string;
@@ -53,6 +58,7 @@ export type OutcomeRecord = {
 
 export type ExecutionOutcome =
   | { kind: 'executed'; outcome: OutcomeRecord }
+  | { kind: 'aborted'; outcome: OutcomeRecord }
   | { kind: 'recorded'; outcome: OutcomeRecord }
   | { kind: 'pending' }
   | { kind: 'uncertain' }
@@ -118,6 +124,13 @@ async function recordOutcome(ledger: Ledger, outcome: OutcomeRecord): Promise<Ou
   throw new LedgerContendedError('ledger head kept moving while recording an outcome');
 }
 
+/**
+ * The winner's last check before dispatch: re-validates authorization after
+ * every preparatory await (policy, clock, token, PR or ref lookup). Returning
+ * { ok: false } aborts before the mutation starts.
+ */
+export type Preflight = () => Promise<{ ok: true } | { ok: false; reason: string }>;
+
 export type EffectResult = { status: 'succeeded' | 'failed'; result: Record<string, string | number | null> };
 /**
  * Inspects GitHub for this operation's specific effect. Only "applied" is
@@ -154,6 +167,7 @@ export async function executeOnce(
   effect: () => Promise<EffectResult>,
   reconcile: Reconciler,
   now: () => number = Date.now,
+  preflight: Preflight = async () => ({ ok: true }),
 ): Promise<ExecutionOutcome> {
   const claimedAt = now();
   const claimed = await claim(ledger, entry, claimedAt);
@@ -176,8 +190,28 @@ export async function executeOnce(
     return { kind: 'recorded', outcome };
   }
 
-  // Fence: a winner that reaches this point too late does not start the effect.
-  if (now() - claimedAt >= EFFECT_START_BUDGET_MS) return { kind: 'uncertain' };
+  // The winner's own pre-effect checks. Any failure here means the mutation
+  // is provably never started, so the winner may record "aborted".
+  let check: { ok: true } | { ok: false; reason: string };
+  try {
+    check = await preflight();
+  } catch {
+    check = { ok: false, reason: 'preflight_error' };
+  }
+  // Fence, evaluated after the preflight's awaits: too late means do not start.
+  if (check.ok && now() - claimedAt >= EFFECT_START_BUDGET_MS) check = { ok: false, reason: 'start_budget_exceeded' };
+  if (!check.ok) {
+    const aborted: OutcomeRecord = {
+      actor: entry.actor, operationId: entry.operationId, digest: entry.digest,
+      status: 'aborted', result: { reason: check.reason }, reconciled: false, recordedAt: now(),
+    };
+    try {
+      const onLedger = await recordOutcome(ledger, aborted);
+      return onLedger === aborted ? { kind: 'aborted', outcome: aborted } : { kind: 'recorded', outcome: onLedger };
+    } catch {
+      return { kind: 'uncertain' };
+    }
+  }
 
   let done: EffectResult;
   try {
