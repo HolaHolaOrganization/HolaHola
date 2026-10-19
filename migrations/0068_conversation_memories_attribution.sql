@@ -1,0 +1,1 @@
+ALTER TABLE "conversation_memories" ADD COLUMN "attribution" jsonb;
