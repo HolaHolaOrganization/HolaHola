@@ -1,0 +1,13 @@
+{
+  "name": "holahola-broker",
+  "private": true,
+  "type": "module",
+  "description": "Isolated GitHub operation broker (costed plan ff04f70e). Not deployed; no runtime dependencies.",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "npx tsx --test test/*.test.ts",
+    "typecheck": "npx tsc -p tsconfig.json"
+  }
+}
