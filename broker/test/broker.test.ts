@@ -164,6 +164,94 @@ describe('policy loader (fail closed, TTL <= 60 s)', () => {
   });
 });
 
+describe('policy loader races (luca-replit review 5566308774)', () => {
+  type Snapshot = { bytes: Uint8Array; blobSha: string };
+  function deferred(): { resolve: (value: Snapshot) => void; promise: Promise<Snapshot> } {
+    let resolve!: (value: Snapshot) => void;
+    const promise = new Promise<Snapshot>((r) => { resolve = r; });
+    return { resolve, promise };
+  }
+  function snapshot(value: unknown): Snapshot {
+    const bytes = bytesOf(value);
+    return { bytes, blobSha: gitBlobSha(bytes) };
+  }
+
+  test('a fetch that resolves after the TTL is discarded, never returned as current', async () => {
+    let clock = NOW;
+    const pending = deferred();
+    const loader = new PolicyLoader({ fetch: () => pending.promise }, () => clock);
+    const result = loader.current();
+    clock += 120_000;
+    pending.resolve(snapshot(policyJson({ state: 'routine' })));
+    assert.equal(await result, null);
+  });
+
+  test('concurrent callers share one in-flight fetch', async () => {
+    let fetches = 0;
+    const pending = deferred();
+    const loader = new PolicyLoader({ fetch: () => { fetches += 1; return pending.promise; } }, () => NOW);
+    const both = Promise.all([loader.current(), loader.current()]);
+    pending.resolve(snapshot(policyJson()));
+    const [one, two] = await both;
+    assert.equal(fetches, 1);
+    assert.equal(one?.state, 'closed');
+    assert.equal(two?.state, 'closed');
+  });
+
+  test('a late older result can never overwrite a newer one', async () => {
+    let clock = NOW;
+    const older = deferred();
+    const newer = deferred();
+    const queue = [older, newer];
+    const loader = new PolicyLoader({ fetch: () => queue.shift()!.promise }, () => clock);
+    const first = loader.current();
+    clock += 60_000; // the first fetch is now past the bound, so the next call supersedes it
+    const second = loader.current();
+    newer.resolve(snapshot(policyJson({ state: 'closed' })));
+    assert.equal((await second)?.state, 'closed');
+    older.resolve(snapshot(policyJson({ state: 'routine' })));
+    assert.equal(await first, null);
+    assert.equal((await loader.current())?.state, 'closed');
+  });
+
+  test('a superseded fetch resolving late does not clear the newer in-flight fetch', async () => {
+    let clock = NOW;
+    let fetches = 0;
+    const older = deferred();
+    const newer = deferred();
+    const queue = [older, newer];
+    const loader = new PolicyLoader({ fetch: () => { fetches += 1; return queue.shift()!.promise; } }, () => clock);
+    const first = loader.current();
+    clock += 60_000;
+    const second = loader.current();
+    older.resolve(snapshot(policyJson({ state: 'routine' })));
+    assert.equal(await first, null);
+    const third = loader.current(); // must join the newer fetch, not start another
+    assert.equal(fetches, 2);
+    newer.resolve(snapshot(policyJson({ state: 'closed' })));
+    assert.equal((await second)?.state, 'closed');
+    assert.equal((await third)?.state, 'closed');
+  });
+
+  test('cache age counts from fetch start, so a slow in-bound fetch does not extend freshness', async () => {
+    let clock = NOW;
+    let fetches = 0;
+    const loader = new PolicyLoader({ fetch: async () => { fetches += 1; clock += 40_000; return snapshot(policyJson()); } }, () => clock);
+    assert.ok(await loader.current()); // started at NOW, resolved at NOW + 40 s
+    clock = NOW + 60_000;
+    await loader.current();
+    assert.equal(fetches, 2, 'the cached entry expires 60 s after its fetch started');
+  });
+
+  test('decide reads the clock after the policy load, so a request that expires during it is denied', async () => {
+    let clock = NOW;
+    const bytes = bytesOf(policyJson());
+    const loader = new PolicyLoader({ fetch: async () => { clock += 31_000; return { bytes, blobSha: gitBlobSha(bytes) }; } }, () => clock);
+    const result = await decide(signedRequest(gitBlobSha(bytes)), loader, () => clock);
+    assert.deepEqual(result, { decision: 'deny', reason: 'expired' });
+  });
+});
+
 describe('envelope verification', () => {
   const policy = parsePolicy(bytesOf(policyJson()));
   const epoch = policy.epoch;
@@ -234,20 +322,20 @@ describe('envelope verification', () => {
 describe('decision', () => {
   test('no policy denies everything', async () => {
     const loader = new PolicyLoader({ fetch: async () => { throw new Error('down'); } }, () => NOW);
-    assert.deepEqual(await decide({}, loader, NOW), { decision: 'deny', reason: 'no_policy' });
+    assert.deepEqual(await decide({}, loader, () => NOW), { decision: 'deny', reason: 'no_policy' });
   });
 
   test('closed denies a valid signed request', async () => {
     const loader = loaderFor(policyJson());
     const epoch = (await loader.current())!.epoch;
-    assert.deepEqual(await decide(signedRequest(epoch), loader, NOW), { decision: 'deny', reason: 'policy_closed', operationId: 'op-0123456789abcdef' });
+    assert.deepEqual(await decide(signedRequest(epoch), loader, () => NOW), { decision: 'deny', reason: 'policy_closed', operationId: 'op-0123456789abcdef' });
   });
 
   test('no state allows anything in phase 1', async () => {
     for (const state of ['qualification', 'routine']) {
       const loader = loaderFor(policyJson({ state }));
       const epoch = (await loader.current())!.epoch;
-      const result = await decide(signedRequest(epoch), loader, NOW);
+      const result = await decide(signedRequest(epoch), loader, () => NOW);
       assert.equal(result.decision, 'deny');
     }
   });
@@ -311,6 +399,10 @@ describe('isolation from the web app', () => {
         const specifier = match[1] ?? match[2];
         assert.ok(specifier.startsWith('node:') || /^\.\/[a-z-]+\.ts$/.test(specifier), `${name} imports ${specifier}`);
       }
+      // Erasable syntax only, so the source can run under Node type stripping:
+      // no enums, namespaces or constructor parameter properties.
+      assert.doesNotMatch(source, /\benum\s|\bnamespace\s|constructor\s*\([^)]*\b(private|public|protected|readonly)\s/,
+        `${name} uses non-erasable TypeScript syntax`);
     }
   });
 });

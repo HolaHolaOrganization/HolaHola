@@ -11,10 +11,12 @@ export type Decision =
   | { decision: 'deny'; reason: 'no_policy' | 'policy_closed' | 'not_implemented' | EnvelopeRejection; operationId?: string }
   | { decision: 'allow'; operationId: string };
 
-export async function decide(body: unknown, loader: PolicyLoader, now: number): Promise<Decision> {
+export async function decide(body: unknown, loader: PolicyLoader, now: () => number): Promise<Decision> {
   const policy = await loader.current();
   if (!policy) return { decision: 'deny', reason: 'no_policy' };
-  const verified = verifySignedRequest(body, policy, now);
+  // Time is read after the awaited policy load, so a slow load cannot let an
+  // expired request through.
+  const verified = verifySignedRequest(body, policy, now());
   if (!verified.ok) return { decision: 'deny', reason: verified.reason };
   const { operationId } = verified.envelope;
   if (policy.state === 'closed') return { decision: 'deny', reason: 'policy_closed', operationId };
