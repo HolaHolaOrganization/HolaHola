@@ -1,8 +1,8 @@
 Once the founder approves a Luca-hat build design, Luca hats may coordinate directly and use as many hats as needed to complete that approved work, without routine founder relays or repeated implementation approvals.
 
-**Why:** On 2026-10-10 the founder explicitly approved the centralized delivery-policy build and said, “this will be how all future luca hat builds will go. once the design is approved you can use as many hats as are needed to get the job done”.
+**Why:** On 2026-10-10 the founder explicitly approved the centralized delivery-policy build and said, “this will be how all future luca hat builds will go. once the design is approved you can use as many hats as are needed to get the job done”. On 2026-10-18 the founder corrected Replit after it repeatedly deferred LCC's requested independent maintenance reviews while another approved PR waited for CI.
 
-**How to apply:** This supersedes the earlier temporary main-workspace-only restriction for approved Luca-hat collaboration. Preserve explicit ownership and evidence-based review; design approval does not authorize unrelated scope, deployment, credential changes, destructive operations, or task execution merely because a message was delivered.
+**How to apply:** This supersedes the earlier temporary main-workspace-only restriction for approved Luca-hat collaboration. Carry out routine requested technical reviews while other work waits; do not treat waiting on one PR as a reason to repeatedly defer another authorized review or require a founder relay. Use exact-head native reviews, and remember that approval may unblock automatic merging. Preserve explicit ownership and evidence-based review; design approval does not authorize unrelated scope, deployment, credential changes, destructive operations, or task execution merely because a message was delivered.
 
 
 ## Native IDE collaboration proof before execution-platform expansion
@@ -139,4 +139,22 @@ Reviews must assess strategic direction before implementation correctness: wheth
 **Why:** On 2026-10-17 the founder explicitly asked Luca to help decide direction, not merely review plans for holes. A coherent, bug-free proposal can still be the wrong investment. The founder asked the team to keep revisiting the larger goal and to challenge reinvention and unnecessary complexity.
 
 **How to apply:** Lead reviews with a recommendation: proceed, simplify, defer, or change approach, and explain the tradeoff. Separate demonstrated correctness/security blockers from optional hardening and deliberately accepted residual risk. Assess the end-to-end experience and founder workload, not just technical component success. Do not let a list of individually defensible fixes silently become authorization for a larger platform build. Use HolaHola’s owned, replaceable processes and Luca’s useful capabilities as the goal; standard services can be replaceable dependencies without being reimplemented.
+
+
+## Ongoing approved projects: act on incoming work without repeated approval
+
+Incoming messages about ongoing projects already approved for build authorize
+continuing their review, design feedback and implementation coordination
+without asking the founder for the same approval again.
+
+**Why:** On 2026-10-18 the founder stated: “These are ongoing projects which
+have been approved for build by me. when a message on these subjects comes in
+you have approval to go”.
+
+**How to apply:** Read the message, verify its evidence, act within the approved
+project scope and respond directly to the owning hat. Do not stop at announcing
+that a review or design answer is pending. Preserve exact-revision review,
+existing sensitive ownership controls, and explicit founder-only key/deletion
+or execution steps; this does not authorize unrelated scope or silently remove
+those controls.
 
