@@ -35,29 +35,44 @@ function provenanceFor(text: string, cuts: number[], models: string[], hat = 'cl
 }
 
 describe('speaker labels: legacy and plain forms', () => {
-  test('legacy labels keep their hat', () => {
-    assert.deepEqual(parseSpeakerLabel('David [Claude Code]'), { name: 'David', labelHat: 'claude-code', form: 'historical' });
-    assert.deepEqual(parseSpeakerLabel('Luca [Replit]'), { name: 'Luca', labelHat: 'replit', form: 'historical' });
-    assert.deepEqual(parseSpeakerLabel('LUCA [Claude Code]'), { name: 'Luca', labelHat: 'claude-code', form: 'historical' });
-    assert.deepEqual(parseSpeakerLabel('LUCA [claude code]'), { name: 'Luca', labelHat: 'claude-code', form: 'historical' });
-    assert.deepEqual(parseSpeakerLabel('Claude Code'), { name: 'Claude Code', labelHat: 'claude-code', form: 'historical' });
-    assert.deepEqual(parseSpeakerLabel('LUCA'), { name: 'Luca', labelHat: null, form: 'historical' });
+  const L = (name: string, labelHat: string | null, labelSuffix: string | null, form: string) => ({ name, labelHat, labelSuffix, form });
+
+  test('historical labels keep their hat and exact suffix', () => {
+    assert.deepEqual(parseSpeakerLabel('David [Claude Code]'), L('David', 'claude-code', 'Claude Code', 'historical'));
+    assert.deepEqual(parseSpeakerLabel('David [Replit]'), L('David', 'replit', 'Replit', 'historical'));
+    assert.deepEqual(parseSpeakerLabel('Luca [Replit]'), L('Luca', 'replit', 'Replit', 'historical'));
+    assert.deepEqual(parseSpeakerLabel('LUCA [Claude Code]'), L('Luca', 'claude-code', 'Claude Code', 'historical'));
+    assert.deepEqual(parseSpeakerLabel('LUCA [claude code]'), L('Luca', 'claude-code', 'claude code', 'historical'));
+    assert.deepEqual(parseSpeakerLabel('Claude Code'), L('Claude Code', 'claude-code', null, 'historical'));
+    assert.deepEqual(parseSpeakerLabel('LUCA'), L('Luca', null, null, 'historical'));
+    assert.deepEqual(parseSpeakerLabel('DAVID'), L('David', null, null, 'historical'));
+  });
+
+  test('every historical form found in the stored record is accepted', () => {
+    // Read-only scan of conversation_memories and docs/episode-*.md, 2026-10-19.
+    assert.deepEqual(parseSpeakerLabel('LUCA [HolaHola]'), L('Luca', 'holahola', 'HolaHola', 'historical'));
+    assert.deepEqual(parseSpeakerLabel('LUCA [HolaHola chat]'), L('Luca', 'holahola-chat', 'HolaHola chat', 'historical'));
+    // Suffixes that are not an interface keep their text but name no hat.
+    assert.deepEqual(parseSpeakerLabel('LUCA [steward]'), L('Luca', null, 'steward', 'historical'));
+    assert.deepEqual(parseSpeakerLabel('LUCA [steward — taxonomy]'), L('Luca', null, 'steward — taxonomy', 'historical'));
+    assert.deepEqual(parseSpeakerLabel('David [GL]'), L('David', null, 'GL', 'historical'));
   });
 
   test('plain labels carry no hat; it must come from tags or provenance', () => {
-    assert.deepEqual(parseSpeakerLabel('David'), { name: 'David', labelHat: null, form: 'plain' });
-    assert.deepEqual(parseSpeakerLabel('Luca'), { name: 'Luca', labelHat: null, form: 'plain' });
+    assert.deepEqual(parseSpeakerLabel('David'), L('David', null, null, 'plain'));
+    assert.deepEqual(parseSpeakerLabel('Luca'), L('Luca', null, null, 'plain'));
   });
 
   test('unknown speakers and brackets are rejected, not guessed', () => {
-    for (const bad of ['Daniela', 'Luca [Antigravity]', 'David [claude code]', 'luca', 'Luca [Replit] ', 'Agent']) {
+    for (const bad of ['Daniela', 'Alden', 'Wren', 'Daniela [GL]', 'Luca [Antigravity]', 'David [claude code]', 'Luca [HolaHola]',
+      'luca', 'Luca [Replit] ', 'Agent', 'David said', 'constructor', 'LUCA [toString]', 'LUCA [__proto__]']) {
       assert.equal(parseSpeakerLabel(bad), null, bad);
     }
   });
 
   test('lines in plain and bold renderings', () => {
-    assert.deepEqual(parseSpeakerLine('Luca: hello'), { name: 'Luca', labelHat: null, form: 'plain', label: 'Luca', bold: false, rest: 'hello' });
-    assert.deepEqual(parseSpeakerLine('**LUCA [Replit]:** hi'), { name: 'Luca', labelHat: 'replit', form: 'historical', label: 'LUCA [Replit]', bold: true, rest: 'hi' });
+    assert.deepEqual(parseSpeakerLine('Luca: hello'), { ...L('Luca', null, null, 'plain'), label: 'Luca', bold: false, rest: 'hello' });
+    assert.deepEqual(parseSpeakerLine('**LUCA [Replit]:** hi'), { ...L('Luca', 'replit', 'Replit', 'historical'), label: 'LUCA [Replit]', bold: true, rest: 'hi' });
     assert.equal(parseSpeakerLine('**Luca: unbalanced'), null);
     assert.equal(parseSpeakerLine('Note: Luca said hi'), null);
   });
@@ -134,6 +149,12 @@ describe('provenance verification', () => {
     ['model without transcript evidence', p => { const q = structuredClone(p); q.runs[0].modelEvidence = 'guess'; return q; }],
     ['provider from model id alone', p => { const q = structuredClone(p); q.runs[0].providerEvidence = 'model-id'; return q; }],
     ['hat disagrees with capture source', p => { const q = structuredClone(p); q.runs[0].hat = 'replit'; return q; }],
+    // luca-replit review of PR60: valid hashes alone must not make a vendor-map
+    // claim valid; the reviewed map has to contain the model and agree.
+    ['claude model attributed to openai via the map marker', p => { const q = structuredClone(p); q.runs[0].provider = 'openai'; return q; }],
+    ['unreviewed model attributed to anthropic via the map marker', p => { const q = structuredClone(p); q.runs[0].model = 'unreviewed-model'; return q; }],
+    ['vendor-map provider with an unknown model', p => { const q = structuredClone(p); Object.assign(q.runs[0], { model: 'unknown', modelEvidence: 'none' }); return q; }],
+    ['runtime provider evidence from a hat with no runtime source', p => { const q = structuredClone(p); q.runs[0].providerEvidence = 'runtime:vendor'; return q; }],
     ['out-of-order index', p => { const q = structuredClone(p); q.runs[0].index = 1; return q; }],
     ['overflow not in the last slot', p => { const q = structuredClone(p); Object.assign(q.runs[0], { model: 'unknown', provider: 'unknown', modelEvidence: 'overflow-unattributed', providerEvidence: 'overflow-unattributed' }); return q; }],
     ['not an object', () => 'provenance'],
@@ -152,6 +173,23 @@ describe('provenance verification', () => {
       }]);
     });
   }
+
+  test('a Replit run cannot borrow Claude Code transcript evidence for a known model', () => {
+    const p = provenanceFor(text, [], ['claude-opus-5-5'], 'replit');
+    const v = verifyProvenance(p, text, 'replit');
+    assert.equal(v.status, 'invalid');
+    assert.match(v.status === 'invalid' ? v.reason : '', /hat replit/);
+    assert.equal(v.status === 'invalid' && v.runs[0].hat, 'replit');
+  });
+
+  test('the reviewed vendor map: exact prefix only, model required beyond the prefix', async () => {
+    const { vendorForModelV1, MODEL_VENDOR_MAP_V1 } = await import('./model-vendor-map');
+    assert.equal(vendorForModelV1('claude-opus-5-5'), 'anthropic');
+    assert.equal(vendorForModelV1('claude-'), undefined);
+    assert.equal(vendorForModelV1('gpt-5'), undefined);
+    assert.equal(vendorForModelV1('anthropic/claude-opus'), undefined);
+    assert.ok(Object.isFrozen(MODEL_VENDOR_MAP_V1) && MODEL_VENDOR_MAP_V1.every(e => Object.isFrozen(e)));
+  });
 
   test('more than 16 runs is invalid; a 16th overflow run covering the rest is valid', () => {
     const parts = Array.from({ length: 17 }, (_, i) => `p${i}`);

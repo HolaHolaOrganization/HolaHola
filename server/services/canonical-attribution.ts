@@ -13,53 +13,64 @@
  * and the authored bytes are left exactly as stored.
  */
 import { createHash } from 'node:crypto';
+import { MODEL_VENDOR_MAP_V1_EVIDENCE, vendorForModelV1 } from './model-vendor-map';
 
 // ── Speaker labels ───────────────────────────────────────────────────────────
 
 export type SpeakerName = 'David' | 'Luca' | 'Claude Code';
-export type LabelHat = 'replit' | 'claude-code';
+export type LabelHat = 'replit' | 'claude-code' | 'holahola' | 'holahola-chat';
 
 export interface ParsedSpeakerLabel {
   name: SpeakerName;
   /**
-   * The hat named IN THE LABEL TEXT. Always null for the plain form: a plain
-   * label deliberately carries no hat, which must then come from tags or
-   * provenance, never be guessed from the label.
+   * The hat named IN THE LABEL TEXT, when its suffix names one. Always null
+   * for the plain form: a plain label deliberately carries no hat, which
+   * must then come from tags or provenance, never be guessed from the label.
    */
   labelHat: LabelHat | null;
+  /** The historical bracket text exactly as written, e.g. "steward"; null if none. */
+  labelSuffix: string | null;
   form: 'plain' | 'historical';
 }
 
-const HAT_SUFFIX: Record<string, LabelHat> = {
-  'replit': 'replit',
-  'claude code': 'claude-code',
+/**
+ * Historical bracket suffixes, per exact-case name form, as actually stored.
+ * Derived from a read-only scan (2026-10-19) of every conversation_memories
+ * row and docs/episode-*.md file; "LUCA [claude code]" is also listed because
+ * the reviewed episode-attribution repair recognizes it. A suffix maps to a
+ * hat only when it names an interface/runtime; "steward" and "GL" do not.
+ */
+const HISTORICAL_SUFFIXES: Readonly<Record<'David' | 'Luca' | 'LUCA', Readonly<Record<string, LabelHat | null>>>> = {
+  David: { 'Replit': 'replit', 'Claude Code': 'claude-code', 'GL': null },
+  Luca: { 'Replit': 'replit', 'Claude Code': 'claude-code' },
+  LUCA: {
+    'Replit': 'replit', 'Claude Code': 'claude-code', 'claude code': 'claude-code',
+    'HolaHola': 'holahola', 'HolaHola chat': 'holahola-chat',
+    'steward': null, 'steward — taxonomy': null,
+  },
 };
 
 /**
- * Parse one speaker label, without its trailing colon or Markdown bold.
+ * Parse one David/Luca/Claude Code speaker label, without its trailing colon
+ * or Markdown bold.
  *
- * Accepted (exact case where historical writers used it):
- *   plain:      "David", "Luca"
- *   historical: "David [Replit]", "David [Claude Code]", "Luca [Replit]",
- *               "Luca [Claude Code]", "LUCA", "LUCA [Replit]",
- *               "LUCA [Claude Code]", "LUCA [claude code]", "Claude Code"
- * Anything else (including "Daniela" or an unknown bracket) returns null.
+ * Plain (new records): "David", "Luca".
+ * Historical: "DAVID", "LUCA", "Claude Code", and the bracketed forms in
+ * HISTORICAL_SUFFIXES, matched exactly. Anything else returns null,
+ * including other speakers ("Daniela", "Alden", "Wren"), which this module
+ * does not attribute, and any unlisted bracket.
  */
 export function parseSpeakerLabel(label: string): ParsedSpeakerLabel | null {
-  if (label === 'David') return { name: 'David', labelHat: null, form: 'plain' };
-  if (label === 'Luca') return { name: 'Luca', labelHat: null, form: 'plain' };
-  if (label === 'LUCA') return { name: 'Luca', labelHat: null, form: 'historical' };
-  if (label === 'Claude Code') return { name: 'Claude Code', labelHat: 'claude-code', form: 'historical' };
+  if (label === 'David') return { name: 'David', labelHat: null, labelSuffix: null, form: 'plain' };
+  if (label === 'Luca') return { name: 'Luca', labelHat: null, labelSuffix: null, form: 'plain' };
+  if (label === 'DAVID') return { name: 'David', labelHat: null, labelSuffix: null, form: 'historical' };
+  if (label === 'LUCA') return { name: 'Luca', labelHat: null, labelSuffix: null, form: 'historical' };
+  if (label === 'Claude Code') return { name: 'Claude Code', labelHat: 'claude-code', labelSuffix: null, form: 'historical' };
   const m = /^(David|Luca|LUCA) \[([^\]]+)\]$/.exec(label);
   if (!m) return null;
-  const suffix = m[2];
-  // Historical writers used exact-case suffixes; the one lowercase variant
-  // ever written ("LUCA [claude code]") is accepted for LUCA only.
-  const hat = suffix === 'Replit' || suffix === 'Claude Code'
-    ? HAT_SUFFIX[suffix.toLowerCase()]
-    : m[1] === 'LUCA' && suffix === 'claude code' ? 'claude-code' : undefined;
-  if (!hat) return null;
-  return { name: m[1] === 'David' ? 'David' : 'Luca', labelHat: hat, form: 'historical' };
+  const table = HISTORICAL_SUFFIXES[m[1] as 'David' | 'Luca' | 'LUCA'];
+  if (!Object.hasOwn(table, m[2])) return null;
+  return { name: m[1] === 'David' ? 'David' : 'Luca', labelHat: table[m[2]], labelSuffix: m[2], form: 'historical' };
 }
 
 export interface SpeakerLine extends ParsedSpeakerLabel {
@@ -124,8 +135,18 @@ export function parseAttributionTags(tags: readonly string[] | null | undefined)
 
 export const MAX_ATTRIBUTED_RUNS = 16;
 
-const MODEL_EVIDENCE = new Set(['claude-code-transcript:message.model', 'none', 'invalid', 'overflow-unattributed']);
-const RUNTIME_PROVIDER_EVIDENCE = /^runtime:[A-Za-z0-9_.]{1,40}$/;
+/**
+ * Evidence is bound to the hat that can actually produce it. A marker string
+ * is never proof on its own: a run's known model is accepted only with the
+ * evidence its hat's runtime supplies. Claude Code's transcript reports
+ * `message.model`; no other hat has a supported model or provider source yet,
+ * so for them a known model or a runtime-reported provider is invalid and they
+ * record `unknown` until a reviewed source is added here.
+ */
+export const MODEL_EVIDENCE_BY_HAT: Readonly<Record<string, readonly string[]>> = Object.freeze({
+  'claude-code': Object.freeze(['claude-code-transcript:message.model']),
+});
+export const RUNTIME_PROVIDER_EVIDENCE_BY_HAT: Readonly<Record<string, readonly string[]>> = Object.freeze({});
 
 export interface VerifiedRun {
   index: number;
@@ -179,11 +200,12 @@ function checkRun(run: unknown, i: number, expectedStart: number, bytes: Uint8Ar
     return null;
   }
 
-  if (typeof run.model !== 'string' || typeof run.modelEvidence !== 'string' || !MODEL_EVIDENCE.has(run.modelEvidence)) return `run ${i} model evidence is not recognized`;
+  if (typeof run.model !== 'string' || typeof run.modelEvidence !== 'string') return `run ${i} model fields missing`;
   if (run.model === 'unknown') {
     if (run.modelEvidence !== 'none' && run.modelEvidence !== 'invalid') return `run ${i} unknown model needs none/invalid evidence`;
-  } else if (!MODEL_PATTERN.test(run.model) || run.modelEvidence !== 'claude-code-transcript:message.model') {
-    return `run ${i} model is malformed or lacks transcript evidence`;
+  } else {
+    if (!MODEL_PATTERN.test(run.model)) return `run ${i} model is malformed`;
+    if (!(MODEL_EVIDENCE_BY_HAT[hat] ?? []).includes(run.modelEvidence)) return `run ${i} model evidence is not one hat ${hat} can supply`;
   }
 
   if (typeof run.provider !== 'string' || typeof run.providerEvidence !== 'string') return `run ${i} provider fields missing`;
@@ -191,11 +213,16 @@ function checkRun(run: unknown, i: number, expectedStart: number, bytes: Uint8Ar
     if (run.providerEvidence !== 'none') return `run ${i} unknown provider needs none evidence`;
   } else {
     if (!PROVIDER_PATTERN.test(run.provider)) return `run ${i} provider is malformed`;
-    const vendorMap = run.providerEvidence === 'audited-model-vendor-map:v1';
-    if (!vendorMap && !RUNTIME_PROVIDER_EVIDENCE.test(run.providerEvidence)) return `run ${i} provider evidence is not recognized`;
-    // A model id alone is not provider evidence: a vendor-map attribution
-    // needs a known model to have been mapped.
-    if (vendorMap && run.model === 'unknown') return `run ${i} vendor-map provider without a model`;
+    if (run.providerEvidence === MODEL_VENDOR_MAP_V1_EVIDENCE) {
+      // A model id alone is not provider evidence: the reviewed map must
+      // contain the exact model and name exactly the claimed vendor.
+      if (run.model === 'unknown') return `run ${i} vendor-map provider without a model`;
+      const mapped = vendorForModelV1(run.model);
+      if (mapped === undefined) return `run ${i} model is not in the reviewed vendor map`;
+      if (mapped !== run.provider) return `run ${i} provider contradicts the reviewed vendor map`;
+    } else if (!(RUNTIME_PROVIDER_EVIDENCE_BY_HAT[hat] ?? []).includes(run.providerEvidence)) {
+      return `run ${i} provider evidence is not one hat ${hat} can supply`;
+    }
   }
   return null;
 }
