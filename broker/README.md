@@ -2,7 +2,7 @@
 
 The isolated GitHub operation broker from costed plan `ff04f70e`. The founder approved building it as decision D1 on 2026-10-18.
 
-**Status: phase 1 (1a and 1b). It is not deployed, has no entry point and is not wired to anything.** It contains:
+**Status: phase 2 (2a GitHub access, 2b gateway). It is not deployed, and the server has no production entry point yet.**
 
 - `src/canonical.ts`: the canonical JSON that clients sign.
 - `src/policy.ts`: parses `broker/policy.json` and computes its policy epoch, which is the git blob SHA. The loader caches it for at most 60 seconds and fails closed, with no stale fallback.
@@ -21,3 +21,19 @@ The isolated GitHub operation broker from costed plan `ff04f70e`. The founder ap
 It is kept separate from the web app: it has its own tree, its own `package.json` and no runtime dependencies, and it never imports from `server/`, `shared/` or `client/`. Only erasable TypeScript syntax is used, so a later deploy can run the source directly on Node with type stripping.
 
 Tests: `npx tsx --test broker/test/broker.test.ts broker/test/claims.test.ts`. Typecheck: `npx tsc -p broker/tsconfig.json`. Both are registered in `scripts/run-ci-test-steps.mjs`.
+
+## Phase 2
+
+- **`src/github.ts`: GitHub access.** One fixed API base. Each App installation token is scoped to one repository with explicit permissions, and is never returned. Policy is read from `main`. The audit-repository ledger commits with `createCommitOnBranch` and `expectedHeadOid`, after checking that every file is absent at that head.
+- **`src/authorize.ts`: authorization by state.**
+  - The policy is read through the requesting actor's own loader.
+  - `closed` allows nothing.
+  - `qualification` allows only the exact listed (PR, head).
+  - `routine` allows every named operation.
+  - `branch.delete` is always denied, because GitHub has no compare-and-delete.
+- **`src/gateway.ts`: the named operations, each run through `executeOnce`.**
+  - Payloads are validated strictly. Callers cannot write broker markers.
+  - The repository, PR and ref are bound from trusted configuration and the signed envelope.
+  - A preflight runs after the claim and after every preparatory await. It looks up the token and the live PR or ref, then re-runs the full authorization.
+  - Each operation makes exactly one dispatch. A 4xx response is a recorded failure. Any unknown result is never resent and stays uncertain.
+  - Evidence is positive-only, bound to the App identity, the target and the head. `pr.update-branch` has no reliable evidence and stays uncertain.
