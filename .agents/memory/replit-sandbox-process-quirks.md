@@ -309,6 +309,20 @@ hardcode a version-specific Nix store path solely because the interactive
 shell reports it. Persisted status and heartbeat files are not live recovery
 proof; compare their timing and process creation identities after restart.
 
+A later founder-controlled Restart compute, with a separately reviewed local
+PATH binding, reached Node and left a live detached supervisor and child with
+fresh matching inbox-fetch evidence. The earlier detached-launch failure
+under a manual tool call did not reproduce under onBoot.
+
+**Why:** Execution lifetime depends on launch context. A manual tool's cleanup
+behavior cannot by itself establish that platform startup detachment fails.
+
+**How to apply:** Diagnose the actual onBoot path separately from manual
+foreground-tool launch behavior. This observation confirms this workspace's
+hook ran on that actual Restart compute, not an unconditional platform-wide
+guarantee. Node-module changes can invalidate the deliberate local binding;
+refresh it explicitly rather than silently installing or scanning runtimes.
+
 
 ## Nix-store ownership is not necessarily root
 
