@@ -39,7 +39,12 @@ export type ClaimEntry = {
 export type ClaimRecord = ClaimEntry & { decision: 'allow'; status: 'claimed'; claimedAt: number };
 
 /** "applied" is the only status reconciliation writes; there is deliberately no negative one. */
-export type OutcomeStatus = 'succeeded' | 'failed' | 'applied';
+/**
+ * "aborted" is written only by the claim winner, from its own control flow,
+ * before it started the GitHub mutation -- positive evidence about the
+ * broker's own process, never an inference from absent remote state.
+ */
+export type OutcomeStatus = 'succeeded' | 'failed' | 'applied' | 'aborted';
 export type OutcomeRecord = {
   actor: string;
   operationId: string;
@@ -53,10 +58,12 @@ export type OutcomeRecord = {
 
 export type ExecutionOutcome =
   | { kind: 'executed'; outcome: OutcomeRecord }
+  | { kind: 'aborted'; outcome: OutcomeRecord }
   | { kind: 'recorded'; outcome: OutcomeRecord }
   | { kind: 'pending' }
   | { kind: 'uncertain' }
-  | { kind: 'digest_conflict' };
+  | { kind: 'digest_conflict' }
+  | { kind: 'not_found' };
 
 export class LedgerContendedError extends Error {}
 
@@ -118,6 +125,13 @@ async function recordOutcome(ledger: Ledger, outcome: OutcomeRecord): Promise<Ou
   throw new LedgerContendedError('ledger head kept moving while recording an outcome');
 }
 
+/**
+ * The winner's last check before dispatch: re-validates authorization after
+ * every preparatory await (policy, clock, token, PR or ref lookup). Returning
+ * { ok: false } aborts before the mutation starts.
+ */
+export type Preflight = () => Promise<{ ok: true } | { ok: false; reason: string }>;
+
 export type EffectResult = { status: 'succeeded' | 'failed'; result: Record<string, string | number | null> };
 /**
  * Inspects GitHub for this operation's specific effect. Only "applied" is
@@ -148,36 +162,78 @@ export const EFFECT_START_BUDGET_MS = 10_000;
  * and is surfaced; retrying it under a NEW operation id is a deliberate
  * decision, because the original may still apply.
  */
+/** An existing claim: report its outcome, or reconcile positively after the deadline. Never executes. */
+async function settleExisting(
+  ledger: Ledger, entry: ClaimEntry, claimRecord: ClaimRecord, outcome: OutcomeRecord | null, reconcile: Reconciler, now: () => number,
+): Promise<ExecutionOutcome> {
+  if (outcome) return { kind: 'recorded', outcome };
+  if (now() - claimRecord.claimedAt < EXECUTION_DEADLINE_MS) return { kind: 'pending' };
+  const found = await reconcile();
+  if (found.status !== 'applied') {
+    // Not seeing the effect proves nothing; another caller may have recorded one meanwhile.
+    const head = await ledger.head();
+    const existing = await ledger.read(head, outcomePath(entry.actor, entry.operationId));
+    return existing === null ? { kind: 'uncertain' } : { kind: 'recorded', outcome: JSON.parse(existing) as OutcomeRecord };
+  }
+  const recorded = await recordOutcome(ledger, {
+    actor: entry.actor, operationId: entry.operationId, digest: entry.digest,
+    status: 'applied', result: found.result, reconciled: true, recordedAt: now(),
+  });
+  return { kind: 'recorded', outcome: recorded };
+}
+
+/**
+ * Status of an existing claim, for the authenticated status path
+ * (luca-replit phase 2b review, finding 1). It never claims and never
+ * executes: no claim is "not_found", a different digest is a conflict, and
+ * otherwise the recorded outcome is returned or positively reconciled.
+ */
+export async function statusOf(ledger: Ledger, entry: ClaimEntry, reconcile: Reconciler, now: () => number = Date.now): Promise<ExecutionOutcome> {
+  const head = await ledger.head();
+  const raw = await ledger.read(head, claimPath(entry.actor, entry.operationId));
+  if (raw === null) return { kind: 'not_found' };
+  const record = JSON.parse(raw) as ClaimRecord;
+  if (record.digest !== entry.digest) return { kind: 'digest_conflict' };
+  const outcome = await ledger.read(head, outcomePath(entry.actor, entry.operationId));
+  return settleExisting(ledger, entry, record, outcome === null ? null : (JSON.parse(outcome) as OutcomeRecord), reconcile, now);
+}
+
 export async function executeOnce(
   ledger: Ledger,
   entry: ClaimEntry,
   effect: () => Promise<EffectResult>,
   reconcile: Reconciler,
   now: () => number = Date.now,
+  preflight: Preflight = async () => ({ ok: true }),
 ): Promise<ExecutionOutcome> {
   const claimedAt = now();
   const claimed = await claim(ledger, entry, claimedAt);
   if (claimed.kind === 'digest_conflict') return { kind: 'digest_conflict' };
 
-  if (claimed.kind === 'exists') {
-    if (claimed.outcome) return { kind: 'recorded', outcome: claimed.outcome };
-    if (now() - claimed.claim.claimedAt < EXECUTION_DEADLINE_MS) return { kind: 'pending' };
-    const found = await reconcile();
-    if (found.status !== 'applied') {
-      // Not seeing the effect proves nothing; another caller may have recorded one meanwhile.
-      const head = await ledger.head();
-      const existing = await ledger.read(head, outcomePath(entry.actor, entry.operationId));
-      return existing === null ? { kind: 'uncertain' } : { kind: 'recorded', outcome: JSON.parse(existing) as OutcomeRecord };
-    }
-    const outcome = await recordOutcome(ledger, {
-      actor: entry.actor, operationId: entry.operationId, digest: entry.digest,
-      status: 'applied', result: found.result, reconciled: true, recordedAt: now(),
-    });
-    return { kind: 'recorded', outcome };
-  }
+  if (claimed.kind === 'exists') return settleExisting(ledger, entry, claimed.claim, claimed.outcome, reconcile, now);
 
-  // Fence: a winner that reaches this point too late does not start the effect.
-  if (now() - claimedAt >= EFFECT_START_BUDGET_MS) return { kind: 'uncertain' };
+  // The winner's own pre-effect checks. Any failure here means the mutation
+  // is provably never started, so the winner may record "aborted".
+  let check: { ok: true } | { ok: false; reason: string };
+  try {
+    check = await preflight();
+  } catch {
+    check = { ok: false, reason: 'preflight_error' };
+  }
+  // Fence, evaluated after the preflight's awaits: too late means do not start.
+  if (check.ok && now() - claimedAt >= EFFECT_START_BUDGET_MS) check = { ok: false, reason: 'start_budget_exceeded' };
+  if (!check.ok) {
+    const aborted: OutcomeRecord = {
+      actor: entry.actor, operationId: entry.operationId, digest: entry.digest,
+      status: 'aborted', result: { reason: check.reason }, reconciled: false, recordedAt: now(),
+    };
+    try {
+      const onLedger = await recordOutcome(ledger, aborted);
+      return onLedger === aborted ? { kind: 'aborted', outcome: aborted } : { kind: 'recorded', outcome: onLedger };
+    } catch {
+      return { kind: 'uncertain' };
+    }
+  }
 
   let done: EffectResult;
   try {

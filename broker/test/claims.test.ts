@@ -143,12 +143,15 @@ describe('unique-executor operation claims', () => {
     let actualEffects = 0;
     let release!: () => void;
     const gate = new Promise<void>((resolve) => { release = resolve; });
+    let entered!: () => void;
+    const effectEntered = new Promise<void>((resolve) => { entered = resolve; });
     const winner = executeOnce(ledger, entry(), async () => {
+      entered();
       await gate; // still in flight
       actualEffects += 1;
       return { status: 'succeeded', result: { commentId: 7 } };
     }, neverReconcile, () => clock);
-    await new Promise((resolve) => setTimeout(resolve, 20)); // let the winner commit its claim and enter the effect
+    await effectEntered; // the winner has claimed, passed its start fence and entered the effect
     clock += 120_000;
     const replay = await executeOnce(ledger, entry(), counter().effect, async () => ({ status: 'not_observed' }), () => clock);
     assert.deepEqual(replay, { kind: 'uncertain' });
@@ -171,8 +174,76 @@ describe('unique-executor operation claims', () => {
       commit: async (expected, files) => { const result = await ledger.commit(expected, files); clock += EFFECT_START_BUDGET_MS; return result; },
     };
     const result = await executeOnce(slowLedger, entry(), effects.effect, neverReconcile, () => clock);
-    assert.deepEqual(result, { kind: 'uncertain' });
+    assert.equal(result.kind, 'aborted');
+    assert.deepEqual(result.kind === 'aborted' && result.outcome.result, { reason: 'start_budget_exceeded' });
     assert.equal(effects.count, 0);
+  });
+
+  describe('winner-only pre-effect abort (luca-replit 2b design point 1)', () => {
+    const deny = async () => ({ ok: false as const, reason: 'stale_policy_epoch' });
+
+    test('a failed preflight records aborted, never executes, and is not reported as executed', async () => {
+      const ledger = new MemoryLedger();
+      const effects = counter();
+      const result = await executeOnce(ledger, entry(), effects.effect, neverReconcile, () => NOW, deny);
+      assert.equal(result.kind, 'aborted');
+      assert.equal(effects.count, 0);
+      const onLedger = ledger.file(outcomePath('luca-claude-code', 'op-0000000000000001')) as { status: string; result: unknown; reconciled: boolean };
+      assert.equal(onLedger.status, 'aborted');
+      assert.deepEqual(onLedger.result, { reason: 'stale_policy_epoch' });
+      assert.equal(onLedger.reconciled, false);
+    });
+
+    test('same-id replay returns the recorded abort and never executes, even with a passing preflight', async () => {
+      const ledger = new MemoryLedger();
+      const effects = counter();
+      await executeOnce(ledger, entry(), effects.effect, neverReconcile, () => NOW, deny);
+      const replay = await executeOnce(ledger, entry(), effects.effect, neverReconcile, () => NOW + 10 * EXECUTION_DEADLINE_MS);
+      assert.equal(replay.kind, 'recorded');
+      assert.equal(replay.kind === 'recorded' && replay.outcome.status, 'aborted');
+      assert.equal(effects.count, 0);
+    });
+
+    test('a preflight that throws aborts with a fixed reason', async () => {
+      const ledger = new MemoryLedger();
+      const effects = counter();
+      const result = await executeOnce(ledger, entry(), effects.effect, neverReconcile, () => NOW, async () => { throw new Error('token mint failed'); });
+      assert.equal(result.kind, 'aborted');
+      assert.deepEqual(result.kind === 'aborted' && result.outcome.result, { reason: 'preflight_error' });
+      assert.equal(effects.count, 0);
+    });
+
+    test('if the abort cannot be recorded, the operation stays uncertain and still never executes', async () => {
+      const ledger = new MemoryLedger();
+      const effects = counter();
+      ledger.failCommit = (files) => Object.keys(files).some((path) => path.startsWith('outcomes/'));
+      const result = await executeOnce(ledger, entry(), effects.effect, neverReconcile, () => NOW, deny);
+      assert.deepEqual(result, { kind: 'uncertain' });
+      assert.equal(effects.count, 0);
+      assert.equal(ledger.file(outcomePath('luca-claude-code', 'op-0000000000000001')), null);
+    });
+
+    test('a replay or reconciler can never record aborted: not observing stays uncertain', async () => {
+      const ledger = new MemoryLedger();
+      await executeOnce(ledger, entry(), async () => { throw new Error('unknown'); }, neverReconcile, () => NOW);
+      const replay = await executeOnce(ledger, entry(), counter().effect, async () => ({ status: 'not_observed' }), () => NOW + EXECUTION_DEADLINE_MS, deny);
+      assert.deepEqual(replay, { kind: 'uncertain' });
+      assert.equal(ledger.file(outcomePath('luca-claude-code', 'op-0000000000000001')), null);
+    });
+
+    test('the preflight runs after the claim and immediately before the effect, and sees the clock after its awaits', async () => {
+      const ledger = new MemoryLedger();
+      let clock = NOW;
+      const order: string[] = [];
+      const result = await executeOnce(ledger, entry(), async () => { order.push('effect'); return { status: 'succeeded', result: {} }; }, neverReconcile, () => clock,
+        async () => {
+          order.push(ledger.file(claimPath('luca-claude-code', 'op-0000000000000001')) ? 'preflight-after-claim' : 'preflight-before-claim');
+          clock += EFFECT_START_BUDGET_MS; // e.g. a slow token mint or PR lookup
+          return { ok: true };
+        });
+      assert.deepEqual(order, ['preflight-after-claim']);
+      assert.equal(result.kind, 'aborted', 'the start budget is re-checked after the preflight awaits');
+    });
   });
 
   test('reconciler sees the effect while the winner still runs: one effect, consistent result', async () => {
@@ -181,12 +252,15 @@ describe('unique-executor operation claims', () => {
     let actualEffects = 0;
     let release!: () => void;
     const gate = new Promise<void>((resolve) => { release = resolve; });
+    let entered!: () => void;
+    const effectEntered = new Promise<void>((resolve) => { entered = resolve; });
     const winner = executeOnce(ledger, entry(), async () => {
+      entered();
       actualEffects += 1; // applied remotely, response still in flight
       await gate;
       return { status: 'succeeded', result: { commentId: 7 } };
     }, neverReconcile, () => clock);
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    await effectEntered;
     clock += 120_000;
     const replay = await executeOnce(ledger, entry(), counter().effect, async () => ({ status: 'applied', result: { commentId: 7 } }), () => clock);
     assert.equal(replay.kind === 'recorded' && replay.outcome.status, 'applied');
@@ -201,8 +275,10 @@ describe('unique-executor operation claims', () => {
     let clock = NOW;
     let release!: () => void;
     const gate = new Promise<void>((resolve) => { release = resolve; });
-    const winner = executeOnce(ledger, entry(), async () => { await gate; return { status: 'failed', result: { http: 422 } }; }, neverReconcile, () => clock);
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    let entered!: () => void;
+    const effectEntered = new Promise<void>((resolve) => { entered = resolve; });
+    const winner = executeOnce(ledger, entry(), async () => { entered(); await gate; return { status: 'failed', result: { http: 422 } }; }, neverReconcile, () => clock);
+    await effectEntered;
     clock += 120_000;
     await executeOnce(ledger, entry(), counter().effect, async () => ({ status: 'applied', result: { commentId: 7 } }), () => clock);
     release();
