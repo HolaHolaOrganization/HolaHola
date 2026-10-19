@@ -1,0 +1,1 @@
+onBoot = "/bin/sh /home/runner/workspace/server/scripts/coordination-listener-boot-diagnostic.sh"

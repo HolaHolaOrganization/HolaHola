@@ -271,3 +271,41 @@ Do not assume that command discovery in Agent tools matches the founder’s inte
 
 **How to apply:** Diagnose availability independently of the project code. Verify the existing Node executable and local loader, then provide a direct invocation if needed. Do not persist a specific Nix store path in instructions or memory, because it can change with the environment. Terminal paste-control characters are a separate input problem, not proof that dependencies are absent.
 
+
+## Real boot and detached-launch lifetime evidence
+
+Do not equate schema acceptance of an onBoot hook, a spawn acknowledgement, or a detached-child fixture test with real Replit restart recovery. Separate evidence for hook invocation, child survival after the real launching task exits, identity-matched inbox fetch, and continued absence of held services.
+
+**Why:** On 2026-10-18, an actual compute restart left no listener or boot artifacts despite valid cache and persisted approved configuration. Manually invoking the same default launcher returned a supervisor-spawn acknowledgement but left no live supervisor or status. Running the unchanged approved supervisor directly in a persistent native background task then produced a live identity-matched child and confirmed inbox fetch. This supports further investigation of invocation/execution-lifetime boundaries, not an established platform root cause. The synthetic detached-supervisor test had passed.
+
+**How to apply:** Record failed automatic evidence before any manual restoration. Label manual recovery as manual even when the reused protocol says post-boot. Native task ownership and its monitor/log do not automatically survive restart. Official documentation says onBoot executes on app boot but does not explicitly promise Restart compute invokes it; do not upgrade a search summary's inference to a documented guarantee.
+
+
+## Boot hook lookup precedes wrapper root resolution
+
+Startup diagnostics must not assume the platform's initial working directory. Resolving the project root inside a wrapper helps only AFTER the platform has located that wrapper; use an absolute hook entrypoint when targeting the fixed Replit workspace.
+
+**Why:** Independent review of the listener diagnostic identified a missing boundary: a relative hook can fail before writing any marker. That possibility does not prove the observed restart used a different cwd. Missing diagnostic evidence stays ambiguous, including invocation, lookup and write failures.
+
+**How to apply:** Pin the candidate hook path in a test, invoke the wrapper from an unrelated cwd, and keep prepared versus active configuration distinct. Review the actual PR config as well as its template. Do not overwrite the entire live configuration just to copy a reviewed hook; preserve separately valid credential-cache settings.
+
+
+## Startup hook runtime resolution
+
+## Startup hook PATH is not the interactive shell PATH
+
+Do not assume that Node resolving in the Agent shell means it resolves in
+Replit's onBoot shell.
+
+**Why:** A founder-controlled compute restart reached an absolute POSIX
+diagnostic wrapper, which recorded `shell-invoked` followed by
+`node-unavailable`. The later Agent shell resolved Node normally. The
+startup attempt therefore failed before Node, independent of any later
+detached-process lifetime question.
+
+**How to apply:** Establish startup runtime resolution through reviewed,
+portable configuration and verify it with actual boot markers. Do not
+hardcode a version-specific Nix store path solely because the interactive
+shell reports it. Persisted status and heartbeat files are not live recovery
+proof; compare their timing and process creation identities after restart.
+

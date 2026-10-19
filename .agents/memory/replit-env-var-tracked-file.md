@@ -28,3 +28,12 @@ env vars in the middle of such a workflow. Actual secrets (requested via the
 secrets flow, holding real credential values) are stored separately and do
 not have this effect; this is specific to plain non-secret config values that
 `setEnvVars` resolves into `.replit`.
+
+## Schema-validated configuration replacement
+
+Workspace configuration edits may be blocked even when ordinary source patches are allowed. For a general `.replit` change such as an approved onBoot hook, read the existing file, create a complete candidate TOML in an absolute temporary path inside the workspace, and use `verifyAndReplaceDotReplit({ tempFilePath })`. Preserve unrelated configuration and use the specialized workflow/env/package tools for those operations instead.
+
+**Why:** On 2026-10-18 the platform rejected a direct patch to `.replit` and explicitly required this schema-validated replacement path; the replacement then succeeded. Do not interpret a multi-file patch's partial success as configuration activation.
+
+**How to apply:** Check the replacement result and the resulting intended configuration line before claiming activation. A hook being configured does not prove it has run; actual compute restart and runtime evidence are separate.
+
