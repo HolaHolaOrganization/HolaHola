@@ -174,6 +174,27 @@ describe('provenance verification', () => {
     });
   }
 
+  // luca-replit review 5576747644: "constructor" matches the hat pattern; an
+  // evidence lookup must not reach Object.prototype and throw.
+  test('a hat named like a prototype member is invalid, not a crash (model evidence path)', () => {
+    const p = provenanceFor(text, [], ['claude-opus-5-5'], 'constructor');
+    const v = verifyProvenance(p, text, 'constructor');
+    assert.equal(v.status, 'invalid');
+    assert.deepEqual(v.status === 'invalid' && v.runs[0], {
+      index: 0, start: 0, end: enc(text).length, hat: 'constructor',
+      provider: 'unknown', providerEvidence: 'none', model: 'unknown', modelEvidence: 'invalid',
+    });
+  });
+
+  test('a hat named like a prototype member is invalid, not a crash (runtime provider path)', () => {
+    const p = provenanceFor(text, [], ['unknown'], 'constructor');
+    Object.assign(p.runs[0], { provider: 'anthropic', providerEvidence: 'runtime:vendor' });
+    const v = verifyProvenance(p, text, 'constructor');
+    assert.equal(v.status, 'invalid');
+    assert.match(v.status === 'invalid' ? v.reason : '', /hat constructor can supply/);
+    assert.equal(v.status === 'invalid' && v.runs[0].hat, 'constructor');
+  });
+
   test('a Replit run cannot borrow Claude Code transcript evidence for a known model', () => {
     const p = provenanceFor(text, [], ['claude-opus-5-5'], 'replit');
     const v = verifyProvenance(p, text, 'replit');

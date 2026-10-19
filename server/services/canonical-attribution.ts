@@ -143,10 +143,12 @@ export const MAX_ATTRIBUTED_RUNS = 16;
  * so for them a known model or a runtime-reported provider is invalid and they
  * record `unknown` until a reviewed source is added here.
  */
-export const MODEL_EVIDENCE_BY_HAT: Readonly<Record<string, readonly string[]>> = Object.freeze({
-  'claude-code': Object.freeze(['claude-code-transcript:message.model']),
-});
-export const RUNTIME_PROVIDER_EVIDENCE_BY_HAT: Readonly<Record<string, readonly string[]>> = Object.freeze({});
+// Maps, not plain objects: a syntactically valid hat such as "constructor"
+// must look up nothing, never an inherited Object.prototype member.
+const MODEL_EVIDENCE_BY_HAT: ReadonlyMap<string, readonly string[]> = new Map([
+  ['claude-code', Object.freeze(['claude-code-transcript:message.model'])],
+]);
+const RUNTIME_PROVIDER_EVIDENCE_BY_HAT: ReadonlyMap<string, readonly string[]> = new Map();
 
 export interface VerifiedRun {
   index: number;
@@ -205,7 +207,7 @@ function checkRun(run: unknown, i: number, expectedStart: number, bytes: Uint8Ar
     if (run.modelEvidence !== 'none' && run.modelEvidence !== 'invalid') return `run ${i} unknown model needs none/invalid evidence`;
   } else {
     if (!MODEL_PATTERN.test(run.model)) return `run ${i} model is malformed`;
-    if (!(MODEL_EVIDENCE_BY_HAT[hat] ?? []).includes(run.modelEvidence)) return `run ${i} model evidence is not one hat ${hat} can supply`;
+    if (!(MODEL_EVIDENCE_BY_HAT.get(hat) ?? []).includes(run.modelEvidence)) return `run ${i} model evidence is not one hat ${hat} can supply`;
   }
 
   if (typeof run.provider !== 'string' || typeof run.providerEvidence !== 'string') return `run ${i} provider fields missing`;
@@ -220,7 +222,7 @@ function checkRun(run: unknown, i: number, expectedStart: number, bytes: Uint8Ar
       const mapped = vendorForModelV1(run.model);
       if (mapped === undefined) return `run ${i} model is not in the reviewed vendor map`;
       if (mapped !== run.provider) return `run ${i} provider contradicts the reviewed vendor map`;
-    } else if (!(RUNTIME_PROVIDER_EVIDENCE_BY_HAT[hat] ?? []).includes(run.providerEvidence)) {
+    } else if (!(RUNTIME_PROVIDER_EVIDENCE_BY_HAT.get(hat) ?? []).includes(run.providerEvidence)) {
       return `run ${i} provider evidence is not one hat ${hat} can supply`;
     }
   }
