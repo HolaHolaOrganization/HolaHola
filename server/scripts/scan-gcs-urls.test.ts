@@ -427,6 +427,11 @@ describe('image_vision_cache — backfill CI guard', () => {
  */
 const SCAN_ROOTS = ['server', 'client/src', 'scripts', 'migrations', 'shared'] as const;
 
+/** The absolute directories the static scan walks for a given workspace root. */
+function scanDirsFor(workspaceRoot: string): string[] {
+  return SCAN_ROOTS.map((root) => path.resolve(workspaceRoot, root));
+}
+
 /** Recursively collect all .ts and .tsx files under `dir`. */
 function collectTsFiles(dir: string): string[] {
   const results: string[] = [];
@@ -483,7 +488,7 @@ describe('Static source-code scan — no raw storage.googleapis.com literals out
   //     would be written to the database without normalisation.
   //   shared/ — URL builders and helpers imported by server and client; a raw
   //     GCS URL here would bypass the proxy at every call site.
-  const SCAN_DIRS = SCAN_ROOTS.map((root) => path.resolve(workspaceRoot, root));
+  const SCAN_DIRS = scanDirsFor(workspaceRoot);
 
   const TARGET = 'storage.googleapis.com';
 
@@ -864,17 +869,21 @@ describe('Static source-code scan — scanner self-validation (in-memory source 
 // ---------------------------------------------------------------------------
 // Root discovery against a disposable tree (outside the source tree)
 //
-// Builds every SCAN_ROOTS root in a fresh OS temp directory, with a nested
-// non-test .ts file carrying a raw GCS literal, and proves collectTsFiles()
-// actually discovers it under each root. The tree lives under os.tmpdir(), so
-// it can never race with the real-tree scans above.
+// REQUIRED_ROOTS is an independent oracle, deliberately not derived from
+// SCAN_ROOTS: the fixture tree is built from it, and the production
+// scanDirsFor() -- the same function the main scan uses -- must resolve
+// exactly those directories. So a typo in, removal from, or broken mapping of
+// the real root list fails here. The tree lives under os.tmpdir(), so it
+// cannot race the real-tree scans above.
 // ---------------------------------------------------------------------------
 describe('Static source-code scan — root discovery (disposable tree)', () => {
-  it('collectTsFiles discovers nested .ts/.tsx files under every scanned root, and nothing else', () => {
+  const REQUIRED_ROOTS = ['server', 'client/src', 'scripts', 'migrations', 'shared'];
+
+  it('scanDirsFor resolves exactly the required roots, and the walk discovers nested files under each', () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gcs-scan-roots-'));
     try {
       const expected: string[] = [];
-      for (const root of SCAN_ROOTS) {
+      for (const root of REQUIRED_ROOTS) {
         const nested = path.join(tmp, root, 'deep', 'er');
         fs.mkdirSync(nested, { recursive: true });
         const tsFile = path.join(nested, 'writer.ts');
@@ -884,12 +893,18 @@ describe('Static source-code scan — root discovery (disposable tree)', () => {
         fs.writeFileSync(path.join(nested, 'notes.md'), 'storage.googleapis.com\n');
         expected.push(tsFile, tsxFile);
       }
-      const found = SCAN_ROOTS.flatMap((root) => collectTsFiles(path.join(tmp, root)));
+
+      const dirs = scanDirsFor(tmp);
+      assert.deepEqual(dirs, REQUIRED_ROOTS.map((root) => path.join(tmp, root)),
+        'the production root list must resolve to exactly the required roots under the workspace');
+      for (const dir of dirs) assert.ok(fs.statSync(dir).isDirectory(), `${dir} must exist in the fixture tree`);
+
+      const found = dirs.flatMap((dir) => collectTsFiles(dir));
       assert.deepEqual([...found].sort(), [...expected].sort());
-      for (const root of SCAN_ROOTS) {
-        const flagged = collectTsFiles(path.join(tmp, root))
+      for (const dir of dirs) {
+        const flagged = collectTsFiles(dir)
           .filter((file) => fs.readFileSync(file, 'utf8').includes('storage.googleapis.com'));
-        assert.equal(flagged.length, 1, `expected one discovered GCS literal under ${root}`);
+        assert.equal(flagged.length, 1, `expected one discovered GCS literal under ${dir}`);
       }
     } finally {
       fs.rmSync(tmp, { recursive: true, force: true });
