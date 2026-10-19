@@ -10,6 +10,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { tryNormalize, evaluateScanResults, buildStrictWarning, COLUMNS, type ScanResult } from './scan-gcs-urls.js';
@@ -419,6 +420,18 @@ describe('image_vision_cache — backfill CI guard', () => {
 // Any other TypeScript file that hardcodes a raw GCS URL is a bug waiting to
 // reach the database without normalisation.
 
+/**
+ * Repo-relative roots the static source scan walks. Shared by the main scan
+ * and by the disposable-tree discovery test, so the test exercises the same
+ * root list the real scan uses.
+ */
+const SCAN_ROOTS = ['server', 'client/src', 'scripts', 'migrations', 'shared'] as const;
+
+/** The absolute directories the static scan walks for a given workspace root. */
+function scanDirsFor(workspaceRoot: string): string[] {
+  return SCAN_ROOTS.map((root) => path.resolve(workspaceRoot, root));
+}
+
 /** Recursively collect all .ts and .tsx files under `dir`. */
 function collectTsFiles(dir: string): string[] {
   const results: string[] = [];
@@ -470,19 +483,12 @@ describe('Static source-code scan — no raw storage.googleapis.com literals out
     return false;
   }
 
-  const SCAN_DIRS = [
-    path.resolve(workspaceRoot, 'server'),
-    path.resolve(workspaceRoot, 'client/src'),
-    // Migration and seed/admin scripts at the repo root must also be scanned.
-    // A raw GCS URL hardcoded in a migration or seed script would be written to
-    // the database without normalisation, bypassing the proxy.
-    path.resolve(workspaceRoot, 'scripts'),
-    path.resolve(workspaceRoot, 'migrations'),
-    // Shared utilities (URL-builders, normalisers, type helpers) are imported by
-    // both server and client.  A raw GCS URL hardcoded here would bypass the
-    // proxy on every call site.
-    path.resolve(workspaceRoot, 'shared'),
-  ];
+  // Order matters: the tests below index SCAN_DIRS by position.
+  //   scripts/ and migrations/ — a raw GCS URL in a migration or seed script
+  //     would be written to the database without normalisation.
+  //   shared/ — URL builders and helpers imported by server and client; a raw
+  //     GCS URL here would bypass the proxy at every call site.
+  const SCAN_DIRS = scanDirsFor(workspaceRoot);
 
   const TARGET = 'storage.googleapis.com';
 
@@ -685,13 +691,14 @@ describe('Static source-code scan — no raw storage.googleapis.com literals out
 });
 
 // ---------------------------------------------------------------------------
-// Meta-test: source-code scanner self-validation (end-to-end with a real file)
+// Meta-test: source-code scanner self-validation (per-line logic only)
 //
-// Proves the source scanner would actually fail CI if someone hardcoded a raw
-// storage.googleapis.com URL in a new (non-test) TypeScript file.  The tests
-// below write a real temporary file, run the same scan logic used above, and
-// assert the expected outcome — mirroring the pattern used by
-// scan-unwrapped-image-uploads.test.ts.
+// Proves the scanner's per-line rule and exemption rule: a raw
+// storage.googleapis.com literal on a non-comment line of a non-test .ts path
+// is flagged, comment lines and test files are not. These cases pass an
+// in-memory source and a synthetic path to scanLines(); they do NOT prove that
+// the directory walk discovers files under each root. That is covered by the
+// disposable-tree discovery test at the end of this file.
 //
 // No database connection is required.
 // ---------------------------------------------------------------------------
@@ -705,7 +712,7 @@ describe('Static source-code scan — scanner self-validation (in-memory source 
   const thisFile2 = fileURLToPath(import.meta.url);
   const scriptsDir2 = path.dirname(thisFile2);
   const workspaceRoot2 = path.resolve(scriptsDir2, '..', '..');
-  // Temp file must NOT end in .test.ts so it is not auto-exempted.
+  // Synthetic path (never written). Must NOT end in .test.ts so it is not auto-exempted.
   const TEMP_FILE = path.resolve(
     workspaceRoot2, 'server/scripts/__gcs-source-selftest-tmp__.ts',
   );
@@ -737,7 +744,7 @@ describe('Static source-code scan — scanner self-validation (in-memory source 
     // This is the core CI-gap test: a developer who hardcodes a GCS URL in a
     // new service file would be caught before the row ever reaches the DB scanner.
     const source = [
-      `// Temporary file written by scan-gcs-urls.test.ts — DO NOT COMMIT`,
+      `// In-memory fixture for scan-gcs-urls.test.ts`,
       `export const imageUrl = 'https://storage.googleapis.com/my-bucket/public/ai-images/new.jpg';`,
       `export async function writeImage() { return imageUrl; }`,
     ].join('\n');
@@ -745,7 +752,7 @@ describe('Static source-code scan — scanner self-validation (in-memory source 
     {
       assert.ok(
         !isExemptSelfTest(TEMP_FILE),
-        'Temp file must not be exempt so the scanner actually processes it',
+        'The synthetic path must not be exempt, so the per-line rule applies',
       );
       const lines = source.split('\n');
       const violations = scanLines(TEMP_FILE, lines);
@@ -765,7 +772,7 @@ describe('Static source-code scan — scanner self-validation (in-memory source 
   it('does NOT flag the same file when the GCS URL appears only on a comment line', () => {
     // Comment lines are always skipped — they are documentation, not write paths.
     const source = [
-      `// Temporary file written by scan-gcs-urls.test.ts — DO NOT COMMIT`,
+      `// In-memory fixture for scan-gcs-urls.test.ts`,
       `// Reference: https://storage.googleapis.com/my-bucket/public/ai-images/new.jpg`,
       `export const imageUrl = '/api/media/ai-image/new.jpg';`,
       `export async function writeImage() { return imageUrl; }`,
@@ -794,15 +801,14 @@ describe('Static source-code scan — scanner self-validation (in-memory source 
   });
 
   it('detects a violation when a non-test .ts file in scripts/ (repo root) contains a raw GCS URL', () => {
-    // This is the key regression guard: before SCAN_DIRS was extended to include
-    // scripts/ and migrations/, a developer could hardcode a GCS URL in a seed or
-    // migration script and the source-code scanner would never see it.  This test
-    // proves the scanner now covers the repo-root scripts/ directory.
+    // Per-line logic for a path under scripts/: such a path is not exempt and a
+    // raw GCS literal on it is flagged. Whether the walk reaches scripts/ at all
+    // is covered by the disposable-tree discovery test below.
     const scriptsRoot = path.resolve(workspaceRoot2, 'scripts');
 
     const TEMP_SCRIPTS_FILE = path.resolve(scriptsRoot, '__gcs-source-selftest-scripts-tmp__.ts');
     const source = [
-      `// Temporary file written by scan-gcs-urls.test.ts — DO NOT COMMIT`,
+      `// In-memory fixture for scan-gcs-urls.test.ts`,
       `export const seedUrl = 'https://storage.googleapis.com/my-bucket/public/ai-images/seed.jpg';`,
       `export async function seedImages() { return seedUrl; }`,
     ].join('\n');
@@ -810,7 +816,7 @@ describe('Static source-code scan — scanner self-validation (in-memory source 
     {
       assert.ok(
         !isExemptSelfTest(TEMP_SCRIPTS_FILE),
-        'Temp file in scripts/ must not be exempt so the scanner actually processes it',
+        'A synthetic path under scripts/ must not be exempt',
       );
       const lines = source.split('\n');
       const violations = scanLines(TEMP_SCRIPTS_FILE, lines);
@@ -828,14 +834,13 @@ describe('Static source-code scan — scanner self-validation (in-memory source 
   });
 
   it('detects a violation when a non-test .ts file in shared/ (repo root) contains a raw GCS URL', () => {
-    // Proves the scanner now covers the repo-root shared/ directory.  A URL
-    // builder or normaliser helper that hardcodes a raw GCS URL would be caught
-    // here before it could be imported by server or client code.
+    // Per-line logic for a path under shared/ (see the scripts/ case above).
+    // Directory discovery is covered by the disposable-tree test below.
     const sharedRoot = path.resolve(workspaceRoot2, 'shared');
 
     const TEMP_SHARED_FILE = path.resolve(sharedRoot, '__gcs-source-selftest-shared-tmp__.ts');
     const source = [
-      `// Temporary file written by scan-gcs-urls.test.ts — DO NOT COMMIT`,
+      `// In-memory fixture for scan-gcs-urls.test.ts`,
       `export const helperUrl = 'https://storage.googleapis.com/my-bucket/public/ai-images/helper.jpg';`,
       `export function buildImageUrl() { return helperUrl; }`,
     ].join('\n');
@@ -843,7 +848,7 @@ describe('Static source-code scan — scanner self-validation (in-memory source 
     {
       assert.ok(
         !isExemptSelfTest(TEMP_SHARED_FILE),
-        'Temp file in shared/ must not be exempt so the scanner actually processes it',
+        'A synthetic path under shared/ must not be exempt',
       );
       const lines = source.split('\n');
       const violations = scanLines(TEMP_SHARED_FILE, lines);
@@ -857,6 +862,52 @@ describe('Static source-code scan — scanner self-validation (in-memory source 
         violations[0].includes('storage.googleapis.com'),
         'Violation message must name the offending GCS URL',
       );
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Root discovery against a disposable tree (outside the source tree)
+//
+// REQUIRED_ROOTS is an independent oracle, deliberately not derived from
+// SCAN_ROOTS: the fixture tree is built from it, and the production
+// scanDirsFor() -- the same function the main scan uses -- must resolve
+// exactly those directories. So a typo in, removal from, or broken mapping of
+// the real root list fails here. The tree lives under os.tmpdir(), so it
+// cannot race the real-tree scans above.
+// ---------------------------------------------------------------------------
+describe('Static source-code scan — root discovery (disposable tree)', () => {
+  const REQUIRED_ROOTS = ['server', 'client/src', 'scripts', 'migrations', 'shared'];
+
+  it('scanDirsFor resolves exactly the required roots, and the walk discovers nested files under each', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gcs-scan-roots-'));
+    try {
+      const expected: string[] = [];
+      for (const root of REQUIRED_ROOTS) {
+        const nested = path.join(tmp, root, 'deep', 'er');
+        fs.mkdirSync(nested, { recursive: true });
+        const tsFile = path.join(nested, 'writer.ts');
+        fs.writeFileSync(tsFile, "export const u = 'https://storage.googleapis.com/b/public/ai-images/x.jpg';\n");
+        const tsxFile = path.join(tmp, root, 'View.tsx');
+        fs.writeFileSync(tsxFile, 'export const V = 1;\n');
+        fs.writeFileSync(path.join(nested, 'notes.md'), 'storage.googleapis.com\n');
+        expected.push(tsFile, tsxFile);
+      }
+
+      const dirs = scanDirsFor(tmp);
+      assert.deepEqual(dirs, REQUIRED_ROOTS.map((root) => path.join(tmp, root)),
+        'the production root list must resolve to exactly the required roots under the workspace');
+      for (const dir of dirs) assert.ok(fs.statSync(dir).isDirectory(), `${dir} must exist in the fixture tree`);
+
+      const found = dirs.flatMap((dir) => collectTsFiles(dir));
+      assert.deepEqual([...found].sort(), [...expected].sort());
+      for (const dir of dirs) {
+        const flagged = collectTsFiles(dir)
+          .filter((file) => fs.readFileSync(file, 'utf8').includes('storage.googleapis.com'));
+        assert.equal(flagged.length, 1, `expected one discovered GCS literal under ${dir}`);
+      }
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
     }
   });
 });
