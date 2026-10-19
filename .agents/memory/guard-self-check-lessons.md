@@ -72,3 +72,20 @@ disposable fixture tree. Mutation-check root removal/typos and broken mapping
 as well as recursion and extension filtering. A passing walker mutation check
 does not establish root selection coverage.
 
+
+## Expired deadlines do not prove executor termination
+
+Crash-only claim tests do not prove correctness when the original executor is
+still alive after its execution deadline.
+
+**Why:** An elapsed deadline does not cancel a worker or fence its external
+effect. A reconciler can observe absence and permanently record `not_applied`,
+then the original worker can resume and apply the effect. Same-ID execution
+uniqueness can hold while durable outcome truth and new-ID retry safety fail.
+
+**How to apply:** Include a deferred, still-live winner in claim/reconciliation
+tests; assert actual effect count, persisted outcome, and caller-visible status.
+Treat remote absence as ambiguous unless there is proof that the original
+executor cannot still cause the effect. Terminal/fencing evidence must hold
+across the observation-to-outcome-write interval.
+
