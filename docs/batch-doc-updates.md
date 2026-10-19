@@ -8538,3 +8538,27 @@ The proof fixture/cases and original renewal imports remain byte-identical to
 the reviewed snapshot; registry-only imports account for the larger entrypoint.
 Source remains unpublished. The separate scope-visibility work is not included;
 no shared migration, promotion, worker/model launch or key rotation occurred.
+
+
+## Listener-only Replit boot recovery — 2026-10-18
+
+Listener-only boot recovery implementation prepared under direct founder approval and independently reviewed design. New launcher/supervisor/core and hermetic tests only; dedicated .replit onBoot hook will land through founder-reviewed PR, not be enabled by an unreviewed local config edit. No app, validation, capture or canonical-save start; no signing-key or deploy-key operation. Final coherent checks passed: 52 focused checks covering eight boot cases, CI registry contracts and source-write guard/self-checks; npm run typecheck passed. Tests live beside the existing listener core tests under server/scripts/lib and are registered in the existing CI runner; no guard allowlist was broadened. The held whole-application verification and validation workflows were not run. Real workspace boot proof is pending PR landing and founder-controlled restart, not claimed by process-only tests. Long-downtime expiry residual remains accepted. Documentation: docs/coordination-listener-boot.md.
+
+
+## 2026-10-18 — Listener boot boundary diagnostic (prepared; not activated)
+
+Added a fixed-target POSIX exec wrapper and opt-in post-import launcher marker.
+Private invocation records contain only fixed phase/time/PID; no credentials,
+arguments, raw output, errors or remote bodies. Existing status/import paths
+remain read-only, diagnostic failures do not replace launcher results, and
+the supervisor/child environment drops the diagnostic tag.
+
+Verification: 14 diagnostic tests passed; 8 existing boot tests passed;
+typecheck and shell syntax checks passed. Synthetic tests cover exact exec
+argv/PID, exit preservation, missing Node/early failure, local write boundaries,
+private permissions, symlink/hardlink rejection, real CLI status/import
+read-only behavior and real launch entry before missing-cache fail-closed.
+No live wrapper invocation, app/held-writer start, compute restart, credential
+change, deployment or signing action. The active workspace hook is unchanged.
+Independent exact-head review and founder-controlled activation/restart remain
+separate gates. Markers diagnose boundaries; they do not prove readiness.
