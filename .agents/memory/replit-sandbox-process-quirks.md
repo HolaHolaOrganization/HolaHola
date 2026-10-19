@@ -309,3 +309,18 @@ hardcode a version-specific Nix store path solely because the interactive
 shell reports it. Persisted status and heartbeat files are not live recovery
 proof; compare their timing and process creation identities after restart.
 
+
+## Nix-store ownership is not necessarily root
+
+Nix-store ownership in this Replit sandbox is not necessarily root.
+
+**Why:** A read-only metadata inspection of the actual Node executable found
+UID 1000 with mode 0555. The assumption that `/nix/store` membership implies
+UID 0 was false in this environment.
+
+**How to apply:** Inspect actual ownership and permissions before making a
+security claim. A canonical store path plus a non-writable mode is not, by
+itself, proof that the workspace owner cannot replace or modify it. Do not
+build root-ownership checks or promise root-owned integrity from the path
+prefix alone.
+
