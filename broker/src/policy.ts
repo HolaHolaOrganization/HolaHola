@@ -1,0 +1,173 @@
+// The broker's only authority source: broker/policy.json on main, which is
+// founder-owned through CODEOWNERS. Founder authentication is GitHub's own --
+// changing policy means a founder-approved PR. The broker never accepts policy
+// from a caller, an env var or a database.
+//
+// Policy epoch = the git blob SHA of the file on main. Every signed request
+// names the epoch its client saw, and is rejected if it is not the current
+// one, so a policy change invalidates every outstanding request.
+//
+// Every failure here is fail-closed: an unreadable, unverifiable or invalid
+// file means no policy, and no policy means every request is denied.
+
+import { createHash, createPublicKey, type KeyObject } from 'node:crypto';
+
+export const REPOSITORY_ID = 1170208766;
+export const POLICY_STATES = ['closed', 'qualification', 'routine'] as const;
+export type PolicyState = (typeof POLICY_STATES)[number];
+
+export type SigningKey = { id: string; publicKey: KeyObject };
+export type ActorPolicy = {
+  appId: number;
+  installationId: number;
+  host: string;
+  signingKeys: SigningKey[];
+};
+export type QualificationEntry = { pr: number; headSha: string };
+export type Policy = {
+  version: 1;
+  state: PolicyState;
+  repositoryId: number;
+  actors: Map<string, ActorPolicy>;
+  qualification: QualificationEntry[];
+  epoch: string;
+};
+
+export class PolicyError extends Error {}
+
+const ACTOR_ID = /^[a-z][a-z0-9-]{1,62}$/;
+const KEY_ID = /^[A-Za-z0-9._-]{1,64}$/;
+const SHA1_HEX = /^[0-9a-f]{40}$/;
+
+/** git's blob object id: sha1("blob <byteLength>\0" + bytes). */
+export function gitBlobSha(bytes: Uint8Array): string {
+  return createHash('sha1').update(`blob ${bytes.byteLength}\0`).update(bytes).digest('hex');
+}
+
+function fail(message: string): never {
+  throw new PolicyError(message);
+}
+
+function exactKeys(value: unknown, where: string, required: string[], optional: string[] = []): Record<string, unknown> {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) fail(`${where} must be an object`);
+  const record = value as Record<string, unknown>;
+  for (const key of Object.keys(record)) {
+    if (!required.includes(key) && !optional.includes(key)) fail(`${where} has unknown field ${key}`);
+  }
+  for (const key of required) if (!(key in record)) fail(`${where} is missing ${key}`);
+  return record;
+}
+
+function positiveInt(value: unknown, where: string): number {
+  if (!Number.isSafeInteger(value) || (value as number) <= 0) fail(`${where} must be a positive integer`);
+  return value as number;
+}
+
+function parseSigningKey(value: unknown, where: string): SigningKey {
+  const record = exactKeys(value, where, ['id', 'publicKeyPem']);
+  if (typeof record.id !== 'string' || !KEY_ID.test(record.id)) fail(`${where}.id is invalid`);
+  if (typeof record.publicKeyPem !== 'string') fail(`${where}.publicKeyPem must be a string`);
+  let publicKey: KeyObject;
+  try {
+    publicKey = createPublicKey(record.publicKeyPem);
+  } catch {
+    fail(`${where}.publicKeyPem is not a public key`);
+  }
+  if (publicKey.asymmetricKeyType !== 'ed25519') fail(`${where}.publicKeyPem must be Ed25519`);
+  return { id: record.id, publicKey };
+}
+
+export function parsePolicy(bytes: Uint8Array): Policy {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
+  } catch {
+    fail('policy is not valid UTF-8 JSON');
+  }
+  const root = exactKeys(raw, 'policy', ['version', 'state', 'repositoryId', 'actors', 'qualification']);
+  if (root.version !== 1) fail('policy.version must be 1');
+  if (!POLICY_STATES.includes(root.state as PolicyState)) fail('policy.state is not a known state');
+  if (root.repositoryId !== REPOSITORY_ID) fail('policy.repositoryId does not name this repository');
+
+  if (typeof root.actors !== 'object' || root.actors === null || Array.isArray(root.actors)) fail('policy.actors must be an object');
+  const actors = new Map<string, ActorPolicy>();
+  for (const [actorId, entry] of Object.entries(root.actors as Record<string, unknown>)) {
+    if (!ACTOR_ID.test(actorId)) fail(`policy.actors has an invalid actor id`);
+    const where = `policy.actors.${actorId}`;
+    const actor = exactKeys(entry, where, ['appId', 'installationId', 'host', 'signingKeys']);
+    if (typeof actor.host !== 'string' || !actor.host.trim()) fail(`${where}.host must be a non-empty string`);
+    if (!Array.isArray(actor.signingKeys) || actor.signingKeys.length === 0) fail(`${where}.signingKeys must be a non-empty array`);
+    const signingKeys = actor.signingKeys.map((key, index) => parseSigningKey(key, `${where}.signingKeys[${index}]`));
+    if (new Set(signingKeys.map((key) => key.id)).size !== signingKeys.length) fail(`${where}.signingKeys has duplicate ids`);
+    actors.set(actorId, {
+      appId: positiveInt(actor.appId, `${where}.appId`),
+      installationId: positiveInt(actor.installationId, `${where}.installationId`),
+      host: actor.host,
+      signingKeys,
+    });
+  }
+
+  const installations = [...actors.values()].map((actor) => actor.installationId);
+  if (new Set(installations).size !== installations.length) fail('policy.actors share an installation id');
+
+  if (!Array.isArray(root.qualification)) fail('policy.qualification must be an array');
+  const qualification = root.qualification.map((entry, index) => {
+    const where = `policy.qualification[${index}]`;
+    const record = exactKeys(entry, where, ['pr', 'headSha']);
+    if (typeof record.headSha !== 'string' || !SHA1_HEX.test(record.headSha)) fail(`${where}.headSha must be a 40-char lowercase hex sha`);
+    return { pr: positiveInt(record.pr, `${where}.pr`), headSha: record.headSha };
+  });
+  if (root.state !== 'qualification' && qualification.length > 0) fail('policy.qualification must be empty outside the qualification state');
+
+  return {
+    version: 1,
+    state: root.state as PolicyState,
+    repositoryId: REPOSITORY_ID,
+    actors,
+    qualification,
+    epoch: gitBlobSha(bytes),
+  };
+}
+
+/** Where policy bytes come from. The production source reads main through the GitHub API (phase 2). */
+export type PolicySnapshot = { bytes: Uint8Array; blobSha: string };
+export interface PolicySource {
+  fetch(): Promise<PolicySnapshot>;
+}
+
+export const MAX_POLICY_TTL_MS = 60_000;
+
+/**
+ * Caches the parsed policy for at most `ttlMs` (never more than 60 s, the
+ * documented secondary-stop bound). There is no stale fallback: once the
+ * cache expires, a failed or unverifiable fetch yields no policy.
+ */
+export class PolicyLoader {
+  private cached: { policy: Policy; fetchedAt: number } | null = null;
+  private readonly ttlMs: number;
+
+  constructor(
+    private readonly source: PolicySource,
+    private readonly now: () => number = Date.now,
+    ttlMs: number = MAX_POLICY_TTL_MS,
+  ) {
+    if (!(ttlMs > 0 && ttlMs <= MAX_POLICY_TTL_MS)) throw new RangeError('policy TTL must be in (0, 60000] ms');
+    this.ttlMs = ttlMs;
+  }
+
+  /** Returns the current policy, or null when it cannot be proven. Never throws. */
+  async current(): Promise<Policy | null> {
+    const now = this.now();
+    if (this.cached && now - this.cached.fetchedAt < this.ttlMs) return this.cached.policy;
+    this.cached = null;
+    try {
+      const snapshot = await this.source.fetch();
+      if (gitBlobSha(snapshot.bytes) !== snapshot.blobSha) return null;
+      const policy = parsePolicy(snapshot.bytes);
+      this.cached = { policy, fetchedAt: now };
+      return policy;
+    } catch {
+      return null;
+    }
+  }
+}

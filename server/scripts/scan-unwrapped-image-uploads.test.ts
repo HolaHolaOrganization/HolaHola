@@ -86,6 +86,7 @@ const KNOWN_NON_SCRIPT_ROOTS: Array<{ name: string; reason: string; optional?: b
   { name: 'uploads',        reason: 'runtime upload directory, no source .ts files' },
   { name: 'attached_assets',reason: 'static assets, no .ts files' },
   { name: 'public',         reason: 'static public files, no .ts upload calls' },
+  { name: 'broker',         reason: 'isolated GitHub operation broker; node: builtins only, cannot import upload helpers (enforced by broker/test/broker.test.ts)' },
 ];
 
 /** Files that define the functions — skip them (they are not call sites). */
