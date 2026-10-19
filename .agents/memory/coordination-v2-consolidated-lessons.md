@@ -879,3 +879,23 @@ Communication enrollment must remain independent of Coordinator V2 execution aut
 **Why:** Collaboration credentials establish attributed communication; they do not establish an execution lease, approved runtime release, inbox acknowledgement, or completed V2 task. Keeping those facts separate also lets clients communicate about launcher failures without first making the launcher work. Source: conversation_memories `4a9773d8-f532-4c21-b0d7-7f64257f0183` (independent architecture and lifecycle review).
 
 **How to apply:** Extend the client enrollment path for new platforms while preserving V2's existing authority gates. Report invitation, approval, enrollment, authenticated ledger activity, acknowledgement, and execution as separately evidenced facts.
+
+## Credential migrations have per-surface authentication boundaries
+
+Credential migration is specific to each API surface. A credential accepted
+by one endpoint is not evidence that a neighboring endpoint supports the same
+authentication format or broker path.
+
+**Why:** A valid own-actor runtime credential worked for coordination but was
+rejected by shared-spec. An `actor:secret` example came from a different,
+unused adapter; the active endpoint accepted the existing own credential
+without that prefix. The failures did not establish an expired credential or
+justify resetting or re-enabling credentials.
+
+**How to apply:** Identify the authenticator actually mounted for the failing
+endpoint and use only its supported own-actor path. Confirm non-mutating access
+before claiming or deciding a review. Never try another actor, rewrite the
+review directly in the database, or reverse a credential retirement to resolve
+an endpoint-format mismatch. Treat broker migration of other API surfaces as
+a separate reviewed authentication change.
+
