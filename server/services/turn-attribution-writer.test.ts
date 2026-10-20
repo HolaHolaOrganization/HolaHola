@@ -70,6 +70,35 @@ describe('canonical row attribution (design 3.3, writer side)', () => {
     assert.deepEqual(row!.modelTags, []);
   });
 
+  // luca-replit review of PR66: every assistant turn counts, including ones
+  // whose provenance is absent or unverifiable.
+  test('a known-model assistant turn plus an unknown-model one get no single model tag', () => {
+    const known = buildClaudeCodeProvenance([{ text: 'a1', model: 'claude-opus-5-5' }]);
+    const turns: AttributableTurn[] = [
+      ...pair('claude-code', 'cc-7', 'q1', known.assistantText, known.provenance),
+      ...pair('claude-code', 'cc-8', 'q2', 'a2 with no provenance'),
+    ];
+    const row = buildCanonicalRowAttribution(turns, { bold: false });
+    assert.ok(row);
+    assert.deepEqual(row.modelTags, []);
+  });
+
+  test('a single turn whose runs mix a known and an unknown model gets no single model tag', () => {
+    const mixed = buildClaudeCodeProvenance([{ text: 'part one', model: 'claude-opus-5-5' }, { text: 'part two', model: undefined }]);
+    const row = buildCanonicalRowAttribution(pair('claude-code', 'cc-9', 'q', mixed.assistantText, mixed.provenance), { bold: false });
+    assert.deepEqual(row!.modelTags, []);
+  });
+
+  test('two assistant turns with the same known model keep the single model tag', () => {
+    const a = buildClaudeCodeProvenance([{ text: 'a1', model: 'claude-opus-5-5' }]);
+    const b = buildClaudeCodeProvenance([{ text: 'a2', model: 'claude-opus-5-5' }]);
+    const row = buildCanonicalRowAttribution([
+      ...pair('claude-code', 'cc-10', 'q1', a.assistantText, a.provenance),
+      ...pair('claude-code', 'cc-11', 'q2', b.assistantText, b.provenance),
+    ], { bold: false });
+    assert.deepEqual(row!.modelTags, ['provider-anthropic', 'model-claude-opus-5-5']);
+  });
+
   test('turns that cannot be framed honestly return null (row written as before)', () => {
     assert.equal(buildCanonicalRowAttribution([{ speaker: 'DAVID', text: 'q', source: 'claude-code' }], { bold: false }), null, 'no capture id');
     assert.equal(buildCanonicalRowAttribution([{ speaker: 'DAVID', text: 'q', captureId: 'x' }], { bold: false }), null, 'no source');
