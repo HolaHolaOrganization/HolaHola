@@ -42,16 +42,19 @@ export function plainParticipants(turns: ReadonlyArray<Pick<DialogueTurn, 'speak
  * Attribution tags for a canonical row (design section 4, "bones").
  * - hat-<hat> only when every turn shares one authenticated capture source;
  *   a missing or mixed source gets no hat tag rather than a guessed one.
- * - provider-/model- are "unknown" until provenance transport (step W2)
- *   supplies evidenced values.
+ * - provider-/model- tags come from the row's verified provenance (step W2b,
+ *   turn-attribution-writer); without them they are explicitly unknown.
  */
-export function attributionTags(turns: ReadonlyArray<Pick<DialogueTurn, 'source'>>): string[] {
+export function attributionTags(
+  turns: ReadonlyArray<Pick<DialogueTurn, 'source'>>,
+  modelTags: readonly string[] = ['provider-unknown', 'model-unknown'],
+): string[] {
   const sources = new Set(turns.map(turn => turn.source ?? null));
   const tags: string[] = [];
   if (sources.size === 1) {
     const [source] = sources;
     if (source === 'replit' || source === 'claude-code') tags.push(`hat-${source}`);
   }
-  tags.push('provider-unknown', 'model-unknown');
+  tags.push(...modelTags);
   return tags;
 }
