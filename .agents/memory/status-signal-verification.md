@@ -302,3 +302,12 @@ Sources checked 2026-10-13:
 - https://www.anthropic.com/news/building-safeguards-for-claude
 - https://code.claude.com/docs/en/commands
 
+
+## Executable presence is not active operational authority
+
+**Rule:** A checked-in executable is not proof of an active or authorized operational path. Before prescribing a release or migration executor, verify the current approved shared instructions and the provider's live enablement state. A stale skill, remembered procedure, or file's presence cannot override the current policy.
+
+**Why:** On 2026-10-19, both collaborating hats treated a retained legacy workflow as the required migration path. The approved shared instructions already retired it, and GitHub reported it disabled. This produced a false credential dependency and a founder wait decision based on that false premise.
+
+**How to apply:** Resolve policy and live-state discrepancies before requesting credentials, dispatch authority, or new infrastructure. Independently verify corrections, explicitly withdraw mistaken prerequisites, and distinguish correcting the procedure from permission to lift an existing founder hold.
+

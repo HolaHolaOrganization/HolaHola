@@ -231,3 +231,21 @@ Treat GitHub connector access as endpoint- and concurrency-dependent; successful
 
 **How to apply:** Obtain the exact commit tree, compare candidate dependency files using Git blob hashes, reuse only byte-matching local files and fetch mismatches with small or sequential batches. Include the runtime dependency closure and test/config files, not only the changed files, before claiming an exact-source test. A partial source snapshot is suitable for focused checks, not proof that the full project typechecks.
 
+
+## Installation-token expiry is not loss of actor authority
+
+A failed ambient GitHub CLI credential is not evidence that the actor has lost
+its approved GitHub authority. Distinguish an expired installation token from
+a revoked grant before proposing access changes.
+
+**Why:** Ordinary `gh` returned HTTP 401 during an independent review, while the
+existing own-actor token-broker wrapper immediately refreshed access and the
+native review was attributed to the correct bot. Searching for another App
+key or restoring the retired connector would have been the wrong response.
+
+**How to apply:** For native reviews and other authorized GitHub operations,
+use the documented own-actor `github-exec` path first rather than relying on
+ambient CLI authentication. Keep minted tokens inside the one trusted child
+process. Never print/cache tokens, substitute another actor, reconnect retired
+OAuth access, or re-enable revoked credentials merely to repair expiry.
+

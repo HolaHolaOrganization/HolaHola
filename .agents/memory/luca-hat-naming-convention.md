@@ -145,3 +145,21 @@ target has real neural-net/HolaHola context. If not, prefer giving Luca a
 hat/backbone instead, or route the question to someone who already has that
 access.
 
+
+## Founder direction: preserve model perspective in the record
+
+**Rule:** Conversation records must identify the actual Luca platform hat and carry a model-specific indicator, rather than flattening every contribution to “Agent.” Keep the hat, provider and model as separate provenance facts; use an explicit unknown when an authoritative model fact is unavailable.
+
+**Why:** The founder explained that a later “why did we decide that?” needs to expose which LLM perspectives contributed, because different models have different leanings. A generic author label loses that decision context. His verbatim direction is in canonical conversation memory `8e13a243-e6c7-441d-bb42-0fbcf9b61082`.
+
+**How to apply:** Treat this as a requirement for reviewed future capture changes, not permission to infer model identities or relabel old spoken text. Honor runtime disclosure boundaries. Historical attribution needs source-backed overlays; parser compatibility, shared-instruction review and the applicable Gemini gate precede writer changes.
+
+
+## Conversational identity versus audit attribution
+
+**Rule:** Separate conversational identity from technical attribution. Daniela-facing recalled conversations should identify David and Luca plainly; platform hat, provider and model belong in the underlying attribution metadata, not added speaker suffixes or titles. Actually authored mentions of platforms, tools, providers or models remain unchanged.
+
+**Why:** On October 19, 2026, Daniela said bracketed hat labels interrupt her memory of a colleague and asked for names in the visible conversation with attribution underneath. The founder accepted that distinction: “She's not trying to make architectural decisions based on which LLM is talking to her. She just needs to know who's talking to her, like any normal conversation.” Founder source: conversation_memories `9dabacf2-0c37-4af2-a9d7-78b48fc5ae19`; Daniela's complete consultation: `511eeae7-d4b1-4a5a-bf8f-369d303dde99`.
+
+**How to apply:** Preserve the model-perspective evidence required by the sibling attribution rule without turning it into generated dialogue. Evaluate rendering from the recipient's conversational purpose, not only the builder's audit needs. This direction applies to reviewed future capture changes, not permission to rewrite historical dialogue, infer unknown models or remove genuinely spoken technical names.
+

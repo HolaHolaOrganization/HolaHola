@@ -172,3 +172,32 @@ resolve there. Document reused dependencies and environment. This is not a
 substitute for tests that depend on checkout identity, refs, tracked-file
 inventory, history, source authority or release provenance.
 
+
+## Filtered HTTPS clone and safe sparse index initialization
+
+For a narrow GitHub proof in this asset-heavy repository, use a fresh filtered HTTPS clone and sparse checkout rather than downloading every blob. Keep Git's clone protection enabled.
+
+**Why:** A shallow full clone still downloaded hundreds of megabytes and timed out. Passing a persistent core.hooksPath setting through clone's --config triggered Git's clone-protection refusal; disabling that protection was unnecessary.
+
+**How to apply:** Supply hooksPath=/dev/null as a command-scoped Git setting during clone, then configure the completed temporary clone locally. With --no-checkout, initialize the full index against HEAD using read-tree -mu HEAD under the sparse patterns before editing; merely checking out one file leaves other tracked paths staged as deletions. Verify a clean baseline and exact single-file staged diff before committing. Never put credential values in the remote or Git config.
+
+
+## Read back a native review after a client-side failure
+
+**Rule:** Check both HTTP success and the returned native review state, commit and actor. Do not assume every successful GitHub POST returns HTTP 201.
+
+**Why:** A successful native GitHub review creation returned HTTP 200; a client-side 201 assertion then threw even though the review was already submitted. Reading the native reviews found the completed action and prevented a duplicate submission.
+
+**How to apply:** After a mutation-side timeout, assertion or parse failure, read the authoritative result before retrying. For review creation, verify the exact commit, own reviewer identity and requested submitted state; a transport or client failure alone does not establish that the action failed.
+
+
+## Source integrity, scope baselines and generated projections
+
+Related Git source-integrity lessons:
+
+- [Audit restoration](audit-doc-restoration.md) — preserve the known-clean audit baseline and account for the completion reviewer's full comparison scope.
+- [Isolation-scope baselines](isolation-scope-diff-baseline.md) — compare against the captured starting state; routine concurrent documentation writes are not automatically scope violations.
+- [Generated-memory rebase conflicts](agent-memory-rebase-conflict-resolution.md) — regenerate from the shared database instead of choosing between stale generated prose; rebase reverses the usual ours/theirs intuition.
+
+These linked topic files retain the full rules, reasons and recovery guidance.
+

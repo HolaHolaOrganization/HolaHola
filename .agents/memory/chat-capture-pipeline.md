@@ -86,3 +86,30 @@ human deciding when to call it enforces that distinction.
 already sent to the user, copied after the fact — never with a draft composed
 before or during sending, even if it seems identical at the time.
 
+
+## Capture acknowledgement is not search freshness
+
+Canonical capture acknowledgement must distinguish durable source/projection
+completion from search freshness. Save a durable indexing obligation before
+acknowledging, but never wait for remote whole-record embeddings under a
+capture lock.
+
+**Why:** Large rolling episodes can require hundreds of remote requests after
+each short append. Waiting for those requests caused foreground capture to
+time out after canonical persistence but before acknowledgement, encouraging
+unsafe source replay even though the dialogue was already saved.
+
+**How to apply:** Reuse the existing indexer's durable source selection and
+retry machinery. Coalesce edits, retain pending status on partial failure, and
+clear the obligation only for the exact canonical version successfully built.
+Search freshness is a separate observable state, not evidence of source loss.
+
+
+## Prove capture absence before backfilling
+
+**Rule:** Prove that the actual conversation content is absent before backfilling. A title search or stale local capture file is not proof that cross-host automatic capture failed.
+
+**Why:** A Windows-side check searched for a hat name in generic conversation titles and found no records, even though a Stop hook was already recording the full exchanges remotely. Seven manual backfills then duplicated those originals; one assistant reply was recalled rather than copied. Independent content and capture-identity checks exposed the false absence conclusion.
+
+**How to apply:** Search the actual user/assistant text and verified source/capture tags in the authoritative database, then inspect automatic hooks and transport acknowledgements. If erroneous duplicates already exist, preserve their complete bytes with explicit non-authoritative labels and links to the authentic originals; refresh all search arms after annotation. Compare each assistant side independently: a later backfill can differ even when adjacent turns are exact copies. Annotation is not an enforced retrieval-exclusion quarantine.
+

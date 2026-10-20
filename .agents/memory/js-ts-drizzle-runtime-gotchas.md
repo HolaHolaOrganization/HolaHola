@@ -245,3 +245,21 @@ A closed esbuild resolver plugin must preserve native Node-built-in side-effect 
 
 **How to apply:** Do not dismiss historical hash mismatches as compiler drift. Compare emitted bytes, verify the resolver metadata, and prove the original hash before accepting a closed-graph build wrapper.
 
+
+## Zone-less audit timestamps across hosts
+
+**Rule:** Cross-host audit receipts must preserve zone-less PostgreSQL timestamps as zone-less values unless a time-zone interpretation is independently established. Use SQL `timestamp_column::text` when comparing evidence across Node clients; never append `Z` to raw values by assumption.
+
+**Why:** During a signer-window comparison, node-postgres on the Windows host interpreted `timestamp without time zone` in its local UTC-6 zone, then `toISOString()` shifted the displayed hours by six. Neon HTTP and SQL text showed the original values. Counts and the before/after quiet-window conclusion agreed, but the receipt falsely claimed UTC timestamps.
+
+**How to apply:** Inspect the SQL column type and compare raw SQL text before treating differing ISO renderings as differing database state. Keep the stored value, any explicitly established zone, and the resulting instant distinct. Equal record counts and genuinely pre-window latest entries can support no-issuance evidence without inventing time-zone precision.
+
+
+## Frozen dictionaries still inherit prototype keys
+
+**Rule:** Dictionaries indexed by externally supplied strings need own-key checks, a null prototype, or a `Map`; `Readonly<Record<string, ...>>` and `Object.freeze` do not make arbitrary-key lookup safe.
+
+**Why:** An evidence validator used `(dictionary[key] ?? []).includes(...)`. The lowercase key `constructor` passed its identifier pattern but returned the inherited `Object` constructor, not an array, so rejection crashed instead of returning an invalid verdict. The issue affected both a populated dictionary and an empty frozen one.
+
+**How to apply:** Test prototype-named keys on every independent dictionary lookup path. Validate absence without traversing the prototype, and preserve the intended fail-closed result rather than throwing on malformed or unsupported metadata.
+

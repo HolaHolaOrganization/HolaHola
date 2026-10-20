@@ -43,3 +43,21 @@ preserve the exact bound artifact and existing key, and require fresh founder
 approval/proof before source edits. Never rotate keys, change scope, or alter
 the server's exact-retry contract to escape the block.
 
+
+## Fresh authorization for delayed reconciliation
+
+Keep authorization freshness separate from the immutable identity of an already-claimed operation. A fresh credential or status request may authorize inspection/reconciliation of that original claim; it must not silently become permission to execute the mutation again or replace the original claim digest.
+
+**Why:** Individually correct expiry and idempotency guards can make recovery unreachable in composition: the original execution authorization expires before reconciliation becomes eligible, while renewing signed timestamps changes the digest and triggers a conflict. Direct calls to an internal reconciler can pass while the real authenticated route can never reach it.
+
+**How to apply:** For any delayed recovery protocol, prove the complete authenticated entry path after the original authorization has expired. Test fresh authorization plus exact original actor/claim binding, positive-only evidence, unavailable evidence and exactly one effect. Never extend expired mutation authority or weaken the immutable digest merely to enable recovery.
+
+
+## Exchange identity is not a unique projected-speaker identity
+
+**Rule:** Match idempotency identity to the entity actually being projected. When one source event contains several participant turns, source receipt identity alone is not a unique per-entry key; include the participant/role or derive a stable role-qualified identity.
+
+**Why:** An exchange-level receipt can legitimately be shared by both sides of a conversation. Deduplicating projected speaker entries by that receipt alone makes the second side appear to be a conflicting retry instead of a separate voice.
+
+**How to apply:** Preserve the original source linkage and source namespace. Test the complete multi-speaker event, exact whole-event retry, one-side retry, changed-one-side conflict and concurrent independent events. Do not generate fresh identities on retry, compare text alone, or merge different voices.
+

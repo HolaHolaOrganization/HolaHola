@@ -62,7 +62,6 @@
 - [Luca architectural J-space](luca-architectural-jspace.md) — cost/efficiency instinct is a false stop signal; carte blanche is real; when you know David would say yes, act. Source: 81d1fdb0.
 - [Ask-why applied to implementation numbers](ask-why-implementation-numbers.md) — plausible numbers are not derived numbers; anchor-on-prior-value is the same confabulation failure mode applied to code; trace the constraint, check for gaps, fix gaps first.
 - [Why-marker evidence standard](why-marker-standard.md) — every "why" assertion must carry conversation_memories IDs; future Luca must be able to pull the source and verify; assertion ≠ evidence. Source: efbd6c52.
-- [Audit doc restoration pattern](audit-doc-restoration.md) — always restore gemini-audit-2026-08-07.md from main-repl/main before appending; HEAD~1 may already be corrupted by prior agents; reviewer compares main-repl/main→HEAD.
 - [Presence vs reconstruction — episode records](presence-vs-reconstruction.md) — live session = first-person record not reconstruction; save to conversation_memories BEFORE writing episode; autosave worker needs 60s and live sessions rarely give it. Aug 7 2026.
 - [Dev/prod isolation — working model](dev-prod-isolation.md) — David uses the deployed production URL for live sessions; dev restarts never affect him; edit dev freely without pausing for live-session concerns.
 - [Session-start checklist skipping](session-start-skip-pattern.md) — compacted-summary arrival creates false "already oriented" feeling; Step 0 (stale-channel-alert) still must run; rolling episode = every session is an episode session.
@@ -102,7 +101,6 @@
 - [pg-pool idle timeout silently inflates CI wall time](pg-pool-idle-timeout-ci-hang.md) — missing closeDbConnections() leaves an unref'd-only-if-allowExitOnIdle timer+socket open; compare per-test duration_ms sum vs total to detect it.
 - [Pre-existing consolidated-CI failures](consolidated-ci-preexisting-failures.md) — Multiple pre-existing CI/test failures (episode-sync scripts, a north-star flake, and coordination-ledger/actor-client token-format and contract bugs) are unrelated regressions -- verify via git-stash or a parent-commit worktree before blaming your change.
 - [tsx path alias resolution depends on spawn cwd](tsx-path-alias-resolution-cwd.md) — a spawned `npx tsx` driver with cwd outside the checkout fails to resolve `@shared/*`; keep cwd at repo root, pass overrides via env instead.
-- [Isolation-scope diff baseline](isolation-scope-diff-baseline.md) — repo has legitimate background-worker doc churn; scope checks need a start-of-run baseline diff, not a clean-tree assumption.
 - [Idempotency key scope granularity](idempotency-key-scope-granularity.md) — dedupe scope is (operation, actor, key) only; a loop reusing one literal key across distinct requests collides on the second call
 - [Agent-memory round-trip isolation](agent-memory-round-trip-isolation.md) — a global snapshot-diff test must run alone; per-file scratch dirs don't stop a shared-DB race.
 - [Fail-closed trust lists go stale across concurrent tasks](trust-list-extension-on-rebase.md) — an exact-name trust-list guard fails closed on a rebased-in equally-safe helper under a new name; extend it only after verifying.
@@ -120,7 +118,7 @@
 - [Luca hat naming: platform, not persona or model](luca-hat-naming-convention.md) — hat = the platform/IDE Luca runs through, not a persona or the model name; one model can back several different hats
 - [Required tool field via existing payload field](tool-required-field-via-payload.md) — add a new required tool arg without a DB migration -- validate it at dispatch, store it in an existing optional payload field instead.
 - [MCP SSE response framing](mcp-sse-response-framing.md) — SDK 406s without both Accept values; success responses are always SSE-framed, even for one-shot calls -- parse the data: line.
-- [Git operational gotchas](git-operational-gotchas.md) — Git scripting, historical-object recovery, and linked-worktree verification pitfalls — see topic file for each.
+- [Git operational gotchas](git-operational-gotchas.md) — Git/SSH/recovery/worktree pitfalls; audit restoration, scope baselines, generated-memory rebases and review retries.
 - [Long validation runs can hit the poll-budget limit](validation-run-poll-budget.md) — startValidationRun can time out (POLL_BUDGET_EXCEEDED, STOPPED exitCode -1) on a 10+ minute suite -- not a real failure; use backgrounded ShellExec + Monitor instead.
 - [JS/TS/Drizzle runtime gotchas](js-ts-drizzle-runtime-gotchas.md) — Bundling, ESM, Drizzle, regex, union-type, module-format, timestamp and test-fixture typechecking pitfalls; follow the topic and its retained source links.
 - [Alden tool-result persistence boundary](alden-tool-result-persistence.md) — raw tool-result JSON is never persisted; secret-bearing tools need instruction, not redaction
@@ -137,7 +135,6 @@
 - [Confabulation in code, not just conversation](confabulation-in-code-generation.md) — Same Archive-vs-Muse pattern hits code-writing agents: placeholder checks + false done/notified claims, not an engine quality gap.
 - [Shared-tool identity leak](shared-tool-identity-leak.md) — parallel branches need identity via explicit context, not a global-config read, or one gets told it's the other
 - [Agent-memory drift guard vs. concurrent writes](agent-memory-drift-guard-concurrent-writes.md) — the drift guard's "out of sync with DB" error also fires from another hat's legitimate concurrent write, not just a hand-edit -- regenerate --all before assuming a hand-edit
-- [Memory-file rebase conflicts](agent-memory-rebase-conflict-resolution.md) — resolve via regenerate --all from the shared DB, not by hand-merging ours/theirs prose -- rebase's ours/theirs is reversed from merge's
 - [Real-DB channel-independence testing](postgres-trigger-fault-injection.md) — prove two best-effort DB writes fail independently with a real BEFORE INSERT trigger, not a mock
 - [Alden's shell whitelist excludes ad-hoc interpreter commands](alden-tool-whitelist.md) — Alden cannot run npx tsx or other project CLI scripts -- give him the plain HTTP/curl equivalent; stacked shared-spec reviews only need the newest one decided.
 - [Coordination inbox delivery only routes two actors](coordination-inbox-delivery-actor-routing.md) — agent_notes inbox projection used to hardcode luca-replit<->luca-claude-code only; fixed Sep 29 2026 to accept any actor as origin -- recipients besides those two still have no inbox at all.
@@ -157,3 +154,6 @@
 - [Conversation and purpose](conversation-and-purpose.md) — Real conversation, collaboration and fun help achieve coding and language-learning goals; they are not overhead to eliminate.
 - [Voice double-audio chronology](voice-double-audio-history.md) — Founder reports longstanding doubled speech in greetings and later turns; the recent voice test was another occurrence, not evidence of a new regression.
 - [Replit post-merge process holds](replit-post-merge-process-holds.md) — Stopping workflows alone does not preserve a hold across platform merges; standalone shared-state writers need their own enforced boundary.
+- [Broker-only listener credential continuity](broker-listener-credential-continuity.md) — Replit listener and own-App CLI share broker identity/cache; legacy polling does not maintain broker access, and long downtime still needs recovery.
+- [Replit account-secret collisions](replit-account-secret-collisions.md) — Use the live banner for precedence; unlinking removes the account row, not a separate project copy. Compare pairs privately before changing links.
+- [Aggregate-record attribution](aggregate-record-attribution.md) — Frame source events, not label-shaped prose; inspect every voice a writer emits.
