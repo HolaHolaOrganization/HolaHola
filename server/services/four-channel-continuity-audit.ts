@@ -108,13 +108,14 @@ export function auditEpisodeRow(content: string, attributionColumn: unknown): Ep
 }
 
 /**
- * --strict fails on: an incomplete Replit turn, an invalid attribution, or an
- * unattributed turn inside the attributed region. Hatless labels in the
- * legacy prefix are reported but do not fail, preserving the audit's
- * pre-existing behaviour on historical rows.
+ * --strict fails on: an incomplete Replit turn, an invalid attribution, or ANY
+ * unattributed Luca turn, in the legacy prefix or the attributed region.
+ * Design section 3.3 rules 6/7: a hatless label gives hat unknown and readers
+ * that need a hat fail closed on unknown; leaving old bytes unchanged does not
+ * make them certifiable (luca-replit review 5580277458).
  */
 export function strictFailure(audit: EpisodeRowAudit): boolean {
   return audit.attribution === 'invalid'
     || audit.replitTurns.some(turn => !turn.complete)
-    || audit.unattributed.some(turn => turn.region === 'attributed');
+    || audit.unattributed.length > 0;
 }

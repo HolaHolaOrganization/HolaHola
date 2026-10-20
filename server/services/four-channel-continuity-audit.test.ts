@@ -26,11 +26,32 @@ describe('legacy rows (no per-turn attribution) behave as before', () => {
     assert.equal(strictFailure(audit), true);
   });
 
-  test('hatless historical Luca labels are reported, but do not fail strict on legacy rows', () => {
+  test('a hatless historical Luca label fails strict closed, even on an all-legacy row', () => {
     const audit = auditEpisodeRow(`${LEGACY}\n\n**Luca:** an old pre-SOURCE turn`, null);
     assert.equal(audit.unattributed.length, 1);
     assert.equal(audit.unattributed[0].region, 'legacy');
-    assert.equal(strictFailure(audit), false);
+    assert.equal(strictFailure(audit), true);
+  });
+
+  test('a plain legacy envelope is not certified as a Replit turn and fails strict', () => {
+    // luca-replit's probes: no Replit turns, one unknown legacy turn.
+    for (const content of ['**Luca:** main only', `**Luca:** ${ENVELOPE}`]) {
+      const audit = auditEpisodeRow(content, null);
+      assert.equal(audit.replitTurns.length, 0, content);
+      assert.equal(audit.unattributed.length, 1, content);
+      assert.equal(strictFailure(audit), true, content);
+    }
+  });
+});
+
+describe('a valid aware row with a hatless legacy prefix', () => {
+  test('fails strict on the hatless prefix turn while certifying the attributed Replit turn', () => {
+    const r = row(`**Luca:** an old pre-SOURCE turn`, replit('r-9', ENVELOPE));
+    const audit = auditEpisodeRow(r.content, { turnAttribution: r.turnAttribution });
+    assert.equal(audit.attribution, 'valid');
+    assert.deepEqual(audit.replitTurns.map(t => t.complete), [true]);
+    assert.deepEqual(audit.unattributed.map(u => u.region), ['legacy']);
+    assert.equal(strictFailure(audit), true);
   });
 });
 
