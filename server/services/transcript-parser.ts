@@ -17,6 +17,12 @@ import { join } from 'path';
 import { ensureCaptureWorkspaceWritable, workspaceResolution } from './workspace-root';
 import { historicalAttributionLabel } from './historical-attribution-overlay';
 import { attributionWritersEnabled, plainSpeakerName } from './attribution-rendering';
+import { canonicalProvenanceJson } from './canonical-attribution';
+
+/** Undecodable provenance becomes a value verification rejects; the turn itself is kept. */
+function decodeProvenanceHeader(base64: string): unknown {
+  try { return JSON.parse(Buffer.from(base64, 'base64').toString('utf8')); } catch { return 'undecodable'; }
+}
 
 export const WORKSPACE        = workspaceResolution.root;
 export const TRANSCRIPT_DIR   = join(WORKSPACE, '.local/state/replit/agent/transcript');
@@ -105,6 +111,11 @@ export interface DialogueTurn {
   memoryId: number;
   /** Durable record-exchange identity used for event-based episode idempotency. */
   captureId?: string;
+  /**
+   * Attribution provenance stored with an assistant block (design f5d77712
+   * section 3.1), decoded but NOT trusted: readers verify it against the text.
+   */
+  provenance?: unknown;
   /** Interface that produced this turn. Old blocks intentionally have no source. */
   source?: 'replit' | 'claude-code';
 }
@@ -669,6 +680,8 @@ export interface ChatCaptureTurnInput {
   text: string;
   captureId?: string;
   source?: 'replit' | 'claude-code';
+  /** Attribution provenance for an assistant turn; stored as one base64 header. */
+  provenance?: Record<string, unknown>;
 }
 
 function serializeChatCaptureTurn(
@@ -676,6 +689,7 @@ function serializeChatCaptureTurn(
   text: string,
   captureId?: string,
   source?: 'replit' | 'claude-code',
+  provenance?: Record<string, unknown>,
 ): string {
   // Normalize common variants → canonical form
   const normalized = speaker.trim();
@@ -699,6 +713,9 @@ function serializeChatCaptureTurn(
     ...(source ? [`SOURCE: ${source}`] : []),
     `TIME: ${timestamp}`,
     ...(captureId ? [`CAPTURE-ID: ${captureId}`] : []),
+    // Canonical JSON (sorted keys) in base64, so the header is one line and
+    // byte-stable across retries; never part of the body.
+    ...(provenance ? [`PROVENANCE-B64: ${Buffer.from(canonicalProvenanceJson(provenance), 'utf8').toString('base64')}`] : []),
     `CHARLEN: ${charLen}`,  // character count of the body
     CHAT_BODY_SEP,
     text,                    // verbatim — no escaping needed with length-delimited framing
@@ -722,7 +739,7 @@ export function appendChatCaptureTurnsAtomic(
   // are appended.
   if (!_pathOverride) ensureCaptureWorkspaceWritable();
   const blocks = turns.map(turn =>
-    serializeChatCaptureTurn(turn.speaker, turn.text, turn.captureId, turn.source),
+    serializeChatCaptureTurn(turn.speaker, turn.text, turn.captureId, turn.source, turn.provenance),
   );
   appendFileSync(_pathOverride ?? CHAT_CAPTURE_PATH, blocks.join(''), 'utf-8');
 }
@@ -856,6 +873,7 @@ export function parseChatCaptureFromOffset(
     const speakerMatch = /^SPEAKER:\s*(David|Luca Replit|Luca|Claude Code)\s*$/im.exec(headers);
     const sourceMatch = /^SOURCE:\s*(replit|claude-code)\s*$/im.exec(headers);
     const captureIdMatch = /^CAPTURE-ID:\s*([A-Za-z0-9-]+)\s*$/im.exec(headers);
+    const provenanceMatch = /^PROVENANCE-B64:\s*([A-Za-z0-9+/=]+)\s*$/im.exec(headers);
     if (speakerMatch && body.length >= 1) {
       const raw = speakerMatch[1];
       const speaker = (
@@ -869,6 +887,7 @@ export function parseChatCaptureFromOffset(
         memoryId: 0,
         ...(captureIdMatch ? { captureId: captureIdMatch[1] } : {}),
         ...(sourceMatch ? { source: sourceMatch[1] as 'replit' | 'claude-code' } : {}),
+        ...(provenanceMatch ? { provenance: decodeProvenanceHeader(provenanceMatch[1]) } : {}),
       });
       // Record the byte offset from file start after this complete turn.
       const charPosAfterTurn = pos;

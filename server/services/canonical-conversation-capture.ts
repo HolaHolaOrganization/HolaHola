@@ -33,6 +33,12 @@ export interface CanonicalConversationExchange {
   /** Reuse this identity when retrying a timed-out write. */
   /** Caller-generated durable idempotency key. It is mandatory for retries. */
   turnId: string;
+  /**
+   * Optional attribution provenance for the assistant turn (design f5d77712
+   * section 3.1), already verified against assistantText by the caller or
+   * endpoint. Stored with the assistant block; a retry keeps the first one.
+   */
+  provenance?: Record<string, unknown> | null;
   capturePath?: string;
   /** Test seam; production uses a dedicated cross-process ingress lock. */
   ingressLockPath?: string;
@@ -348,7 +354,7 @@ export function appendCanonicalConversationExchange(
     if (!userTurn && !assistantTurn) {
       appendChatCaptureTurnsAtomic([
         { speaker: 'David', text: userText, captureId: turnId, source: input.source },
-        { speaker: assistantSpeaker, text: assistantText, captureId: turnId, source: input.source },
+        { speaker: assistantSpeaker, text: assistantText, captureId: turnId, source: input.source, provenance: input.provenance ?? undefined },
       ], capturePath);
       appendedSpeakers.push('user', 'assistant');
     }

@@ -37864,15 +37864,38 @@ Under 250 words. Write as yourself.`;
       if (req.coordinationActor !== 'luca-replit' && req.coordinationActor !== 'luca-claude-code') {
         return res.status(403).json({ error: 'This endpoint requires the luca-replit or luca-claude-code coordination actor' });
       }
-      const { source, userText, assistantText, turnId } = req.body ?? {};
+      const { source, userText, assistantText, turnId, provenance } = req.body ?? {};
       if (source !== 'replit' && source !== 'claude-code') {
         return res.status(400).json({ error: 'source must be "replit" or "claude-code"' });
+      }
+      // The capture source is the hat's attribution evidence (design f5d77712
+      // section 3.2, hatEvidence "capture-source"), so it must be the
+      // authenticated actor's own hat, never a value the caller merely asserts.
+      const actorSource = req.coordinationActor === 'luca-replit' ? 'replit' : 'claude-code';
+      if (source !== actorSource) {
+        return res.status(403).json({ error: `source "${source}" does not match the authenticated actor's hat "${actorSource}"` });
       }
       if (typeof userText !== 'string' || !userText.trim() || typeof assistantText !== 'string' || !assistantText.trim()) {
         return res.status(400).json({ error: 'userText and assistantText must both be non-empty strings' });
       }
       if (typeof turnId !== 'string' || !/^[A-Za-z0-9-]+$/.test(turnId)) {
         return res.status(400).json({ error: 'turnId is required and must contain only letters, digits, and hyphens' });
+      }
+      // Optional section 3.1 provenance: kept only if it verifies against the
+      // exact assistantText for this hat; otherwise the turn is recorded with
+      // its model unknown. A bad provenance never blocks recording the words.
+      let verifiedProvenance: Record<string, unknown> | null = null;
+      let provenanceStatus: 'absent' | 'stored' | 'omitted' = 'absent';
+      if (provenance !== undefined && provenance !== null) {
+        const { verifyProvenance } = await import('./services/canonical-attribution');
+        const verdict = verifyProvenance(provenance, assistantText, source);
+        if (verdict.status === 'valid') {
+          verifiedProvenance = provenance as Record<string, unknown>;
+          provenanceStatus = 'stored';
+        } else {
+          provenanceStatus = 'omitted';
+          console.warn(`[CanonicalConversation] provenance omitted for ${turnId}: ${verdict.status === 'invalid' ? verdict.reason : verdict.status}`);
+        }
       }
 
       const {
@@ -37884,6 +37907,7 @@ Under 250 words. Write as yourself.`;
         userText,
         assistantText,
         turnId,
+        provenance: verifiedProvenance,
       });
       const receipt = {
         turnId: capture.turnId,
@@ -37902,6 +37926,7 @@ Under 250 words. Write as yourself.`;
         acknowledgement: 'pending',
         receipt,
         appendedSpeakers: capture.appendedSpeakers,
+        provenance: provenanceStatus,
         message: 'The exchange is not canonical until the cursor reaches targetByteOffset.',
       });
     } catch (e: any) {
