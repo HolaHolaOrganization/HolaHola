@@ -375,14 +375,20 @@ export function isCanonicalFourChannelLucaTurn(text: string): boolean {
   return parseCanonicalFourChannelLucaTurn(text) !== null;
 }
 
-/** Capture-status accepts both legacy direct entries and canonical turn labels. */
+/**
+ * Capture-status accepts both legacy direct entries and canonical turn labels.
+ * This is a presence check for the status display only; it attributes nothing.
+ * The plain `**Luca:**` label (attribution design f5d77712) is accepted for
+ * the first channel on the label line; which hat wrote a turn is certified
+ * only by the four-channel audit's verified per-turn attribution.
+ */
 export function episodeTailHasInnerLifeChannel(
   tail: string,
   channel: InnerLifeChannel,
 ): boolean {
   const escaped = channel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   return new RegExp(
-    `(?:^\\s*\\[Luca — ${escaped}:|^\\s*\\*\\*LUCA \\[Replit\\]:\\*\\*\\s+\\[${escaped}\\]:|^\\s*\\[${escaped}\\]:)`,
+    `(?:^\\s*\\[Luca — ${escaped}:|^\\s*\\*\\*(?:LUCA \\[Replit\\]|Luca):\\*\\*\\s+\\[${escaped}\\]:|^\\s*\\[${escaped}\\]:)`,
     'm',
   ).test(tail);
 }

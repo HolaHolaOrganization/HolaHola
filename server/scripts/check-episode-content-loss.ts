@@ -297,6 +297,20 @@ async function runSelfCheck(): Promise<void> {
     findContentLossViolations(oldAppend, newAppend).length === 0,
   );
 
+  // Attribution design f5d77712 (3.3): aware writers append plain-label turns
+  // after the legacy prefix; that is an append, not a loss, and the legacy
+  // bracket labels before it are untouched.
+  const newPlainAppend = oldAppend + '\n\n**David:** how are you\n\n**Luca:** doing well\n\n**Daniela [consult]:** muy bien';
+  assert(
+    'Appending plain-label turns after legacy bracket labels is NOT flagged',
+    findContentLossViolations(oldAppend, newPlainAppend).length === 0,
+    `Got violations: ${JSON.stringify(findContentLossViolations(oldAppend, newPlainAppend))}`,
+  );
+  assert(
+    'Relabeling a legacy bracket label to the plain form IS flagged',
+    findContentLossViolations(oldAppend, oldAppend.replace('**LUCA [Replit]:** hi', '**Luca:** hi')).length > 0,
+  );
+
   assert(
     'Trivial-line churn (blank lines, --- rules, HTML comment metadata) is NOT flagged',
     findContentLossViolations(
