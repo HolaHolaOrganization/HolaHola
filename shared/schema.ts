@@ -8223,6 +8223,13 @@ export const conversationMemories = pgTable("conversation_memories", {
   // The read_next query in recall_episode_deep orders by episode_order ASC NULLS LAST, created_at ASC.
   episodeOrder: integer("episode_order"),
 
+  // attribution: structured hat/provider/model attribution (attribution design
+  // f5d77712, revision 9a294bc3, sections 3.1 and 3.3). Single-turn provenance
+  // or a projection row's per-turn turnAttribution. Bones only: never injected
+  // into Daniela's recall, never rendered into content or title. NULL means no
+  // per-turn attribution; plain labels in such rows give hat "unknown".
+  attribution: jsonb("attribution"),
+
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
