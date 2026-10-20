@@ -41,11 +41,13 @@ describe('planProjectionAppend', () => {
     const one = apply('', null, exchange('claude-code', 'cc-1', 'q', 'a'));
     const plan = planProjectionAppend(one.content, one.turnAttribution, { source: 'claude-code', sourceEventId: 'cc-1', frames: [luca('a, edited')] });
     assert.equal(plan.kind, 'conflict');
+    assert.match(plan.kind === 'conflict' ? plan.reason : '', /already present with different bytes/);
   });
 
   test('a partly present event fails closed instead of half-appending', () => {
     const one = apply('', null, { source: 'claude-code', sourceEventId: 'cc-1', frames: [david('q')] });
-    assert.equal(planProjectionAppend(one.content, one.turnAttribution, exchange('claude-code', 'cc-1', 'q', 'a')).kind, 'conflict');
+    const plan = planProjectionAppend(one.content, one.turnAttribution, exchange('claude-code', 'cc-1', 'q', 'a'));
+    assert.match(plan.kind === 'conflict' ? plan.reason : plan.kind, /only partly present/);
   });
 
   test('the same sourceEventId from a different source is a different key', () => {
@@ -76,7 +78,7 @@ describe('planProjectionAppend', () => {
     const one = apply('', null, exchange('claude-code', 'cc-1', 'q', 'a'));
     const tampered = `${one.content}\n<!-- chat-capture-range:1:2 -->\n**David:** late`;
     const plan = planProjectionAppend(tampered, one.turnAttribution, exchange('claude-code', 'cc-2', 'q2', 'a2'));
-    assert.equal(plan.kind, 'conflict');
+    assert.match(plan.kind === 'conflict' ? plan.reason : plan.kind, /current attribution does not verify/);
   });
 
   test('authored bodies are never trimmed or rewritten', () => {
