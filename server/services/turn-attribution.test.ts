@@ -235,13 +235,28 @@ describe('revision 10: structural, unattributed and manual frames', () => {
     assert.equal(verifyTurnAttribution(bad.content, bad.turnAttribution).status, 'invalid', 'manual sources must name a Luca actor');
   });
 
-  test('turnAttributionHasEvent finds a stored event by (source, sourceEventId)', async () => {
-    const { turnAttributionHasEvent } = await import('./turn-attribution');
+  test('turnAttributionHasAnyFrameOf is presence only', async () => {
+    const { turnAttributionHasAnyFrameOf } = await import('./turn-attribution');
     const r = row('', [rawOrigin(), ...ccPair('turn-31', 'q', 'a')]);
     const verdict = verifyTurnAttribution(r.content, r.turnAttribution);
-    assert.equal(turnAttributionHasEvent(verdict, 'raw-window', RAW_ID), true);
-    assert.equal(turnAttributionHasEvent(verdict, 'claude-code', 'turn-31'), true);
-    assert.equal(turnAttributionHasEvent(verdict, 'claude-code', 'turn-32'), false);
-    assert.equal(turnAttributionHasEvent({ status: 'absent' }, 'claude-code', 'turn-31'), false);
+    assert.equal(turnAttributionHasAnyFrameOf(verdict, 'raw-window', RAW_ID), true);
+    assert.equal(turnAttributionHasAnyFrameOf(verdict, 'claude-code', 'turn-31'), true);
+    assert.equal(turnAttributionHasAnyFrameOf(verdict, 'claude-code', 'turn-32'), false);
+    assert.equal(turnAttributionHasAnyFrameOf({ status: 'absent' }, 'claude-code', 'turn-31'), false);
+    // luca-replit review of PR68: a row holding only the David side of an
+    // exchange still reports presence, so this is never a completion receipt.
+    const partial = row('', [ccPair('turn-33', 'q', 'a')[0]]);
+    assert.equal(turnAttributionHasAnyFrameOf(verifyTurnAttribution(partial.content, partial.turnAttribution), 'claude-code', 'turn-33'), true);
+  });
+
+  test('a manual frame must claim exactly the hat its source names (both roles)', () => {
+    for (const speaker of ['david', 'luca'] as const) {
+      const base: Spec = { kind: 'attributed', source: 'manual-luca-replit', eventId: 'cm-1', frameKey: speaker, speaker, hat: 'replit', hatEvidence: 'authenticated-actor', label: speaker === 'david' ? '**David:** ' : '**Luca:** ', body: 'x' };
+      assert.equal(verifyTurnAttribution(row('', [base]).content, row('', [base]).turnAttribution).status, 'valid', speaker);
+      for (const [hat, hatEvidence] of [['claude-code', 'authenticated-actor'], ['unknown', 'none'], ['replit', 'capture-source']]) {
+        const r = row('', [{ ...base, hat, hatEvidence }]);
+        assert.equal(verifyTurnAttribution(r.content, r.turnAttribution).status, 'invalid', `${speaker} ${hat}/${hatEvidence}`);
+      }
+    }
   });
 });

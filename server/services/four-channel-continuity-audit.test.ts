@@ -121,3 +121,17 @@ describe('revision 10 frame kinds in the audit', () => {
     assert.equal(strictFailure(audit), true);
   });
 });
+
+describe('manual Replit turns cannot escape coverage (luca-replit review of PR68)', () => {
+  test('re-claiming a stored manual Replit turn as another hat cannot make it disappear', () => {
+    const manual = (hat: string): Spec => ({ kind: 'attributed', source: 'manual-luca-replit', eventId: 'cm-2', frameKey: 'luca', speaker: 'luca', hat, hatEvidence: 'authenticated-actor', label: '**Luca:** ', body: 'visible main only' });
+    const honest = row('', [manual('replit')]);
+    const honestAudit = auditEpisodeRow(honest.content, { turnAttribution: honest.turnAttribution });
+    assert.deepEqual(honestAudit.replitTurns.map(t => t.complete), [false]);
+    assert.equal(strictFailure(honestAudit), true);
+    const relabelled = row('', [manual('claude-code')]);
+    const audit = auditEpisodeRow(relabelled.content, { turnAttribution: relabelled.turnAttribution });
+    assert.equal(audit.attribution, 'invalid');
+    assert.equal(strictFailure(audit), true);
+  });
+});

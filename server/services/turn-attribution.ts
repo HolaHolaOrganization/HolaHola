@@ -246,6 +246,13 @@ function checkFrame(raw: unknown, i: number, bytes: Uint8Array, keys: Set<string
     // The authenticated capture source IS the hat for canonical exchanges.
     if (raw.hat !== source || raw.hatEvidence !== 'capture-source') return `turn ${i} hat must be its capture source`;
     hat = source;
+  } else if (MANUAL_SOURCE.test(source)) {
+    // A manual source names the authenticated actor that appended it; the
+    // frame's hat must be exactly that actor's hat (luca-replit review of
+    // PR68). Any other claim, including unknown, is inconsistent.
+    const manualHat = source.slice('manual-luca-'.length);
+    if (raw.hat !== manualHat || raw.hatEvidence !== 'authenticated-actor') return `turn ${i} hat must be the manual source's actor (${manualHat})`;
+    hat = manualHat;
   } else if (raw.hat === 'unknown') {
     if (raw.hatEvidence !== 'none') return `turn ${i} unknown hat needs none evidence`;
     hat = 'unknown';
@@ -318,11 +325,13 @@ export function verifyTurnAttribution(content: string, turnAttribution: unknown)
 }
 
 /**
- * Revision 10: an aware row records idempotency in its frame keys, not in
- * content markers. True when the verified row already holds any frame of
- * (source, sourceEventId). Callers that dedupe by content markers must also
- * consult this for aware rows.
+ * PRESENCE ONLY: true when the verified row holds at least one frame of
+ * (source, sourceEventId). It does NOT mean the event is complete (a row may
+ * hold only one side of an exchange), and it is NOT a dedupe or retry
+ * receipt. Never use it to skip an append: completion, exact-retry equality
+ * and partial-event conflicts are decided only by the common append's
+ * planProjectionAppend (luca-replit review of PR68).
  */
-export function turnAttributionHasEvent(verdict: TurnAttributionVerdict, source: string, sourceEventId: string): boolean {
+export function turnAttributionHasAnyFrameOf(verdict: TurnAttributionVerdict, source: string, sourceEventId: string): boolean {
   return verdict.status === 'valid' && verdict.frames.some(frame => frame.source === source && frame.sourceEventId === sourceEventId);
 }
