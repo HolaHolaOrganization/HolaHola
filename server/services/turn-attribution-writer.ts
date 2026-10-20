@@ -28,18 +28,23 @@ export interface CanonicalRowAttribution {
 }
 
 /**
- * provider-/model- tags for search (design section 4, "bones"). One evidenced
- * model and vendor across every assistant run gives model-<m> and
- * provider-<p>; no evidenced model gives the explicit unknown tags. Several
- * different models in one row get no single model tag at all: picking one
- * would misattribute the rest, and per-run detail is in the attribution column.
+ * provider-/model- tags for search (design section 4, "bones"), computed over
+ * EVERY assistant turn in the row. A turn with absent or unverifiable
+ * provenance counts as an unknown model, as does an unknown or overflow run.
+ * - every assistant run has the same known model and vendor: model-<m>, provider-<p>;
+ * - nothing known at all: the explicit unknown tags;
+ * - anything else (several models, or known mixed with unknown): no single
+ *   model tag, because one tag would attribute other authored text to a model
+ *   that did not write it. Per-run detail is in the attribution column.
  */
-function modelTagsFor(verified: Record<string, unknown>[]): string[] {
-  const runs = verified.flatMap(p => (p.runs as Array<Record<string, unknown>>) ?? []);
+function modelTagsFor(assistantProvenance: Array<Record<string, unknown> | null>): string[] {
+  const runs = assistantProvenance.flatMap(p => p === null
+    ? [{ model: 'unknown', provider: 'unknown' }]
+    : (p.runs as Array<Record<string, unknown>>) ?? [{ model: 'unknown', provider: 'unknown' }]);
   const models = new Set(runs.map(r => String(r.model)));
   const providers = new Set(runs.map(r => String(r.provider)));
   if (runs.length === 0 || (models.size === 1 && models.has('unknown'))) return ['provider-unknown', 'model-unknown'];
-  if (models.size === 1 && providers.size === 1) {
+  if (models.size === 1 && providers.size === 1 && !models.has('unknown') && !providers.has('unknown')) {
     return [`provider-${[...providers][0]}`, `model-${[...models][0]}`];
   }
   return [];
@@ -52,7 +57,7 @@ export function buildCanonicalRowAttribution(
   if (turns.length === 0) return null;
   const encoder = new TextEncoder();
   const keys = new Set<string>();
-  const verifiedProvenance: Record<string, unknown>[] = [];
+  const assistantProvenance: Array<Record<string, unknown> | null> = [];
   const entries: Record<string, unknown>[] = [];
   let content = '';
 
@@ -78,8 +83,8 @@ export function buildCanonicalRowAttribution(
     if (frame === 'luca' && turn.provenance !== undefined
       && verifyProvenance(turn.provenance, turn.text, turn.source).status === 'valid') {
       provenance = JSON.parse(canonicalProvenanceJson(turn.provenance)) as Record<string, unknown>;
-      verifiedProvenance.push(provenance);
     }
+    if (frame === 'luca') assistantProvenance.push(provenance);
     entries.push({
       index, kind: 'attributed', source: turn.source, sourceEventId: turn.captureId, frameKey: frame,
       labelStart, bodyStart, bodyEnd,
@@ -98,5 +103,5 @@ export function buildCanonicalRowAttribution(
     coveredEnd: bytes.length, coveredSha256: sha256Hex(bytes), separator: SEPARATOR, turns: entries,
   };
   if (verifyTurnAttribution(content, turnAttribution).status !== 'valid') return null;
-  return { content, attribution: { turnAttribution }, modelTags: modelTagsFor(verifiedProvenance) };
+  return { content, attribution: { turnAttribution }, modelTags: modelTagsFor(assistantProvenance) };
 }
