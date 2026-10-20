@@ -256,12 +256,18 @@ describe('pre-existing forensic readers on plain-label rows', () => {
     '---TURN-START---', 'SPEAKER: Claude Code', 'SOURCE: claude-code', 'CAPTURE-ID: c-1', '---', 'exact answer', '---TURN-END---', '',
   ].join('\n');
 
-  test('an all-plain row is refused by the evidence audit', async () => {
+  test('an all-plain row is reported not-applicable by the evidence audit, never tagged', async () => {
     const { auditEvidenceDocuments } = await import('./missing-conversation-evidence-audit');
-    assert.throws(
-      () => auditEvidenceDocuments('m-plain', 'David: exact question\n\nLuca: exact answer', [{ class: 'retained-capture', location: 'x', content: rawEvidence }]),
-      /no exact dialogue turns/,
-    );
+    const report = auditEvidenceDocuments('m-plain', 'David: exact question\n\nLuca: exact answer', [{ class: 'retained-capture', location: 'x', content: rawEvidence }]);
+    assert.equal(report.conclusion.status, 'not-applicable');
+    assert.equal(report.conclusion.sourceTag, null);
+    assert.equal(report.conclusion.captureIdTag, null);
+    assert.deepEqual(report.matches, []);
+  });
+
+  test('a row with no speaker labels at all is still refused', async () => {
+    const { auditEvidenceDocuments } = await import('./missing-conversation-evidence-audit');
+    assert.throws(() => auditEvidenceDocuments('m-none', 'just prose', []), /no exact dialogue turns/);
   });
 
   test('a row mixing a historical and a plain label is ambiguous, never tagged', async () => {

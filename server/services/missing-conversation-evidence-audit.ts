@@ -12,6 +12,7 @@ import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 
 import { parseMemoryTurns, parseRawEvidence, type RawEvidenceTurn } from '../scripts/repair-preincident-watchdog-source-identity';
+import { parseSpeakerLine } from './canonical-attribution';
 
 export interface AuditNeedle {
   turn: number;
@@ -65,7 +66,7 @@ export interface EvidenceAuditReport {
     gitFsckVerified: boolean;
   };
   conclusion: {
-    status: 'safe-to-tag' | 'remain-ambiguous';
+    status: 'safe-to-tag' | 'remain-ambiguous' | 'not-applicable';
     sourceTag: 'source-replit' | 'source-claude-code' | null;
     captureIdTag: string | null;
     reason: string;
@@ -133,6 +134,27 @@ export function auditEvidenceDocuments(
   coverageComplete = true,
 ): EvidenceAuditReport {
   const turns = parseMemoryTurns(content);
+  if (turns.length === 0 && content.split('\n').some(line => parseSpeakerLine(line)?.form === 'plain')) {
+    // A plain-label row (attribution design f5d77712): its hat lives in the
+    // hat-/provider-/model- tags and the attribution column, never in label
+    // text. This audit proves source identity for historical bracket-label
+    // rows only, so it reports not-applicable and never tags from text.
+    return {
+      schemaVersion: 1,
+      coverageComplete,
+      conversationMemory: { id, contentSha256: sha256(content), turnCount: 0 },
+      needles: [],
+      searched: [],
+      matches: [],
+      archive,
+      conclusion: {
+        status: 'not-applicable',
+        sourceTag: null,
+        captureIdTag: null,
+        reason: 'Plain-label row: attribution is carried by its hat-/provider-/model- tags and attribution column, not label text; this audit applies only to historical bracket-label rows.',
+      },
+    };
+  }
   if (turns.length === 0) throw new Error(`${id}: no exact dialogue turns found`);
   const needles = turns.map((turn, index) => ({
     turn: index + 1,
