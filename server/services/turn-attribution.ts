@@ -18,10 +18,17 @@ import { HAT_PATTERN, parseSpeakerLine, verifyProvenance, type ProvenanceVerdict
 
 export const TURN_ATTRIBUTION_SEPARATOR = '\n\n';
 
-/** Closed source registry (design 3.3). Adding a source is a design change. */
+/**
+ * Closed source registry (design 3.3, extended by revision 10 section 3.4).
+ * Adding a source is a design change. Manual appends use manual-luca-<hat>,
+ * the authenticated actor that appended them.
+ */
 export type TurnSource =
   | 'replit' | 'claude-code'
-  | 'holahola-team-room' | 'holahola-chat-bench' | 'holahola-delegation' | 'holahola-gl';
+  | 'holahola-team-room' | 'holahola-chat-bench' | 'holahola-delegation' | 'holahola-gl'
+  | 'raw-window' | 'episode-structure' | `manual-luca-${string}`;
+
+const MANUAL_SOURCE = /^manual-luca-[a-z0-9-]{1,30}$/;
 
 export type Participant = 'daniela' | 'daniela-consult' | 'alden' | 'gl-student' | 'gl-tutor';
 
@@ -45,8 +52,12 @@ interface FrameRule {
   /** frameKey for an attributed Luca/David frame, or a frameKey predicate. */
   attributed?: { speaker: 'david' | 'luca'; frameKey: (key: string) => boolean }[];
   participant?: { participant: Participant; frameKey: (key: string) => boolean }[];
+  /** Revision 10: writer-owned non-dialogue bytes (headings, markers). */
+  structural?: { frameKey: (key: string) => boolean };
+  /** Revision 10: evidence deliberately recorded without a speaker. */
+  unattributed?: { frameKey: (key: string) => boolean; sourceEventId: (id: string) => boolean };
   /** How the hat is evidenced for this source's attributed frames. */
-  hat: 'capture-source' | 'authenticated-actor';
+  hat: 'capture-source' | 'authenticated-actor' | 'none';
 }
 
 const is = (value: string) => (key: string) => key === value;
@@ -69,7 +80,40 @@ const SOURCE_RULES: Readonly<Record<TurnSource, FrameRule>> = {
     hat: 'authenticated-actor',
     participant: [{ participant: 'gl-student', frameKey: is('gl-student') }, { participant: 'gl-tutor', frameKey: is('gl-tutor') }],
   },
+  // Revision 10: raw Replit-window origin evidence, identified by its
+  // registered, immutable evidence-ledger sourceKey. Never a speaker.
+  'raw-window': {
+    hat: 'none',
+    unattributed: { frameKey: is('origin'), sourceEventId: id => /^raw-window:[0-9a-f]{64}$/.test(id) },
+  },
+  // Revision 10: the only source allowed to carry structural bytes, so
+  // dialogue from any other source can never be relabelled as structure.
+  'episode-structure': { hat: 'none', structural: { frameKey: key => /^[a-z0-9-]{1,40}$/.test(key) } },
 };
+
+const ordinalKey = (prefix: string) => (key: string) => key === prefix || new RegExp(`^${prefix}-(0|[1-9][0-9]{0,3})$`).test(key);
+
+/** Revision 10 writer 8: a manual append by an authenticated Luca actor. */
+const MANUAL_RULE: FrameRule = {
+  hat: 'authenticated-actor',
+  attributed: [{ speaker: 'david', frameKey: ordinalKey('david') }, { speaker: 'luca', frameKey: ordinalKey('luca') }],
+  participant: (Object.keys(PARTICIPANT_LABELS) as Participant[]).map(participant => ({ participant, frameKey: ordinalKey(participant) })),
+};
+
+function ruleFor(source: string): FrameRule | undefined {
+  if (Object.hasOwn(SOURCE_RULES, source)) return SOURCE_RULES[source as keyof typeof SOURCE_RULES];
+  return MANUAL_SOURCE.test(source) ? MANUAL_RULE : undefined;
+}
+
+/**
+ * Structural bytes must be structure, never prose (luca-replit, revision 10
+ * review): every line is an HTML comment, a Markdown heading, a horizontal
+ * rule, or blank.
+ */
+function isStructuralBody(body: string): boolean {
+  return body.length > 0 && body.split('\n').every(line =>
+    line === '' || /^<!--[^\n]*-->$/.test(line) || /^#{1,6} [^\n]+$/.test(line) || /^-{3,}$/.test(line));
+}
 
 const EVENT_ID = /^[A-Za-z0-9._:-]{1,200}$/;
 const CAPTURE_ID = /^[A-Za-z0-9-]{1,200}$/;
@@ -78,6 +122,8 @@ const ATTRIBUTED_KEYS = new Set(['index', 'kind', 'source', 'sourceEventId', 'fr
   'labelSha256', 'bodySha256', 'speaker', 'hat', 'hatEvidence', 'captureId', 'provenance']);
 const PARTICIPANT_KEYS = new Set(['index', 'kind', 'source', 'sourceEventId', 'frameKey', 'labelStart', 'bodyStart', 'bodyEnd',
   'labelSha256', 'bodySha256', 'participant']);
+const BARE_KEYS = new Set(['index', 'kind', 'source', 'sourceEventId', 'frameKey', 'labelStart', 'bodyStart', 'bodyEnd',
+  'labelSha256', 'bodySha256']);
 
 interface FrameBase {
   index: number;
@@ -104,7 +150,11 @@ export interface ParticipantFrame extends FrameBase {
   kind: 'participant';
   participant: Participant;
 }
-export type VerifiedFrame = AttributedFrame | ParticipantFrame;
+/** Revision 10: writer-owned non-dialogue bytes; never dialogue, never attributed. */
+export interface StructuralFrame extends FrameBase { kind: 'structural' }
+/** Revision 10: evidence recorded without a speaker; never certified. */
+export interface UnattributedFrame extends FrameBase { kind: 'unattributed' }
+export type VerifiedFrame = AttributedFrame | ParticipantFrame | StructuralFrame | UnattributedFrame;
 
 export type TurnAttributionVerdict =
   /** No turnAttribution: the whole row is legacy (rule 6). */
@@ -135,13 +185,15 @@ function decodeRange(bytes: Uint8Array, start: number, end: number): string | nu
 function checkFrame(raw: unknown, i: number, bytes: Uint8Array, keys: Set<string>): string | VerifiedFrame {
   if (!isObject(raw)) return `turn ${i} is not an object`;
   if (raw.index !== i) return `turn ${i} has index ${String(raw.index)}`;
-  if (raw.kind !== 'attributed' && raw.kind !== 'participant') return `turn ${i} kind is not recognized`;
+  const kind = raw.kind;
+  if (kind !== 'attributed' && kind !== 'participant' && kind !== 'structural' && kind !== 'unattributed') return `turn ${i} kind is not recognized`;
+  const allowedKeys = kind === 'attributed' ? ATTRIBUTED_KEYS : kind === 'participant' ? PARTICIPANT_KEYS : BARE_KEYS;
   for (const key of Object.keys(raw)) {
-    if (!(raw.kind === 'attributed' ? ATTRIBUTED_KEYS : PARTICIPANT_KEYS).has(key)) return `turn ${i} carries unexpected field ${key}`;
+    if (!allowedKeys.has(key)) return `turn ${i} carries unexpected field ${key}`;
   }
-  if (typeof raw.source !== 'string' || !Object.hasOwn(SOURCE_RULES, raw.source)) return `turn ${i} source is not in the registry`;
+  const rule = typeof raw.source === 'string' ? ruleFor(raw.source) : undefined;
+  if (!rule) return `turn ${i} source is not in the registry`;
   const source = raw.source as TurnSource;
-  const rule = SOURCE_RULES[source];
   if (typeof raw.sourceEventId !== 'string' || !EVENT_ID.test(raw.sourceEventId)) return `turn ${i} sourceEventId is malformed`;
   if (typeof raw.frameKey !== 'string') return `turn ${i} frameKey is missing`;
   const key = JSON.stringify([source, raw.sourceEventId, raw.frameKey]);
@@ -150,7 +202,11 @@ function checkFrame(raw: unknown, i: number, bytes: Uint8Array, keys: Set<string
 
   const { labelStart, bodyStart, bodyEnd } = raw;
   if (!isOffset(labelStart) || !isOffset(bodyStart) || !isOffset(bodyEnd)) return `turn ${i} offsets are not non-negative integers`;
-  if (!(labelStart < bodyStart && bodyStart <= bodyEnd && bodyEnd <= bytes.length)) return `turn ${i} offsets are out of order or past the content`;
+  // Structural and unattributed frames have an empty label range and a
+  // non-empty body; every other kind has a non-empty label.
+  const bare = kind === 'structural' || kind === 'unattributed';
+  const ordered = bare ? labelStart === bodyStart && bodyStart < bodyEnd : labelStart < bodyStart && bodyStart <= bodyEnd;
+  if (!ordered || bodyEnd > bytes.length) return `turn ${i} offsets are out of order or past the content`;
   if (raw.labelSha256 !== sha256Hex(bytes.subarray(labelStart, bodyStart))) return `turn ${i} labelSha256 mismatch`;
   if (raw.bodySha256 !== sha256Hex(bytes.subarray(bodyStart, bodyEnd))) return `turn ${i} bodySha256 mismatch`;
   const label = decodeRange(bytes, labelStart, bodyStart);
@@ -158,7 +214,18 @@ function checkFrame(raw: unknown, i: number, bytes: Uint8Array, keys: Set<string
   if (label === null || body === null) return `turn ${i} range splits a UTF-8 character`;
   const base = { index: i, source, sourceEventId: raw.sourceEventId, frameKey: raw.frameKey, labelStart, bodyStart, bodyEnd, label, body };
 
-  if (raw.kind === 'participant') {
+  if (kind === 'structural') {
+    if (!rule.structural || !rule.structural.frameKey(raw.frameKey as string)) return `turn ${i} structural frames are not allowed for source ${source}`;
+    if (!isStructuralBody(body)) return `turn ${i} structural bytes are not structure`;
+    return { ...base, kind: 'structural' };
+  }
+  if (kind === 'unattributed') {
+    if (!rule.unattributed || !rule.unattributed.frameKey(raw.frameKey as string) || !rule.unattributed.sourceEventId(raw.sourceEventId as string)) {
+      return `turn ${i} unattributed frames are not allowed for source ${source}`;
+    }
+    return { ...base, kind: 'unattributed' };
+  }
+  if (kind === 'participant') {
     const allowed = (rule.participant ?? []).find(p => p.participant === raw.participant && p.frameKey(raw.frameKey as string));
     if (!allowed) return `turn ${i} participant/frameKey is not allowed for source ${source}`;
     if (!PARTICIPANT_LABELS[allowed.participant](label)) return `turn ${i} label is not ${allowed.participant}'s registered label`;
@@ -248,4 +315,14 @@ export function verifyTurnAttribution(content: string, turnAttribution: unknown)
   // Rule 4: an aware row has no uncovered tail.
   if (previousEnd !== bytes.length) return invalid('content after coveredEnd is not covered by any entry');
   return { status: 'valid', legacyPrefixEnd: saneLegacy, frames };
+}
+
+/**
+ * Revision 10: an aware row records idempotency in its frame keys, not in
+ * content markers. True when the verified row already holds any frame of
+ * (source, sourceEventId). Callers that dedupe by content markers must also
+ * consult this for aware rows.
+ */
+export function turnAttributionHasEvent(verdict: TurnAttributionVerdict, source: string, sourceEventId: string): boolean {
+  return verdict.status === 'valid' && verdict.frames.some(frame => frame.source === source && frame.sourceEventId === sourceEventId);
 }

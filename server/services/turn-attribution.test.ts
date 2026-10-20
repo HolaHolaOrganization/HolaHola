@@ -180,3 +180,68 @@ describe('byte framing and coverage (rules 1-5)', () => {
     assert.match(String((verifyTurnAttribution(r.content, r.turnAttribution) as { reason?: string }).reason), /UTF-8|covered/);
   });
 });
+
+describe('revision 10: structural, unattributed and manual frames', () => {
+  const RAW_ID = `raw-window:${'a'.repeat(64)}`;
+  const structural = (body: string, source = 'episode-structure', frameKey = 'heading'): Spec =>
+    ({ kind: 'structural', source, eventId: 'struct-1', frameKey, label: '', body });
+  const rawOrigin = (eventId = RAW_ID, source = 'raw-window'): Spec =>
+    ({ kind: 'unattributed', source, eventId, frameKey: 'origin', label: '', body: 'raw window text, speakers unknown' });
+
+  test('structural headings and markers from episode-structure verify and are never dialogue', () => {
+    const r = row('', [structural('## Afternoon\n<!-- writer note -->\n---'), ...ccPair('turn-30', 'q', 'a')]);
+    const frames = valid(verifyTurnAttribution(r.content, r.turnAttribution));
+    assert.deepEqual(frames.map(f => f.kind), ['structural', 'attributed', 'attributed']);
+  });
+
+  test('authored text can never be relabelled as structural', () => {
+    for (const [name, spec] of [
+      ['prose as structural', structural('Luca: this is what was said')],
+      ['structural from a dialogue source', structural('## heading', 'claude-code')],
+      ['structural with a bad key', structural('## heading', 'episode-structure', 'Bad Key')],
+    ] as Array<[string, Spec]>) {
+      const r = row('', [spec]);
+      assert.equal(verifyTurnAttribution(r.content, r.turnAttribution).status, 'invalid', name);
+    }
+  });
+
+  test('raw-window origin is unattributed, keyed by its registered ledger id, and carries no speaker', () => {
+    const r = row('', [rawOrigin()]);
+    const [f] = valid(verifyTurnAttribution(r.content, r.turnAttribution));
+    assert.equal(f.kind, 'unattributed');
+    assert.ok(!('speaker' in f) && !('hat' in f));
+    for (const bad of [rawOrigin('raw-window:not-a-hash'), rawOrigin(RAW_ID, 'claude-code')]) {
+      const b = row('', [bad]);
+      assert.equal(verifyTurnAttribution(b.content, b.turnAttribution).status, 'invalid');
+    }
+    const extra = row('', [rawOrigin()]);
+    extra.turnAttribution.turns[0].speaker = 'luca';
+    assert.equal(verifyTurnAttribution(extra.content, extra.turnAttribution).status, 'invalid', 'no speaker may be attached');
+  });
+
+  test('bare kinds must have an empty label and a non-empty body', () => {
+    const r = row('', [{ ...structural('## x'), label: '**Luca:** ' }]);
+    assert.equal(verifyTurnAttribution(r.content, r.turnAttribution).status, 'invalid');
+  });
+
+  test('manual appends by an authenticated Luca actor', () => {
+    const r = row('', [
+      { kind: 'attributed', source: 'manual-luca-replit', eventId: 'f958c70c-5f63-470f-814e-c295b13f2c27', frameKey: 'david-0', speaker: 'david', hat: 'replit', hatEvidence: 'authenticated-actor', label: '**David:** ', body: 'hello' },
+      { kind: 'attributed', source: 'manual-luca-replit', eventId: 'f958c70c-5f63-470f-814e-c295b13f2c27', frameKey: 'luca-1', speaker: 'luca', hat: 'replit', hatEvidence: 'authenticated-actor', label: '**Luca:** ', body: 'hi' },
+      { kind: 'participant', source: 'manual-luca-replit', eventId: 'f958c70c-5f63-470f-814e-c295b13f2c27', frameKey: 'daniela-2', participant: 'daniela', label: '**Daniela:** ', body: 'hola' },
+    ]);
+    assert.equal(valid(verifyTurnAttribution(r.content, r.turnAttribution)).length, 3);
+    const bad = row('', [{ kind: 'attributed', source: 'manual-someone', eventId: 'x', frameKey: 'luca', speaker: 'luca', hat: 'replit', hatEvidence: 'authenticated-actor', label: '**Luca:** ', body: 'hi' }]);
+    assert.equal(verifyTurnAttribution(bad.content, bad.turnAttribution).status, 'invalid', 'manual sources must name a Luca actor');
+  });
+
+  test('turnAttributionHasEvent finds a stored event by (source, sourceEventId)', async () => {
+    const { turnAttributionHasEvent } = await import('./turn-attribution');
+    const r = row('', [rawOrigin(), ...ccPair('turn-31', 'q', 'a')]);
+    const verdict = verifyTurnAttribution(r.content, r.turnAttribution);
+    assert.equal(turnAttributionHasEvent(verdict, 'raw-window', RAW_ID), true);
+    assert.equal(turnAttributionHasEvent(verdict, 'claude-code', 'turn-31'), true);
+    assert.equal(turnAttributionHasEvent(verdict, 'claude-code', 'turn-32'), false);
+    assert.equal(turnAttributionHasEvent({ status: 'absent' }, 'claude-code', 'turn-31'), false);
+  });
+});

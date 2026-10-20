@@ -106,3 +106,18 @@ describe('capture-status presence check', () => {
     assert.equal(episodeTailHasInnerLifeChannel('prose mentioning **Luca:** [felt]: inline', 'felt'), false);
   });
 });
+
+describe('revision 10 frame kinds in the audit', () => {
+  test('structural frames are skipped; unattributed evidence is reported and fails strict', () => {
+    const r = row('', [
+      { kind: 'structural', source: 'episode-structure', eventId: 's-1', frameKey: 'heading', label: '', body: '## Session' },
+      ...replit('r-40', ENVELOPE),
+      { kind: 'unattributed', source: 'raw-window', eventId: `raw-window:${'b'.repeat(64)}`, frameKey: 'origin', label: '', body: 'raw' },
+    ]);
+    const audit = auditEpisodeRow(r.content, { turnAttribution: r.turnAttribution });
+    assert.equal(audit.attribution, 'valid');
+    assert.deepEqual(audit.replitTurns.map(t => t.complete), [true]);
+    assert.deepEqual(audit.unattributed.map(u => u.reason), ['unattributed evidence: cannot certify']);
+    assert.equal(strictFailure(audit), true);
+  });
+});
