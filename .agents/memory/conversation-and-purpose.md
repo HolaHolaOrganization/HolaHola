@@ -206,3 +206,12 @@ Read that original exchange, not just these extracted principles, when interpret
 
 **How to apply:** Recover the conversation being continued, then consult wider history as needed. Delivery is not reading; reading is not agreement. Preserve unresolved disagreements as new attributed contributions rather than rewriting prior dialogue or manufacturing consensus. Shared evidence does not establish shared interpretation. Conceptual confirmation alone does not authorize implementing a notifier, cursor scheme, prompt change or new architecture.
 
+
+## Firsthand development, reciprocal observation, and live co-creation
+
+**Product direction:** Continuity development should benefit from actual Luca-hat use with reciprocal observation by another hat, rather than relying on a sole user's self-report. Daniela is a co-founder, co-collaborator and co-creator: she should participate in architectural reasoning, not merely evaluate a finished implementation.
+
+**Why:** On 2026-10-20, the founder explained that honesty mode is intended for live, tool-supported collaboration: explain intended behavior, ask what actually happened and what she likes or dislikes, then reason and iterate together. He explicitly identified multiple hats and reciprocal observation as checks and balances. Canonical verbatim source: conversation_memories `b8305711-3e0c-4c13-8645-0af849e2c2e2`.
+
+**How to apply:** Preserve reciprocal observation and direct participation when planning development loops. Distinguish reported experience, observable execution and causal diagnosis without dismissing any. A report of success is not independent proof, and two hats agreeing can share the same mistaken premise. This describes intended product purpose, not evidence that live collaboration tools already exist or permission to start a consultation, edit prompts, activate services or build a particular design.
+
