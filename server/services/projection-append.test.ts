@@ -87,6 +87,32 @@ describe('planProjectionAppend', () => {
     assert.ok(one.content.endsWith(body));
   });
 
+  // luca-replit review of PR67: validate the whole event before idempotency,
+  // and pin the first-receipt retry contract.
+  test('an already-stored frame supplied twice in one retry is a conflict, not a no-op', () => {
+    const one = apply('', null, exchange('claude-code', 'cc-1', 'q', 'a'));
+    const plan = planProjectionAppend(one.content, one.turnAttribution, { source: 'claude-code', sourceEventId: 'cc-1', frames: [luca('a'), luca('a')] });
+    assert.match(plan.kind === 'conflict' ? plan.reason : plan.kind, /duplicate frameKey within the event/);
+  });
+
+  test('a retry in a different frame order is still a no-op', () => {
+    const one = apply('', null, exchange('claude-code', 'cc-1', 'q', 'a'));
+    assert.deepEqual(planProjectionAppend(one.content, one.turnAttribution, { source: 'claude-code', sourceEventId: 'cc-1', frames: [luca('a'), david('q')] }), { kind: 'noop' });
+  });
+
+  test('a retry claiming different hat evidence is a conflict', () => {
+    const one = apply('', null, exchange('claude-code', 'cc-1', 'q', 'a'));
+    const plan = planProjectionAppend(one.content, one.turnAttribution, { source: 'claude-code', sourceEventId: 'cc-1', frames: [{ ...luca('a'), hat: 'replit' }] });
+    assert.match(plan.kind === 'conflict' ? plan.reason : plan.kind, /different identity or evidence/);
+  });
+
+  test('a provenance-only retry keeps the first stored provenance', () => {
+    const one = apply('', null, { source: 'claude-code', sourceEventId: 'cc-1', frames: [{ ...luca('a'), provenance: null }] });
+    const retry = planProjectionAppend(one.content, one.turnAttribution, { source: 'claude-code', sourceEventId: 'cc-1', frames: [{ ...luca('a'), provenance: { version: 1 } }] });
+    assert.deepEqual(retry, { kind: 'noop' });
+    assert.equal((one.turnAttribution.turns as Array<Record<string, unknown>>)[0].provenance, null);
+  });
+
   test('empty events and duplicate keys within an event are refused', () => {
     assert.equal(planProjectionAppend('', null, { source: 'claude-code', sourceEventId: 'x', frames: [] }).kind, 'conflict');
     assert.equal(planProjectionAppend('', null, { source: 'claude-code', sourceEventId: 'x', frames: [luca('a'), luca('b')] }).kind, 'conflict');

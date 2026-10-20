@@ -51,8 +51,19 @@ const sha256Hex = (bytes: Uint8Array) => createHash('sha256').update(bytes).dige
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
+/** The identity/evidence a frame claims, compared on retry (provenance excluded). */
+function frameEvidence(f: { kind?: unknown; speaker?: unknown; participant?: unknown; hat?: unknown; hatEvidence?: unknown }): string {
+  return JSON.stringify(f.kind === 'participant'
+    ? ['participant', f.participant]
+    : ['attributed', f.speaker, f.hat, f.hatEvidence]);
+}
+
 export function planProjectionAppend(currentContent: string, currentTurnAttribution: unknown, event: AppendEvent): AppendPlan {
+  // Validate the whole incoming event before any idempotency decision, so a
+  // malformed retry is refused rather than reported as a no-op.
   if (event.frames.length === 0) return { kind: 'conflict', reason: 'an event must carry at least one frame' };
+  const keysInEvent = new Set(event.frames.map(frame => frame.frameKey));
+  if (keysInEvent.size !== event.frames.length) return { kind: 'conflict', reason: 'duplicate frameKey within the event' };
   const existingBytes = encoder.encode(currentContent);
 
   let turns: Record<string, unknown>[] = [];
@@ -67,9 +78,14 @@ export function planProjectionAppend(currentContent: string, currentTurnAttribut
     legacyPrefixEnd = verdict.legacyPrefixEnd;
   }
 
-  // Idempotency by (source, sourceEventId, frameKey): an exact retry is a
-  // no-op, the same key with different bytes is a conflict, and an event
-  // that is only partly present is a conflict (never half-appended twice).
+  // Idempotency by (source, sourceEventId, frameKey). First receipt wins:
+  // - an exact retry (same label and body bytes, same claimed identity and
+  //   hat evidence) is a no-op, in any frame order;
+  // - the same key with different bytes, or a different claimed identity or
+  //   hat evidence, is a conflict;
+  // - a retry whose only difference is provenance keeps the FIRST stored
+  //   provenance (no-op); evidence is never silently replaced;
+  // - an event that is only partly present is a conflict (never half-appended twice).
   const byKey = new Map(turns.map(entry => [JSON.stringify([entry.source, entry.sourceEventId, entry.frameKey]), entry]));
   let present = 0;
   for (const frame of event.frames) {
@@ -80,12 +96,13 @@ export function planProjectionAppend(currentContent: string, currentTurnAttribut
     if (label !== frame.label || body !== frame.body) {
       return { kind: 'conflict', reason: `frame ${frame.frameKey} of ${event.source}/${event.sourceEventId} already present with different bytes` };
     }
+    if (frameEvidence(existing) !== frameEvidence(frame)) {
+      return { kind: 'conflict', reason: `frame ${frame.frameKey} of ${event.source}/${event.sourceEventId} already present with different identity or evidence` };
+    }
     present++;
   }
   if (present === event.frames.length) return { kind: 'noop' };
   if (present > 0) return { kind: 'conflict', reason: `event ${event.source}/${event.sourceEventId} is only partly present` };
-  const keysInEvent = new Set(event.frames.map(frame => frame.frameKey));
-  if (keysInEvent.size !== event.frames.length) return { kind: 'conflict', reason: 'duplicate frameKey within the event' };
 
   let content = currentContent;
   let index = turns.length;
