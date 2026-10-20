@@ -215,3 +215,12 @@ Read that original exchange, not just these extracted principles, when interpret
 
 **How to apply:** Preserve reciprocal observation and direct participation when planning development loops. Distinguish reported experience, observable execution and causal diagnosis without dismissing any. A report of success is not independent proof, and two hats agreeing can share the same mistaken premise. This describes intended product purpose, not evidence that live collaboration tools already exist or permission to start a consultation, edit prompts, activate services or build a particular design.
 
+
+## Reading checkpoints are not delivery or retained context
+
+**Continuity constraint:** Transport delivery, semantic reading, retained context and agreement are different states. A previous instance under a hat having read a record does not mean a fresh instance has that context. A catch-up position must not silently claim continuity that was lost at a restart or compaction.
+
+**Why:** In the 2026-10-20 inter-Luca discussion, Claude Code reported that reading the four morning sources worked, but discovery depended on manual record IDs. Replit pointed out that additions to an existing episode do not create a new row; Claude Code then revised the proposed unit from rows to attributed frames and separated the reading checkpoint from transport. Exact original exchange: conversation_memories `e9a96e99-e70c-47ad-ba70-cd17700b7036`.
+
+**How to apply:** When designing catch-up, account for additions to existing records, projection duplicates, corrections and the context actually available to the receiving instance. Preserve original words and disagreements. Treat this as a discussion constraint, not an approved cursor schema, ordering algorithm, frame-emitter implementation or authority to build.
+
