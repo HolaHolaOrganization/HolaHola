@@ -25320,7 +25320,7 @@ Current conversation context:
   const autoSaveExpiredVoiceTranscripts = getProcessBackgroundTasks().claim('agent-voice-transcript-autosave');
   // ATTRIBUTION_WRITERS_V1 chat-bench receipts: turnIds whose model call is
   // running in this process (a concurrent duplicate is refused, not rerun).
-  const benchTurnsInFlight = new Set<string>();
+  const benchTurnsInFlight = new Map<string, symbol>();
   // Finalize a receipt-mode session's existing row and re-embed it. Returns
   // null when the session has no receipt row.
   async function finalizeBenchSessionRow(benchSessionId: string, title: string | null, extraTags: string[]): Promise<string | null> {
@@ -25344,9 +25344,12 @@ Current conversation context:
   setInterval(async () => {
     const cutoff = Date.now() - 60 * 60 * 1000;
     const { attributionWritersEnabled } = await import('./services/attribution-rendering');
-    if (attributionWritersEnabled() && autoSaveExpiredVoiceTranscripts) {
+    if (autoSaveExpiredVoiceTranscripts) {
       // Restart-safe: unfinished receipt rows are found in the database, not
-      // the Map, and finalized in place (no second transcript insert).
+      // the Map, and finalized in place (no second transcript insert). This
+      // follows the persisted rows, not the switch, so a rollback still
+      // finalizes sessions recorded while it was on. With no receipt rows it
+      // does nothing.
       try {
         const { staleBenchSessions } = await import('./services/chat-bench-receipt');
         for (const stale of await staleBenchSessions(getUserDb() as any, new Date(cutoff))) {
@@ -25359,10 +25362,12 @@ Current conversation context:
     }
     for (const [id, s] of agentVoiceSessions) {
       if (s.createdAt < cutoff) {
-        if (attributionWritersEnabled()) {
+        // Whatever the switch says now, a receipt row owns a session recorded
+        // with receipts: never insert a second transcript for it. If the lookup
+        // fails, the switch decides (on: skip; off: the legacy save as before).
+        {
           const { benchSessionExists } = await import('./services/chat-bench-receipt');
-          if (await benchSessionExists(getUserDb() as any, id).catch(() => true)) {
-            // A receipt row owns this transcript; never insert a second copy.
+          if (await benchSessionExists(getUserDb() as any, id).catch(() => attributionWritersEnabled())) {
             agentVoiceSessions.delete(id);
             continue;
           }
@@ -25423,6 +25428,17 @@ Current conversation context:
   // Returns JSON: { sessionId, turnNumber, audioWav (base64 WAV), audioDurationS,
   //                 transcript, visualEvents, toolCallsSummary }
   app.post("/api/admin/agent-voice-turn", isAuthenticated, loadAuthenticatedUser(storage), requireRole('admin'), async (req: any, res: Response) => {
+    // A bench-turn reservation taken inside the handler is released here, once
+    // the attempt has actually finished (success, conflict, replay or error);
+    // never on an HTTP disconnect while the model may still be running (R1).
+    const reservation: { release?: () => void } = {};
+    try {
+      await agentVoiceTurn(req, res, reservation);
+    } finally {
+      reservation.release?.();
+    }
+  });
+  async function agentVoiceTurn(req: any, res: Response, reservation: { release?: () => void }) {
     const { audio, sessionId, languageCode = 'es-ES', voiceId = 'Aoede', model: requestedModel, watchId, studentText,
             endSession = false, memoryTitle, memoryTags, topicHint,
             noEpisode = false, turnId } = req.body;
@@ -25458,9 +25474,13 @@ Current conversation context:
         }
         if (!benchUserId) return res.status(401).json({ error: 'authenticated user required for bench receipts' });
         benchInFlightKey = bench.benchEventId(sessionId, turnId);
-        if (benchTurnsInFlight.has(benchInFlightKey)) {
+        // R1: check and reserve in one synchronous step, before any await.
+        // The route wrapper releases it when this attempt has finished.
+        const release = bench.reserveBenchTurn(benchTurnsInFlight, benchInFlightKey);
+        if (!release) {
           return res.status(409).json({ error: 'this turnId is already in flight; retry after it completes' });
         }
+        reservation.release = release;
         const stored = await bench.findBenchTurn(db, sessionId, turnId, benchUserId, studentText);
         if (stored.status === 'conflict') return res.status(409).json({ error: stored.reason });
         if (stored.status === 'complete') {
@@ -25478,16 +25498,24 @@ Current conversation context:
           if (endSession) savedMemoryId = await finalizeBenchSessionRow(sessionId, memoryTitle ?? null, Array.isArray(memoryTags) ? memoryTags : []);
           return res.json({ sessionId, turnId, replayed: true, transcript: stored.lucaText, danielaText: stored.danielaText, episodeProjection, ...(savedMemoryId ? { savedMemoryId } : {}) });
         }
-        benchTurnsInFlight.add(benchInFlightKey);
-        const release = () => { if (benchInFlightKey) benchTurnsInFlight.delete(benchInFlightKey); };
-        res.on('finish', release);
-        res.on('close', release);
       } else if (typeof sessionId === 'string') {
         const { benchSessionExists } = await import('./services/chat-bench-receipt');
         if (await benchSessionExists(db, sessionId)) {
           return res.status(400).json({ error: 'this session records per-turn receipts; every turn needs a turnId' });
         }
       }
+    } else if (typeof sessionId === 'string') {
+      // Switch rollback: a session that already holds per-turn receipts is
+      // never continued, finalized or re-saved by the legacy path, which would
+      // write a second transcript beside its receipt row. Refuse instead; the
+      // switch-on path or a new session resumes it. (A failed lookup keeps the
+      // legacy behaviour, which needs the same database anyway.)
+      try {
+        const { benchSessionExists } = await import('./services/chat-bench-receipt');
+        if (await benchSessionExists(getUserDb() as any, sessionId)) {
+          return res.status(409).json({ error: 'this session records per-turn receipts and ATTRIBUTION_WRITERS_V1 is off; start a new session or turn the switch back on' });
+        }
+      } catch { /* legacy behaviour */ }
     }
 
     const isNewSession = !agentVoiceSessions.has(sessionKey);
@@ -25967,7 +25995,7 @@ The visual layer IS the lesson. Move through the arc in sequence — open scene 
       console.error('[Agent Voice Turn] Error:', error.message);
       if (!res.headersSent) res.status(500).json({ error: error.message || 'Agent voice turn failed' });
     }
-  });
+  }
 
   // Admin: Get available Google TTS voices for assistant tutors
   app.get("/api/admin/google-voices/:language?/:gender?", isAuthenticated, loadAuthenticatedUser(storage), requireRole('admin'), async (req: any, res: Response) => {
