@@ -12,7 +12,7 @@
  * pending and is reported. It is never unlinked, and no id is ever invented.
  */
 import { randomUUID } from 'node:crypto';
-import { closeSync, existsSync, linkSync, mkdirSync, openSync, readdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, linkSync, mkdirSync, readdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { appendAutoCaptureExchange } from './canonical-conversation-capture';
 import { CHAT_CAPTURE_PATH, parseChatCaptureFromOffset, WORKSPACE } from './transcript-parser';
@@ -71,36 +71,73 @@ type IntakePayload = { turnId?: unknown; david?: unknown; luca?: unknown };
 const TURN_ID = /^[A-Za-z0-9-]{1,200}$/;
 const RECORD_NAME = /^\d{15}-\d{9}-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.json$/;
 
+const OWNER = /^(\d{1,10}):[0-9a-f-]{36}$/;
+
+/** True unless the OS says the process does not exist (EPERM means it exists). */
+function processExists(pid: number): boolean {
+  try { process.kill(pid, 0); return true; } catch (err: any) { return err?.code !== 'ESRCH'; }
+}
+
+/**
+ * Publish `owner` as the lock in ONE step: written to a private file, then
+ * hard-linked to the lock path, which fails if a lock exists. A lock file is
+ * therefore never visible without its complete owner record (luca-replit
+ * review of PR71, R3).
+ */
+function publishLock(lockPath: string, owner: string): boolean {
+  const tmp = `${lockPath}.${randomUUID()}.tmp`;
+  writeFileSync(tmp, owner, 'utf-8');
+  try {
+    linkSync(tmp, lockPath);
+    return true;
+  } catch (err: any) {
+    if (err?.code === 'EEXIST') return false;
+    throw err;
+  } finally {
+    try { unlinkSync(tmp); } catch { /* ignore */ }
+  }
+}
+
 /**
  * One lock for the whole intake directory, held by the watcher's processing
  * pass and by an operator correction alike, so they never race on a record.
- * A lock whose holder process is gone is taken over. Returns 'busy' when a
- * live holder has it; the caller simply retries later.
+ * Returns 'busy' when another holder has it; the caller simply retries later.
+ *
+ * Only a PROVABLY dead holder is taken over: a well-formed owner record whose
+ * process does not exist. An unreadable or malformed lock is treated as live
+ * (busy), never as dead. The takeover renames the observed lock aside and
+ * checks it was exactly the dead record; if a live lock was moved instead,
+ * it is restored and the caller reports busy. Release removes the lock only
+ * while it still holds this holder's own owner record.
  */
 function withIntakeLock<T>(dir: string, fn: () => T): T | 'busy' {
   mkdirSync(dir, { recursive: true });
   const lockPath = join(dir, '.intake.lock');
-  let fd: number;
-  try {
-    fd = openSync(lockPath, 'wx');
-  } catch {
-    let holderText = '';
-    try { holderText = readFileSync(lockPath, 'utf-8'); } catch { /* vanished */ }
-    const holder = Number.parseInt(holderText, 10);
-    let alive = false;
-    if (Number.isSafeInteger(holder) && holder > 0) {
-      try { process.kill(holder, 0); alive = true; } catch { alive = false; }
+  const owner = `${process.pid}:${randomUUID()}`;
+  if (!publishLock(lockPath, owner)) {
+    let observed: string;
+    try { observed = readFileSync(lockPath, 'utf-8'); } catch { return 'busy'; }
+    const match = OWNER.exec(observed);
+    if (!match || processExists(Number(match[1]))) return 'busy';
+    const aside = `${lockPath}.${randomUUID()}.stale`;
+    try { renameSync(lockPath, aside); } catch { return 'busy'; }
+    let moved = '';
+    try { moved = readFileSync(aside, 'utf-8'); } catch { /* ignore */ }
+    if (moved !== observed) {
+      // A live holder replaced the dead lock in between: put it back untouched.
+      try { linkSync(aside, lockPath); } catch { /* it re-acquired already */ }
+      try { unlinkSync(aside); } catch { /* ignore */ }
+      return 'busy';
     }
-    if (alive) return 'busy';
-    try { unlinkSync(lockPath); } catch { /* raced */ }
-    try { fd = openSync(lockPath, 'wx'); } catch { return 'busy'; }
+    try { unlinkSync(aside); } catch { /* ignore */ }
+    if (!publishLock(lockPath, owner)) return 'busy';
   }
   try {
-    writeFileSync(lockPath, String(process.pid), 'utf-8');
     return fn();
   } finally {
-    try { closeSync(fd); } catch { /* ignore */ }
-    try { unlinkSync(lockPath); } catch { /* ignore */ }
+    try {
+      if (readFileSync(lockPath, 'utf-8') === owner) unlinkSync(lockPath);
+    } catch { /* already gone */ }
   }
 }
 
@@ -117,7 +154,9 @@ function commitRecord(record: string, payload: IntakePayload, turnId: string, op
     capturePath: options.capturePath,
     ingressLockPath: options.ingressLockPath,
   });
-  if (result.kind === 'conflict') return { record, status: 'pending', turnId, reason: result.reason };
+  // Not accepted (a conflict, or an exchange the canonical consumer would
+  // quarantine or block on): nothing was committed and the record stays.
+  if (result.kind === 'conflict' || result.kind === 'unsupported') return { record, status: 'pending', turnId, reason: result.reason };
   // The exchange is now in the canonical log, past the canonical cursor until
   // checkChatCapture has inserted its row and enqueued writer 1's mirror (it
   // advances the cursor only after both). That replay obligation survives a

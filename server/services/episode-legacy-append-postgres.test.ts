@@ -70,6 +70,11 @@ test('legacy episode append guard on real PostgreSQL', async context => {
         assert.equal((await appendUnframedToLegacyRow(db, id, 'unframed')).kind, 'refused-aware', JSON.stringify(attribution));
         assert.equal((await read(id)).content, 'ep\n');
       }
+      // The framed append agrees: present-null is malformed aware metadata, refused (R4).
+      const presentNull = await make('ep\n', { turnAttribution: null });
+      const framed = await applyProjectionAppend(db, presentNull, event('rp-null', 'framed'));
+      assert.equal(framed.kind, 'conflict');
+      assert.equal((await read(presentNull)).content, 'ep\n');
       // Other attribution keys alone (e.g. canonical-row fields) do not make a row aware.
       const other = await make('ep\n', { modelTags: ['x'] });
       assert.equal((await appendUnframedToLegacyRow(db, other, 'unframed')).kind, 'appended');
