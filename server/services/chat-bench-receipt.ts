@@ -33,7 +33,7 @@
 import { sql } from 'drizzle-orm';
 import { applyProjectionAppendInTx, rowsOf, type SqlExecutor, type TransactionalDb } from './projection-append-store';
 import type { AppendEvent } from './projection-append';
-import { turnAttributionOf, verifyTurnAttribution } from './turn-attribution';
+import { turnAttributionOf, verifyTurnAttribution, type VerifiedFrame } from './turn-attribution';
 
 export const BENCH_SOURCE = 'holahola-chat-bench';
 const IDENTITY = /^[A-Za-z0-9._-]{8,80}$/;
@@ -111,13 +111,25 @@ function storedEvent(row: SessionRow, sessionId: string, turnId: string): Stored
   const luca = frames.find(f => f.frameKey === 'luca');
   const daniela = frames.find(f => f.frameKey === 'daniela');
   if (!luca) return { status: 'conflict', reason: `turn ${turnId} receipt lacks its luca frame` };
-  const event: AppendEvent = {
-    source: BENCH_SOURCE, sourceEventId: eventId,
-    frames: frames.map(f => f.kind === 'participant'
-      ? { kind: 'participant', frameKey: f.frameKey, label: f.label, body: f.body, participant: f.participant }
-      : { kind: 'attributed', frameKey: f.frameKey, label: f.label, body: f.body, speaker: f.speaker, hat: f.hat, hatEvidence: f.hat === 'unknown' ? 'none' : 'authenticated-actor', captureId: f.captureId, provenance: null }),
-  };
-  return { status: 'complete', rowId: row.id, event, lucaText: luca.body, danielaText: daniela?.body ?? '' };
+  const replay = benchReplayEvent(eventId, frames);
+  if ('conflict' in replay) return { status: 'conflict', reason: `turn ${turnId} ${replay.conflict}` };
+  return { status: 'complete', rowId: row.id, event: replay.event, lucaText: luca.body, danielaText: daniela?.body ?? '' };
+}
+
+/**
+ * Rebuild the append event from a turn's stored frames. A bench turn only ever
+ * writes attributed and participant frames; any other kind under the bench
+ * source (structural, unattributed, inner-life) is not ours and fails closed
+ * instead of being replayed as dialogue.
+ */
+export function benchReplayEvent(eventId: string, frames: VerifiedFrame[]): { event: AppendEvent } | { conflict: string } {
+  const out: AppendEvent['frames'] = [];
+  for (const f of frames) {
+    if (f.kind === 'participant') out.push({ kind: 'participant', frameKey: f.frameKey, label: f.label, body: f.body, participant: f.participant });
+    else if (f.kind === 'attributed') out.push({ kind: 'attributed', frameKey: f.frameKey, label: f.label, body: f.body, speaker: f.speaker, hat: f.hat, hatEvidence: f.hat === 'unknown' ? 'none' : 'authenticated-actor', captureId: f.captureId, provenance: null });
+    else return { conflict: `receipt has an unexpected ${f.kind} frame ${f.frameKey}` };
+  }
+  return { event: { source: BENCH_SOURCE, sourceEventId: eventId, frames: out } };
 }
 
 /**
