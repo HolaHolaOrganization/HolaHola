@@ -65,7 +65,7 @@ describe('agent-voice-turn route ordering', () => {
   };
   test('identity, conflict and exact-retry checks run before the session or model starts', () => {
     const model = at('ai.live.connect(');
-    for (const needle of ['bench.validateBenchIdentity(', 'bench.findBenchTurn(', "replayed: true", 'benchTurnsInFlight.has(']) {
+    for (const needle of ['bench.validateBenchIdentity(', 'bench.reserveBenchTurn(', 'bench.findBenchTurn(', "replayed: true"]) {
       assert.ok(at(needle) < at('agentVoiceSessions.set(sessionKey') && at(needle) < model, needle);
     }
   });
@@ -96,5 +96,50 @@ describe('SQL parameter shape (no database)', () => {
     assert.ok(insert.params.some(p => Array.isArray(asJson(p)) && asJson(p).includes(`bench-session:${turn.sessionId}`)));
     const finalize = seen.at(-1)!;
     assert.ok(finalize.params.includes('["a","b"]'));
+  });
+});
+
+describe('in-process turn reservation (luca-replit review of PR69, R1)', () => {
+  test('two concurrent identical requests: exactly one reaches the model', async () => {
+    const { reserveBenchTurn } = await import('./chat-bench-receipt');
+    const inFlight = new Map<string, symbol>();
+    let open!: () => void;
+    const barrier = new Promise<void>(resolve => { open = resolve; });
+    // The route's shape: reserve synchronously, then await the receipt lookup.
+    const attempt = async () => {
+      const release = reserveBenchTurn(inFlight, 'sess-aaaa:turn-aaaa');
+      if (!release) return 'refused';
+      try { await barrier; return 'runs-model'; } finally { release(); }
+    };
+    const both = Promise.all([attempt(), attempt()]);
+    open();
+    assert.deepEqual((await both).sort(), ['refused', 'runs-model']);
+    assert.equal(inFlight.size, 0, 'released once the attempt finished');
+  });
+  test('release removes only its own reservation', async () => {
+    const { reserveBenchTurn } = await import('./chat-bench-receipt');
+    const inFlight = new Map<string, symbol>();
+    const first = reserveBenchTurn(inFlight, 'k')!;
+    first();
+    const second = reserveBenchTurn(inFlight, 'k')!;
+    first(); // a stale release must not free the new owner
+    assert.equal(reserveBenchTurn(inFlight, 'k'), null);
+    second();
+    assert.ok(reserveBenchTurn(inFlight, 'k'));
+  });
+  test('the route reserves before its first lookup and releases only when the attempt ends', () => {
+    const source = readFileSync(new URL('../routes.ts', import.meta.url), 'utf8');
+    const start = source.indexOf('app.post("/api/admin/agent-voice-turn"');
+    const route = source.slice(start, source.indexOf('app.get("/api/admin/google-voices', start));
+    assert.ok(route.indexOf('reservation.release = release;') < route.indexOf('await bench.findBenchTurn('));
+    assert.match(route, /await agentVoiceTurn\(req, res, reservation\);\s*\} finally \{\s*reservation\.release\?\.\(\);/);
+    assert.doesNotMatch(route, /res\.on\('close'/, 'a disconnect never frees a running attempt');
+    assert.doesNotMatch(route, /res\.on\('finish'/);
+  });
+  test('switch rollback: a receipt session is refused by the legacy path, and the sweep follows persisted rows', () => {
+    const source = readFileSync(new URL('../routes.ts', import.meta.url), 'utf8');
+    assert.match(source, /ATTRIBUTION_WRITERS_V1 is off; start a new session or turn the switch back on/);
+    assert.match(source, /if \(autoSaveExpiredVoiceTranscripts\) \{\s*\/\/ Restart-safe/);
+    assert.match(source, /benchSessionExists\(getUserDb\(\) as any, id\)\.catch\(\(\) => attributionWritersEnabled\(\)\)/);
   });
 });

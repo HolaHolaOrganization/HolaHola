@@ -228,3 +228,20 @@ export async function staleBenchSessions(db: SqlExecutor, olderThan: Date): Prom
   `));
   return rows.flatMap(r => ((r.tags as string[]) ?? []).filter(t => t.startsWith('bench-session:')).map(t => t.slice('bench-session:'.length)));
 }
+
+/**
+ * In-process reservation of one bench turn (luca-replit review of PR69, R1).
+ * The check and the reservation are ONE synchronous step, taken before the
+ * route's first await, so two concurrent identical requests in this process
+ * cannot both reach the model. Returns the owner's release, or null when the
+ * turn is already reserved. Release removes only this owner's reservation, and
+ * the route calls it when the attempt has actually finished (never on an HTTP
+ * disconnect). Cross-process duplicates are still decided by the receipt's
+ * first write.
+ */
+export function reserveBenchTurn(inFlight: Map<string, symbol>, key: string): (() => void) | null {
+  if (inFlight.has(key)) return null;
+  const owner = Symbol(key);
+  inFlight.set(key, owner);
+  return () => { if (inFlight.get(key) === owner) inFlight.delete(key); };
+}
