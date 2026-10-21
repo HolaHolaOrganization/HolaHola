@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { generateKeyPairSync, sign } from 'node:crypto';
+import { createHash, generateKeyPairSync, sign } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { describe, test } from 'node:test';
 import { decide, stateAllows } from '../src/authorize.ts';
@@ -8,20 +8,26 @@ import { AUDIENCE, type Envelope, payloadDigest, PROTOCOL } from '../src/envelop
 import { gitBlobSha, parsePolicy, PolicyLoader, REPOSITORY_ID } from '../src/policy.ts';
 
 // The committed broker/policy.json is the broker's only authority source.
-// Phase 4 starts it CLOSED with no actors: the deployed broker can then be
-// observed against real GitHub while refusing every request. Moving out of
-// closed, or adding an actor's signing key, is a separate founder-approved PR
-// to this founder-owned file.
+// Phase 4 started it CLOSED with no actors. This revision adds ONE actor,
+// luca-claude-code, with its own Ed25519 key (created on LITTLENEMO in DPAPI
+// by broker-signing-key-cli; only the public key is here) and stays CLOSED,
+// so every request is still refused. Moving out of closed, or adding another
+// actor's key, is a separate founder-approved PR to this founder-owned file.
 
 const bytes = new Uint8Array(readFileSync(new URL('../policy.json', import.meta.url)));
 
 describe('committed broker/policy.json', () => {
-  test('parses, names this repository, and is closed with no actors or qualification entries', () => {
+  test('parses, names this repository, is closed, and lists exactly the luca-claude-code key', () => {
     const policy = parsePolicy(bytes);
     assert.equal(policy.repositoryId, REPOSITORY_ID);
     assert.equal(policy.state, 'closed');
-    assert.equal(policy.actors.size, 0);
     assert.deepEqual(policy.qualification, []);
+    assert.deepEqual([...policy.actors.keys()], ['luca-claude-code']);
+    const lcc = policy.actors.get('luca-claude-code')!;
+    assert.deepEqual([lcc.appId, lcc.installationId, lcc.host], [5350010, 172194780, 'LITTLENEMO']);
+    assert.deepEqual(lcc.signingKeys.map(k => k.id), ['lcc-littlenemo-1']);
+    const fingerprint = createHash('sha256').update(lcc.signingKeys[0].publicKey.export({ type: 'spki', format: 'der' })).digest('hex');
+    assert.equal(fingerprint, '4c1c96dcaac778cd67302a2bd7ba1a240393cdb1aa810ee84a2fe0ed2c8cc040', 'the key created on LITTLENEMO');
   });
 
   test('its epoch is the git blob sha of the committed bytes', () => {
@@ -50,8 +56,16 @@ describe('committed broker/policy.json', () => {
     const loader = new PolicyLoader({ fetch: async () => { policyReads += 1; return { bytes, blobSha: gitBlobSha(bytes) }; } }, () => NOW);
     const decision = await decide(signedRequest(gitBlobSha(bytes)), () => loader, () => NOW);
     assert.ok(policyReads > 0, 'the committed policy must actually be read');
-    // With no actors listed, an authentically signed request is refused for its actor.
-    assert.deepEqual(decision, { decision: 'deny', reason: 'unknown_actor' });
+    // The test's key is not the listed one, so the request is refused for its key.
+    assert.deepEqual(decision, { decision: 'deny', reason: 'unknown_key' });
+  });
+
+  test('an actor the policy does not list is refused', async () => {
+    const loader = new PolicyLoader({ fetch: async () => ({ bytes, blobSha: gitBlobSha(bytes) }) }, () => NOW);
+    const request = signedRequest(gitBlobSha(bytes));
+    const envelope = { ...(request.envelope as Envelope), actor: 'luca-replit' };
+    const resigned = { envelope, signature: sign(null, Buffer.from(canonicalJson(envelope), 'utf8'), signer.privateKey).toString('base64'), payload: request.payload };
+    assert.deepEqual(await decide(resigned, () => loader, () => NOW), { decision: 'deny', reason: 'unknown_actor' });
   });
 
   test('even an actor the policy did list would be refused: the committed state is closed', () => {
