@@ -6,7 +6,7 @@ export const enc = (s: string) => new TextEncoder().encode(s);
 const SEP = '\n\n';
 
 export interface Spec {
-  kind: 'attributed' | 'participant' | 'structural' | 'unattributed';
+  kind: 'attributed' | 'participant' | 'structural' | 'unattributed' | 'inner-life';
   source: string;
   eventId: string;
   frameKey: string;
@@ -18,6 +18,9 @@ export interface Spec {
   participant?: string;
   captureId?: string | null;
   provenance?: unknown;
+  // inner-life only
+  channel?: string;
+  receiptRowId?: string;
 }
 
 /** Build a projection row exactly as an aware writer would append it. */
@@ -37,7 +40,9 @@ export function row(legacy: string, specs: Spec[]) {
       labelStart, bodyStart, bodyEnd,
       labelSha256: sha(bytes.subarray(labelStart, bodyStart)), bodySha256: sha(bytes.subarray(bodyStart, bodyEnd)),
     };
-    turns.push(spec.kind === 'structural' || spec.kind === 'unattributed'
+    turns.push(spec.kind === 'inner-life'
+      ? { ...base, channel: spec.channel, hat: spec.hat, hatEvidence: spec.hatEvidence, receiptRowId: spec.receiptRowId }
+      : spec.kind === 'structural' || spec.kind === 'unattributed'
       ? base
       : spec.kind === 'participant'
       ? { ...base, participant: spec.participant }

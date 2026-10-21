@@ -26,7 +26,7 @@ export const TURN_ATTRIBUTION_SEPARATOR = '\n\n';
 export type TurnSource =
   | 'replit' | 'claude-code'
   | 'holahola-team-room' | 'holahola-chat-bench' | 'holahola-delegation' | 'holahola-gl'
-  | 'raw-window' | 'episode-structure' | `manual-luca-${string}`;
+  | 'raw-window' | 'episode-structure' | 'replit-inner-life' | `manual-luca-${string}`;
 
 const MANUAL_SOURCE = /^manual-luca-[a-z0-9-]{1,30}$/;
 
@@ -56,6 +56,8 @@ interface FrameRule {
   structural?: { frameKey: (key: string) => boolean };
   /** Revision 10: evidence deliberately recorded without a speaker. */
   unattributed?: { frameKey: (key: string) => boolean; sourceEventId: (id: string) => boolean };
+  /** Revision 12 (section 3.5): direct inner-life fragments, by Luca. */
+  innerLife?: true;
   /** How the hat is evidenced for this source's attributed frames. */
   hat: 'capture-source' | 'authenticated-actor' | 'none';
 }
@@ -89,7 +91,18 @@ const SOURCE_RULES: Readonly<Record<TurnSource, FrameRule>> = {
   // Revision 10: the only source allowed to carry structural bytes, so
   // dialogue from any other source can never be relabelled as structure.
   'episode-structure': { hat: 'none', structural: { frameKey: key => /^[a-z0-9-]{1,40}$/.test(key) } },
+  // Revision 12 (section 3.5): the intake route for direct inner-life
+  // entries. It is the only source of the inner-life kind and emits nothing else.
+  'replit-inner-life': { hat: 'none', innerLife: true },
 };
+
+/** Revision 12: the three direct inner-life channels. */
+export type InnerLifeChannel = 'felt' | 'thinking' | 'moment';
+const INNER_LIFE_CHANNELS: ReadonlySet<string> = new Set(['felt', 'thinking', 'moment']);
+const INNER_LIFE_ENTRY_ID = /^[A-Za-z0-9._-]{8,80}$/;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+/** The exact registered label bytes of a channel's fragment (U+2014 em dash). */
+export const innerLifeLabel = (channel: InnerLifeChannel) => `[Luca — ${channel}: `;
 
 const ordinalKey = (prefix: string) => (key: string) => key === prefix || new RegExp(`^${prefix}-(0|[1-9][0-9]{0,3})$`).test(key);
 
@@ -124,6 +137,7 @@ const PARTICIPANT_KEYS = new Set(['index', 'kind', 'source', 'sourceEventId', 'f
   'labelSha256', 'bodySha256', 'participant']);
 const BARE_KEYS = new Set(['index', 'kind', 'source', 'sourceEventId', 'frameKey', 'labelStart', 'bodyStart', 'bodyEnd',
   'labelSha256', 'bodySha256']);
+const INNER_LIFE_KEYS = new Set([...BARE_KEYS, 'channel', 'hat', 'hatEvidence', 'receiptRowId']);
 
 interface FrameBase {
   index: number;
@@ -154,7 +168,20 @@ export interface ParticipantFrame extends FrameBase {
 export interface StructuralFrame extends FrameBase { kind: 'structural' }
 /** Revision 10: evidence recorded without a speaker; never certified. */
 export interface UnattributedFrame extends FrameBase { kind: 'unattributed' }
-export type VerifiedFrame = AttributedFrame | ParticipantFrame | StructuralFrame | UnattributedFrame;
+/**
+ * Revision 12: a direct inner-life fragment by Luca. Structurally verified
+ * here; its receipt (receiptRowId) is verified separately against the
+ * database by checkInnerLifeReceipt. It is never a main turn.
+ */
+export interface InnerLifeFrame extends FrameBase {
+  kind: 'inner-life';
+  channel: InnerLifeChannel;
+  entryId: string;
+  receiptRowId: string;
+  /** The authored content: the body without its closing bracket. */
+  content: string;
+}
+export type VerifiedFrame = AttributedFrame | ParticipantFrame | StructuralFrame | UnattributedFrame | InnerLifeFrame;
 
 export type TurnAttributionVerdict =
   /** No turnAttribution: the whole row is legacy (rule 6). */
@@ -186,8 +213,8 @@ function checkFrame(raw: unknown, i: number, bytes: Uint8Array, keys: Set<string
   if (!isObject(raw)) return `turn ${i} is not an object`;
   if (raw.index !== i) return `turn ${i} has index ${String(raw.index)}`;
   const kind = raw.kind;
-  if (kind !== 'attributed' && kind !== 'participant' && kind !== 'structural' && kind !== 'unattributed') return `turn ${i} kind is not recognized`;
-  const allowedKeys = kind === 'attributed' ? ATTRIBUTED_KEYS : kind === 'participant' ? PARTICIPANT_KEYS : BARE_KEYS;
+  if (kind !== 'attributed' && kind !== 'participant' && kind !== 'structural' && kind !== 'unattributed' && kind !== 'inner-life') return `turn ${i} kind is not recognized`;
+  const allowedKeys = kind === 'attributed' ? ATTRIBUTED_KEYS : kind === 'participant' ? PARTICIPANT_KEYS : kind === 'inner-life' ? INNER_LIFE_KEYS : BARE_KEYS;
   for (const key of Object.keys(raw)) {
     if (!allowedKeys.has(key)) return `turn ${i} carries unexpected field ${key}`;
   }
@@ -214,6 +241,21 @@ function checkFrame(raw: unknown, i: number, bytes: Uint8Array, keys: Set<string
   if (label === null || body === null) return `turn ${i} range splits a UTF-8 character`;
   const base = { index: i, source, sourceEventId: raw.sourceEventId, frameKey: raw.frameKey, labelStart, bodyStart, bodyEnd, label, body };
 
+  if (kind === 'inner-life') {
+    if (!rule.innerLife) return `turn ${i} inner-life fragments are not allowed for source ${source}`;
+    const channel = raw.channel;
+    if (typeof channel !== 'string' || !INNER_LIFE_CHANNELS.has(channel)) return `turn ${i} inner-life channel is not recognized`;
+    if (raw.frameKey !== channel) return `turn ${i} inner-life frameKey must be its channel`;
+    const prefix = `inner-life:${channel}:`;
+    const entryId = (raw.sourceEventId as string).startsWith(prefix) ? (raw.sourceEventId as string).slice(prefix.length) : '';
+    if (!INNER_LIFE_ENTRY_ID.test(entryId)) return `turn ${i} inner-life sourceEventId must be inner-life:<channel>:<entryId>`;
+    // Section 3.5: direct file intake never asserts a hat.
+    if (raw.hat !== 'unknown' || raw.hatEvidence !== 'none') return `turn ${i} inner-life hat must be unknown with evidence none`;
+    if (typeof raw.receiptRowId !== 'string' || !UUID.test(raw.receiptRowId)) return `turn ${i} inner-life receiptRowId is malformed`;
+    if (label !== innerLifeLabel(channel as InnerLifeChannel)) return `turn ${i} label is not the registered ${channel} fragment prefix`;
+    if (!body.endsWith(']')) return `turn ${i} inner-life body must end with its closing bracket`;
+    return { ...base, kind: 'inner-life', channel: channel as InnerLifeChannel, entryId, receiptRowId: raw.receiptRowId, content: body.slice(0, -1) };
+  }
   if (kind === 'structural') {
     if (!rule.structural || !rule.structural.frameKey(raw.frameKey as string)) return `turn ${i} structural frames are not allowed for source ${source}`;
     if (!isStructuralBody(body)) return `turn ${i} structural bytes are not structure`;
