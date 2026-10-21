@@ -105,3 +105,35 @@ export function buildCanonicalRowAttribution(
   if (verifyTurnAttribution(content, turnAttribution).status !== 'valid') return null;
   return { content, attribution: { turnAttribution }, modelTags: modelTagsFor(assistantProvenance) };
 }
+
+/**
+ * Writer 1 (design 3.4): the episode-mirror event for one canonical exchange,
+ * framed exactly as the canonical row frames it but with the episode's bold
+ * labels. Returns null unless every turn carries the SAME durable capture id
+ * and a canonical source, so one event = one (source, captureId). A batch that
+ * cannot be framed is held by the caller, never appended as unframed text.
+ */
+export function buildCanonicalEpisodeEvent(turns: readonly AttributableTurn[]): import('./projection-append').AppendEvent | null {
+  const row = buildCanonicalRowAttribution(turns, { bold: true });
+  if (!row) return null;
+  const entries = row.attribution.turnAttribution.turns as Record<string, unknown>[];
+  const ids = new Set(entries.map(entry => `${entry.source}\u0000${entry.sourceEventId}`));
+  if (ids.size !== 1) return null;
+  const bytes = new TextEncoder().encode(row.content);
+  const decoder = new TextDecoder();
+  return {
+    source: entries[0].source as string,
+    sourceEventId: entries[0].sourceEventId as string,
+    frames: entries.map(entry => ({
+      kind: 'attributed' as const,
+      frameKey: entry.frameKey as string,
+      label: decoder.decode(bytes.subarray(entry.labelStart as number, entry.bodyStart as number)),
+      body: decoder.decode(bytes.subarray(entry.bodyStart as number, entry.bodyEnd as number)),
+      speaker: entry.speaker as 'david' | 'luca',
+      hat: entry.hat as string,
+      hatEvidence: entry.hatEvidence as string,
+      captureId: entry.captureId as string,
+      provenance: entry.provenance as Record<string, unknown> | null,
+    })),
+  };
+}

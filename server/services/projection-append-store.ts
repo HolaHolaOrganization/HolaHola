@@ -40,7 +40,15 @@ export async function applyProjectionAppendInTx(tx: SqlExecutor, rowId: string, 
   `))[0];
   if (!locked) return { kind: 'missing' };
   const content = typeof locked.content === 'string' ? locked.content : '';
-  const plan = planProjectionAppend(content, turnAttributionOf(locked.attribution), event);
+  // Only a missing turnAttribution key is legacy. A present key whose value is
+  // null is malformed aware metadata: refuse it, never treat it as legacy
+  // (luca-replit review R4; matches the legacy-append guard's key test).
+  const column = locked.attribution;
+  if (typeof column === 'object' && column !== null && Object.hasOwn(column, 'turnAttribution')
+    && (column as Record<string, unknown>).turnAttribution === null) {
+    return { kind: 'conflict', reason: 'turnAttribution is present but null: malformed aware metadata' };
+  }
+  const plan = planProjectionAppend(content, turnAttributionOf(column), event);
   if (plan.kind === 'conflict') return plan;
   if (plan.kind === 'noop') return { kind: 'noop', content };
   // Keep any other keys in the attribution column (e.g. canonical-row

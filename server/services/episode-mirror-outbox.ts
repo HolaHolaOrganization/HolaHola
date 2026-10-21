@@ -67,6 +67,13 @@ export interface EpisodeMirrorOutboxItem {
   captureIds: string[];
   lastSavedTurnFingerprint?: string;
   terminalResolution?: EpisodeMirrorTerminalResolution;
+  /**
+   * ATTRIBUTION_WRITERS_V1 (design f5d77712 3.4, writer 1): the exact framed
+   * event to append through the common append instead of formattedContent.
+   */
+  episodeEvent?: import('./projection-append').AppendEvent;
+  /** Set when the item was enqueued with the switch on: never append it unframed. */
+  attributionRequired?: boolean;
 }
 
 export interface EpisodeMirrorOutboxPaths {
