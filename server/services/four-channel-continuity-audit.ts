@@ -96,8 +96,14 @@ export function auditEpisodeRow(content: string, attributionColumn: unknown): Ep
   }
 
   for (const frame of verdict.frames) {
-    if (frame.kind !== 'attributed' || frame.speaker !== 'luca') continue;
     const line = lineAt(content, new TextDecoder().decode(bytes.subarray(0, frame.labelStart)).length);
+    // Revision 10: structural bytes are not dialogue and are skipped;
+    // unattributed evidence is reported as uncertifiable, never passed.
+    if (frame.kind === 'unattributed') {
+      unattributed.push({ line, preview: preview(frame.body), region: 'attributed', reason: 'unattributed evidence: cannot certify' });
+      continue;
+    }
+    if (frame.kind !== 'attributed' || frame.speaker !== 'luca') continue;
     if (frame.hat === 'replit') {
       replitTurns.push({ line, preview: preview(frame.body), complete: isCanonicalFourChannelLucaTurn(frame.body) });
     } else if (frame.hat === 'unknown') {

@@ -6,7 +6,7 @@ export const enc = (s: string) => new TextEncoder().encode(s);
 const SEP = '\n\n';
 
 export interface Spec {
-  kind: 'attributed' | 'participant';
+  kind: 'attributed' | 'participant' | 'structural' | 'unattributed';
   source: string;
   eventId: string;
   frameKey: string;
@@ -37,7 +37,9 @@ export function row(legacy: string, specs: Spec[]) {
       labelStart, bodyStart, bodyEnd,
       labelSha256: sha(bytes.subarray(labelStart, bodyStart)), bodySha256: sha(bytes.subarray(bodyStart, bodyEnd)),
     };
-    turns.push(spec.kind === 'participant'
+    turns.push(spec.kind === 'structural' || spec.kind === 'unattributed'
+      ? base
+      : spec.kind === 'participant'
       ? { ...base, participant: spec.participant }
       : {
           ...base, speaker: spec.speaker, hat: spec.hat, hatEvidence: spec.hatEvidence,
