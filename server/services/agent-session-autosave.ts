@@ -2952,6 +2952,23 @@ async function checkChatCapture(): Promise<void> {
 // ---------------------------------------------------------------------------
 export async function checkAutoCapture(): Promise<void> {
   const triggerPath = _autoCaptureTriggerPathOverrideForTest ?? LUCA_AUTO_CAPTURE_PATH;
+  if (attributionWritersEnabled() && _autoCaptureDbEnabled) {
+    // ATTRIBUTION_WRITERS_V1, writer 3 (design 3.5): durable intake, caller
+    // turn ids, canonical replit turns projected by writer 1. The direct
+    // episode append below is not used: once the exchange is in the canonical
+    // log, the canonical pipeline owns its projection and retries.
+    const { moveTriggerIntoIntake, processAutoCaptureIntake } = await import('./auto-capture-intake');
+    moveTriggerIntoIntake(triggerPath);
+    const outcomes = processAutoCaptureIntake();
+    for (const outcome of outcomes) {
+      if (outcome.status === 'pending') {
+        console.error(`[AgentAutosave] Auto-capture intake pending (${outcome.record}): ${outcome.reason}`);
+        flagDbWriteFailure(`auto-capture-pending:${outcome.record}`, outcome.reason ?? 'pending');
+      }
+    }
+    if (outcomes.some(outcome => outcome.status === 'recorded')) await checkChatCapture();
+    return;
+  }
   if (!existsSync(triggerPath)) return;
   const trigger = parseAutoCaptureTrigger(triggerPath);
   if (!trigger || (!trigger.david && !trigger.luca)) {

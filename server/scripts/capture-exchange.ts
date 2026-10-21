@@ -25,6 +25,8 @@
 import { writeFileSync, renameSync, existsSync } from 'fs';
 import { join } from 'path';
 import { WORKSPACE, LUCA_AUTO_CAPTURE_PATH } from '../services/transcript-parser';
+import { attributionWritersEnabled } from '../services/attribution-rendering';
+import { publishTriggerExclusive } from '../services/auto-capture-intake';
 
 const args = process.argv.slice(2);
 
@@ -55,17 +57,38 @@ if (!davidText && !lucaText) {
   process.exit(1);
 }
 
+// ATTRIBUTION_WRITERS_V1 (writer 3, design 3.5): a stable caller turn id,
+// reused unchanged on retry, makes these canonical replit turns.
+const turnId = getArg('--turn-id');
+if (attributionWritersEnabled() && !turnId) {
+  console.error('[CaptureExchange] --turn-id <stable id> is required while ATTRIBUTION_WRITERS_V1 is on (reuse the same id on retry).');
+  process.exit(1);
+}
+if (turnId !== undefined && !/^[A-Za-z0-9-]{1,200}$/.test(turnId)) {
+  console.error('[CaptureExchange] --turn-id must be 1-200 letters, digits or hyphens.');
+  process.exit(1);
+}
+
 const trigger: Record<string, string> = { ts: new Date().toISOString() };
+if (turnId)    trigger.turnId = turnId;
 if (davidText) trigger.david = davidText;
 if (lucaText)  trigger.luca  = lucaText;
 
-// Atomic write via temp file + rename — prevents the autosave worker's fs.watch
-// from observing an empty or partially-written file. writeFileSync to the target
-// directly would expose a window where the watcher reads zero/partial bytes and
-// deletes the trigger as "invalid". With rename, the file appears atomically.
-const tmpPath = LUCA_AUTO_CAPTURE_PATH + '.tmp';
-writeFileSync(tmpPath, JSON.stringify(trigger, null, 2), 'utf-8');
-renameSync(tmpPath, LUCA_AUTO_CAPTURE_PATH);
+if (turnId || attributionWritersEnabled()) {
+  // Never overwrite a trigger the worker has not consumed yet.
+  if (!publishTriggerExclusive(LUCA_AUTO_CAPTURE_PATH, JSON.stringify(trigger, null, 2))) {
+    console.error('[CaptureExchange] A previous trigger is still pending; nothing was overwritten. Retry with the same --turn-id shortly.');
+    process.exit(75);
+  }
+} else {
+  // Atomic write via temp file + rename — prevents the autosave worker's fs.watch
+  // from observing an empty or partially-written file. writeFileSync to the target
+  // directly would expose a window where the watcher reads zero/partial bytes and
+  // deletes the trigger as "invalid". With rename, the file appears atomically.
+  const tmpPath = LUCA_AUTO_CAPTURE_PATH + '.tmp';
+  writeFileSync(tmpPath, JSON.stringify(trigger, null, 2), 'utf-8');
+  renameSync(tmpPath, LUCA_AUTO_CAPTURE_PATH);
+}
 
 const parts: string[] = [];
 if (davidText) parts.push('1 David turn');
