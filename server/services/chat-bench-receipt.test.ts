@@ -140,6 +140,35 @@ describe('in-process turn reservation (luca-replit review of PR69, R1)', () => {
     const source = readFileSync(new URL('../routes.ts', import.meta.url), 'utf8');
     assert.match(source, /ATTRIBUTION_WRITERS_V1 is off; start a new session or turn the switch back on/);
     assert.match(source, /if \(autoSaveExpiredVoiceTranscripts\) \{\s*\/\/ Restart-safe/);
-    assert.match(source, /benchSessionExists\(getUserDb\(\) as any, id\)\.catch\(\(\) => attributionWritersEnabled\(\)\)/);
+  });
+});
+
+describe('rollback fails closed on an unknown receipt state (luca-replit re-review of PR69)', () => {
+  const lookups = {
+    receipt: async () => true,
+    legacy: async () => false,
+    failing: async () => { throw new Error('database unavailable'); },
+  };
+  test('a switch-off request refuses a receipt session and returns retry when ownership is unknown', async () => {
+    const { receiptOwnership, rollbackRequestDecision } = await import('./chat-bench-receipt');
+    assert.equal(rollbackRequestDecision(await receiptOwnership(lookups.receipt)), 'refuse');
+    assert.equal(rollbackRequestDecision(await receiptOwnership(lookups.failing)), 'retry', 'never runs-legacy-model on a failed lookup');
+    assert.equal(rollbackRequestDecision(await receiptOwnership(lookups.legacy)), 'legacy');
+  });
+  test('the expiry sweep defers on an unknown state and never legacy-saves a receipt session', async () => {
+    const { receiptOwnership, expirySweepDecision } = await import('./chat-bench-receipt');
+    assert.equal(expirySweepDecision(await receiptOwnership(lookups.receipt)), 'drop');
+    assert.equal(expirySweepDecision(await receiptOwnership(lookups.failing)), 'defer', 'kept and retried next sweep');
+    assert.equal(expirySweepDecision(await receiptOwnership(lookups.legacy)), 'legacy-save');
+  });
+  test('the route applies those decisions before any model work and in the sweep', () => {
+    const source = readFileSync(new URL('../routes.ts', import.meta.url), 'utf8');
+    const start = source.indexOf('app.post("/api/admin/agent-voice-turn"');
+    const route = source.slice(start, source.indexOf('app.get("/api/admin/google-voices', start));
+    const decide = route.indexOf('rollbackRequestDecision(await receiptOwnership(');
+    assert.ok(decide > 0 && decide < route.indexOf('ai.live.connect('));
+    assert.match(route, /if \(decision === 'retry'\) \{\s*return res\.status\(503\)/);
+    assert.match(source, /const decision = expirySweepDecision\(await receiptOwnership\([^\n]+\n\s*if \(decision === 'defer'\) continue;/);
+    assert.doesNotMatch(source, /\.catch\(\(\) => attributionWritersEnabled\(\)\)/, 'no fail-open fallback remains');
   });
 });
