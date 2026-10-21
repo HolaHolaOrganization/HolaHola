@@ -12,7 +12,7 @@
  * pending and is reported. It is never unlinked, and no id is ever invented.
  */
 import { createHash, randomUUID } from 'node:crypto';
-import { existsSync, linkSync, mkdirSync, readdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, linkSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { join, resolve } from 'node:path';
 import { appendAutoCaptureExchange } from './canonical-conversation-capture';
@@ -73,14 +73,28 @@ const TURN_ID = /^[A-Za-z0-9-]{1,200}$/;
 const RECORD_NAME = /^\d{15}-\d{9}-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.json$/;
 
 /**
+ * The physical identity of an intake directory: its real path, with symlinks
+ * and Windows junctions resolved by the OS (realpathSync.native), and
+ * lowercased on Windows, whose filesystem is case-insensitive. Two aliases of
+ * one directory (a symlink, a junction, different casing) get ONE identity,
+ * and so one lock (luca-replit re-review of PR71). A path that does not exist
+ * yet falls back to its resolved string; withIntakeLock always creates the
+ * directory before naming its lock.
+ */
+export function intakeDirectoryIdentity(dir: string, platform = process.platform): string {
+  const canonical = existsSync(dir) ? realpathSync.native(dir) : resolve(dir);
+  return platform === 'win32' ? canonical.toLowerCase() : canonical;
+}
+
+/**
  * The OS-owned address of one intake directory's lock: a Linux
  * abstract-namespace socket or a Windows named pipe, both named by a hash of
- * the directory's absolute path. Neither is a file, so there is no stale lock
- * and nothing ever takes one over: the OS frees it the moment the holding
- * process exits or dies (luca-replit re-review of PR71).
+ * the directory's physical identity. Neither is a file, so there is no stale
+ * lock and nothing ever takes one over: the OS frees it the moment the
+ * holding process exits or dies (luca-replit re-review of PR71).
  */
 export function intakeLockAddress(dir: string, platform = process.platform): string {
-  const id = createHash('sha256').update(resolve(dir)).digest('hex').slice(0, 32);
+  const id = createHash('sha256').update(intakeDirectoryIdentity(dir, platform)).digest('hex').slice(0, 32);
   if (platform === 'win32') return `\\\\.\\pipe\\holahola-intake-${id}`;
   if (platform === 'linux') return `\0holahola-intake-${id}`;
   throw new Error(`intake_lock_unsupported_platform:${platform}`);

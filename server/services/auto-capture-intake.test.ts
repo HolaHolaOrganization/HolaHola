@@ -268,6 +268,32 @@ describe('writer 3: the OS-owned intake lock (luca-replit re-review of PR71)', (
     assert.deepEqual(readdirSync(s.dir).filter(f => f.startsWith('.intake')), [], 'no lock files at all');
   });
 
+  test('aliases of the same physical directory share one lock (symlink or junction; casing on Windows)', async () => {
+    const { withIntakeLockForTest, intakeLockAddress } = await import('./auto-capture-intake');
+    const { mkdtempSync: mk, symlinkSync, mkdirSync: md } = await import('node:fs');
+    const root = mk(join(tmpdir(), 'intake-alias-'));
+    const real = join(root, 'intake');
+    md(real);
+    const alias = join(root, 'alias');
+    symlinkSync(real, alias, process.platform === 'win32' ? 'junction' : 'dir');
+    const aliases = [alias, ...(process.platform === 'win32' ? [real.toUpperCase()] : [])];
+    for (const other of aliases) assert.equal(intakeLockAddress(other), intakeLockAddress(real), `one address for ${other}`);
+    let release!: () => void;
+    const gate = new Promise<void>(r => { release = r; });
+    let inside = 0;
+    let overlap = false;
+    const holder = withIntakeLockForTest(real, async () => { inside++; await gate; inside--; return 'held'; });
+    await new Promise(r => setTimeout(r, 20));
+    for (const other of aliases) {
+      const result = await withIntakeLockForTest(other, () => { if (inside > 0) overlap = true; return 'entered'; });
+      assert.equal(result, 'busy', `an alias (${other}) cannot enter while the real path is held`);
+    }
+    release();
+    assert.equal(await holder, 'held');
+    assert.equal(overlap, false, 'never two critical sections on one directory');
+    assert.equal(await withIntakeLockForTest(alias, () => 'free'), 'free', 'the alias acquires once the holder is gone');
+  });
+
   test('the address is OS-owned per directory, never a file', async () => {
     const { intakeLockAddress } = await import('./auto-capture-intake');
     assert.match(intakeLockAddress('/a', 'linux'), /^\0holahola-intake-[0-9a-f]{32}$/);
