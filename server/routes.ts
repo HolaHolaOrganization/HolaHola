@@ -25318,10 +25318,55 @@ Current conversation context:
   // Expiry runs on every instance role; only production writes the expired
   // transcript to the shared conversation_memories (plan efb1e3d1 S2.2).
   const autoSaveExpiredVoiceTranscripts = getProcessBackgroundTasks().claim('agent-voice-transcript-autosave');
+  // ATTRIBUTION_WRITERS_V1 chat-bench receipts: turnIds whose model call is
+  // running in this process (a concurrent duplicate is refused, not rerun).
+  const benchTurnsInFlight = new Set<string>();
+  // Finalize a receipt-mode session's existing row and re-embed it. Returns
+  // null when the session has no receipt row.
+  async function finalizeBenchSessionRow(benchSessionId: string, title: string | null, extraTags: string[]): Promise<string | null> {
+    try {
+      const { finalizeBenchSession } = await import('./services/chat-bench-receipt');
+      const id = await finalizeBenchSession(getUserDb() as any, benchSessionId, title, extraTags);
+      if (id) {
+        try {
+          const { reembedConversationMemory } = await import('./scripts/reembed-memory');
+          await reembedConversationMemory(id);
+        } catch (embedErr: any) {
+          console.warn(`[Agent Voice Turn] Re-embed failed (non-fatal): ${embedErr.message}`);
+        }
+      }
+      return id;
+    } catch (err: any) {
+      console.error(`[Agent Voice Turn] Failed to finalize bench session ${benchSessionId}: ${err.message}`);
+      return null;
+    }
+  }
   setInterval(async () => {
     const cutoff = Date.now() - 60 * 60 * 1000;
+    const { attributionWritersEnabled } = await import('./services/attribution-rendering');
+    if (attributionWritersEnabled() && autoSaveExpiredVoiceTranscripts) {
+      // Restart-safe: unfinished receipt rows are found in the database, not
+      // the Map, and finalized in place (no second transcript insert).
+      try {
+        const { staleBenchSessions } = await import('./services/chat-bench-receipt');
+        for (const stale of await staleBenchSessions(getUserDb() as any, new Date(cutoff))) {
+          await finalizeBenchSessionRow(stale, null, ['auto-expired']);
+          agentVoiceSessions.delete(stale);
+        }
+      } catch (err: any) {
+        console.warn(`[Agent Voice Turn] Bench receipt expiry sweep failed: ${err.message}`);
+      }
+    }
     for (const [id, s] of agentVoiceSessions) {
       if (s.createdAt < cutoff) {
+        if (attributionWritersEnabled()) {
+          const { benchSessionExists } = await import('./services/chat-bench-receipt');
+          if (await benchSessionExists(getUserDb() as any, id).catch(() => true)) {
+            // A receipt row owns this transcript; never insert a second copy.
+            agentVoiceSessions.delete(id);
+            continue;
+          }
+        }
         // If the session accumulated any transcript, auto-save it before expiry so nothing is lost.
         if (autoSaveExpiredVoiceTranscripts && s.conversationTranscript.length > 0) {
           try {
@@ -25380,7 +25425,7 @@ Current conversation context:
   app.post("/api/admin/agent-voice-turn", isAuthenticated, loadAuthenticatedUser(storage), requireRole('admin'), async (req: any, res: Response) => {
     const { audio, sessionId, languageCode = 'es-ES', voiceId = 'Aoede', model: requestedModel, watchId, studentText,
             endSession = false, memoryTitle, memoryTags, topicHint,
-            noEpisode = false } = req.body;
+            noEpisode = false, turnId } = req.body;
     if (!audio) return res.status(400).json({ error: 'audio (base64 PCM16 @ 16kHz) required' });
 
     const MODEL = (requestedModel && ['gemini-3.1-flash-live-preview','gemini-2.5-flash-native-audio-preview-12-2025'].includes(requestedModel))
@@ -25389,6 +25434,61 @@ Current conversation context:
     const voice = voiceId || 'Aoede';
     const langCode = languageCode;
     const sessionKey = sessionId || `agent-${Date.now()}`;
+
+    // ATTRIBUTION_WRITERS_V1 (default off): durable per-turn chat-bench
+    // receipts (services/chat-bench-receipt.ts). Episode capture, or any turn
+    // carrying a turnId, records a receipt keyed by the caller's sessionId and
+    // turnId, validated here before any model or tool side effect. With the
+    // switch off this route behaves exactly as before.
+    const { attributionWritersEnabled } = await import('./services/attribution-rendering');
+    const benchReceipts = attributionWritersEnabled();
+    const receiptMode = benchReceipts && (!noEpisode || turnId !== undefined);
+    const bench = receiptMode ? await import('./services/chat-bench-receipt') : null;
+    const benchUserId: string | undefined = req.user?.id;
+    let benchInFlightKey: string | null = null;
+    if (benchReceipts) {
+      const db = getUserDb() as any;
+      if (bench) {
+        const invalid = bench.validateBenchIdentity(sessionId, turnId);
+        if (invalid) return res.status(400).json({ error: `episode capture needs a stable caller identity: ${invalid}` });
+        if (typeof studentText !== 'string' || studentText.length === 0) {
+          // Audio-only turns cannot bind the request bytes to a receipt before
+          // the model runs; capture them only as noEpisode legacy turns.
+          return res.status(400).json({ error: 'episode capture needs studentText (text mode); send noEpisode: true for audio-only turns' });
+        }
+        if (!benchUserId) return res.status(401).json({ error: 'authenticated user required for bench receipts' });
+        benchInFlightKey = bench.benchEventId(sessionId, turnId);
+        if (benchTurnsInFlight.has(benchInFlightKey)) {
+          return res.status(409).json({ error: 'this turnId is already in flight; retry after it completes' });
+        }
+        const stored = await bench.findBenchTurn(db, sessionId, turnId, benchUserId, studentText);
+        if (stored.status === 'conflict') return res.status(409).json({ error: stored.reason });
+        if (stored.status === 'complete') {
+          // Completed exact retry: return the stored bytes, never rerun
+          // Daniela or tools. Projection is retried through the common append
+          // so an earlier projection failure is repaired, not assumed done.
+          let episodeProjection: unknown = 'skipped';
+          if (!noEpisode) {
+            try {
+              const { currentRollingEpisodeId } = await import('./services/projection-append-store');
+              episodeProjection = await bench.projectBenchTurn(db, stored.event, currentRollingEpisodeId);
+            } catch (e: any) { episodeProjection = { failed: e?.message ?? String(e) }; }
+          }
+          let savedMemoryId: string | null = null;
+          if (endSession) savedMemoryId = await finalizeBenchSessionRow(sessionId, memoryTitle ?? null, Array.isArray(memoryTags) ? memoryTags : []);
+          return res.json({ sessionId, turnId, replayed: true, transcript: stored.lucaText, danielaText: stored.danielaText, episodeProjection, ...(savedMemoryId ? { savedMemoryId } : {}) });
+        }
+        benchTurnsInFlight.add(benchInFlightKey);
+        const release = () => { if (benchInFlightKey) benchTurnsInFlight.delete(benchInFlightKey); };
+        res.on('finish', release);
+        res.on('close', release);
+      } else if (typeof sessionId === 'string') {
+        const { benchSessionExists } = await import('./services/chat-bench-receipt');
+        if (await benchSessionExists(db, sessionId)) {
+          return res.status(400).json({ error: 'this session records per-turn receipts; every turn needs a turnId' });
+        }
+      }
+    }
 
     const isNewSession = !agentVoiceSessions.has(sessionKey);
     if (isNewSession) {
@@ -25766,7 +25866,28 @@ The visual layer IS the lesson. Move through the arc in sequence — open scene 
       // Channel 3 of the triple-feed episode capture: append this Luca↔Daniela exchange
       // to the rolling episode via the .episode_append trigger file (fire-and-forget).
       // Skipped when noEpisode=true so CI smoke tests don't pollute the episode narrative.
-      if (lucaLine?.trim() && !noEpisode) {
+      let episodeProjection: unknown;
+      if (bench) {
+        // Receipt BEFORE projection: the exact bytes and frames commit first.
+        const db = getUserDb() as any;
+        const dateStr = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+        const turn = { sessionId, turnId, lucaText: studentText, danielaText, participant: 'daniela' as const };
+        const recorded = await bench.recordBenchTurn(db, turn, { userId: benchUserId!, topicHint: topicHint || '', dateStr });
+        if (recorded.kind === 'conflict') {
+          // Daniela already answered this request; say so rather than hide it.
+          return res.status(409).json({ error: `receipt refused: ${recorded.reason}`, modelRan: true });
+        }
+        episodeProjection = 'skipped';
+        if (!noEpisode) {
+          try {
+            const { currentRollingEpisodeId } = await import('./services/projection-append-store');
+            episodeProjection = await bench.projectBenchTurn(db, bench.benchEvent(turn), currentRollingEpisodeId);
+          } catch (e: any) {
+            // The receipt is durable; an exact retry repairs the projection.
+            episodeProjection = { failed: e?.message ?? String(e) };
+          }
+        }
+      } else if (lucaLine?.trim() && !noEpisode) {
         import('./services/chat-episode-hook').then(({ maybeAppendChatMessage }) => {
           maybeAppendChatMessage(lucaLine, danielaText).catch((e: any) => {
             console.warn('[Agent Voice Turn] chat-episode-hook non-fatal:', e?.message);
@@ -25776,7 +25897,15 @@ The visual layer IS the lesson. Move through the arc in sequence — open scene 
 
       // If this is the final turn, save the full session to conversation_memories
       let savedMemoryId: string | null = null;
-      if (endSession && agentSession.conversationTranscript.length > 0) {
+      if (endSession && bench) {
+        // Finalize and re-embed the SAME receipt row; never a second transcript insert.
+        savedMemoryId = await finalizeBenchSessionRow(sessionId, memoryTitle ?? null, Array.isArray(memoryTags) ? memoryTags : []);
+        agentVoiceSessions.delete(sessionKey);
+        try {
+          const { observeSessionEnd: _obsEnd } = await import('./services/session-observation-store');
+          _obsEnd(sessionKey);
+        } catch { /* non-fatal */ }
+      } else if (endSession && agentSession.conversationTranscript.length > 0) {
         try {
           const { sql: sqlTag } = await import('drizzle-orm');
           const db = getUserDb();
@@ -25832,7 +25961,7 @@ The visual layer IS the lesson. Move through the arc in sequence — open scene 
         } catch { /* non-fatal */ }
       }
 
-      res.json({ sessionId: sessionKey, turnNumber: agentSession.turnCount, audioWav, audioDurationS, transcript, danielaText, visualEvents, toolCallsSummary, ...(savedMemoryId ? { savedMemoryId } : {}), ...(reachNorthStarResult !== undefined ? { reachNorthStarResult } : {}) });
+      res.json({ sessionId: sessionKey, turnNumber: agentSession.turnCount, audioWav, audioDurationS, transcript, danielaText, visualEvents, toolCallsSummary, ...(savedMemoryId ? { savedMemoryId } : {}), ...(reachNorthStarResult !== undefined ? { reachNorthStarResult } : {}), ...(bench ? { turnId, replayed: false, episodeProjection } : {}) });
 
     } catch (error: any) {
       console.error('[Agent Voice Turn] Error:', error.message);
