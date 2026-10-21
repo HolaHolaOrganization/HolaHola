@@ -15,6 +15,13 @@ import { PolicyLoader, REPOSITORY_ID } from './policy.ts';
 import { createBrokerServer } from './server.ts';
 
 export const MAIN_REPOSITORY = { owner: 'davidwmcintosh', name: 'HolaHola', id: REPOSITORY_ID } as const;
+/**
+ * The founder-owned accounts HolaHola may live under while it moves from the
+ * personal account to the organization. Requests refuse redirects, so the broker
+ * must name the current owner: BROKER_MAIN_REPO_OWNER picks one of these at the
+ * cutover (default: MAIN_REPOSITORY.owner). The repository id never changes.
+ */
+export const MAIN_REPOSITORY_OWNERS: readonly string[] = ['davidwmcintosh', 'HolaHolaOrganization'];
 
 export class ConfigError extends Error {}
 
@@ -52,6 +59,7 @@ function appKey(env: Env, name: string): KeyObject {
 
 export type BrokerConfig = {
   actors: Map<string, ActorBinding>;
+  mainRepository: { owner: string; name: string; id: number };
   audit: { repo: { owner: string; name: string }; repositoryId: number; appId: number; installationId: number; privateKey: KeyObject };
   port: number;
 };
@@ -61,6 +69,7 @@ export type BrokerConfig = {
  * BROKER_APP_PRIVATE_KEY_<appId>: each actor App's private key.
  * BROKER_AUDIT_REPO (owner/name), BROKER_AUDIT_REPO_ID, BROKER_AUDIT_APP_ID,
  * BROKER_AUDIT_INSTALLATION_ID, BROKER_AUDIT_APP_PRIVATE_KEY: the audit App.
+ * BROKER_MAIN_REPO_OWNER (optional): one of MAIN_REPOSITORY_OWNERS.
  * PORT: listen port (default 10000).
  */
 export function loadConfig(env: Env): BrokerConfig {
@@ -95,8 +104,12 @@ export function loadConfig(env: Env): BrokerConfig {
       privateKey: appKey(env, `BROKER_APP_PRIVATE_KEY_${appId}`),
     });
   }
+  const mainOwner = env.BROKER_MAIN_REPO_OWNER?.trim() || MAIN_REPOSITORY.owner;
+  if (!MAIN_REPOSITORY_OWNERS.includes(mainOwner)) throw new ConfigError('invalid BROKER_MAIN_REPO_OWNER');
+  const mainRepository = { owner: mainOwner, name: MAIN_REPOSITORY.name, id: MAIN_REPOSITORY.id };
   const auditRepo = required(env, 'BROKER_AUDIT_REPO');
-  if (!REPO_NAME.test(auditRepo) || auditRepo.toLowerCase() === `${MAIN_REPOSITORY.owner}/${MAIN_REPOSITORY.name}`.toLowerCase()) {
+  // The audit repo is never HolaHola itself, under either owner.
+  if (!REPO_NAME.test(auditRepo) || MAIN_REPOSITORY_OWNERS.some((o) => auditRepo.toLowerCase() === `${o}/${MAIN_REPOSITORY.name}`.toLowerCase())) {
     throw new ConfigError('invalid BROKER_AUDIT_REPO');
   }
   const [owner, name] = auditRepo.split('/');
@@ -108,6 +121,7 @@ export function loadConfig(env: Env): BrokerConfig {
   if (!Number.isSafeInteger(port) || port <= 0 || port > 65_535) throw new ConfigError('invalid PORT');
   return {
     actors,
+    mainRepository,
     audit: {
       repo: { owner, name }, repositoryId: positiveInt(env, 'BROKER_AUDIT_REPO_ID'),
       appId: auditAppId, installationId: auditInstallation, privateKey: appKey(env, 'BROKER_AUDIT_APP_PRIVATE_KEY'),
@@ -123,9 +137,9 @@ export function assemble(config: BrokerConfig, api: GitHubApi, now: () => number
     // Each actor's own App reads policy, downscoped to contents:read on HolaHola only.
     const read = new InstallationToken(api, {
       appId: binding.appId, installationId: binding.installationId, privateKey: binding.privateKey,
-      repositoryId: MAIN_REPOSITORY.id, permissions: { contents: 'read' },
+      repositoryId: config.mainRepository.id, permissions: { contents: 'read' },
     }, now);
-    loaders.set(actor, new PolicyLoader(new GitHubPolicySource(api, MAIN_REPOSITORY, () => read.get()), now));
+    loaders.set(actor, new PolicyLoader(new GitHubPolicySource(api, config.mainRepository, () => read.get()), now));
   }
   const auditToken = new InstallationToken(api, {
     appId: config.audit.appId, installationId: config.audit.installationId, privateKey: config.audit.privateKey,
@@ -133,7 +147,7 @@ export function assemble(config: BrokerConfig, api: GitHubApi, now: () => number
   }, now);
   const ledger = new GitHubLedger(api, config.audit.repo, () => auditToken.get());
   const loaderFor: LoaderFor = (actor) => loaders.get(actor);
-  const gateway = new Gateway({ repo: MAIN_REPOSITORY, actors: config.actors, api, ledger, loaderFor, now });
+  const gateway = new Gateway({ repo: config.mainRepository, actors: config.actors, api, ledger, loaderFor, now });
   return { loaderFor, healthLoader: loaders.values().next().value as PolicyLoader, gateway };
 }
 

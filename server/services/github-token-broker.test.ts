@@ -6,6 +6,8 @@ import type { GithubAppGrant } from '@shared/schema';
 import {
   AGENT_TOKEN_PERMISSIONS,
   GRANT_TRANSITIONS,
+  HOLAHOLA_INSTALLATION_ACCOUNT_IDS,
+  HOLAHOLA_ORGANIZATION_ACCOUNT_ID,
   HOLAHOLA_OWNER_ACCOUNT_ID,
   HOLAHOLA_REPOSITORY_ID,
   buildAuditMetadata,
@@ -209,8 +211,17 @@ test('a missing or unusable App key is reported as unavailable', async () => {
   await expectDenied(harness({ key: '-----BEGIN PRIVATE KEY-----\nnot-a-key\n-----END PRIVATE KEY-----' }), AGENT, 503, 'app_key_unavailable');
 });
 
+test('during the move to the organization, an installation on either founder account mints', async () => {
+  for (const id of [HOLAHOLA_OWNER_ACCOUNT_ID, HOLAHOLA_ORGANIZATION_ACCOUNT_ID]) {
+    const result = await mintAgentGithubToken(AGENT, harness({ installation: { app_id: APP_ID, account: { id } } }).deps);
+    assert.equal(result.ok, true, `account ${id}`);
+  }
+  assert.deepEqual([...HOLAHOLA_INSTALLATION_ACCOUNT_IDS].sort(), [34244604, 346076814]);
+});
+
 test('an installation belonging to another App or account is refused', async () => {
   await expectDenied(harness({ installation: { app_id: 999, account: { id: HOLAHOLA_OWNER_ACCOUNT_ID } } }), AGENT, 403, 'installation_mismatch');
+  await expectDenied(harness({ installation: { app_id: 999, account: { id: HOLAHOLA_ORGANIZATION_ACCOUNT_ID } } }), AGENT, 403, 'installation_mismatch');
   await expectDenied(harness({ installation: { app_id: APP_ID, account: { id: 1 } } }), AGENT, 403, 'installation_mismatch');
   await expectDenied(harness({ installation: { app_id: APP_ID, account: null } }), AGENT, 403, 'installation_mismatch');
 });
