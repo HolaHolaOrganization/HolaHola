@@ -197,9 +197,14 @@ Always use `gemini-3-flash-preview` — the 3.x text model, same family as Danie
 
 - `stage-<n>-request.md`: the exact prompt for that stage;
 - `stage-<n>-request.json`: the exact request sent (model, settings and the full history of earlier stages), with no key and no headers;
+- `stage-<n>-attempt-<k>.json`: one record per send attempt (when it started and ended, and how it ended);
 - `stage-<n>-response.md`: Gemini's verbatim answer.
 
-Stage n is sent with stages 1..n-1 as conversation history, rebuilt from those files, so stage 2 sees stage 1's exact exchange. Earlier stages are never overwritten. A stage whose call failed can be retried only with the identical prompt; a changed prompt is a new stage. `--dry-run` records the request without sending anything, which is useful for checking a packet.
+Stage n is sent with stages 1..n-1 as conversation history, rebuilt from those files, so stage 2 sees stage 1's exact exchange. Nothing recorded is ever overwritten.
+
+A stage whose send failed can be retried only with a byte-identical request. A changed prompt, model, setting or history is a new stage. Only one run can work on a stage at a time: it holds `stage-<n>.lock`. If a run was killed, the lock stays; check the attempt files before removing it.
+
+`--dry-run` records the request without sending anything, which is useful for checking a packet.
 
 ---
 
