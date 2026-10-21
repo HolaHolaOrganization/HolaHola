@@ -12,7 +12,8 @@
  */
 import { isCanonicalFourChannelLucaTurn } from './inner-life-capture';
 import { parseSpeakerLine } from './canonical-attribution';
-import { turnAttributionOf, verifyTurnAttribution } from './turn-attribution';
+import { turnAttributionOf, verifyTurnAttribution, type InnerLifeChannel } from './turn-attribution';
+import { checkInnerLifeReceipt, type ReceiptRow } from './inner-life-receipt';
 
 export interface LucaTurnAudit {
   line: number;
@@ -28,13 +29,35 @@ export interface UnattributedTurn {
   reason: string;
 }
 
+/**
+ * Revision 12 (design section 3.5): a direct inner-life fragment. Listed
+ * separately; it is never a main turn and never certifies one.
+ */
+export interface ChannelFragmentAudit {
+  line: number;
+  channel: InnerLifeChannel;
+  entryId: string;
+  receiptRowId: string;
+  /** verified only when its receipt row passed the binding check. */
+  receipt: 'verified' | 'unverified';
+  reason?: string;
+}
+
 export interface EpisodeRowAudit {
   attribution: 'absent' | 'valid' | 'invalid';
   attributionReason?: string;
   /** Replit turns, certified complete or incomplete. */
   replitTurns: LucaTurnAudit[];
   unattributed: UnattributedTurn[];
+  channelFragments: ChannelFragmentAudit[];
 }
+
+/**
+ * Receipt rows already read from the database, keyed by receiptRowId: the
+ * row, null for "no such row", or 'unavailable' when the lookup failed. A
+ * fragment whose receiptRowId is not in the map is unverified.
+ */
+export type ReceiptRows = ReadonlyMap<string, ReceiptRow | null | 'unavailable'>;
 
 const preview = (text: string) => text.replace(/\s+/g, ' ').slice(0, 120);
 const lineAt = (content: string, index: number) => content.slice(0, index).split('\n').length;
@@ -74,10 +97,11 @@ function hatlessLegacyLuca(content: string): UnattributedTurn[] {
 }
 
 /** Audit one episode row from its stored content and attribution column. */
-export function auditEpisodeRow(content: string, attributionColumn: unknown): EpisodeRowAudit {
+export function auditEpisodeRow(content: string, attributionColumn: unknown, receiptRows?: ReceiptRows): EpisodeRowAudit {
   const verdict = verifyTurnAttribution(content, turnAttributionOf(attributionColumn));
+  const channelFragments: ChannelFragmentAudit[] = [];
   if (verdict.status === 'absent') {
-    return { attribution: 'absent', replitTurns: auditEpisodeContent(content), unattributed: hatlessLegacyLuca(content) };
+    return { attribution: 'absent', replitTurns: auditEpisodeContent(content), unattributed: hatlessLegacyLuca(content), channelFragments };
   }
 
   const bytes = new TextEncoder().encode(content);
@@ -92,19 +116,36 @@ export function auditEpisodeRow(content: string, attributionColumn: unknown): Ep
       line: lineAt(content, legacy.length), preview: preview(rest), region: 'attributed',
       reason: `per-turn attribution invalid: ${verdict.reason}`,
     });
-    return { attribution: 'invalid', attributionReason: verdict.reason, replitTurns, unattributed };
+    return { attribution: 'invalid', attributionReason: verdict.reason, replitTurns, unattributed, channelFragments };
   }
 
   for (const frame of verdict.frames) {
-    if (frame.kind !== 'attributed' || frame.speaker !== 'luca') continue;
     const line = lineAt(content, new TextDecoder().decode(bytes.subarray(0, frame.labelStart)).length);
+    // Revision 10: structural bytes are not dialogue and are skipped;
+    // unattributed evidence is reported as uncertifiable, never passed.
+    if (frame.kind === 'inner-life') {
+      const row = receiptRows?.has(frame.receiptRowId) ? receiptRows.get(frame.receiptRowId)! : undefined;
+      const verdict = row === undefined
+        ? { status: 'unverified' as const, reason: 'receipt not checked (no database lookup supplied)' }
+        : checkInnerLifeReceipt(frame, row);
+      channelFragments.push({
+        line, channel: frame.channel, entryId: frame.entryId, receiptRowId: frame.receiptRowId,
+        receipt: verdict.status, ...(verdict.status === 'unverified' ? { reason: verdict.reason } : {}),
+      });
+      continue;
+    }
+    if (frame.kind === 'unattributed') {
+      unattributed.push({ line, preview: preview(frame.body), region: 'attributed', reason: 'unattributed evidence: cannot certify' });
+      continue;
+    }
+    if (frame.kind !== 'attributed' || frame.speaker !== 'luca') continue;
     if (frame.hat === 'replit') {
       replitTurns.push({ line, preview: preview(frame.body), complete: isCanonicalFourChannelLucaTurn(frame.body) });
     } else if (frame.hat === 'unknown') {
       unattributed.push({ line, preview: preview(frame.body), region: 'attributed', reason: 'hat unknown: cannot certify' });
     }
   }
-  return { attribution: 'valid', replitTurns, unattributed };
+  return { attribution: 'valid', replitTurns, unattributed, channelFragments };
 }
 
 /**
@@ -117,5 +158,7 @@ export function auditEpisodeRow(content: string, attributionColumn: unknown): Ep
 export function strictFailure(audit: EpisodeRowAudit): boolean {
   return audit.attribution === 'invalid'
     || audit.replitTurns.some(turn => !turn.complete)
-    || audit.unattributed.length > 0;
+    || audit.unattributed.length > 0
+    // Revision 12: an unverified fragment receipt is a coverage error, never a pass.
+    || audit.channelFragments.some(fragment => fragment.receipt !== 'verified');
 }

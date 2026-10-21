@@ -18,10 +18,17 @@ import { HAT_PATTERN, parseSpeakerLine, verifyProvenance, type ProvenanceVerdict
 
 export const TURN_ATTRIBUTION_SEPARATOR = '\n\n';
 
-/** Closed source registry (design 3.3). Adding a source is a design change. */
+/**
+ * Closed source registry (design 3.3, extended by revision 10 section 3.4).
+ * Adding a source is a design change. Manual appends use manual-luca-<hat>,
+ * the authenticated actor that appended them.
+ */
 export type TurnSource =
   | 'replit' | 'claude-code'
-  | 'holahola-team-room' | 'holahola-chat-bench' | 'holahola-delegation' | 'holahola-gl';
+  | 'holahola-team-room' | 'holahola-chat-bench' | 'holahola-delegation' | 'holahola-gl'
+  | 'raw-window' | 'episode-structure' | 'replit-inner-life' | `manual-luca-${string}`;
+
+const MANUAL_SOURCE = /^manual-luca-[a-z0-9-]{1,30}$/;
 
 export type Participant = 'daniela' | 'daniela-consult' | 'alden' | 'gl-student' | 'gl-tutor';
 
@@ -45,8 +52,14 @@ interface FrameRule {
   /** frameKey for an attributed Luca/David frame, or a frameKey predicate. */
   attributed?: { speaker: 'david' | 'luca'; frameKey: (key: string) => boolean }[];
   participant?: { participant: Participant; frameKey: (key: string) => boolean }[];
+  /** Revision 10: writer-owned non-dialogue bytes (headings, markers). */
+  structural?: { frameKey: (key: string) => boolean };
+  /** Revision 10: evidence deliberately recorded without a speaker. */
+  unattributed?: { frameKey: (key: string) => boolean; sourceEventId: (id: string) => boolean };
+  /** Revision 12 (section 3.5): direct inner-life fragments, by Luca. */
+  innerLife?: true;
   /** How the hat is evidenced for this source's attributed frames. */
-  hat: 'capture-source' | 'authenticated-actor';
+  hat: 'capture-source' | 'authenticated-actor' | 'none';
 }
 
 const is = (value: string) => (key: string) => key === value;
@@ -69,7 +82,51 @@ const SOURCE_RULES: Readonly<Record<TurnSource, FrameRule>> = {
     hat: 'authenticated-actor',
     participant: [{ participant: 'gl-student', frameKey: is('gl-student') }, { participant: 'gl-tutor', frameKey: is('gl-tutor') }],
   },
+  // Revision 10: raw Replit-window origin evidence, identified by its
+  // registered, immutable evidence-ledger sourceKey. Never a speaker.
+  'raw-window': {
+    hat: 'none',
+    unattributed: { frameKey: is('origin'), sourceEventId: id => /^raw-window:[0-9a-f]{64}$/.test(id) },
+  },
+  // Revision 10: the only source allowed to carry structural bytes, so
+  // dialogue from any other source can never be relabelled as structure.
+  'episode-structure': { hat: 'none', structural: { frameKey: key => /^[a-z0-9-]{1,40}$/.test(key) } },
+  // Revision 12 (section 3.5): the intake route for direct inner-life
+  // entries. It is the only source of the inner-life kind and emits nothing else.
+  'replit-inner-life': { hat: 'none', innerLife: true },
 };
+
+/** Revision 12: the three direct inner-life channels. */
+export type InnerLifeChannel = 'felt' | 'thinking' | 'moment';
+const INNER_LIFE_CHANNELS: ReadonlySet<string> = new Set(['felt', 'thinking', 'moment']);
+const INNER_LIFE_ENTRY_ID = /^[A-Za-z0-9._-]{8,80}$/;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+/** The exact registered label bytes of a channel's fragment (U+2014 em dash). */
+export const innerLifeLabel = (channel: InnerLifeChannel) => `[Luca — ${channel}: `;
+
+const ordinalKey = (prefix: string) => (key: string) => key === prefix || new RegExp(`^${prefix}-(0|[1-9][0-9]{0,3})$`).test(key);
+
+/** Revision 10 writer 8: a manual append by an authenticated Luca actor. */
+const MANUAL_RULE: FrameRule = {
+  hat: 'authenticated-actor',
+  attributed: [{ speaker: 'david', frameKey: ordinalKey('david') }, { speaker: 'luca', frameKey: ordinalKey('luca') }],
+  participant: (Object.keys(PARTICIPANT_LABELS) as Participant[]).map(participant => ({ participant, frameKey: ordinalKey(participant) })),
+};
+
+function ruleFor(source: string): FrameRule | undefined {
+  if (Object.hasOwn(SOURCE_RULES, source)) return SOURCE_RULES[source as keyof typeof SOURCE_RULES];
+  return MANUAL_SOURCE.test(source) ? MANUAL_RULE : undefined;
+}
+
+/**
+ * Structural bytes must be structure, never prose (luca-replit, revision 10
+ * review): every line is an HTML comment, a Markdown heading, a horizontal
+ * rule, or blank.
+ */
+function isStructuralBody(body: string): boolean {
+  return body.length > 0 && body.split('\n').every(line =>
+    line === '' || /^<!--[^\n]*-->$/.test(line) || /^#{1,6} [^\n]+$/.test(line) || /^-{3,}$/.test(line));
+}
 
 const EVENT_ID = /^[A-Za-z0-9._:-]{1,200}$/;
 const CAPTURE_ID = /^[A-Za-z0-9-]{1,200}$/;
@@ -78,6 +135,9 @@ const ATTRIBUTED_KEYS = new Set(['index', 'kind', 'source', 'sourceEventId', 'fr
   'labelSha256', 'bodySha256', 'speaker', 'hat', 'hatEvidence', 'captureId', 'provenance']);
 const PARTICIPANT_KEYS = new Set(['index', 'kind', 'source', 'sourceEventId', 'frameKey', 'labelStart', 'bodyStart', 'bodyEnd',
   'labelSha256', 'bodySha256', 'participant']);
+const BARE_KEYS = new Set(['index', 'kind', 'source', 'sourceEventId', 'frameKey', 'labelStart', 'bodyStart', 'bodyEnd',
+  'labelSha256', 'bodySha256']);
+const INNER_LIFE_KEYS = new Set([...BARE_KEYS, 'channel', 'hat', 'hatEvidence', 'receiptRowId']);
 
 interface FrameBase {
   index: number;
@@ -104,7 +164,24 @@ export interface ParticipantFrame extends FrameBase {
   kind: 'participant';
   participant: Participant;
 }
-export type VerifiedFrame = AttributedFrame | ParticipantFrame;
+/** Revision 10: writer-owned non-dialogue bytes; never dialogue, never attributed. */
+export interface StructuralFrame extends FrameBase { kind: 'structural' }
+/** Revision 10: evidence recorded without a speaker; never certified. */
+export interface UnattributedFrame extends FrameBase { kind: 'unattributed' }
+/**
+ * Revision 12: a direct inner-life fragment by Luca. Structurally verified
+ * here; its receipt (receiptRowId) is verified separately against the
+ * database by checkInnerLifeReceipt. It is never a main turn.
+ */
+export interface InnerLifeFrame extends FrameBase {
+  kind: 'inner-life';
+  channel: InnerLifeChannel;
+  entryId: string;
+  receiptRowId: string;
+  /** The authored content: the body without its closing bracket. */
+  content: string;
+}
+export type VerifiedFrame = AttributedFrame | ParticipantFrame | StructuralFrame | UnattributedFrame | InnerLifeFrame;
 
 export type TurnAttributionVerdict =
   /** No turnAttribution: the whole row is legacy (rule 6). */
@@ -135,13 +212,15 @@ function decodeRange(bytes: Uint8Array, start: number, end: number): string | nu
 function checkFrame(raw: unknown, i: number, bytes: Uint8Array, keys: Set<string>): string | VerifiedFrame {
   if (!isObject(raw)) return `turn ${i} is not an object`;
   if (raw.index !== i) return `turn ${i} has index ${String(raw.index)}`;
-  if (raw.kind !== 'attributed' && raw.kind !== 'participant') return `turn ${i} kind is not recognized`;
+  const kind = raw.kind;
+  if (kind !== 'attributed' && kind !== 'participant' && kind !== 'structural' && kind !== 'unattributed' && kind !== 'inner-life') return `turn ${i} kind is not recognized`;
+  const allowedKeys = kind === 'attributed' ? ATTRIBUTED_KEYS : kind === 'participant' ? PARTICIPANT_KEYS : kind === 'inner-life' ? INNER_LIFE_KEYS : BARE_KEYS;
   for (const key of Object.keys(raw)) {
-    if (!(raw.kind === 'attributed' ? ATTRIBUTED_KEYS : PARTICIPANT_KEYS).has(key)) return `turn ${i} carries unexpected field ${key}`;
+    if (!allowedKeys.has(key)) return `turn ${i} carries unexpected field ${key}`;
   }
-  if (typeof raw.source !== 'string' || !Object.hasOwn(SOURCE_RULES, raw.source)) return `turn ${i} source is not in the registry`;
+  const rule = typeof raw.source === 'string' ? ruleFor(raw.source) : undefined;
+  if (!rule) return `turn ${i} source is not in the registry`;
   const source = raw.source as TurnSource;
-  const rule = SOURCE_RULES[source];
   if (typeof raw.sourceEventId !== 'string' || !EVENT_ID.test(raw.sourceEventId)) return `turn ${i} sourceEventId is malformed`;
   if (typeof raw.frameKey !== 'string') return `turn ${i} frameKey is missing`;
   const key = JSON.stringify([source, raw.sourceEventId, raw.frameKey]);
@@ -150,7 +229,11 @@ function checkFrame(raw: unknown, i: number, bytes: Uint8Array, keys: Set<string
 
   const { labelStart, bodyStart, bodyEnd } = raw;
   if (!isOffset(labelStart) || !isOffset(bodyStart) || !isOffset(bodyEnd)) return `turn ${i} offsets are not non-negative integers`;
-  if (!(labelStart < bodyStart && bodyStart <= bodyEnd && bodyEnd <= bytes.length)) return `turn ${i} offsets are out of order or past the content`;
+  // Structural and unattributed frames have an empty label range and a
+  // non-empty body; every other kind has a non-empty label.
+  const bare = kind === 'structural' || kind === 'unattributed';
+  const ordered = bare ? labelStart === bodyStart && bodyStart < bodyEnd : labelStart < bodyStart && bodyStart <= bodyEnd;
+  if (!ordered || bodyEnd > bytes.length) return `turn ${i} offsets are out of order or past the content`;
   if (raw.labelSha256 !== sha256Hex(bytes.subarray(labelStart, bodyStart))) return `turn ${i} labelSha256 mismatch`;
   if (raw.bodySha256 !== sha256Hex(bytes.subarray(bodyStart, bodyEnd))) return `turn ${i} bodySha256 mismatch`;
   const label = decodeRange(bytes, labelStart, bodyStart);
@@ -158,7 +241,33 @@ function checkFrame(raw: unknown, i: number, bytes: Uint8Array, keys: Set<string
   if (label === null || body === null) return `turn ${i} range splits a UTF-8 character`;
   const base = { index: i, source, sourceEventId: raw.sourceEventId, frameKey: raw.frameKey, labelStart, bodyStart, bodyEnd, label, body };
 
-  if (raw.kind === 'participant') {
+  if (kind === 'inner-life') {
+    if (!rule.innerLife) return `turn ${i} inner-life fragments are not allowed for source ${source}`;
+    const channel = raw.channel;
+    if (typeof channel !== 'string' || !INNER_LIFE_CHANNELS.has(channel)) return `turn ${i} inner-life channel is not recognized`;
+    if (raw.frameKey !== channel) return `turn ${i} inner-life frameKey must be its channel`;
+    const prefix = `inner-life:${channel}:`;
+    const entryId = (raw.sourceEventId as string).startsWith(prefix) ? (raw.sourceEventId as string).slice(prefix.length) : '';
+    if (!INNER_LIFE_ENTRY_ID.test(entryId)) return `turn ${i} inner-life sourceEventId must be inner-life:<channel>:<entryId>`;
+    // Section 3.5: direct file intake never asserts a hat.
+    if (raw.hat !== 'unknown' || raw.hatEvidence !== 'none') return `turn ${i} inner-life hat must be unknown with evidence none`;
+    if (typeof raw.receiptRowId !== 'string' || !UUID.test(raw.receiptRowId)) return `turn ${i} inner-life receiptRowId is malformed`;
+    if (label !== innerLifeLabel(channel as InnerLifeChannel)) return `turn ${i} label is not the registered ${channel} fragment prefix`;
+    if (!body.endsWith(']')) return `turn ${i} inner-life body must end with its closing bracket`;
+    return { ...base, kind: 'inner-life', channel: channel as InnerLifeChannel, entryId, receiptRowId: raw.receiptRowId, content: body.slice(0, -1) };
+  }
+  if (kind === 'structural') {
+    if (!rule.structural || !rule.structural.frameKey(raw.frameKey as string)) return `turn ${i} structural frames are not allowed for source ${source}`;
+    if (!isStructuralBody(body)) return `turn ${i} structural bytes are not structure`;
+    return { ...base, kind: 'structural' };
+  }
+  if (kind === 'unattributed') {
+    if (!rule.unattributed || !rule.unattributed.frameKey(raw.frameKey as string) || !rule.unattributed.sourceEventId(raw.sourceEventId as string)) {
+      return `turn ${i} unattributed frames are not allowed for source ${source}`;
+    }
+    return { ...base, kind: 'unattributed' };
+  }
+  if (kind === 'participant') {
     const allowed = (rule.participant ?? []).find(p => p.participant === raw.participant && p.frameKey(raw.frameKey as string));
     if (!allowed) return `turn ${i} participant/frameKey is not allowed for source ${source}`;
     if (!PARTICIPANT_LABELS[allowed.participant](label)) return `turn ${i} label is not ${allowed.participant}'s registered label`;
@@ -179,6 +288,13 @@ function checkFrame(raw: unknown, i: number, bytes: Uint8Array, keys: Set<string
     // The authenticated capture source IS the hat for canonical exchanges.
     if (raw.hat !== source || raw.hatEvidence !== 'capture-source') return `turn ${i} hat must be its capture source`;
     hat = source;
+  } else if (MANUAL_SOURCE.test(source)) {
+    // A manual source names the authenticated actor that appended it; the
+    // frame's hat must be exactly that actor's hat (luca-replit review of
+    // PR68). Any other claim, including unknown, is inconsistent.
+    const manualHat = source.slice('manual-luca-'.length);
+    if (raw.hat !== manualHat || raw.hatEvidence !== 'authenticated-actor') return `turn ${i} hat must be the manual source's actor (${manualHat})`;
+    hat = manualHat;
   } else if (raw.hat === 'unknown') {
     if (raw.hatEvidence !== 'none') return `turn ${i} unknown hat needs none evidence`;
     hat = 'unknown';
@@ -207,7 +323,13 @@ function checkFrame(raw: unknown, i: number, bytes: Uint8Array, keys: Set<string
  * 3.3 rules 1-6). `turnAttribution` is the value read via turnAttributionOf.
  */
 export function verifyTurnAttribution(content: string, turnAttribution: unknown): TurnAttributionVerdict {
-  if (turnAttribution === undefined || turnAttribution === null) return { status: 'absent' };
+  // Only a MISSING turnAttribution (no column, or no key) is legacy. A present
+  // key whose value is null is malformed aware metadata and fails closed;
+  // it must never fall back to legacy and bypass receipt checks (luca-replit
+  // review of PR72, R4). turnAttributionOf returns undefined for a NULL
+  // column or a missing key, and null only for a present null.
+  if (turnAttribution === undefined) return { status: 'absent' };
+  if (turnAttribution === null) return { status: 'invalid', reason: 'turnAttribution is present but null', legacyPrefixEnd: null };
   const bytes = new TextEncoder().encode(content);
   const saneLegacy = isObject(turnAttribution) && isOffset(turnAttribution.legacyPrefixEnd) && turnAttribution.legacyPrefixEnd <= bytes.length
     && decodeRange(bytes, 0, turnAttribution.legacyPrefixEnd) !== null
@@ -248,4 +370,16 @@ export function verifyTurnAttribution(content: string, turnAttribution: unknown)
   // Rule 4: an aware row has no uncovered tail.
   if (previousEnd !== bytes.length) return invalid('content after coveredEnd is not covered by any entry');
   return { status: 'valid', legacyPrefixEnd: saneLegacy, frames };
+}
+
+/**
+ * PRESENCE ONLY: true when the verified row holds at least one frame of
+ * (source, sourceEventId). It does NOT mean the event is complete (a row may
+ * hold only one side of an exchange), and it is NOT a dedupe or retry
+ * receipt. Never use it to skip an append: completion, exact-retry equality
+ * and partial-event conflicts are decided only by the common append's
+ * planProjectionAppend (luca-replit review of PR68).
+ */
+export function turnAttributionHasAnyFrameOf(verdict: TurnAttributionVerdict, source: string, sourceEventId: string): boolean {
+  return verdict.status === 'valid' && verdict.frames.some(frame => frame.source === source && frame.sourceEventId === sourceEventId);
 }

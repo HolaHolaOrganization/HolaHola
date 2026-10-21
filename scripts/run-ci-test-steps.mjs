@@ -84,10 +84,12 @@ commands.splice(safetyInsertion, 0,
   'npx tsx --test server/scripts/test-episode-attribution-repair-postgres.test.ts',
   'npx tsx --test server/scripts/test-historical-attribution-overlay.test.ts',
   'npx tsx --test server/services/canonical-attribution.test.ts',
-  'npx tsx --test server/services/turn-attribution.test.ts server/services/four-channel-continuity-audit.test.ts',
+  'npx tsx --test server/scripts/test-agent-voice-turn-endsession-tags.test.ts',
+  'npx tsx --test server/services/turn-attribution.test.ts server/services/four-channel-continuity-audit.test.ts server/services/inner-life-fragment.test.ts',
   'npx tsx --test server/services/attribution-rendering.test.ts server/services/provenance-builder.test.ts server/services/provenance-capture.test.ts server/services/turn-attribution-writer.test.ts server/services/projection-append.test.ts',
   'node --test scripts/test-historical-attribution-release-package.test.mjs',
   'npx tsx --test server/scripts/test-runtime-onboarding-auth-order.test.ts',
+  'npx tsx --test server/services/broker-signing-key.test.ts',
   // Reusable onboarding has no live credential fixtures. PostgreSQL proof runs
   // explicitly against the disposable database supplied by the migration gate.
   'node --test scripts/build-runtime-onboarding-package.test.mjs',
