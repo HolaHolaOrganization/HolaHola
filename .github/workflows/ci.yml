@@ -8,6 +8,11 @@ on:
     branches: [main]
   pull_request:
     branches: ["**"]
+  # The main merge queue tests each queued group (PR + everything ahead of it
+  # on main) before merging. Without this trigger the required `test` check
+  # never reports for the group and every queued PR times out.
+  merge_group:
+    types: [checks_requested]
 
 # The test jobs are intentionally independent so a late failure in one
 # group does not wait for the other groups to finish. The `test` job below is
