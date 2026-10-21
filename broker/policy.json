@@ -2,6 +2,18 @@
   "version": 1,
   "state": "closed",
   "repositoryId": 1170208766,
-  "actors": {},
+  "actors": {
+    "luca-claude-code": {
+      "appId": 5350010,
+      "installationId": 172194780,
+      "host": "LITTLENEMO",
+      "signingKeys": [
+        {
+          "id": "lcc-littlenemo-1",
+          "publicKeyPem": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA6y2ootZdoigEsmZEsVwCNE+Fcv9gJR8NL4k0qpyob3Y=\n-----END PUBLIC KEY-----\n"
+        }
+      ]
+    }
+  },
   "qualification": []
 }
