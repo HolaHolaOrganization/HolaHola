@@ -2,9 +2,9 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { describe, test } from 'node:test';
-import { benchEvent, benchEventId, sessionHeader, validateBenchIdentity } from './chat-bench-receipt';
+import { benchEvent, benchEventId, benchReplayEvent, sessionHeader, validateBenchIdentity } from './chat-bench-receipt';
 import { planProjectionAppend } from './projection-append';
-import { verifyTurnAttribution } from './turn-attribution';
+import { verifyTurnAttribution, type VerifiedFrame } from './turn-attribution';
 
 const turn = { sessionId: 'jspace-obs-1700000000000', turnId: 'jspace-obs-1700000000000-t1', lucaText: ' Hola, Daniela.\n', danielaText: '¡Hola! 🙂', participant: 'daniela' as const };
 
@@ -34,6 +34,27 @@ describe('chat-bench receipt event', () => {
 
   test('no Daniela text records only the luca frame (never an invented reply)', () => {
     assert.deepEqual(benchEvent({ ...turn, danielaText: '' }).frames.map(f => f.frameKey), ['luca']);
+  });
+
+  test('replay rebuilds the stored event exactly, and refuses any frame kind a bench turn never writes', () => {
+    const event = benchEvent(turn);
+    const plan = planProjectionAppend(sessionHeader('topic'), null, event);
+    assert.equal(plan.kind, 'append');
+    if (plan.kind !== 'append') return;
+    const verdict = verifyTurnAttribution(plan.content, plan.turnAttribution);
+    assert.equal(verdict.status, 'valid');
+    if (verdict.status !== 'valid') return;
+    const eventId = benchEventId(turn.sessionId, turn.turnId);
+    assert.deepEqual(benchReplayEvent(eventId, verdict.frames), { event });
+    const [luca] = verdict.frames;
+    for (const stray of [
+      { ...luca, kind: 'structural' as const },
+      { ...luca, kind: 'unattributed' as const },
+      { ...luca, kind: 'inner-life' as const, channel: 'thinking', entryId: 'e1', receiptRowId: 'r1', content: 'x' },
+    ]) {
+      const replay = benchReplayEvent(eventId, [...verdict.frames, stray as VerifiedFrame]);
+      assert.ok('conflict' in replay && replay.conflict.includes(`unexpected ${stray.kind} frame`), stray.kind);
+    }
   });
 
   test('the session header keeps the legacy row bytes', () => {
