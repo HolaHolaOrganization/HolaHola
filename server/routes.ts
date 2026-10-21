@@ -25343,7 +25343,6 @@ Current conversation context:
   }
   setInterval(async () => {
     const cutoff = Date.now() - 60 * 60 * 1000;
-    const { attributionWritersEnabled } = await import('./services/attribution-rendering');
     if (autoSaveExpiredVoiceTranscripts) {
       // Restart-safe: unfinished receipt rows are found in the database, not
       // the Map, and finalized in place (no second transcript insert). This
@@ -25363,11 +25362,13 @@ Current conversation context:
     for (const [id, s] of agentVoiceSessions) {
       if (s.createdAt < cutoff) {
         // Whatever the switch says now, a receipt row owns a session recorded
-        // with receipts: never insert a second transcript for it. If the lookup
-        // fails, the switch decides (on: skip; off: the legacy save as before).
+        // with receipts: never insert a second transcript for it. If ownership
+        // cannot be established, defer: keep the session and retry next sweep.
         {
-          const { benchSessionExists } = await import('./services/chat-bench-receipt');
-          if (await benchSessionExists(getUserDb() as any, id).catch(() => attributionWritersEnabled())) {
+          const { benchSessionExists, receiptOwnership, expirySweepDecision } = await import('./services/chat-bench-receipt');
+          const decision = expirySweepDecision(await receiptOwnership(() => benchSessionExists(getUserDb() as any, id)));
+          if (decision === 'defer') continue;
+          if (decision === 'drop') {
             agentVoiceSessions.delete(id);
             continue;
           }
@@ -25508,14 +25509,16 @@ Current conversation context:
       // Switch rollback: a session that already holds per-turn receipts is
       // never continued, finalized or re-saved by the legacy path, which would
       // write a second transcript beside its receipt row. Refuse instead; the
-      // switch-on path or a new session resumes it. (A failed lookup keeps the
-      // legacy behaviour, which needs the same database anyway.)
-      try {
-        const { benchSessionExists } = await import('./services/chat-bench-receipt');
-        if (await benchSessionExists(getUserDb() as any, sessionId)) {
-          return res.status(409).json({ error: 'this session records per-turn receipts and ATTRIBUTION_WRITERS_V1 is off; start a new session or turn the switch back on' });
-        }
-      } catch { /* legacy behaviour */ }
+      // switch-on path or a new session resumes it. If ownership cannot be
+      // established, fail closed with a retryable error before any model work.
+      const { benchSessionExists, receiptOwnership, rollbackRequestDecision } = await import('./services/chat-bench-receipt');
+      const decision = rollbackRequestDecision(await receiptOwnership(() => benchSessionExists(getUserDb() as any, sessionId)));
+      if (decision === 'refuse') {
+        return res.status(409).json({ error: 'this session records per-turn receipts and ATTRIBUTION_WRITERS_V1 is off; start a new session or turn the switch back on' });
+      }
+      if (decision === 'retry') {
+        return res.status(503).json({ error: 'could not establish whether this session holds per-turn receipts; retry shortly', retryable: true });
+      }
     }
 
     const isNewSession = !agentVoiceSessions.has(sessionKey);

@@ -245,3 +245,27 @@ export function reserveBenchTurn(inFlight: Map<string, symbol>, key: string): ((
   inFlight.set(key, owner);
   return () => { if (inFlight.get(key) === owner) inFlight.delete(key); };
 }
+
+/**
+ * Does this session hold per-turn receipts? 'unknown' when the lookup fails:
+ * callers must fail closed on it, never treat it as "no receipts" (luca-replit
+ * re-review of PR69). The request path returns a retryable error before any
+ * model work; the expiry sweep defers the session and retries later.
+ */
+export async function receiptOwnership(lookup: () => Promise<boolean>): Promise<'receipt' | 'legacy' | 'unknown'> {
+  try {
+    return (await lookup()) ? 'receipt' : 'legacy';
+  } catch {
+    return 'unknown';
+  }
+}
+
+/** Switch-off request: what to do with a session, given its receipt ownership. */
+export function rollbackRequestDecision(ownership: 'receipt' | 'legacy' | 'unknown'): 'refuse' | 'retry' | 'legacy' {
+  return ownership === 'receipt' ? 'refuse' : ownership === 'unknown' ? 'retry' : 'legacy';
+}
+
+/** Expiry sweep: what to do with an expired in-memory session. */
+export function expirySweepDecision(ownership: 'receipt' | 'legacy' | 'unknown'): 'drop' | 'defer' | 'legacy-save' {
+  return ownership === 'receipt' ? 'drop' : ownership === 'unknown' ? 'defer' : 'legacy-save';
+}
