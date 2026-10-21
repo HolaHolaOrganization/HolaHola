@@ -15,6 +15,7 @@ description: How Agent runs real voice sessions with Daniela and observes visual
 - Uses all `DANIELA_FUNCTION_DECLARATIONS` (no slice — slicing to 20 cuts off `show_image` at index ~26)
 - In-memory session store keyed by `sessionId` — multi-turn conversation state persists across calls
 - `studentText` = transcript fallback; pass it so GL fires tools even if transcription lags
+- **With `ATTRIBUTION_WRITERS_V1=1`** (default off): every episode-capture turn (no `noEpisode: true`) needs a stable caller `sessionId` and `turnId` (8-80 chars of `[A-Za-z0-9._-]`, the turnId unique within the session) plus `studentText`; otherwise the route returns 400 before Daniela runs. Each turn is saved as a durable receipt in the session's own `conversation_memories` row before the episode append. Re-sending the same `turnId` with the same text returns the stored reply (`replayed: true`, no audio) without rerunning Daniela. A different text under the same `turnId` gets 409. Audio-only turns must use `noEpisode: true`. Code: `server/services/chat-bench-receipt.ts`.
 
 ## Exact audio generation pipeline (copy-paste ready)
 

@@ -141,6 +141,9 @@ async function runObservationSession(): Promise<void> {
         body: JSON.stringify({
           audio: SILENT_PCM,
           sessionId: SESSION_ID,
+          // Stable caller turn identity: an exact retry of this turn returns the
+          // stored receipt instead of rerunning Daniela (ATTRIBUTION_WRITERS_V1).
+          turnId: `${SESSION_ID}-t${turnNum}`,
           languageCode: 'es-ES',
           voiceId: 'Aoede',
           studentText,
