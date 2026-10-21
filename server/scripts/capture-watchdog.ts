@@ -57,6 +57,7 @@ import {
   plainSpeakerName,
   plainTitleDate,
 } from '../services/attribution-rendering';
+import { buildCanonicalRowAttribution } from '../services/turn-attribution-writer';
 import { recordHistoricalAttributionPause, clearHistoricalAttributionPause } from '../services/historical-attribution-status';
 
 // ─── Config ───────────────────────────────────────────────────────────────────
@@ -266,6 +267,12 @@ async function writeToDb(
   const captureIdentityTag = captureIds.length === 1 ? `capture-id:${captureIds[0]}` : null;
   const sources = [...new Set(turns.flatMap(turn => turn.source ? [turn.source] : []))].sort();
   const sourceTags = sources.map(source => `source-${source}`);
+  // Design 3.3 per-turn attribution, with the same "**label:** body" framing
+  // this writer already uses; null (row written as before) if any turn
+  // cannot be framed honestly.
+  const watchdogRowAttribution = attributionWritersEnabled()
+    ? buildCanonicalRowAttribution(turns, { bold: true })
+    : null;
   const tags = [
     'david-luca-chat',
     'canonical-conversation',
@@ -275,7 +282,7 @@ async function writeToDb(
     'watchdog',
     ...sourceTags,
     ...(captureIdentityTag ? [captureIdentityTag] : []),
-    ...(attributionWritersEnabled() ? attributionTags(turns) : []),
+    ...(attributionWritersEnabled() ? attributionTags(turns, watchdogRowAttribution?.modelTags) : []),
   ];
   // Row-level participants/title are derived from the SAME per-turn identity
   // as the rendered body (content, below) -- via one shared `turnKinds` array
@@ -360,18 +367,19 @@ async function writeToDb(
 
   const inserted = await db`
     INSERT INTO conversation_memories
-      (id, title, summary, content, participants, tags, importance, created_at, entry_type, arc_name)
+      (id, title, summary, content, participants, tags, importance, created_at, entry_type, arc_name, attribution)
     VALUES (
       gen_random_uuid(),
       ${title},
       ${summary},
-      ${content},
+      ${watchdogRowAttribution ? watchdogRowAttribution.content : content},
       ${participants}::text[],
       ${tags}::text[],
       8,
       NOW(),
       'conversation',
-      'david-luca-chat'
+      'david-luca-chat',
+      ${watchdogRowAttribution ? JSON.stringify(watchdogRowAttribution.attribution) : null}::jsonb
     )
     RETURNING id
   `;

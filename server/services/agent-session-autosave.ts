@@ -71,6 +71,7 @@ import {
   formatChatCaptureSpeakerLabel,
 } from './transcript-parser';
 import { attributionTags, attributionWritersEnabled, plainRowTitle, plainTitleDate } from './attribution-rendering';
+import { buildCanonicalRowAttribution } from './turn-attribution-writer';
 import {
   acquireCanonicalConversationIngressLock,
   isCompleteCanonicalCaptureBatch,
@@ -2693,7 +2694,16 @@ async function checkChatCapture(): Promise<void> {
       }
       const captureIdentityTag = captureIds.length === 1 ? `capture-id:${captureIds[0]}` : null;
       const writersV1 = attributionWritersEnabled();
-      const attributionTagList = writersV1 ? attributionTags(batchTurns) : [];
+      // Design 3.3: frame the row's turns with per-turn attribution, unless
+      // the chunk cap truncated authored text (then the stored bytes are not
+      // the authored turns, so the row is written as before, unattributed).
+      const authoredChars = batchTurns.reduce((sum, turn) => sum + turn.text.length, 0);
+      const rowAttribution = writersV1 && dialogue.length >= authoredChars
+        ? buildCanonicalRowAttribution(batchTurns, { bold: false })
+        : null;
+      const attributionTagList = writersV1 ? attributionTags(batchTurns, rowAttribution?.modelTags) : [];
+      const rowContent = rowAttribution ? rowAttribution.content : dialogue;
+      const rowAttributionJson = rowAttribution ? JSON.stringify(rowAttribution.attribution) : null;
       const tagsArray = `{david-luca-chat,canonical-conversation,verbatim,per-turn,chat-capture,${sourceLabels.map(source => `source-${source}`).join(',')}${captureIdentityTag ? `,${captureIdentityTag}` : ''}${attributionTagList.map(tag => `,${tag}`).join('')}}`;
       const today      = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
       // Attribution design f5d77712 section 4: a plain participant title for new rows.
@@ -2721,18 +2731,19 @@ async function checkChatCapture(): Promise<void> {
       const existingCaptureRow = (existingCapture as any).rows?.[0] ?? (existingCapture as any)[0];
       if (!existingCaptureRow?.id) {
         await db.execute(sql`
-          INSERT INTO conversation_memories (id, title, summary, content, participants, tags, importance, created_at, entry_type, arc_name)
+          INSERT INTO conversation_memories (id, title, summary, content, participants, tags, importance, created_at, entry_type, arc_name, attribution)
           VALUES (
             gen_random_uuid(),
             ${title},
             ${summary},
-            ${dialogue},
+            ${rowContent},
             ${participantsArray}::text[],
             ${tagsArray}::text[],
             8,
             NOW(),
             'conversation',
-            'david-luca-chat'
+            'david-luca-chat',
+            ${rowAttributionJson}::jsonb
           )
         `);
       } else {

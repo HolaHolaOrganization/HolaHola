@@ -50,6 +50,7 @@ import {
   plainRowTitle,
   plainTitleDate,
 } from '../services/attribution-rendering';
+import { buildCanonicalRowAttribution } from '../services/turn-attribution-writer';
 
 // Row-level participants/title for a .chat_capture batch, mirroring
 // capture-watchdog.ts's writeToDb model: derive both from actual per-turn
@@ -94,8 +95,22 @@ function chatCaptureBatchParticipants(batchTurns: Array<Pick<DialogueTurn, 'spea
   return pgTextArray(values);
 }
 /** Base tags plus, with the writer switch on, the design section 4 attribution tags. */
-function chatCaptureBatchTags(base: string[], batchTurns: Array<Pick<DialogueTurn, 'source'>>): string {
-  return pgTextArray(attributionWritersEnabled() ? [...base, ...attributionTags(batchTurns)] : base);
+function chatCaptureBatchTags(base: string[], batchTurns: Array<Pick<DialogueTurn, 'source'>>, modelTags?: string[]): string {
+  return pgTextArray(attributionWritersEnabled() ? [...base, ...attributionTags(batchTurns, modelTags)] : base);
+}
+/**
+ * With the writer switch on, the row's content in design 3.3 framing plus
+ * its per-turn attribution; otherwise (or if the chunk cap truncated authored
+ * text, or a turn cannot be framed) the dialogue exactly as before.
+ */
+function chatCaptureRow(batchTurns: DialogueTurn[], dialogue: string): { content: string; attribution: string | null; modelTags?: string[] } {
+  const authoredChars = batchTurns.reduce((sum, turn) => sum + turn.text.length, 0);
+  const built = attributionWritersEnabled() && dialogue.length >= authoredChars
+    ? buildCanonicalRowAttribution(batchTurns, { bold: false })
+    : null;
+  return built
+    ? { content: built.content, attribution: JSON.stringify(built.attribution), modelTags: built.modelTags }
+    : { content: dialogue, attribution: null };
 }
 function pgTextArray(values: string[]): string {
   return `{${values.map(v => `"${v.replace(/"/g, '\\"')}"`).join(',')}}`;
@@ -237,23 +252,25 @@ async function saveNow(context: string): Promise<void> {
         const batchTurns = remaining.slice(0, includedCount);
         const davidCount = batchTurns.filter(t => t.speaker === 'DAVID').length;
         const title   = chatCaptureBatchTitle(batchTurns, today, contextLabel);
+        const row     = chatCaptureRow(batchTurns, dialogue);
         const summary = `Verbatim David↔Luca dialogue (per-turn append, session-end flush). ${davidCount} David turn(s), ${includedCount - davidCount} assistant turn(s). Cursor ${startCursor}→${endOffset}.`;
 
         const db = getSharedDb();
         const result = await db.execute(sql`
           INSERT INTO conversation_memories
-            (id, title, summary, content, participants, tags, importance, created_at, entry_type, arc_name)
+            (id, title, summary, content, participants, tags, importance, created_at, entry_type, arc_name, attribution)
           VALUES (
             gen_random_uuid(),
             ${title},
             ${summary},
-            ${dialogue},
+            ${row.content},
             ${chatCaptureBatchParticipants(batchTurns)}::text[],
-            ${chatCaptureBatchTags(['david-luca-chat', 'verbatim', 'per-turn', 'chat-capture', 'session-end-flush'], batchTurns)}::text[],
+            ${chatCaptureBatchTags(['david-luca-chat', 'verbatim', 'per-turn', 'chat-capture', 'session-end-flush'], batchTurns, row.modelTags)}::text[],
             8,
             NOW(),
             'conversation',
-            'david-luca-chat'
+            'david-luca-chat',
+            ${row.attribution}::jsonb
           )
           RETURNING id
         `);
@@ -354,23 +371,25 @@ async function saveChatCaptureWithLock(lockFd: number, _context: string): Promis
       const batchTurns = remaining.slice(0, includedCount);
       const davidCount = batchTurns.filter(t => t.speaker === 'DAVID').length;
       const title      = chatCaptureBatchTitle(batchTurns, today, 'per-turn capture');
+      const row        = chatCaptureRow(batchTurns, dialogue);
       const summary    = `Verbatim David↔Luca per-turn capture. ${davidCount}D + ${includedCount - davidCount} assistant turns. Cursor ${startCursor}→${endOffset}.`;
 
       const db = getSharedDb();
       const result = await db.execute(sql`
         INSERT INTO conversation_memories
-          (id, title, summary, content, participants, tags, importance, created_at, entry_type, arc_name)
+          (id, title, summary, content, participants, tags, importance, created_at, entry_type, arc_name, attribution)
         VALUES (
           gen_random_uuid(),
           ${title},
           ${summary},
-          ${dialogue},
+          ${row.content},
           ${chatCaptureBatchParticipants(batchTurns)}::text[],
-          ${chatCaptureBatchTags(['david-luca-chat', 'verbatim', 'per-turn', 'chat-capture'], batchTurns)}::text[],
+          ${chatCaptureBatchTags(['david-luca-chat', 'verbatim', 'per-turn', 'chat-capture'], batchTurns, row.modelTags)}::text[],
           8,
           NOW(),
           'conversation',
-          'david-luca-chat'
+          'david-luca-chat',
+          ${row.attribution}::jsonb
         )
         RETURNING id
       `);
