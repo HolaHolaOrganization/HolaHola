@@ -4,7 +4,9 @@ import { parseAttributionTags } from './canonical-attribution';
 import { auditEpisodeRow, strictFailure } from './four-channel-continuity-audit';
 import { buildClaudeCodeProvenance } from './provenance-builder';
 import { turnAttributionOf, verifyTurnAttribution } from './turn-attribution';
-import { buildCanonicalRowAttribution, type AttributableTurn } from './turn-attribution-writer';
+import { buildCanonicalEpisodeEvent, buildCanonicalRowAttribution, type AttributableTurn } from './turn-attribution-writer';
+import { planProjectionAppend } from './projection-append';
+import { readFileSync } from 'node:fs';
 import { attributionTags } from './attribution-rendering';
 
 const original = process.env.ATTRIBUTION_WRITERS_V1;
@@ -104,5 +106,47 @@ describe('canonical row attribution (design 3.3, writer side)', () => {
     assert.equal(buildCanonicalRowAttribution([{ speaker: 'DAVID', text: 'q', captureId: 'x' }], { bold: false }), null, 'no source');
     assert.equal(buildCanonicalRowAttribution([...pair('claude-code', 'cc-6', 'q', 'a'), { speaker: 'DAVID', text: 'again', captureId: 'cc-6', source: 'claude-code' }], { bold: false }), null, 'duplicate key');
     assert.equal(buildCanonicalRowAttribution([], { bold: false }), null);
+  });
+});
+
+describe('writer 1: the framed episode-mirror event (design 3.4)', () => {
+  test('one canonical exchange becomes one bold-labelled event that the common append frames validly', () => {
+    const event = buildCanonicalEpisodeEvent(pair('replit', 'rp-7', 'pregunta — ñ', 'respuesta\nen dos líneas'));
+    assert.ok(event);
+    assert.equal(event.source, 'replit');
+    assert.equal(event.sourceEventId, 'rp-7');
+    assert.deepEqual(event.frames.map(f => [f.frameKey, f.label, f.body, f.hat, f.hatEvidence]), [
+      ['david', '**David:** ', 'pregunta — ñ', 'replit', 'capture-source'],
+      ['luca', '**Luca:** ', 'respuesta\nen dos líneas', 'replit', 'capture-source'],
+    ]);
+    const plan = planProjectionAppend('# Episode 99\n\nlegacy bytes\n', null, event);
+    assert.equal(plan.kind, 'append');
+    if (plan.kind !== 'append') return;
+    assert.equal(verifyTurnAttribution(plan.content, plan.turnAttribution).status, 'valid');
+    const audit = auditEpisodeRow(plan.content, { turnAttribution: plan.turnAttribution });
+    assert.deepEqual(audit.replitTurns.map(t => t.complete), [false], 'an envelope-less Replit turn is honestly incomplete');
+    assert.equal(planProjectionAppend(plan.content, plan.turnAttribution, event).kind, 'noop', 'exact retry');
+  });
+  test('turns without a durable capture id, or mixing two ids, cannot be framed', () => {
+    assert.equal(buildCanonicalEpisodeEvent([{ speaker: 'DAVID', text: 'x', source: 'replit' }]), null);
+    assert.equal(buildCanonicalEpisodeEvent([...pair('replit', 'a-1', 'q', 'a'), ...pair('replit', 'a-2', 'q', 'a')]), null);
+  });
+});
+
+describe('writer 1 routing in agent-session-autosave (source order)', () => {
+  const src = readFileSync(new URL('./agent-session-autosave.ts', import.meta.url), 'utf8');
+  test('switch-on items go to the framed append and are never appended unframed', () => {
+    const route = src.indexOf('if (item.attributionRequired || item.episodeEvent) {');
+    assert.ok(route > 0);
+    const framed = src.indexOf('episodeOk = await appendFramedEpisodeMirror(item);', route);
+    const legacy = src.indexOf('projectedContent = projectHistoricalEpisodeMirror(item, capturePath);', route);
+    assert.ok(framed > route && framed < legacy, 'the framed branch comes first, before the legacy projection');
+    assert.ok(src.includes('...(writersV1 ? { attributionRequired: true, ...withEpisodeEvent(buildCanonicalEpisodeEvent(batchTurns)) } : {}),'));
+  });
+  test('the legacy DB-first append refuses an attribution-aware episode row', () => {
+    const fn = src.slice(src.indexOf('async function appendInnerLifeToEpisodeDb('));
+    const guard = fn.indexOf('if (turnAttributionOf(preRow?.attribution) !== undefined) {');
+    assert.ok(guard > 0);
+    assert.ok(guard < fn.indexOf('UPDATE conversation_memories'), 'the guard precedes every unframed UPDATE');
   });
 });

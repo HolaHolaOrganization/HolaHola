@@ -71,7 +71,8 @@ import {
   formatChatCaptureSpeakerLabel,
 } from './transcript-parser';
 import { attributionTags, attributionWritersEnabled, plainRowTitle, plainTitleDate } from './attribution-rendering';
-import { buildCanonicalRowAttribution } from './turn-attribution-writer';
+import { buildCanonicalEpisodeEvent, buildCanonicalRowAttribution } from './turn-attribution-writer';
+import { turnAttributionOf } from './turn-attribution';
 import {
   acquireCanonicalConversationIngressLock,
   isCompleteCanonicalCaptureBatch,
@@ -1871,6 +1872,86 @@ function writeExactEpisodeMarkdownReplica(
 }
 
 /**
+ * ATTRIBUTION_WRITERS_V1, writer 1 (design f5d77712 3.4): append one
+ * chat-capture mirror item's framed event to the episode row through the
+ * common locked append. Exact retries are no-ops, conflicts and partial
+ * events are refused, and the Markdown replica is replaced only with the
+ * exact DB content. Returns true only when the episode durably holds the
+ * event; otherwise the outbox keeps the item (it is never appended unframed).
+ */
+const withEpisodeEvent = (event: import('./projection-append').AppendEvent | null) => (event ? { episodeEvent: event } : {});
+
+async function appendFramedEpisodeMirror(item: import('./episode-mirror-outbox').EpisodeMirrorOutboxItem): Promise<boolean> {
+  const episodeFilename = item.liveEpisode;
+  if (!item.episodeEvent) {
+    const reason = 'turns lack a durable capture id/source, so they cannot be framed; held, never appended unframed';
+    console.error(`[AgentAutosave] Framed episode mirror pending for ${episodeFilename} ${item.startCursor}→${item.endOffset}: ${reason}`);
+    flagDbWriteFailure(`episode-mirror-unframed:${episodeFilename}`, reason);
+    return false;
+  }
+  // Historical attribution overlays rewrite labels of approved historical
+  // captures; a framed event carries its own exact bytes, so the two must
+  // never combine. Fail closed if an overlay claims these captures.
+  try {
+    if (projectHistoricalEpisodeMirror(item) !== item.formattedContent) {
+      flagDbWriteFailure(`episode-mirror-overlay:${episodeFilename}`, 'historical overlay claims a framed capture; held');
+      return false;
+    }
+  } catch (error) {
+    recordHistoricalAttributionPause(error, 'episode-mirror', 'autosave');
+    return false;
+  }
+  const db = getUserDb();
+  const title = episodeTitleFromFilename(episodeFilename);
+  let memoryId = episodeIdCache.get(episodeFilename);
+  try {
+    if (!memoryId) {
+      const rows = await db.execute(sql`
+        SELECT id FROM conversation_memories WHERE arc_name = 'HolaHola Episodes' AND title = ${title} LIMIT 1
+      `);
+      const row = (rows as any).rows?.[0] ?? (rows as any)[0];
+      if (!row?.id) {
+        console.warn(`[AgentAutosave] Framed episode mirror: no episode row for ${episodeFilename}; held`);
+        return false;
+      }
+      memoryId = row.id as string;
+      episodeIdCache.set(episodeFilename, memoryId);
+    }
+  } catch (err: any) {
+    flagDbWriteFailure(`episode-id-lookup:${episodeFilename}`, err?.message ?? String(err));
+    return false;
+  }
+  const filePath = join(DOCS_DIR, episodeFilename);
+  let ok = false;
+  await withEpisodeFileLock(episodeFilename, async () => {
+    try {
+      const { applyProjectionAppend } = await import('./projection-append-store');
+      const result = await applyProjectionAppend(db as any, memoryId as string, item.episodeEvent!);
+      if (result.kind === 'conflict') {
+        console.error(`[AgentAutosave] Framed episode mirror refused for ${episodeFilename}: ${result.reason}`);
+        flagDbWriteFailure(`episode-mirror-conflict:${episodeFilename}`, result.reason);
+        return;
+      }
+      if (result.kind === 'missing') return;
+      ok = writeExactEpisodeMarkdownReplica(episodeFilename, filePath, result.content);
+      if (ok && result.kind === 'append') {
+        console.log(`[AgentAutosave] Framed episode append ${item.episodeEvent!.source}/${item.episodeEvent!.sourceEventId} → ${episodeFilename}`);
+        writeCaptureStatus(episodeFilename);
+        if (_innerLifeReembedEnabled) {
+          reembedConversationMemory(memoryId as string).catch((err: any) => {
+            console.error(`[AgentAutosave] Re-embed failed for ${episodeFilename}:`, err?.message ?? err);
+          });
+        }
+      }
+    } catch (err: any) {
+      console.error(`[AgentAutosave] Framed episode mirror failed for ${episodeFilename}:`, err?.message ?? err);
+      flagDbWriteFailure(`episode-mirror-framed:${episodeFilename}`, err?.message ?? String(err));
+    }
+  });
+  return ok;
+}
+
+/**
  * DB-first inner-life episode append.
  *
  * Writes the inner-life text to the episode's conversation_memories content
@@ -1935,10 +2016,19 @@ async function appendInnerLifeToEpisodeDb(
       }
 
       const pre = await db.execute(sql`
-        SELECT content FROM conversation_memories WHERE id = ${memoryId}
+        SELECT content, attribution FROM conversation_memories WHERE id = ${memoryId}
       `);
       const preRow = (pre as any).rows?.[0] ?? (pre as any)[0];
       const preContent = typeof preRow?.content === 'string' ? preRow.content : '';
+      // Design f5d77712 3.4: once a row carries per-turn attribution, an
+      // unframed append would leave bytes after coveredEnd and invalidate
+      // every frame. Refuse it visibly; this writer must use the common append.
+      if (turnAttributionOf(preRow?.attribution) !== undefined) {
+        const reason = 'episode row carries per-turn attribution; an unframed append is refused (design 3.4 switch blocker)';
+        console.error(`[AgentAutosave] ${reason}: ${episodeFilename}`);
+        flagDbWriteFailure(`episode-append-unframed:${episodeFilename}`, reason);
+        return;
+      }
       if (
         route?.appendMarker &&
         episodeContentHasEventMarker(preContent, route.appendMarker)
@@ -2504,18 +2594,25 @@ async function processPendingEpisodeMirrors(
         );
         return true;
       }
-      let projectedContent: string;
-      try {
-        projectedContent = projectHistoricalEpisodeMirror(item, capturePath);
-      } catch (error) {
-        recordHistoricalAttributionPause(error, 'episode-mirror', 'autosave');
-        throw error; // The outbox retains the item and acknowledgement.
+      let episodeOk: boolean;
+      if (item.attributionRequired || item.episodeEvent) {
+        // ATTRIBUTION_WRITERS_V1, writer 1: framed append through the common
+        // append only. An item without an event is held, never unframed.
+        episodeOk = await appendFramedEpisodeMirror(item);
+      } else {
+        let projectedContent: string;
+        try {
+          projectedContent = projectHistoricalEpisodeMirror(item, capturePath);
+        } catch (error) {
+          recordHistoricalAttributionPause(error, 'episode-mirror', 'autosave');
+          throw error; // The outbox retains the item and acknowledgement.
+        }
+        episodeOk = await appendInnerLifeToEpisodeDb(
+          projectedContent,
+          item.liveEpisode,
+          { appendMarker: item.appendMarker, allowAppend: true },
+        );
       }
-      const episodeOk = await appendInnerLifeToEpisodeDb(
-        projectedContent,
-        item.liveEpisode,
-        { appendMarker: item.appendMarker, allowAppend: true },
-      );
       if (!episodeOk) return false;
       const acknowledgementOffset = advanceEpisodeMirrorAcknowledgement(item);
 
@@ -2773,6 +2870,9 @@ async function checkChatCapture(): Promise<void> {
           appendMarker: eventMarkers,
           captureIds,
           lastSavedTurnFingerprint: chatCaptureTurnFingerprint(remaining[includedCount - 1]),
+          // ATTRIBUTION_WRITERS_V1 (writer 1): the exact framed event, or a
+          // hold marker when the turns cannot be framed (never unframed text).
+          ...(writersV1 ? { attributionRequired: true, ...withEpisodeEvent(buildCanonicalEpisodeEvent(batchTurns)) } : {}),
         });
       }
 
