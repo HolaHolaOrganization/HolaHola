@@ -88,6 +88,7 @@ commands.splice(safetyInsertion, 0,
   'npx tsx --test server/services/turn-attribution.test.ts server/services/four-channel-continuity-audit.test.ts',
   'node --test scripts/test-historical-attribution-release-package.test.mjs',
   'npx tsx --test server/scripts/test-runtime-onboarding-auth-order.test.ts',
+  'npx tsx --test server/services/broker-signing-key.test.ts',
   // Reusable onboarding has no live credential fixtures. PostgreSQL proof runs
   // explicitly against the disposable database supplied by the migration gate.
   'node --test scripts/build-runtime-onboarding-package.test.mjs',

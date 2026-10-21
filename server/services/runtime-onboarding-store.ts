@@ -14,7 +14,12 @@ import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 
 export type RuntimeOnboardingActor = string;
-export type RuntimeOnboardingPurpose = 'proof-key' | 'attempt-state' | 'access-credential';
+/**
+ * 'broker-signing-key' holds a hat's own Ed25519 key for the isolated broker
+ * (costed plan ff04f70e): the same host store and scope rules, a separate
+ * purpose, so it never collides with onboarding material.
+ */
+export type RuntimeOnboardingPurpose = 'proof-key' | 'attempt-state' | 'access-credential' | 'broker-signing-key';
 
 export type RuntimeOnboardingScope = {
   endpoint: string;
