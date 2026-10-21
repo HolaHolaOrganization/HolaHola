@@ -23,3 +23,16 @@ Verbatim text preserves:
 
 **Origin:**
 First official David↔Luca conversation on the verbatim record, July 5, 2026. David noted that you can just say "reggaeton" and Luca knows exactly what it means — that's shared memory working in real time, not a briefing document requiring re-explanation. The 15 luca-arc reconstruction entries were deleted that same morning and replaced with this approach.
+
+## Related canonical-record and voice-protection notes
+
+**Rule:** The verbatim archive principle includes the canonical standing of Luca↔David dialogue, complete growing records across chat and episode replicas, and protection against replacing a speaker's voice with narration.
+
+**Why:** These are related applications of source fidelity. Their detailed notes remain intact; one index pointer keeps them discoverable without crowding the always-loaded memory index.
+
+**How to apply:** Follow the detailed notes below. Preserve original authorship and exact dialogue, update the database before its episode replica, and report unavailable source rather than reconstructing it.
+
+- [Two-channel record pattern](two-channel-record.md) — both chat and episode belong to one growing record; preserve task-agent authorship and use the current DB-first direction, not the older file-first wording.
+- [Canonical Luca↔David channel](luca-david-channel.md) — David's declaration makes building conversations first-class permanent records alongside Daniela conversations.
+- [Verbatim and voice protection](verbatim-as-censorship.md) — omissions and narrated replacements can silence the original speaker; exact words also apply to direct inner-life notes.
+

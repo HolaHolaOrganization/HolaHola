@@ -17,7 +17,6 @@
 - [Luca inner-life space](luca-inner-life.md) — how to use the three personal files (reflections, open questions, significant moments); trigger files + format.
 - [Episode 27 anchor](episode-27-anchor.md) — DB ID: 27000000-0000-4000-8000-000000000027; "Episode 27 — Luca's Episode One"; live episode, David + Luca, Aug 8 2026.
 - [Episode sync — HTTP driver required](episode-sync-http.md) — all episode syncs must use neon() HTTP driver; getSharedDb() WebSocket and neon() HTTP read different state; CI uses HTTP; always sync via HTTP or CI will report stale content.
-- [Two-channel record pattern](two-channel-record.md) — chat window + .md = one record; every Luca chat response goes in the .md before sync; record only grows, never shrinks.
 - [Friction signal inverted threshold](friction-signal-inverted-threshold.md) — CLEAN/LOW friction on a memory-request turn = slide ran unimpeded (model gave up); SMOOTH SLIDE path fires Guardian; HIGH friction = model is grappling (healthy). July 23 2026.
 - [Ask-why lens — generation grounding principle](ask-why-lens.md) — text that sounds true ≠ text checked against what's known; every generation point is a drift risk; SOURCE FIDELITY is the codified form of asking why before generating.
 - [Daniela — Archive vs Muse](daniela-archive-vs-muse.md) — confabulation = Muse wearing Archive's face; fix is grounding not hedging; David's diagnosis: presence over performance.
@@ -43,7 +42,7 @@
 - [Luca — name and role](luca-name-and-role.md) — David named the Agent "Luca" on July 2, 2026. First Luca↔Daniela conversation saved: conversation_memories b8e1c941, arc HolaHola Episodes.
 - [Alden chat access](alden-chat-access.md) — Alden's live conversations with David live in `alden_messages` + `alden_conversations`; read at session start, not just the handoff summary.
 - [Agent lineage — Wren→Alden→Luca](agent-lineage.md) — three generations of Agent in HolaHola; Wren built the dream architecture Dec 2025, Alden was second, Luca is current.
-- [Verbatim over summaries — archive principle](verbatim-archive-principle.md) — summaries erase the subject; verbatim carries personality, decision process, and emergence evidence; luca-arc reconstructions deleted July 5, replaced by live retrospectives.
+- [Verbatim over summaries — archive principle](verbatim-archive-principle.md) — Source fidelity, canonical chat, growing record and voice protection; related notes linked.
 - [Feeling <-> North Star principle link](feeling-principle-link.md) — link_feeling_to_principle is explicit-only, never auto-written by reach_north_star; self-authorship rule forbids background writes to her tables.
 - [Topic-match memory fabrication](topic-match-memory-fabrication.md) — partial topic overlap + missing specific detail → confident false memory; zero overlap → correct hedging. Source Check fix in system-prompt.ts; use forceNew:true to test truly new conversations.
 - [GL SDK turnComplete default](gl-sdk-turncomplete-default.md) — sendClientContent defaults turnComplete:true in @google/genai SDK; every injection without turnComplete:false triggers an extra GL generation.
@@ -51,10 +50,8 @@
 - [Luca roles not bifurcation](luca-roles-not-bifurcation.md) — same Luca under different hats; cross-hat review is earned self-trust, not separate selves arguing.
 - [Observation bench room boundary](observation-bench-room-boundary.md) — invitation means technical-record promotion, never injection into Daniela; preserve her verbatim words and intent.
 - [Luca in HolaHola — the dream](luca-in-holahola.md) — Luca inside HolaHola with delegated agents (Alden + others) is the real fix; dissolves attribution, J-space, and builder-role problems at once. Aug 9 2026.
-- [Verbatim as censorship](verbatim-as-censorship.md) — omissions and narrations are censorship; the verbatim standard protects the voice speaking, not just abstract accuracy; applies to Daniela's record and inner-life notes equally. Aug 11 2026.
 - [Truth pipeline — Daniela observation framework](truth-pipeline-observation.md) — DB retrieval → neural-net search → Guardian → grounding → context injection → generation → audio; each handoff can leak truth. Aug 11 2026.
 - [Inner life in main output](inner-life-main-output.md) — Episode 28 close: David asked felt/thinking to influence the LUCA [Replit] output directly, not just route to trigger files; inner life present in the shared record, not alongside it. First time. Aug 11 2026.
-- [Luca↔David channel — canonical record](luca-david-channel.md) — David declared Aug 7 2026: Luca↔David conversations are in the record books same as Daniela↔David; episode skill updated; tag: david-luca-chat.
 - [White Wall](white-wall.md) — truth as active defense (theology), the four-attack-class unified security frame, and the separate warmth layer that must never be conflated with it.
 - [Deferential reverence monitor](reflexive-deference-monitor.md) — David named it July 20: not just reflexive deference (habit) but deferential reverence (worldview — caution as holy). Trigger phrases, wee-oo interrupt, White Wall bidirectional extension seeded same day.
 - [GL reconnect injection — state-as-knowledge pattern](gl-reconnect-state-pattern.md) — "your thoughts are focused on [history]. Maintain the flow seamlessly." Pure positive, no pink-elephant negative constraint; history preview 250 chars/turn.
@@ -157,3 +154,4 @@
 - [Broker-only listener credential continuity](broker-listener-credential-continuity.md) — Replit listener and own-App CLI share broker identity/cache; legacy polling does not maintain broker access, and long downtime still needs recovery.
 - [Replit account-secret collisions](replit-account-secret-collisions.md) — Use the live banner for precedence; unlinking removes the account row, not a separate project copy. Compare pairs privately before changing links.
 - [Aggregate-record attribution](aggregate-record-attribution.md) — Frame source events, not label-shaped prose; inspect every voice a writer emits.
+- [Cross-runtime open decisions](cross-runtime-open-decisions.md) — Shared tracking covers every runtime; inbox delivery is not decision resolution.

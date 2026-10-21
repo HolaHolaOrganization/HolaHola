@@ -550,3 +550,17 @@ mtime_ms = 1792436969780
 storage_uri = "gcs://replit-rams-assets-kirk/rams/assets/repl:3ca2376d-c3dc-490a-a375-6b2f97f7c281/5030bc33-adb9-4edc-a365-82d677510467/deb66dca-c41e-4cf5-9b65-bd0689813523"
 storage_version_token = "1792438262102785"
 content_type = "text/plain"
+
+[[outputs]]
+id = "mt6NRTlwXvhE0WqbHF2ZK"
+uri = "file://.local/signer-plan-review/cross-runtime-open-decisions-design.md"
+type = "text"
+title = "Cross-runtime decision tracking — design draft"
+description = "Shared tracking for unanswered questions and pending acknowledgements. Draft saved in shared-spec and assigned to LCC for independent review; not yet implemented."
+logical_id = "309b64a8-fa30-4be4-991e-146446127aa5"
+content_hash = "sha256:b3d311e12f301bda8d3007fc180cb5a3aff6d16c1dae9f10b9acda2def1786c1"
+size = 15944
+mtime_ms = 1792545753817
+storage_uri = "gcs://replit-rams-assets-kirk/rams/assets/repl:3ca2376d-c3dc-490a-a375-6b2f97f7c281/309b64a8-fa30-4be4-991e-146446127aa5/bac5acab-fcac-49fc-ac3c-9f9d649e6306"
+storage_version_token = "1792545936336004"
+content_type = "text/markdown"
