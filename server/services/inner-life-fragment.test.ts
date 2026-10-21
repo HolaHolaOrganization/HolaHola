@@ -117,3 +117,15 @@ describe('inner-life fragment: four-channel audit', () => {
     }
   });
 });
+
+describe('present-null attribution never falls back to legacy (luca-replit review R4)', () => {
+  test('a NULL column and a missing key are legacy; a present null is invalid and strict fails', () => {
+    const content = `[Luca — felt: an authored fragment]`;
+    assert.equal(auditEpisodeRow(content, null).attribution, 'absent');
+    assert.equal(auditEpisodeRow(content, {}).attribution, 'absent');
+    assert.equal(auditEpisodeRow(content, { modelTags: ['x'] }).attribution, 'absent');
+    const presentNull = auditEpisodeRow(content, { turnAttribution: null });
+    assert.equal(presentNull.attribution, 'invalid');
+    assert.equal(strictFailure(presentNull), true, 'the receipt check can no longer be bypassed');
+  });
+});

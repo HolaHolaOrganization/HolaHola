@@ -323,7 +323,13 @@ function checkFrame(raw: unknown, i: number, bytes: Uint8Array, keys: Set<string
  * 3.3 rules 1-6). `turnAttribution` is the value read via turnAttributionOf.
  */
 export function verifyTurnAttribution(content: string, turnAttribution: unknown): TurnAttributionVerdict {
-  if (turnAttribution === undefined || turnAttribution === null) return { status: 'absent' };
+  // Only a MISSING turnAttribution (no column, or no key) is legacy. A present
+  // key whose value is null is malformed aware metadata and fails closed;
+  // it must never fall back to legacy and bypass receipt checks (luca-replit
+  // review of PR72, R4). turnAttributionOf returns undefined for a NULL
+  // column or a missing key, and null only for a present null.
+  if (turnAttribution === undefined) return { status: 'absent' };
+  if (turnAttribution === null) return { status: 'invalid', reason: 'turnAttribution is present but null', legacyPrefixEnd: null };
   const bytes = new TextEncoder().encode(content);
   const saneLegacy = isObject(turnAttribution) && isOffset(turnAttribution.legacyPrefixEnd) && turnAttribution.legacyPrefixEnd <= bytes.length
     && decodeRange(bytes, 0, turnAttribution.legacyPrefixEnd) !== null
