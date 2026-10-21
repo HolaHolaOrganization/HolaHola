@@ -59,11 +59,13 @@ These are all genuine results. INSUFFICIENT EVIDENCE means supply the missing co
 
 ---
 
-## CRITICAL: Always include actual code, not descriptions
+## CRITICAL: Stage 2 always includes actual code, not descriptions
+
+This section is about **stage 2**: our approach and implementation review. Stage 1 (above) is problem-only and carries no code and no proposed mechanism. Never paste code into stage 1.
 
 **The "broom closet" problem:** When you describe the architecture in prose, Gemini reasons from your description. It will recommend things you already built, flag gaps that are already covered, and give generic advice instead of precise surgical guidance.
 
-**The rule:** Before running any consult, read the 3-6 files most relevant to the question and paste the actual code verbatim into the prompt. Not summaries — the actual lines. Gemini has a ~1M token context window. Use it.
+**The rule:** Before running stage 2, read the 3-6 files most relevant to the question and paste the actual code verbatim into the prompt. Not summaries — the actual lines. Gemini has a ~1M token context window. Use it.
 
 **What changes with actual code:**
 - Gemini says "on line 533 you're doing Y which conflicts with X — here's the exact fix" instead of "make sure you handle Y"
@@ -71,7 +73,7 @@ These are all genuine results. INSUFFICIENT EVIDENCE means supply the missing co
 - It gives you concrete insertion points instead of abstract patterns
 - It catches semantic flaws in your actual naming and grouping
 
-**Before every consult:**
+**Before every stage-2 prompt:**
 1. Identify the 3-6 files that matter for the question
 2. Read the relevant sections (you don't need whole files — grep for the key functions/blocks)
 3. Include them as labeled, fenced code blocks in the prompt
@@ -191,31 +193,25 @@ Always use `gemini-3-flash-preview` — the 3.x text model, same family as Danie
 
 ## How it works
 
-Calls the Gemini REST API directly from bash using `process.env.GEMINI_API_KEY`. Single-turn for most queries (the full context fits in one prompt). Multi-turn available if you need a follow-up.
+`consult.mjs` (next to this file) sends one stage at a time to the Gemini REST API, using `GEMINI_API_KEY` from the environment. The key goes in a request header and is never written to disk. Every stage is recorded in a consult directory you choose:
 
-Output is written to `/tmp/gemini-audit.txt` and printed to stdout.
+- `stage-<n>-request.md`: the exact prompt for that stage;
+- `stage-<n>-request.json`: the exact request sent (model, settings and the full history of earlier stages), with no key and no headers;
+- `stage-<n>-response.md`: Gemini's verbatim answer.
+
+Stage n is sent with stages 1..n-1 as conversation history, rebuilt from those files, so stage 2 sees stage 1's exact exchange. Earlier stages are never overwritten. A stage whose call failed can be retried only with the identical prompt; a changed prompt is a new stage. `--dry-run` records the request without sending anything, which is useful for checking a packet.
 
 ---
 
 ## Step-by-step
 
-### 1. Gather the actual code first
+### 1. Write the stage-1 prompt (no code)
 
-Before writing the prompt, grep/read the key files:
-
-```bash
-# Find the relevant function
-grep -n "buildClassroomEnvironment\|isGL" server/services/classroom-environment.ts | head -20
-
-# Read the specific lines
-# (read lines 492-535 of classroom-environment.ts, etc.)
-```
-
-Include 3-6 file sections as fenced code blocks labeled `## FILE N: filename — description`.
+Goal, problem, cases with evidence and genuine constraints, as described below. Do not read or paste code for this stage, and do not describe our mechanism.
 
 ### 2. Craft the query
 
-Run it in two turns (see "Ask the real question" above). Use the multi-turn pattern in step 4 below, so stage 1's answer stays in the conversation.
+Run it in two turns (see "Ask the real question" above). `consult.mjs` keeps stage 1's exact exchange in the stage-2 history.
 
 **Stage 1 prompt (no code):**
 1. **The goal** — what we are trying to accomplish
@@ -232,84 +228,27 @@ Run it in two turns (see "Ask the real question" above). Use the multi-turn patt
 4. **Questions** — compare with your stage-1 approach; poke holes in our logic and premises; suggest alternatives, including replacing the approach; then the per-risk questions, numbered, neutral, one risk each, each asking for BLOCKING / CONCERN / NO ISSUE FOUND / INSUFFICIENT EVIDENCE
 5. **Tone instruction** — "Be direct. Reason from the actual code. This is production. If the code shown is not enough to answer, say INSUFFICIENT EVIDENCE and name what is missing."
 
-### 3. Run the query
+For stage 2, gather the actual code first: grep or read the 3-6 relevant files and paste the sections as fenced blocks labeled `## FILE N: filename — description`.
 
 ```bash
-cd /home/runner/workspace && timeout 120 node --input-type=module << 'EOF'
-import https from 'https';
-import fs from 'fs';
-
-const LOG = '/tmp/gemini-audit.txt';
-const apiKey = process.env.GEMINI_API_KEY;
-if (!apiKey) { console.error('GEMINI_API_KEY not set'); process.exit(1); }
-
-const prompt = `YOUR PROMPT HERE — with actual code blocks`;
-
-const body = JSON.stringify({
-  contents: [{ role: 'user', parts: [{ text: prompt }] }],
-  generationConfig: { temperature: 0.3, maxOutputTokens: 6000 }
-});
-
-const result = await new Promise((resolve, reject) => {
-  const options = {
-    hostname: 'generativelanguage.googleapis.com',
-    path: '/v1beta/models/gemini-3-flash-preview:generateContent?key=' + apiKey,
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) }
-  };
-  const req = https.request(options, (res) => {
-    let data = '';
-    res.on('data', chunk => data += chunk);
-    res.on('end', () => {
-      try { resolve(JSON.parse(data)); }
-      catch(e) { reject(new Error('Parse error: ' + e.message + ' | Raw: ' + data.slice(0, 300))); }
-    });
-  });
-  req.on('error', reject);
-  req.write(body);
-  req.end();
-});
-
-const text = result.candidates?.[0]?.content?.parts?.[0]?.text;
-if (!text) {
-  const errMsg = 'No text in response: ' + JSON.stringify(result).slice(0, 500);
-  console.error(errMsg);
-  fs.writeFileSync(LOG, errMsg);
-  process.exit(1);
-}
-
-fs.writeFileSync(LOG, `=== Gemini Audit ${new Date().toISOString()} ===\n\n${text}`);
-console.log(text);
-EOF
-
-# Always read the file after — bash stdout may be truncated but the file is complete
-cat /tmp/gemini-audit.txt
+grep -n "buildClassroomEnvironment\|isGL" server/services/classroom-environment.ts | head -20
 ```
 
-### 4. For multi-turn follow-ups
+### 3. Run the stages
 
-If the first response raises a new question or got cut off, run a follow-up with conversation history:
+Use one consult directory per consult, outside the repo or under `.local/` (gitignored), named for the topic and date:
 
 ```bash
-cd /home/runner/workspace && timeout 120 node --input-type=module << 'EOF'
-import https from 'https';
-import fs from 'fs';
-
-const apiKey = process.env.GEMINI_API_KEY;
-const previousResponse = fs.readFileSync('/tmp/gemini-audit.txt', 'utf8');
-
-const body = JSON.stringify({
-  contents: [
-    { role: 'user', parts: [{ text: 'YOUR ORIGINAL PROMPT (with code blocks)' }] },
-    { role: 'model', parts: [{ text: previousResponse }] },
-    { role: 'user', parts: [{ text: 'YOUR FOLLOW-UP QUESTION' }] }
-  ],
-  generationConfig: { temperature: 0.3, maxOutputTokens: 3000 }
-});
-
-// ... same https request pattern as above ...
-EOF
+node .agents/skills/consult-gemini/consult.mjs --dir .local/gemini-consults/2026-10-21-writer-stack --stage 1 --prompt-file stage1.md
+# read the stage-1 answer; then write stage2.md (approach + code + questions)
+node .agents/skills/consult-gemini/consult.mjs --dir .local/gemini-consults/2026-10-21-writer-stack --stage 2 --prompt-file stage2.md
 ```
+
+The answer prints to stdout and is saved in `stage-<n>-response.md`. Always read the file, because stdout may be truncated.
+
+### 4. Further rounds
+
+A further round is just the next stage number with a new prompt file, and the full history goes with it. Per "Never re-ask to get a different answer", a new round must carry a real change: updated code, new evidence or a factual correction. Say in the prompt what changed.
 
 ---
 
@@ -444,9 +383,9 @@ Please be specific about which model/API version this applies to.
 ## Notes
 
 - Temperature 0.3 for architectural analysis (lower = more precise, less wandering)
-- `maxOutputTokens: 6000` for complex multi-topic reviews; 4000 for focused single-topic
-- Response may be truncated in bash stdout — always read `/tmp/gemini-audit.txt` for the full text
-- If the response cuts off mid-sentence, run a follow-up turn with the conversation history
+- `--max-tokens 6000` (the default) for complex multi-topic reviews; 4000 for focused single-topic
+- Response may be truncated in bash stdout — always read `stage-<n>-response.md` in the consult directory for the full text
+- If the response cuts off mid-sentence, run the next stage asking Gemini to continue; the history goes with it
 - `gemini-3-flash-preview` is the same model family as Daniela — it has first-hand knowledge of Gemini Live mechanics, function-calling behaviour, and tool dispatch patterns
-- The bash `node --input-type=module` pattern works because `process.env.GEMINI_API_KEY` is available in the server environment (unlike the code_execution sandbox)
+- `consult.mjs` needs `GEMINI_API_KEY` in its environment (available in the server environment, unlike the code_execution sandbox; locally, `node --env-file=.env`)
 - Gemini context window is ~1M tokens. A full file read of classroom-environment.ts (~725 lines) is ~5K tokens. You have room for 5-8 full files per consult before hitting practical limits.
