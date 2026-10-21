@@ -100,6 +100,7 @@ import {
   type CanonicalConversationSource,
   writeSynchronizedCanonicalCaptureReceipt,
 } from '../services/canonical-conversation-capture';
+import { buildClaudeCodeProvenance, type TranscriptSegment } from '../services/provenance-builder';
 import {
   buildCanonicalInnerLifeTurnIntent,
   CANONICAL_INNER_LIFE_INTENT_DIR,
@@ -526,6 +527,29 @@ async function closeRecordExchangeDbConnections(): Promise<void> {
 }
 
 const DEFAULT_REMOTE_URL = 'https://getholahola.com';
+
+/**
+ * Attribution provenance (design f5d77712 section 3.1) from the Stop hook's
+ * --provenance-segments file. Bound to the exact assistantText; if the
+ * segments do not flatten to those bytes, or the file is unusable, the turn
+ * is recorded without provenance (model unknown) rather than with a guess.
+ */
+function claudeCodeProvenanceFromArgs(args: string[], assistantText: string): Record<string, unknown> | null {
+  const idx = args.indexOf('--provenance-segments');
+  if (idx === -1) return null;
+  const file = args[idx + 1];
+  try {
+    if (!file || !existsSync(file)) throw new Error('segments file not found');
+    const segments = JSON.parse(readFileSync(file, 'utf8')) as TranscriptSegment[];
+    if (!Array.isArray(segments)) throw new Error('segments must be an array');
+    const built = buildClaudeCodeProvenance(segments.map(s => ({ text: typeof s?.text === 'string' ? s.text : '', model: s?.model })));
+    if (built.assistantText !== assistantText) throw new Error('segments do not flatten to the recorded assistant text');
+    return built.provenance;
+  } catch (error: any) {
+    console.warn(`[record-exchange] provenance omitted: ${error?.message ?? String(error)}`);
+    return null;
+  }
+}
 const REMOTE_ACK_POLL_MS = 1_000;
 
 function remoteUrlFromArgs(args: string[]): string | null {
@@ -566,6 +590,7 @@ async function runClaudeCodeRemoteCli(
   const assistantText = readFileSync(assistantFile, 'utf8').trimEnd();
   if (!davidText || !assistantText) throw new Error('Claude Code user and assistant files must both be non-empty');
 
+  const provenance = claudeCodeProvenanceFromArgs(args, assistantText);
   const authHeaders = getAgentAuthHeaders('luca-claude-code');
   if (!authHeaders) throw new Error('Luca [Claude Code] coordination credential is not set -- required to call the remote canonical-conversation-exchange endpoint');
 
@@ -579,7 +604,10 @@ async function runClaudeCodeRemoteCli(
     response = await fetch(`${remoteUrl}/api/internal/canonical-conversation-exchange`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', ...authHeaders },
-      body: JSON.stringify({ source: 'claude-code', userText: davidText, assistantText, turnId }),
+      body: JSON.stringify({
+        source: 'claude-code', userText: davidText, assistantText, turnId,
+        ...(provenance ? { provenance } : {}),
+      }),
       signal: postController.signal,
     });
   } catch (error: any) {
@@ -705,6 +733,7 @@ async function runClaudeCodeCli(
     assistantText,
     source: 'claude-code',
     turnId: requiredTurnId(args),
+    provenance: claudeCodeProvenanceFromArgs(args, assistantText),
   });
   const receipt: CaptureAcknowledgement = {
     turnId: capture.turnId,

@@ -115,6 +115,16 @@ function main() {
   const assistantFile = join(tmpDir, 'assistant.txt');
   writeFileSync(davidFile, userText, 'utf8');
   writeFileSync(assistantFile, assistantText, 'utf8');
+  // Per-entry text and the model the transcript reports for it, from the SAME
+  // assistant entries flattened above. record-exchange builds attribution
+  // provenance from these (design f5d77712 section 3.1) and binds it to the
+  // exact assistantText bytes; it is dropped, never guessed, if they differ.
+  const segmentsFile = join(tmpDir, 'segments.json');
+  const segments = entries
+    .slice(lastUserIdx + 1)
+    .filter(entry => entry.type === 'assistant')
+    .map(entry => ({ text: extractText(entry.message?.content), model: entry.message?.model ?? null }));
+  writeFileSync(segmentsFile, JSON.stringify(segments), 'utf8');
 
   // Stable per-turn identity: same session + same transcript position always
   // produces the same id, so a retry (or an accidental double-fire) is a
@@ -127,6 +137,7 @@ function main() {
       'tsx', '--env-file-if-exists=.env', 'server/scripts/record-exchange.ts',
       '--source', 'claude-code', '--remote', REMOTE_URL,
       '--david-file', davidFile, '--assistant-file', assistantFile,
+      '--provenance-segments', segmentsFile,
       '--turn-id', turnId, '--no-wait',
     ],
     { cwd: PROJECT_ROOT, encoding: 'utf8', timeout: 20000, shell: true },
