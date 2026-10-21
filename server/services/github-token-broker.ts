@@ -35,10 +35,19 @@
 import crypto from 'node:crypto';
 import type { GithubAppGrant } from '@shared/schema';
 
-/** davidwmcintosh/HolaHola — verified via GET /repos/davidwmcintosh/HolaHola. */
+/** davidwmcintosh/HolaHola — verified via GET /repos/davidwmcintosh/HolaHola. The id survives a repository transfer. */
 export const HOLAHOLA_REPOSITORY_ID = 1170208766;
-/** davidwmcintosh — the only account the agent Apps may be installed on. */
+/** davidwmcintosh — the founder's personal account, the repository's current owner. */
 export const HOLAHOLA_OWNER_ACCOUNT_ID = 34244604;
+/** HolaHolaOrganization — the founder's organization; verified via GET /orgs/HolaHolaOrganization. */
+export const HOLAHOLA_ORGANIZATION_ACCOUNT_ID = 346076814;
+/**
+ * The accounts the agent Apps may be installed on. Both are founder-owned. Both
+ * stay valid while HolaHola moves from the personal account to the organization:
+ * each App is reinstalled on the organization, and its grant then names the new
+ * installation. Narrow this back to one account once the move is done.
+ */
+export const HOLAHOLA_INSTALLATION_ACCOUNT_IDS: ReadonlySet<number> = new Set([HOLAHOLA_OWNER_ACCOUNT_ID, HOLAHOLA_ORGANIZATION_ACCOUNT_ID]);
 
 /** Fixed ceiling for every agent token. Workflows/administration/secrets are never granted. */
 export const AGENT_TOKEN_PERMISSIONS: Readonly<Record<string, 'read' | 'write'>> = Object.freeze({
@@ -322,7 +331,8 @@ export async function mintAgentGithubToken(principal: MintPrincipal, deps: MintD
     } catch {
       return deny(503, 'github_unavailable', grant, { step: 'get_installation' });
     }
-    if (installation?.app_id !== grant.appId || installation.account?.id !== HOLAHOLA_OWNER_ACCOUNT_ID) {
+    const accountId = installation?.account?.id;
+    if (installation?.app_id !== grant.appId || typeof accountId !== 'number' || !HOLAHOLA_INSTALLATION_ACCOUNT_IDS.has(accountId)) {
       return deny(403, 'installation_mismatch', grant, {
         installationAppId: installation?.app_id ?? null,
         installationAccountId: installation?.account?.id ?? null,
