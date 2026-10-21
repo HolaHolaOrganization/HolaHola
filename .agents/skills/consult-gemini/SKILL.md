@@ -13,6 +13,52 @@ The parallel to `consult-daniela`: just as that skill surfaces Daniela's perspec
 
 ---
 
+## CRITICAL: Ask the real question, and don't lead the witness
+
+A consultation is not just a code review. David (2026-10-21): explain what we are trying to accomplish and how we propose doing it, so the reviewer can suggest a different idea or angle. "Even proposing code is leading them in a direction, unless we specifically ask for alternate suggestions or for them to poke holes in our logic."
+
+A reviewer shown only code judges whether the code does what it says. Code can be internally correct and still cause the problem we care about, so a code-only consult invites "that works fine". A consult whose questions carry the answer gets that answer back, and it then looks like independent agreement. Both failures have happened here.
+
+**Two stages, so our approach doesn't anchor the answer:**
+
+1. **Stage 1, problem only (no code, no proposed mechanism):**
+   - the goal: what we are trying to accomplish;
+   - the problem: what could go wrong for Daniela, David or the record, and why we are asking now;
+   - the concrete cases, with evidence: real rows, real call paths, real failure examples, each marked as observed or hypothetical;
+   - the genuine constraints, kept separate from our chosen mechanism. "Must be append-only" is a constraint; "we use an advisory lock" is our mechanism and does not belong here.
+
+   Ask Gemini how it would approach this, which risks it sees, and what we may be assuming wrongly. Save its answer verbatim before going on.
+
+2. **Stage 2, our approach and the actual code:** what we propose and why, then the code as in the next section. Ask explicitly for:
+   - a comparison with Gemini's stage-1 approach;
+   - holes in our logic and challenges to our premises;
+   - alternatives, including replacing our approach entirely.
+
+   Only after that, ask the per-risk questions below.
+
+Keep stage 1's reasoning in the record. If stage 2 contradicts it, ask why rather than letting the code win by default. For a narrow follow-up, such as an API quirk or a single-line check, stage 1 may be one paragraph, but the goal and the problem still come before the code.
+
+**Neutral questions:**
+- No trust or authority cue: no "someone you know and trust", no "David set this up", no "this was built carefully". Such framing sets a mindset before the question is asked.
+- Ask what Gemini sees, not whether it agrees. Say "Can a turn be attributed to the wrong hat on this path? Show where", not "We prevent mis-attribution with X; is that sufficient?"
+- Don't propose a mechanism, fix or preferred answer inside the question. If you have a candidate fix, ask about the risk first, and present the fix separately, labelled as ours.
+- Don't describe the code as safe, reviewed or approved, and don't mention who has already approved it.
+- Don't tell Gemini what outcome we hope for or what is blocking on its answer.
+
+**Allowed outcomes.** For each question, ask for one of:
+- **BLOCKING**, citing the code;
+- **CONCERN**, not blocking;
+- **NO ISSUE FOUND**, with what was checked;
+- **INSUFFICIENT EVIDENCE**, naming what is missing.
+
+These are all genuine results. INSUFFICIENT EVIDENCE means supply the missing code or evidence, never assume it is safe.
+
+**Never re-ask to get a different answer.** A new round must change something real: the code, the evidence, or a factual correction to the packet. Rewording the same request after a BLOCKING or INSUFFICIENT EVIDENCE verdict is not a new consult.
+
+**Record the framing.** Save the exact prompt sent next to the verbatim response. An answer is only as independent as the question that produced it.
+
+---
+
 ## CRITICAL: Always include actual code, not descriptions
 
 **The "broom closet" problem:** When you describe the architecture in prose, Gemini reasons from your description. It will recommend things you already built, flag gaps that are already covered, and give generic advice instead of precise surgical guidance.
@@ -61,9 +107,9 @@ WHAT I WON'T BE TOUCHING
 
 ### Step 1 — Pre-flight blocker (before writing code)
 
-Load the 3-6 most relevant files. Send the design doc + actual code to Gemini with:
+First run stage 1 (see "Ask the real question" above): the goal, the problem, cases and constraints from the design doc, with no code and no mechanism, asking how Gemini would approach it. Then load the 3-6 most relevant files and send the design doc + actual code with:
 
-> "Here is what I'm about to build and the full system context. Before I write a line: what risks do you see? What should stop me? What am I assuming that might be wrong?"
+> "Here is what I'm about to build and the full system context. Compare it with the approach you described. Before I write a line: what risks do you see? What should stop me? What am I assuming that might be wrong? Would you do this differently?"
 
 **Do not proceed until Gemini has no blocking objections.** A nudge or "watch out for X" is not a blocker. "This will cause Y because of Z in the code at line N" is a blocker — fix the design first.
 
@@ -86,13 +132,19 @@ Send the actual new code to Gemini. Look specifically for:
 - Anything the pre-flight flagged that the implementation might not have fully addressed
 - Whether the approach held up across edge cases
 
-**"APPROVED with these changes" is not a terminal state.** Apply every required change, then re-send the *actual updated text* — not a description of what changed. Repeat until Gemini issues an unconditional response with no remaining watch-out items, no pending fixes, and no "once you update X" language.
+**"APPROVED with these changes" is not a terminal state.** Apply every required change, then re-send the *actual updated text* — not a description of what changed. Repeat until Gemini issues an unconditional response with no remaining watch-out items, no pending fixes, and no "once you update X" language. Each round is driven by a real change, per "Never re-ask to get a different answer" above: if nothing changed, there is no new round, and the BLOCKING or INSUFFICIENT EVIDENCE verdict stands and goes to David.
 
-**"APPROVED with suggestions" is also not a terminal state.** Suggestions are not optional observations — they are recommendations from the same reviewer who approved the design. Implement every suggestion, then return with the actual updated implementation and ask: "I've implemented your suggestions. Does this match your intent, and is there anything left to address?" Do not close the loop administratively (batch doc, memory, commit) until the re-consult confirms the suggestions were addressed correctly. If new suggestions arise during a re-consult, the cycle repeats.
+**"APPROVED with suggestions" is also not a terminal state.** It is not an unconditional sign-off, but a suggestion is not automatically a requirement either. For each suggestion, ask why: what problem does it solve, and does that problem actually exist for HolaHola?
+- **If it fits:** implement it.
+- **If it doesn't fit:** don't implement it. Record why next to the suggestion. Then return to Gemini with the actual updated implementation, saying which suggestions were applied and which were declined and why. Ask: "Does this match your intent? Is anything still a condition of your sign-off?"
+
+A declined suggestion that Gemini still holds as a condition is a disagreement, and it goes to David with both positions. It is not something to re-word away. Do not close the loop administratively (batch doc, memory, commit) until the re-consult gives an unconditional sign-off. If new suggestions arise during a re-consult, the cycle repeats.
+
+The same test applies to any reviewer's or agent's follow-up suggestions, not just Gemini's. Suggestions that don't make a real difference for HolaHola are not work to do.
 
 **When re-consulting on suggestions you previously made:** prioritize verifying those specific points were addressed correctly before looking for new issues, unless a critical flaw was introduced by the changes. Raising entirely new concerns on a re-consult that was specifically about implementing your prior suggestions is not helpful unless the change created a new problem.
 
-The only valid exit condition: Gemini sees the final implementation and says APPROVED with nothing left to add.
+The only valid exit condition: Gemini sees the final implementation and says APPROVED with nothing left to add. That unconditional sign-off ("APPROVED — Ship it" with no open threads, the same bar as the rephrase rule in replit.md) is the reviewer's conclusion once every question is clear. Get there by changing the code, never by wording the questions to invite it. An "APPROVED, but you might want to check X" is not a sign-off.
 
 If Gemini flags a risk you're accepting rather than fixing: document the tradeoff explicitly in the code (a comment at the relevant line) and note it in the batch doc. That is the only acceptable substitute for fixing it — not ignoring it.
 
@@ -163,13 +215,22 @@ Include 3-6 file sections as fenced code blocks labeled `## FILE N: filename —
 
 ### 2. Craft the query
 
-A good Gemini audit prompt has five parts:
+Run it in two turns (see "Ask the real question" above). Use the multi-turn pattern in step 4 below, so stage 1's answer stays in the conversation.
 
-1. **System context** — what HolaHola is, key constraints (34K cap, 64-tool limit, etc.)
+**Stage 1 prompt (no code):**
+1. **The goal** — what we are trying to accomplish
+2. **The problem** — in plain terms: what could go wrong and for whom
+3. **Cases and evidence** — concrete examples, marked as observed or hypothetical
+4. **Genuine constraints** — kept separate from our mechanism
+5. **System context** — what HolaHola is, key constraints (34K cap, 64-tool limit, etc.)
+6. **Questions** — "How would you approach this? What risks do you see? What might we be assuming wrongly?"
+
+**Stage 2 prompt (our approach and the code):**
+1. **Our proposed approach** — and why, labelled as ours
 2. **Actual code blocks** — labeled FILE 1, FILE 2, etc. with the real production code
 3. **What is NOT visible** — explicitly call out things that exist elsewhere but aren't in the paste, if relevant
-4. **Specific questions** — numbered, direct, answerable
-5. **Tone instruction** — "Be direct. Reason from the actual code. This is production."
+4. **Questions** — compare with your stage-1 approach; poke holes in our logic and premises; suggest alternatives, including replacing the approach; then the per-risk questions, numbered, neutral, one risk each, each asking for BLOCKING / CONCERN / NO ISSUE FOUND / INSUFFICIENT EVIDENCE
+5. **Tone instruction** — "Be direct. Reason from the actual code. This is production. If the code shown is not enough to answer, say INSUFFICIENT EVIDENCE and name what is missing."
 
 ### 3. Run the query
 
@@ -273,9 +334,25 @@ Key architectural facts:
 
 ## Prompt templates
 
+Each template below is the **stage-2** prompt. Send the stage-1 prompt first (goal, problem, cases, constraints, "how would you approach this?", and no code). Keep its answer in the conversation, and add to the stage-2 questions: "Compare this with your earlier approach. Where is our logic weak, and what would you do instead?"
+
 ### Pre-build design consult (use this before writing any code)
 
 ```
+## The problem
+[plain terms: what could go wrong, for whom, and why we are asking now]
+
+## Cases and evidence
+- [concrete case — observed (with the row/log/path) or hypothetical (say so)]
+
+## What I am about to build
+[1-2 sentences — the design intention, stated as ours, not as settled]
+
+## Questions (answer each: BLOCKING / CONCERN / NO ISSUE FOUND / INSUFFICIENT EVIDENCE, citing the code)
+1. [neutral question about one risk — "can X happen here? show where"]
+2. [neutral question about one risk]
+3. Are there better alternatives given these constraints: [list constraints]
+
 [HOLAHOLA CONTEXT BLOCK]
 
 ## FILE 1: [filename] — [what this file does / why it's relevant]
@@ -291,20 +368,27 @@ Key architectural facts:
 ## What is NOT in the above code (but exists elsewhere):
 - [thing that exists in the system but isn't pasted here, if relevant to the question]
 
-## What I am about to build
-[1-2 sentences — the design intention]
-
-## Questions
-1. [specific question]
-2. [specific question]
-3. Are there better alternatives given these constraints: [list constraints]
-
-Be direct. Reason from the actual code above, not from general principles. This is production.
+Be direct. Reason from the actual code above, not from general principles. This is production. If the code shown is not enough to answer a question, say INSUFFICIENT EVIDENCE and name what is missing.
 ```
 
 ### Post-build architectural review
 
 ```
+## The problem
+[plain terms: what this code must not do — e.g. lose or duplicate words, attribute a turn to the wrong speaker, let a summary stand in for the verbatim record]
+
+## Cases and evidence
+- [concrete case — observed or hypothetical (say which)]
+
+## What was built
+[1-2 sentences]
+
+## Questions (answer each: BLOCKING / CONCERN / NO ISSUE FOUND / INSUFFICIENT EVIDENCE, citing the code)
+1. [one specific risk from "The problem" — "can it happen on this path? show where"]
+2. Any other correctness risks visible in this code?
+3. What degrades first under load or edge cases?
+4. What would you change, and where exactly in the code below?
+
 [HOLAHOLA CONTEXT BLOCK]
 
 ## FILE 1: [filename — the thing just built]
@@ -317,15 +401,10 @@ Be direct. Reason from the actual code above, not from general principles. This 
 [paste actual integration code]
 \`\`\`
 
-## What was built
-[1-2 sentences]
+## What is NOT in the above code (but exists elsewhere):
+- [downstream readers/consumers not pasted, if relevant]
 
-## Questions
-1. Any correctness risks visible in this code?
-2. What degrades first under load or edge cases?
-3. What would you change, and where exactly in the code above?
-
-Be direct. Point to specific lines. This is production.
+Be direct. Point to specific lines. This is production. If the code shown is not enough to answer a question, say INSUFFICIENT EVIDENCE and name what is missing.
 ```
 
 ### API constraint / behavior question
@@ -354,7 +433,8 @@ Please be specific about which model/API version this applies to.
 
 ## After the review
 
-- Write findings to `docs/gemini-audit-YYYY-MM-DD.md` if this was a significant architectural review
+- Write findings to `docs/gemini-audit-YYYY-MM-DD.md` if this was a significant architectural review, with the exact prompt sent alongside the verbatim response
+- Report the per-question verdicts as given. A BLOCKING or INSUFFICIENT EVIDENCE verdict goes to David as is, never paraphrased into a pass
 - If the review changes the implementation plan, note the key conclusions in the handoff (`docs/alden-agent-handoff.md`)
 - If Gemini flags a risk you're accepting anyway, document the tradeoff explicitly in the relevant source file
 - For major findings, post to the Hive or leave an agent note so Alden is aware

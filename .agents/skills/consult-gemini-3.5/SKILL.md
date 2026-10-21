@@ -18,6 +18,19 @@ Use this skill when you need the **3.5 generation's perspective** specifically. 
 
 ---
 
+## How to ask
+
+Every rule in `consult-gemini`'s "Ask the real question, and don't lead the witness" section applies here unchanged:
+- two stages: first the goal, problem, cases and constraints with no code; then our approach and the code, asking for holes and alternatives;
+- no trust or authority cue, and no desired-answer framing;
+- verdicts per question: BLOCKING / CONCERN / NO ISSUE FOUND / INSUFFICIENT EVIDENCE;
+- no re-asking without a real change;
+- the exact prompt saved alongside the response.
+
+When comparing 3.1 and 3.5, send both the identical prompt.
+
+---
+
 ## Model
 
 Always use `gemini-3.5-flash`.
