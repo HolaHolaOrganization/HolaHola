@@ -7,7 +7,9 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } fro
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, test } from 'node:test';
-import { moveTriggerIntoIntake, processAutoCaptureIntake, publishTriggerExclusive } from './auto-capture-intake';
+import { assignIntakeTurnId, listAutoCaptureIntake, moveTriggerIntoIntake, processAutoCaptureIntake, publishTriggerExclusive } from './auto-capture-intake';
+import { appendAutoCaptureExchange } from './canonical-conversation-capture';
+import { basename } from 'node:path';
 import { parseChatCaptureFromOffset } from './transcript-parser';
 import { buildCanonicalEpisodeEvent } from './turn-attribution-writer';
 
@@ -28,7 +30,8 @@ function sandbox() {
   const turns = () => (existsSync(capturePath) ? parseChatCaptureFromOffset(capturePath, 0).turns : []);
   const bytes = () => (existsSync(capturePath) ? readFileSync(capturePath, 'utf8') : '');
   const pending = () => (existsSync(dir) ? readdirSync(dir).filter(f => f.endsWith('.json')) : []);
-  return { root, dir, trigger, put, run, turns, bytes, pending };
+  const assign = (record: string, turnId: string) => assignIntakeTurnId(basename(record), turnId, dir, { capturePath, ingressLockPath });
+  return { root, dir, trigger, capturePath, ingressLockPath, put, run, assign, turns, bytes, pending };
 }
 
 const DAVID = '¿Y ahora qué? —\ncon dos líneas';
@@ -119,5 +122,96 @@ describe('writer 3: durable intake and canonical append', () => {
     writeFileSync(join(s.root, 'unrelated'), 'x');
     assert.deepEqual(s.run().map(o => o.status), ['recorded']);
     assert.deepEqual(s.pending(), []);
+  });
+});
+
+describe('writer 3: operator correction of a missing-id record (luca-replit seq 543)', () => {
+  test('assign commits the exact bytes and roles under the explicit id, then deletes only that record', () => {
+    const s = sandbox();
+    const target = s.put({ david: DAVID, luca: LUCA });
+    const other = s.put({ luca: 'another pending entry' });
+    assert.deepEqual(s.assign(target, 'op-fix-1'), { kind: 'recorded', turnId: 'op-fix-1' });
+    assert.deepEqual(s.turns().map(t => [t.speaker, t.text, t.captureId, t.source]), [
+      ['DAVID', DAVID, 'op-fix-1', 'replit'], ['LUCA', LUCA, 'op-fix-1', 'replit'],
+    ]);
+    assert.equal(existsSync(target), false);
+    assert.ok(existsSync(other), 'another record is never touched');
+    assert.deepEqual(listAutoCaptureIntake(s.dir).map(r => [r.turnId, r.roles]), [[null, ['luca']]]);
+  });
+
+  test('exact retry after success, and after a crash between commit and delete, is safe', () => {
+    const s = sandbox();
+    const done = s.put({ luca: LUCA });
+    s.assign(done, 'op-fix-2');
+    assert.deepEqual(s.assign(done, 'op-fix-2'), { kind: 'not-pending', canonicalHasTurnId: true });
+    // Crash after the canonical append, before the record was deleted:
+    const crashed = s.put({ david: DAVID, luca: LUCA });
+    appendAutoCaptureExchange({ turnId: 'op-fix-3', david: DAVID, luca: LUCA, capturePath: s.capturePath, ingressLockPath: s.ingressLockPath });
+    const before = s.bytes();
+    assert.deepEqual(s.assign(crashed, 'op-fix-3'), { kind: 'exact-retry', turnId: 'op-fix-3' });
+    assert.equal(s.bytes(), before, 'nothing appended twice');
+    assert.equal(existsSync(crashed), false);
+  });
+
+  test('a conflicting correction leaves the record exactly as it was', () => {
+    const s = sandbox();
+    appendAutoCaptureExchange({ turnId: 'op-used-1', luca: 'already committed', capturePath: s.capturePath, ingressLockPath: s.ingressLockPath });
+    const record = s.put({ luca: LUCA });
+    const original = readFileSync(record, 'utf8');
+    const result = s.assign(record, 'op-used-1');
+    assert.equal(result.kind, 'pending');
+    assert.equal(readFileSync(record, 'utf8'), original, 'the record is never rewritten');
+    assert.equal(s.assign(record, 'op-fix-4').kind, 'recorded', 'a correct id still resolves it');
+  });
+
+  test('refused: a record that already carries a different id, an unparseable record, and names outside the intake', () => {
+    const s = sandbox();
+    const carries = s.put({ turnId: 'ac-own-id', luca: LUCA });
+    assert.equal(s.assign(carries, 'op-other').kind, 'refused');
+    const junk = s.put('{oops');
+    assert.equal(s.assign(junk, 'op-fix-5').kind, 'refused');
+    for (const name of ['../.chat_capture', '.intake.lock', 'x.json']) {
+      assert.equal(assignIntakeTurnId(name, 'op-fix-6', s.dir, { capturePath: s.capturePath, ingressLockPath: s.ingressLockPath }).kind, 'refused', name);
+    }
+    assert.equal(s.bytes(), '');
+  });
+
+  test('a one-sided record stays one-sided; a torn two-sided commit is reported, never completed', () => {
+    const s = sandbox();
+    const oneSided = s.put({ luca: LUCA });
+    assert.equal(s.assign(oneSided, 'op-one-1').kind, 'recorded');
+    assert.deepEqual(s.turns().filter(t => t.captureId === 'op-one-1').map(t => t.speaker), ['LUCA'], 'no side invented');
+    // An earlier two-sided commit that only got its David side down:
+    appendAutoCaptureExchange({ turnId: 'op-torn-1', david: DAVID, capturePath: s.capturePath, ingressLockPath: s.ingressLockPath });
+    const torn = s.put({ david: DAVID, luca: LUCA });
+    const result = s.assign(torn, 'op-torn-1');
+    assert.equal(result.kind, 'pending');
+    assert.match((result as { reason: string }).reason, /different set of sides/);
+    assert.ok(existsSync(torn), 'the full exchange stays pending, both roles intact');
+    assert.deepEqual(s.turns().filter(t => t.captureId === 'op-torn-1').map(t => t.speaker), ['DAVID']);
+  });
+
+  test('a live lock holder makes correction and processing wait; a dead holder is taken over', () => {
+    const s = sandbox();
+    const record = s.put({ luca: LUCA });
+    const lock = join(s.dir, '.intake.lock');
+    writeFileSync(lock, String(process.pid)); // a live holder
+    assert.deepEqual(s.assign(record, 'op-fix-7'), { kind: 'busy' });
+    assert.deepEqual(s.run(), [], 'the watcher waits too');
+    assert.ok(existsSync(record));
+    writeFileSync(lock, '2147483646'); // a holder that no longer exists (restart)
+    assert.equal(s.assign(record, 'op-fix-7').kind, 'recorded');
+    assert.equal(existsSync(lock), false, 'the lock is released');
+  });
+});
+
+describe('writer 3: canonical-log commit to projection obligation (source order)', () => {
+  const src = readFileSync(new URL('./agent-session-autosave.ts', import.meta.url), 'utf8');
+  test('the canonical cursor advances only after the row insert and the mirror enqueue', () => {
+    const insert = src.indexOf('INSERT INTO conversation_memories (id, title, summary, content, participants, tags, importance, created_at, entry_type, arc_name, attribution)');
+    const enqueue = src.indexOf('enqueueEpisodeMirror({', insert);
+    const advance = src.indexOf('saveChatCaptureCursor({', enqueue);
+    assert.ok(insert > 0 && enqueue > insert && advance > enqueue,
+      'bytes past the canonical cursor are replayed after a crash until both the row and the outbox item exist');
   });
 });
