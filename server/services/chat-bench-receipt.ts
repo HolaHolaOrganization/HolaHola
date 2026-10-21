@@ -39,6 +39,13 @@ export const BENCH_SOURCE = 'holahola-chat-bench';
 const IDENTITY = /^[A-Za-z0-9._-]{8,80}$/;
 export const IN_PROGRESS_TAG = 'in-progress';
 
+/**
+ * A text[] parameter. drizzle's sql template expands a JS array into a list
+ * of separate parameters, so arrays travel as one JSON parameter instead.
+ */
+const textArray = (values: string[]) =>
+  sql`ARRAY(SELECT jsonb_array_elements_text(${JSON.stringify(values)}::jsonb))::text[]`;
+
 export const sessionTag = (sessionId: string) => `bench-session:${sessionId}`;
 export const ownerTag = (userId: string) => `bench-owner:${userId}`;
 export const benchEventId = (sessionId: string, turnId: string) => `${sessionId}:${turnId}`;
@@ -159,7 +166,7 @@ export async function recordBenchTurn(db: TransactionalDb, turn: BenchTurn, meta
       const inserted = rowsOf(await tx.execute(sql`
         INSERT INTO conversation_memories (id, title, summary, content, participants, tags, importance, created_at, entry_type, arc_name)
         VALUES (gen_random_uuid(), ${title}, ${'Verbatim Luca↔Daniela voice session — recorded per turn.'}, ${sessionHeader(meta.topicHint)},
-                ARRAY['Luca', 'Daniela']::text[], ${tags}::text[], 8, NOW(), 'conversation', 'agent-daniela')
+                ARRAY['Luca', 'Daniela']::text[], ${textArray(tags)}, 8, NOW(), 'conversation', 'agent-daniela')
         RETURNING id
       `))[0];
       row = { id: inserted.id as string, content: '', attribution: null, tags };
@@ -206,7 +213,7 @@ export async function finalizeBenchSession(db: SqlExecutor, sessionId: string, t
   const row = rowsOf(await db.execute(sql`
     UPDATE conversation_memories
     SET title = COALESCE(${title}, title),
-        tags = ARRAY(SELECT DISTINCT t FROM unnest(array_remove(tags, ${IN_PROGRESS_TAG}) || ${extraTags}::text[]) AS t)
+        tags = ARRAY(SELECT DISTINCT t FROM unnest(array_remove(tags, ${IN_PROGRESS_TAG}) || ${textArray(extraTags)}) AS t)
     WHERE ${sessionTag(sessionId)} = ANY(tags)
     RETURNING id
   `))[0];

@@ -78,3 +78,23 @@ describe('agent-voice-turn route ordering', () => {
     assert.ok(at('if (endSession && bench) {') < at('} else if (endSession && agentSession.conversationTranscript.length > 0) {'));
   });
 });
+
+describe('SQL parameter shape (no database)', () => {
+  test('tag arrays travel as one JSON parameter, never an expanded tuple', async () => {
+    const { PgDialect } = await import('drizzle-orm/pg-core');
+    const { recordBenchTurn, finalizeBenchSession } = await import('./chat-bench-receipt');
+    const dialect = new PgDialect();
+    const seen: { sql: string; params: unknown[] }[] = [];
+    const responses: Record<string, unknown>[][] = [[], [], [{ id: '00000000-0000-0000-0000-000000000001' }], [{ content: sessionHeader('t'), attribution: null }], [], []];
+    const tx = { execute: async (q: any) => { seen.push(dialect.sqlToQuery(q)); return { rows: responses.shift() ?? [] }; } };
+    const db = { ...tx, transaction: async (fn: any) => fn(tx) };
+    assert.equal((await recordBenchTurn(db as any, turn, { userId: 'dev-test-agent', topicHint: 't', dateStr: 'd' })).kind, 'stored');
+    await finalizeBenchSession(tx as any, turn.sessionId, null, ['a', 'b']);
+    for (const q of seen) assert.doesNotMatch(q.sql, /\(\$\d+, \$\d+/, `no expanded tuple in: ${q.sql.slice(0, 120)}`);
+    const insert = seen.find(q => q.sql.includes('INSERT INTO conversation_memories'))!;
+    const asJson = (p: unknown) => { try { return typeof p === 'string' ? JSON.parse(p) : null; } catch { return null; } };
+    assert.ok(insert.params.some(p => Array.isArray(asJson(p)) && asJson(p).includes(`bench-session:${turn.sessionId}`)));
+    const finalize = seen.at(-1)!;
+    assert.ok(finalize.params.includes('["a","b"]'));
+  });
+});
