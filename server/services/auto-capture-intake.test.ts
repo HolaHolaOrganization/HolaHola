@@ -250,3 +250,18 @@ describe('writer 3: canonical-log commit to projection obligation (source order)
     assert.ok(insert > 0 && enqueue > insert && advance > enqueue);
   });
 });
+
+describe('writer 3: lock release ownership (R3)', () => {
+  test('release never removes a lock that another holder now owns', async () => {
+    const { withIntakeLockForTest } = await import('./auto-capture-intake');
+    const s = sandbox();
+    const lock = join(s.dir, '.intake.lock');
+    const other = '2147483645:11111111-1111-4111-8111-111111111111';
+    const result = withIntakeLockForTest(s.dir, () => {
+      writeFileSync(lock, other); // the lock path now holds someone else's record
+      return 'ran';
+    });
+    assert.equal(result, 'ran');
+    assert.equal(readFileSync(lock, 'utf8'), other, 'the other holder\'s lock survives our release');
+  });
+});

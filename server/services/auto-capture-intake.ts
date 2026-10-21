@@ -245,3 +245,6 @@ export function listAutoCaptureIntake(dir = AUTO_CAPTURE_INTAKE_DIR): { name: st
     };
   });
 }
+
+/** Test-only access to the directory lock; production code never calls it. */
+export const withIntakeLockForTest = withIntakeLock;
