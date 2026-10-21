@@ -2063,42 +2063,24 @@ async function appendInnerLifeToEpisodeDb(
       // re-evaluates the conditional predicate after a concurrent UPDATE
       // commits, so only one can append a given durable marker.
       const appendText = [route?.appendMarker, text].filter(Boolean).join('\n');
-      let newContent: unknown;
-      if (route?.appendMarker) {
-        const updated = await db.execute(sql`
-          UPDATE conversation_memories
-          SET content = content || ${'\n' + appendText + '\n'}
-          WHERE id = ${memoryId}
-            AND POSITION(${route.appendMarker} IN content) = 0
-          RETURNING content
-        `);
-        const updatedRow = (updated as any).rows?.[0] ?? (updated as any)[0];
-        if (updatedRow) {
-          newContent = updatedRow.content;
-        } else {
-          const canonical = await db.execute(sql`
-            SELECT content FROM conversation_memories WHERE id = ${memoryId}
-          `);
-          const canonicalRow = (canonical as any).rows?.[0] ?? (canonical as any)[0];
-          newContent = canonicalRow?.content;
-          console.log(`[AgentAutosave] Episode event already present in ${episodeFilename} after conditional update — skipping duplicate append`);
-        }
-      } else {
-        await db.execute(sql`
-          UPDATE conversation_memories
-          SET content = content || ${'\n' + appendText + '\n'}
-          WHERE id = ${memoryId}
-        `);
-
-        // 2. Read updated content from DB and replace Markdown with that exact
-        // snapshot. This creates a missing mirror when the episode was created
-        // after the current deployed filesystem was built.
-        const updated = await db.execute(sql`
-          SELECT content FROM conversation_memories WHERE id = ${memoryId}
-        `);
-        const updatedRow = (updated as any).rows?.[0] ?? (updated as any)[0];
-        newContent = updatedRow?.content;
+      // The row-level guard is in the UPDATE predicate itself
+      // (episode-legacy-append.ts): an attribution-aware row is refused,
+      // atomically, whatever the switch says now. The exact DB content is
+      // returned, so the Markdown replica is written from it as before.
+      const { appendUnframedToLegacyRow } = await import('./episode-legacy-append');
+      const result = await appendUnframedToLegacyRow(db as any, memoryId as string, appendText, route?.appendMarker);
+      if (result.kind === 'refused-aware' || result.kind === 'refused' || result.kind === 'missing') {
+        const reason = result.kind === 'refused-aware'
+          ? 'episode row carries per-turn attribution; an unframed append is refused (design 3.4 switch blocker)'
+          : result.kind === 'refused' ? result.reason : 'episode row vanished';
+        console.error(`[AgentAutosave] Episode append not recorded for ${episodeFilename}: ${reason}`);
+        flagDbWriteFailure(`episode-append-unframed:${episodeFilename}`, reason);
+        return;
       }
+      if (result.kind === 'already-present') {
+        console.log(`[AgentAutosave] Episode event already present in ${episodeFilename} after conditional update — skipping duplicate append`);
+      }
+      const newContent: unknown = result.content;
 
       if (typeof newContent === 'string' && writeExactEpisodeMarkdownReplica(episodeFilename, filePath, newContent)) {
         appended = true;
@@ -2475,7 +2457,7 @@ export async function appendExchangeToEpisode(
   exchange: string,
   episodeFilename: string,
   options?: { appendMarker?: string },
-): Promise<void> {
+): Promise<boolean> {
   if (isCiSentinelExchange(exchange)) {
     const rollingFilename = await getCurrentRollingEpisodeFilename();
     if (mustRejectCiSentinelForEpisode(exchange, episodeFilename, rollingFilename)) {
@@ -2490,8 +2472,9 @@ export async function appendExchangeToEpisode(
     allowAppend: true,
   });
   if (!appended) {
-    console.error(`[AgentAutosave] Episode append remains pending because DB→Markdown replication is incomplete: ${episodeFilename}`);
+    console.error(`[AgentAutosave] Episode append remains pending because it was not recorded or replicated: ${episodeFilename}`);
   }
+  return appended;
 }
 
 export async function checkEpisodeAppend(): Promise<void> {
@@ -2541,8 +2524,32 @@ export async function checkEpisodeAppend(): Promise<void> {
     } catch { /* ignore */ }
 
     console.log(`[AgentAutosave] Episode append trigger: "${parsed.exchange.slice(0, 60).replace(/\n/g, '↵')}…" → ${episodeFilename}`);
-    await appendExchangeToEpisode(parsed.exchange, episodeFilename);
+    if (!await appendExchangeToEpisode(parsed.exchange, episodeFilename)) {
+      // Not recorded (e.g. refused for an attribution-aware row): put the
+      // exchange back, ahead of anything queued since, so it stays pending
+      // and retryable instead of being lost with the cleared trigger.
+      restorePendingEpisodeAppend(episodeAppendPath, parsed.exchange, episodeFilename);
+    }
   } catch { /* file briefly locked — skip */ }
+}
+
+/**
+ * Put an unrecorded exchange back into the trigger file, ahead of any
+ * exchange queued since it was read, preserving both. The next poll retries.
+ */
+function restorePendingEpisodeAppend(path: string, exchange: string, episodeFilename: string): void {
+  try {
+    let queued = '';
+    if (existsSync(path)) {
+      const raw = readFileSync(path, 'utf-8').trim();
+      if (raw) queued = parseEpisodeAppend(raw)?.exchange ?? raw;
+    }
+    const merged = queued ? `${exchange}\n\n${queued}` : exchange;
+    writeFileSync(path, JSON.stringify({ exchange: merged, episode: episodeFilename }), 'utf-8');
+    console.error(`[AgentAutosave] Episode append kept pending in ${path} (${exchange.length} chars)`);
+  } catch (err: any) {
+    flagDbWriteFailure(`episode-append-restore:${episodeFilename}`, err?.message ?? String(err));
+  }
 }
 
 // ---------------------------------------------------------------------------

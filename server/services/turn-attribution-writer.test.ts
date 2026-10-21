@@ -144,9 +144,12 @@ describe('writer 1 routing in agent-session-autosave (source order)', () => {
     assert.ok(src.includes('...(writersV1 ? { attributionRequired: true, ...withEpisodeEvent(buildCanonicalEpisodeEvent(batchTurns)) } : {}),'));
   });
   test('the legacy DB-first append refuses an attribution-aware episode row', () => {
-    const fn = src.slice(src.indexOf('async function appendInnerLifeToEpisodeDb('));
-    const guard = fn.indexOf('if (turnAttributionOf(preRow?.attribution) !== undefined) {');
-    assert.ok(guard > 0);
-    assert.ok(guard < fn.indexOf('UPDATE conversation_memories'), 'the guard precedes every unframed UPDATE');
+    const start = src.indexOf('async function appendInnerLifeToEpisodeDb(');
+    const end = src.indexOf('export async function appendRawWindowOriginToEpisodeDb(', start);
+    const fn = src.slice(start, end);
+    assert.ok(start > 0 && end > start);
+    assert.ok(fn.includes('if (turnAttributionOf(preRow?.attribution) !== undefined) {'), 'early refusal on the read row');
+    assert.ok(fn.includes('await appendUnframedToLegacyRow(db as any, memoryId as string, appendText, route?.appendMarker)'), 'the write goes through the row-guarded append');
+    assert.doesNotMatch(fn, /UPDATE conversation_memories/, 'no unguarded UPDATE remains in the legacy append');
   });
 });
