@@ -33,7 +33,7 @@ if (args[0] === 'assign') {
     console.error('usage: auto-capture-intake-cli.ts assign --record <name> --turn-id <id>');
     process.exit(2);
   }
-  const result = assignIntakeTurnId(record, turnId);
+  const result = await assignIntakeTurnId(record, turnId);
   switch (result.kind) {
     case 'recorded':
     case 'exact-retry':

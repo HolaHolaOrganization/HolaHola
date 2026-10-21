@@ -2959,7 +2959,7 @@ export async function checkAutoCapture(): Promise<void> {
     // log, the canonical pipeline owns its projection and retries.
     const { moveTriggerIntoIntake, processAutoCaptureIntake } = await import('./auto-capture-intake');
     moveTriggerIntoIntake(triggerPath);
-    const outcomes = processAutoCaptureIntake();
+    const outcomes = await processAutoCaptureIntake();
     for (const outcome of outcomes) {
       if (outcome.status === 'pending') {
         console.error(`[AgentAutosave] Auto-capture intake pending (${outcome.record}): ${outcome.reason}`);

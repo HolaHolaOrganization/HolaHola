@@ -11,9 +11,10 @@
  * missing or invalid id, an unparseable body, or a conflicting retry stays
  * pending and is reported. It is never unlinked, and no id is ever invented.
  */
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { existsSync, linkSync, mkdirSync, readdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { createServer } from 'node:net';
+import { join, resolve } from 'node:path';
 import { appendAutoCaptureExchange } from './canonical-conversation-capture';
 import { CHAT_CAPTURE_PATH, parseChatCaptureFromOffset, WORKSPACE } from './transcript-parser';
 
@@ -71,73 +72,43 @@ type IntakePayload = { turnId?: unknown; david?: unknown; luca?: unknown };
 const TURN_ID = /^[A-Za-z0-9-]{1,200}$/;
 const RECORD_NAME = /^\d{15}-\d{9}-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.json$/;
 
-const OWNER = /^(\d{1,10}):[0-9a-f-]{36}$/;
-
-/** True unless the OS says the process does not exist (EPERM means it exists). */
-function processExists(pid: number): boolean {
-  try { process.kill(pid, 0); return true; } catch (err: any) { return err?.code !== 'ESRCH'; }
-}
-
 /**
- * Publish `owner` as the lock in ONE step: written to a private file, then
- * hard-linked to the lock path, which fails if a lock exists. A lock file is
- * therefore never visible without its complete owner record (luca-replit
- * review of PR71, R3).
+ * The OS-owned address of one intake directory's lock: a Linux
+ * abstract-namespace socket or a Windows named pipe, both named by a hash of
+ * the directory's absolute path. Neither is a file, so there is no stale lock
+ * and nothing ever takes one over: the OS frees it the moment the holding
+ * process exits or dies (luca-replit re-review of PR71).
  */
-function publishLock(lockPath: string, owner: string): boolean {
-  const tmp = `${lockPath}.${randomUUID()}.tmp`;
-  writeFileSync(tmp, owner, 'utf-8');
-  try {
-    linkSync(tmp, lockPath);
-    return true;
-  } catch (err: any) {
-    if (err?.code === 'EEXIST') return false;
-    throw err;
-  } finally {
-    try { unlinkSync(tmp); } catch { /* ignore */ }
-  }
+export function intakeLockAddress(dir: string, platform = process.platform): string {
+  const id = createHash('sha256').update(resolve(dir)).digest('hex').slice(0, 32);
+  if (platform === 'win32') return `\\\\.\\pipe\\holahola-intake-${id}`;
+  if (platform === 'linux') return `\0holahola-intake-${id}`;
+  throw new Error(`intake_lock_unsupported_platform:${platform}`);
 }
 
 /**
  * One lock for the whole intake directory, held by the watcher's processing
  * pass and by an operator correction alike, so they never race on a record.
- * Returns 'busy' when another holder has it; the caller simply retries later.
- *
- * Only a PROVABLY dead holder is taken over: a well-formed owner record whose
- * process does not exist. An unreadable or malformed lock is treated as live
- * (busy), never as dead. The takeover renames the observed lock aside and
- * checks it was exactly the dead record; if a live lock was moved instead,
- * it is restored and the caller reports busy. Release removes the lock only
- * while it still holds this holder's own owner record.
+ * Acquisition is an exclusive listen on the OS-owned address: it succeeds
+ * for exactly one holder at a time, in any process, and fails with
+ * EADDRINUSE otherwise. Returns 'busy' then; the caller simply retries later.
+ * Release closes the listener; a crash releases it automatically.
  */
-function withIntakeLock<T>(dir: string, fn: () => T): T | 'busy' {
+async function withIntakeLock<T>(dir: string, fn: () => T | Promise<T>): Promise<T | 'busy'> {
   mkdirSync(dir, { recursive: true });
-  const lockPath = join(dir, '.intake.lock');
-  const owner = `${process.pid}:${randomUUID()}`;
-  if (!publishLock(lockPath, owner)) {
-    let observed: string;
-    try { observed = readFileSync(lockPath, 'utf-8'); } catch { return 'busy'; }
-    const match = OWNER.exec(observed);
-    if (!match || processExists(Number(match[1]))) return 'busy';
-    const aside = `${lockPath}.${randomUUID()}.stale`;
-    try { renameSync(lockPath, aside); } catch { return 'busy'; }
-    let moved = '';
-    try { moved = readFileSync(aside, 'utf-8'); } catch { /* ignore */ }
-    if (moved !== observed) {
-      // A live holder replaced the dead lock in between: put it back untouched.
-      try { linkSync(aside, lockPath); } catch { /* it re-acquired already */ }
-      try { unlinkSync(aside); } catch { /* ignore */ }
-      return 'busy';
-    }
-    try { unlinkSync(aside); } catch { /* ignore */ }
-    if (!publishLock(lockPath, owner)) return 'busy';
-  }
+  const server = createServer();
+  const acquired = await new Promise<boolean>((resolveAcquire, rejectAcquire) => {
+    server.once('error', (err: NodeJS.ErrnoException) => {
+      if (err.code === 'EADDRINUSE') resolveAcquire(false);
+      else rejectAcquire(err);
+    });
+    server.listen({ path: intakeLockAddress(dir), exclusive: true }, () => resolveAcquire(true));
+  });
+  if (!acquired) return 'busy';
   try {
-    return fn();
+    return await fn();
   } finally {
-    try {
-      if (readFileSync(lockPath, 'utf-8') === owner) unlinkSync(lockPath);
-    } catch { /* already gone */ }
+    await new Promise<void>(done => server.close(() => done()));
   }
 }
 
@@ -166,9 +137,9 @@ function commitRecord(record: string, payload: IntakePayload, turnId: string, op
 }
 
 /** Process every intake record in arrival order. Filesystem only; no database. */
-export function processAutoCaptureIntake(dir = AUTO_CAPTURE_INTAKE_DIR, options: IntakeOptions = {}): IntakeOutcome[] {
+export async function processAutoCaptureIntake(dir = AUTO_CAPTURE_INTAKE_DIR, options: IntakeOptions = {}): Promise<IntakeOutcome[]> {
   if (!existsSync(dir)) return [];
-  const outcomes = withIntakeLock(dir, () => {
+  const outcomes = await withIntakeLock(dir, () => {
     const out: IntakeOutcome[] = [];
     for (const name of readdirSync(dir).filter(n => n.endsWith('.json')).sort()) {
       const record = join(dir, name);
@@ -209,10 +180,10 @@ export type AssignResult =
  * whose earlier commit was torn shows up as a conflict ("different set of
  * sides") and is reported, never completed by dropping or inventing a role.
  */
-export function assignIntakeTurnId(recordName: string, turnId: string, dir = AUTO_CAPTURE_INTAKE_DIR, options: IntakeOptions = {}): AssignResult {
+export async function assignIntakeTurnId(recordName: string, turnId: string, dir = AUTO_CAPTURE_INTAKE_DIR, options: IntakeOptions = {}): Promise<AssignResult> {
   if (!RECORD_NAME.test(recordName)) return { kind: 'refused', reason: 'not an intake record name' };
   if (!TURN_ID.test(turnId)) return { kind: 'refused', reason: 'turnId must be 1-200 letters, digits or hyphens' };
-  const result = withIntakeLock(dir, (): AssignResult => {
+  const result = await withIntakeLock(dir, (): AssignResult => {
     const record = join(dir, recordName);
     if (!existsSync(record)) {
       const capturePath = options.capturePath ?? CHAT_CAPTURE_PATH;
