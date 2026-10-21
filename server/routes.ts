@@ -25801,7 +25801,10 @@ The visual layer IS the lesson. Move through the arc in sequence — open scene 
               ${'Verbatim Luca↔Daniela voice session — auto-saved at session end.'},
               ${fullTranscript},
               ARRAY['Luca', 'Daniela']::text[],
-              ${tags}::text[],
+              -- drizzle expands a JS array into separate parameters, so the
+              -- tags travel as one JSON parameter (a bare array ::text[] failed
+              -- on every endSession save since July 2026).
+              ARRAY(SELECT jsonb_array_elements_text(${JSON.stringify(tags)}::jsonb))::text[],
               8,
               NOW(),
               'conversation',
