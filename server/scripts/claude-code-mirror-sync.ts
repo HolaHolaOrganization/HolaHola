@@ -15,8 +15,8 @@
  *   its block stays unconfirmed, and the run reports complete:false while every
  *   other entry still syncs.
  * - One sync per session at a time: an exclusive local lock whose token names its
- *   owner; takeover of a dead owner and release are compare-and-swap on that
- *   token, so a stale contender can never remove a newer owner's lock. The lock
+ *   owner. A live owner's lock is never moved or deleted by anyone else; a dead
+ *   owner's lock is taken over only under an exclusive takeover claim. The lock
  *   is an efficiency guard; the server is idempotent and serializes per session.
  * - One shared deadline bounds every request of the run; an expired run returns
  *   partial progress (complete:false) and the next hook event resumes.
@@ -24,7 +24,7 @@
  *   for luca-claude-code), never a raw legacy token.
  */
 import { randomUUID } from 'node:crypto';
-import { closeSync, linkSync, mkdirSync, openSync, readFileSync, renameSync, unlinkSync, writeFileSync, writeSync } from 'node:fs';
+import { closeSync, mkdirSync, openSync, readFileSync, unlinkSync, writeFileSync, writeSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import {
   blockDigest,
@@ -104,42 +104,56 @@ export function ownerState(pid: number, kill: KillFn = (p, s) => { process.kill(
   }
 }
 
-/**
- * Removes the file at path only if it still holds expectedToken. The file is first
- * renamed aside (atomic), then checked; if it was a different (newer) lock it is
- * put back with link(), which never overwrites an existing file.
- */
-export function removeIfToken(path: string, expectedToken: string): boolean {
-  const aside = `${path}.cas-${randomUUID()}`;
-  try { renameSync(path, aside); } catch { return false; }
-  let content = '';
-  try { content = readFileSync(aside, 'utf8'); } catch { /* unreadable: treat as foreign */ }
-  if (content === expectedToken) { unlinkSync(aside); return true; }
-  try { linkSync(aside, path); } catch { /* a newer lock now exists at path; leave it */ }
-  try { unlinkSync(aside); } catch { /* already gone */ }
-  return false;
+function createExclusive(path: string, content: string): boolean {
+  try {
+    const fd = openSync(path, 'wx');
+    try { writeSync(fd, content); } finally { closeSync(fd); }
+    return true;
+  } catch { return false; }
 }
 
-/** Exclusive per-session lock; returns a release function, or null when another (or unknown) owner holds it. */
-export function acquireLock(dir: string, sessionId: string, kill?: KillFn): (() => void) | null {
+function readOrNull(path: string): string | null {
+  try { return readFileSync(path, 'utf8'); } catch { return null; }
+}
+
+/** Releases a lock only if it still holds this owner's token. A live owner's lock is never replaced by anyone else, so read-then-unlink is safe here. */
+export function releaseIfOwned(path: string, token: string): boolean {
+  if (readOrNull(path) !== token) return false;
+  try { unlinkSync(path); return true; } catch { return false; }
+}
+
+/**
+ * Exclusive per-session lock; returns a release function, or null when another,
+ * an unknown, or a contended owner holds it.
+ *
+ * Taking over a dead owner's lock requires an exclusive takeover claim
+ * (<lock>.takeover, created with 'wx'). Only the claimant may delete the lock,
+ * and only after re-reading it as the same dead owner's token. Nobody ever moves
+ * or deletes a live owner's lock, so a third contender can only win by creating
+ * the lock after the stale one is gone, in which case the claimant's own
+ * exclusive create fails and it backs off. A leftover claim (a claimant that
+ * died inside this window) fails closed: no automatic takeover.
+ * `hooks.afterStaleRemoved` exists only for tests to inject a contender.
+ */
+export function acquireLock(dir: string, sessionId: string, kill?: KillFn, hooks: { afterStaleRemoved?: () => void } = {}): (() => void) | null {
   mkdirSync(dir, { recursive: true });
   const path = join(dir, `${sessionId}.lock`);
   const token = `${process.pid}:${randomUUID()}`;
-  for (let attempt = 0; attempt < 2; attempt++) {
-    try {
-      const fd = openSync(path, 'wx');
-      writeSync(fd, token);
-      closeSync(fd);
-      return () => { removeIfToken(path, token); };
-    } catch {
-      let seen = '';
-      try { seen = readFileSync(path, 'utf8'); } catch { continue; } // vanished: retry the exclusive create
-      const pid = Number(seen.split(':')[0]);
-      if (!Number.isSafeInteger(pid) || ownerState(pid, kill) !== 'dead') return null;
-      if (!removeIfToken(path, seen)) return null; // someone else replaced or removed it first
-    }
+  if (createExclusive(path, token)) return () => { releaseIfOwned(path, token); };
+  const seen = readOrNull(path);
+  if (seen === null) return createExclusive(path, token) ? () => { releaseIfOwned(path, token) } : null;
+  const pid = Number(seen.split(':')[0]);
+  if (!Number.isSafeInteger(pid) || ownerState(pid, kill) !== 'dead') return null;
+  const claimPath = `${path}.takeover`;
+  if (!createExclusive(claimPath, token)) return null;
+  try {
+    if (readOrNull(path) !== seen) return null; // changed since inspected: not ours to touch
+    try { unlinkSync(path); } catch { return null; }
+    hooks.afterStaleRemoved?.();
+    return createExclusive(path, token) ? () => { releaseIfOwned(path, token); } : null;
+  } finally {
+    releaseIfOwned(claimPath, token);
   }
-  return null;
 }
 
 // ---- Sync ----------------------------------------------------------------------------
@@ -165,6 +179,8 @@ export async function syncSession(opts: {
     if (remaining <= 0) throw new BudgetExpired();
     return opts.transport(path, body, AbortSignal.timeout(Math.min(MAX_REQUEST_MS, remaining)));
   };
+  /** Checked after every awaited request, once its confirmed progress is counted. */
+  const checkDeadline = () => { if (now() > deadline) throw new BudgetExpired(); };
   const entries = readTranscript(opts.text);
   const blocks = localBlocks(opts.sessionId, entries);
   const byPosition = new Map(entries.map((e) => [e.position, e]));
@@ -175,20 +191,25 @@ export async function syncSession(opts: {
   try {
     const coverage = await call('coverage', { sessionId: opts.sessionId, blocks: blocks.map(({ index, digest }) => ({ index, digest })) });
     differing = coverage.differing as number[];
+    checkDeadline();
     for (const index of differing) {
       const block = blocks.find((b) => b.index === index)!;
       const check = await call('block-tuples', { sessionId: opts.sessionId, blockIndex: index, localDigest: block.digest, tuples: block.tuples });
+      checkDeadline();
       const missing = (check.missing as MirrorTuple[]).map((t) => byPosition.get(t.position)).filter((e): e is LocalEntry => Boolean(e));
       const uploadable = missing.filter((e) => !unacceptedAt.has(e.position));
       for (const batch of batches(uploadable)) {
         await call('entries', { sessionId: opts.sessionId, entries: batch.map((e) => ({ position: e.position, uuid: e.uuid, entry: e.entry })) });
         sent += batch.length;
+        checkDeadline();
       }
       // Re-confirm only when every missing tuple of this block was uploadable.
       if (uploadable.length && uploadable.length === missing.length) {
         await call('block-tuples', { sessionId: opts.sessionId, blockIndex: index, localDigest: block.digest, tuples: block.tuples });
+        checkDeadline();
       }
     }
+    checkDeadline();
   } catch (e) {
     if (e instanceof BudgetExpired || (e as Error)?.name === 'TimeoutError') {
       return { sent, blocksDiffering: differing.length, complete: false, reason: 'budget', unaccepted };

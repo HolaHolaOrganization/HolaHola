@@ -1,14 +1,14 @@
 /** Mirror sync client (stage R-P3): positions, blocks, batches, lock CAS, oversized entries, budget. No network. */
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, test } from 'node:test';
 import { blockDigest, canonicalJson } from '@shared/claude-code-mirror-core.mjs';
 import { MIRROR_LIMITS } from '../services/claude-code-mirror-rules';
 import {
-  MAX_ENTRY_BYTES, acquireLock, batches, localBlocks, ownerState, readTranscript, removeIfToken, syncSession, type Transport,
+  MAX_ENTRY_BYTES, acquireLock, batches, localBlocks, ownerState, readTranscript, releaseIfOwned, syncSession, type Transport,
 } from './claude-code-mirror-sync';
 
 const line = (o: unknown) => JSON.stringify(o);
@@ -60,18 +60,31 @@ describe('lock: compare-and-swap on the owner token (LR review 5620414671)', () 
     takeover!();
   });
 
-  test("competing stale recoveries: the slower contender cannot remove the newer owner's lock", () => {
+  test('a third contender during a takeover: the claimant backs off and the contender keeps its lock (LR review 5620644250)', () => {
     const dir = mkdtempSync(join(tmpdir(), 'mirror-lock-'));
     const path = join(dir, 'session-3.lock');
     writeFileSync(path, '2147483646:stale');
-    // Contender A has read the stale token; contender B takes over first.
-    const staleSeenByA = readFileSync(path, 'utf8');
-    const releaseB = acquireLock(dir, 'session-3', dead);
+    let releaseC: (() => void) | null = null;
+    const releaseA = acquireLock(dir, 'session-3', dead, {
+      afterStaleRemoved: () => { releaseC = acquireLock(dir, 'session-3', dead); },
+    });
+    assert.equal(releaseA, null, 'A backs off');
+    assert.ok(releaseC, 'C owns the lock it created');
+    const ownerC = readFileSync(path, 'utf8');
+    assert.match(ownerC, new RegExp('^' + process.pid + ':'));
+    assert.equal(existsSync(path + '.takeover'), false, 'the claim is released');
+    releaseC!();
+    assert.equal(existsSync(path), false);
+  });
+
+  test("a live owner's lock is never moved or deleted by a contender", () => {
+    const dir = mkdtempSync(join(tmpdir(), 'mirror-lock-'));
+    const releaseB = acquireLock(dir, 'session-6');
     assert.ok(releaseB);
+    const path = join(dir, 'session-6.lock');
     const ownerB = readFileSync(path, 'utf8');
-    // A performs its already-decided removal, bound to the token it inspected: it must fail.
-    assert.equal(removeIfToken(path, staleSeenByA), false);
-    assert.equal(readFileSync(path, 'utf8'), ownerB, 'B still owns the lock');
+    assert.equal(acquireLock(dir, 'session-6'), null);
+    assert.equal(readFileSync(path, 'utf8'), ownerB);
     releaseB!();
   });
 
@@ -79,8 +92,16 @@ describe('lock: compare-and-swap on the owner token (LR review 5620414671)', () 
     const dir = mkdtempSync(join(tmpdir(), 'mirror-lock-'));
     const path = join(dir, 'session-4.lock');
     writeFileSync(path, `${process.pid}:replacement-owner`);
-    assert.equal(removeIfToken(path, `${process.pid}:old-owner`), false);
+    assert.equal(releaseIfOwned(path, `${process.pid}:old-owner`), false);
     assert.equal(readFileSync(path, 'utf8'), `${process.pid}:replacement-owner`);
+  });
+
+  test('a leftover takeover claim fails closed (no automatic takeover)', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'mirror-lock-'));
+    writeFileSync(join(dir, 'session-7.lock'), '2147483646:stale');
+    writeFileSync(join(dir, 'session-7.lock.takeover'), '2147483645:crashed-claimant');
+    assert.equal(acquireLock(dir, 'session-7', dead), null);
+    assert.equal(readFileSync(join(dir, 'session-7.lock'), 'utf8'), '2147483646:stale');
   });
 
   test('only ESRCH means dead; EPERM is alive and other errors are unknown (never taken over)', () => {
@@ -150,6 +171,19 @@ describe('syncSession', () => {
     assert.equal(result.complete, false);
     assert.equal(result.reason, 'budget');
     assert.deepEqual(server.calls, ['coverage', 'block-tuples'], 'nothing is sent after the deadline');
+  });
+
+  test('a final confirmation that returns after the deadline is not reported complete (LR review 5620644250)', async () => {
+    const clock = { t: 0 };
+    const server = mockServer();
+    let blockTuplesCalls = 0;
+    const transport: Transport = async (path, body, signal) => {
+      const out = await server.transport(path, body, signal);
+      if (path === 'block-tuples' && ++blockTuplesCalls === 2) clock.t = 4; // the final confirmation finishes late
+      return out;
+    };
+    const result = await syncSession({ text: [user('one', 'f1'), user('two', 'f2')].join('\n'), sessionId: 'session-late', budgetMs: 3, transport, now: () => clock.t });
+    assert.deepEqual([result.complete, result.reason, result.sent], [false, 'budget', 2], 'confirmed uploads are counted; completion is not claimed');
   });
 
   test('a non-finite or non-positive budget is refused', async () => {
