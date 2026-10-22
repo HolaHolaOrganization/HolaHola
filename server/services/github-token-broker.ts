@@ -35,19 +35,19 @@
 import crypto from 'node:crypto';
 import type { GithubAppGrant } from '@shared/schema';
 
-/** davidwmcintosh/HolaHola — verified via GET /repos/davidwmcintosh/HolaHola. The id survives a repository transfer. */
+/** HolaHolaOrganization/HolaHola (formerly davidwmcintosh/HolaHola). The id survived the repository transfer. */
 export const HOLAHOLA_REPOSITORY_ID = 1170208766;
-/** davidwmcintosh — the founder's personal account, the repository's current owner. */
+/** davidwmcintosh — the founder's personal account, which owned the repository before the move to the organization. */
 export const HOLAHOLA_OWNER_ACCOUNT_ID = 34244604;
 /** HolaHolaOrganization — the founder's organization; verified via GET /orgs/HolaHolaOrganization. */
 export const HOLAHOLA_ORGANIZATION_ACCOUNT_ID = 346076814;
 /**
- * The accounts the agent Apps may be installed on. Both are founder-owned. Both
- * stay valid while HolaHola moves from the personal account to the organization:
- * each App is reinstalled on the organization, and its grant then names the new
- * installation. Narrow this back to one account once the move is done.
+ * The account the agent Apps may be installed on: the organization only. The
+ * move from the personal account is done (2026-10-22): both agent Apps were
+ * reinstalled on the organization and their grants name the new installations,
+ * so an installation on the personal account no longer mints.
  */
-export const HOLAHOLA_INSTALLATION_ACCOUNT_IDS: ReadonlySet<number> = new Set([HOLAHOLA_OWNER_ACCOUNT_ID, HOLAHOLA_ORGANIZATION_ACCOUNT_ID]);
+export const HOLAHOLA_INSTALLATION_ACCOUNT_IDS: ReadonlySet<number> = new Set([HOLAHOLA_ORGANIZATION_ACCOUNT_ID]);
 
 /** Fixed ceiling for every agent token. Workflows/administration/secrets are never granted. */
 export const AGENT_TOKEN_PERMISSIONS: Readonly<Record<string, 'read' | 'write'>> = Object.freeze({
