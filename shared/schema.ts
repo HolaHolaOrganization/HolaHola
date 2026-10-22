@@ -13039,3 +13039,75 @@ export const coordinationV2RuntimeReleaseRevocations = pgTable("coordination_v2_
   check("coordination_v2_runtime_revocation_reason", sql`${table.reasonCode} ~ '^[A-Z0-9_]{1,128}$'`),
   check("coordination_v2_runtime_revocation_digest", sql`${table.canonicalRecordDigest} ~ '^[0-9a-f]{64}$'`),
 ]);
+
+// ===== Agent awareness feed (hat feed design r5.1, stage F-P1) =====
+// Tells each hat what the OTHER hats said, from the canonical record, within a
+// bounded byte budget. Receipts are a set, not a cursor; concurrent-session
+// visibility uses MVCC snapshots (xid8 / pg_snapshot stored as text), never
+// timestamps. Feed outputs are never written back into conversation_memories.
+
+/** One-time per-actor enrollment; its transaction writes the baseline receipts. */
+export const agentFeedEnrollments = pgTable("agent_feed_enrollments", {
+  actor: varchar("actor", { length: 80 }).primaryKey(),
+  enrollmentXid: text("enrollment_xid").notNull(),
+  baselineCount: integer("baseline_count").notNull(),
+  enrolledAt: timestamp("enrolled_at", { withTimezone: true }).notNull().default(sql`clock_timestamp()`),
+});
+
+/** Durable, first-ack, immutable actor receipts (baseline or delivered). */
+export const agentFeedActorReceipts = pgTable("agent_feed_actor_receipts", {
+  actor: varchar("actor", { length: 80 }).notNull(),
+  rowId: varchar("row_id").notNull(),
+  contentSha256: varchar("content_sha256", { length: 64 }).notNull(),
+  kind: varchar("kind", { length: 16 }).notNull(),
+  xid: text("xid").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().default(sql`clock_timestamp()`),
+}, (table) => [
+  primaryKey({ name: "agent_feed_actor_receipts_pk", columns: [table.actor, table.rowId, table.contentSha256] }),
+  check("agent_feed_actor_receipts_kind", sql`${table.kind} in ('baseline', 'delivered')`),
+]);
+
+/** A session epoch: the registering transaction's snapshot and its byte allowance. */
+export const agentFeedRegistrations = pgTable("agent_feed_registrations", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  actor: varchar("actor", { length: 80 }).notNull(),
+  runtimeSessionId: varchar("runtime_session_id", { length: 128 }).notNull(),
+  snapshot: text("snapshot").notNull(),
+  noticeAttempts: integer("notice_attempts").notNull().default(0),
+  bootstrapAt: timestamp("bootstrap_at", { withTimezone: true }),
+  registeredAt: timestamp("registered_at", { withTimezone: true }).notNull().default(sql`clock_timestamp()`),
+  lastActivityAt: timestamp("last_activity_at", { withTimezone: true }).notNull().default(sql`clock_timestamp()`),
+  closedAt: timestamp("closed_at", { withTimezone: true }),
+}, (table) => [
+  uniqueIndex("uq_agent_feed_registrations_live").on(table.actor, table.runtimeSessionId).where(sql`${table.closedAt} is null`),
+  check("agent_feed_registrations_attempts", sql`${table.noticeAttempts} between 0 and 12`),
+]);
+
+/** Per-epoch receipts: page-notified, notice-seen, fetched, read. */
+export const agentFeedSessionReceipts = pgTable("agent_feed_session_receipts", {
+  registrationId: varchar("registration_id").notNull(),
+  receiptKind: varchar("receipt_kind", { length: 16 }).notNull(),
+  itemKind: varchar("item_kind", { length: 16 }).notNull(),
+  itemId: varchar("item_id").notNull(),
+  itemSha256: varchar("item_sha256", { length: 64 }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().default(sql`clock_timestamp()`),
+}, (table) => [
+  primaryKey({ name: "agent_feed_session_receipts_pk", columns: [table.registrationId, table.receiptKind, table.itemKind, table.itemId, table.itemSha256] }),
+  foreignKey({ name: "agent_feed_session_receipts_reg_fk", columns: [table.registrationId], foreignColumns: [agentFeedRegistrations.id] }),
+  check("agent_feed_session_receipts_kind", sql`${table.receiptKind} in ('page-notified', 'notice-seen', 'fetched', 'read')`),
+  check("agent_feed_session_receipts_item", sql`${table.itemKind} in ('canonical', 'provisional')`),
+]);
+
+/** What a catch-up page or a debited notice actually served; acknowledgments must match it. */
+export const agentFeedServed = pgTable("agent_feed_served", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  registrationId: varchar("registration_id").notNull(),
+  kind: varchar("kind", { length: 16 }).notNull(),
+  items: jsonb("items").notNull(),
+  bytes: integer("bytes").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().default(sql`clock_timestamp()`),
+}, (table) => [
+  foreignKey({ name: "agent_feed_served_reg_fk", columns: [table.registrationId], foreignColumns: [agentFeedRegistrations.id] }),
+  index("idx_agent_feed_served_registration").on(table.registrationId),
+  check("agent_feed_served_kind", sql`${table.kind} in ('page', 'bootstrap', 'notice')`),
+]);
