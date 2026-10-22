@@ -11,7 +11,7 @@
 # and fails. After confirming the official metadata, update only the pinned
 # block below and rerun the check. Release commands never perform this lookup.
 
-GITHUB_REPO_URL="git@github.com:davidwmcintosh/HolaHola.git"
+GITHUB_REPO_URL="git@github.com:HolaHolaOrganization/HolaHola.git"
 GITHUB_HOST_KEYS_META_URL="https://api.github.com/meta"
 GITHUB_SUPPORTED_HOST_KEY_TYPES=(
   "ssh-ed25519"

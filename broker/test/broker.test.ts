@@ -162,6 +162,34 @@ describe('policy loader (fail closed, TTL <= 60 s)', () => {
   test('an invalid file yields no policy', async () => {
     assert.equal(await loaderFor(policyJson({ state: 'open' })).current(), null);
   });
+
+  test('logs a secret-free reason once per change, naming a refused redirect', async () => {
+    let clock = NOW;
+    let mode: 'redirect' | 'status' | 'ok' = 'redirect';
+    const bytes = bytesOf(policyJson());
+    const lines: string[] = [];
+    const loader = new PolicyLoader({
+      fetch: async () => {
+        if (mode === 'redirect') throw new TypeError('fetch failed', { cause: new Error('unexpected redirect') });
+        if (mode === 'status') throw Object.assign(new Error('x'), { status: 404, path: '/repos/o/r/contents/broker/policy.json' });
+        return { bytes, blobSha: gitBlobSha(bytes) };
+      },
+    }, () => clock, 60_000, (line) => lines.push(line));
+    assert.equal(await loader.current(), null);
+    clock += 60_000;
+    assert.equal(await loader.current(), null);
+    assert.equal(lines.length, 1, 'the same reason is logged once');
+    assert.match(lines[0], /redirect.*BROKER_MAIN_REPO_OWNER/);
+    mode = 'status';
+    clock += 60_000;
+    await loader.current();
+    assert.match(lines[1], /returned 404$/);
+    mode = 'ok';
+    clock += 60_000;
+    assert.ok(await loader.current());
+    assert.equal(lines[2], 'broker: policy available again');
+    assert.ok(lines.every((l) => !/Bearer|token/i.test(l)));
+  });
 });
 
 describe('policy loader races (luca-replit review 5566308774)', () => {
