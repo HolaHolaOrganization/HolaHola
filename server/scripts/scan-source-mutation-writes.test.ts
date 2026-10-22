@@ -214,6 +214,7 @@ const ALLOWLIST: AllowlistEntry[] = [
   //    WORKSPACE constant, verified by reading the constant's own
   //    declaration, but the constant lives behind a cross-file import or a
   //    same-file member/call this single-file evaluator does not chase. ──
+  { kind: 'unresolved', file: 'claude-code-mirror-sync.ts', fn: 'writeFileSync', argExprText: 'join(dir, `${sessionId}.status.json`)', reason: 'dir = resolve(".local/claude-code-mirror") (gitignored, process-cwd-relative; the launcher sets cwd to the project root) and sessionId is validated against /^[A-Za-z0-9-]{8,64}$/ before use, so the status file can never land in a tracked directory; verified by reading main()' },
   { kind: 'unresolved', file: 'capture-watchdog.ts', fn: 'writeFileSync', argExprText: 'chatCaptureCursorPath()', reason: 'chatCaptureCursorPath() returns a WORKSPACE + .local/-relative path (server/services/agent-session-autosave.ts); verified by reading its declaration' },
   { kind: 'unresolved', file: 'capture-watchdog.ts', fn: 'writeFileSync', argExprText: 'filePath', reason: 'filePath traces to join(DOCS_DIR, ...) where DOCS_DIR is imported WORKSPACE-derived state from server/services/transcript-parser.ts; verified by reading the cross-file declaration' },
   { kind: 'unresolved', file: 'capture-watchdog.ts', fn: 'writeFileSync', argExprText: 'INNER_LIFE_STATE_PATH', reason: 'traces to join(LOCAL_DIR, ...), a WORKSPACE + .local/-relative constant; verified by reading its declaration' },
