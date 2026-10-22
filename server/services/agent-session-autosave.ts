@@ -70,6 +70,7 @@ import {
   consumeAutoCaptureTrigger,
   formatChatCaptureSpeakerLabel,
 } from './transcript-parser';
+import { attributionTags, attributionWritersEnabled, plainRowTitle, plainTitleDate } from './attribution-rendering';
 import {
   acquireCanonicalConversationIngressLock,
   isCompleteCanonicalCaptureBatch,
@@ -2691,9 +2692,12 @@ async function checkChatCapture(): Promise<void> {
         throw new Error('Chat capture projection mixed multiple durable capture IDs in one DB row');
       }
       const captureIdentityTag = captureIds.length === 1 ? `capture-id:${captureIds[0]}` : null;
-      const tagsArray = `{david-luca-chat,canonical-conversation,verbatim,per-turn,chat-capture,${sourceLabels.map(source => `source-${source}`).join(',')}${captureIdentityTag ? `,${captureIdentityTag}` : ''}}`;
+      const writersV1 = attributionWritersEnabled();
+      const attributionTagList = writersV1 ? attributionTags(batchTurns) : [];
+      const tagsArray = `{david-luca-chat,canonical-conversation,verbatim,per-turn,chat-capture,${sourceLabels.map(source => `source-${source}`).join(',')}${captureIdentityTag ? `,${captureIdentityTag}` : ''}${attributionTagList.map(tag => `,${tag}`).join('')}}`;
       const today      = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-      const title      = `David ↔ Agent — ${today}: canonical per-turn capture`;
+      // Attribution design f5d77712 section 4: a plain participant title for new rows.
+      const title      = writersV1 ? plainRowTitle(batchTurns, plainTitleDate()) : `David ↔ Agent — ${today}: canonical per-turn capture`;
       const endOffset  = remainingOffsets[includedCount - 1];
       if (endOffset === undefined) {
         // Should never happen: includedCount <= remaining.length = remainingOffsets.length

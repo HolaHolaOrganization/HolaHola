@@ -16,6 +16,7 @@ import { createHash } from 'crypto';
 import { join } from 'path';
 import { ensureCaptureWorkspaceWritable, workspaceResolution } from './workspace-root';
 import { historicalAttributionLabel } from './historical-attribution-overlay';
+import { attributionWritersEnabled, plainSpeakerName } from './attribution-rendering';
 
 export const WORKSPACE        = workspaceResolution.root;
 export const TRANSCRIPT_DIR   = join(WORKSPACE, '.local/state/replit/agent/transcript');
@@ -424,8 +425,13 @@ export function chatCaptureTurnFingerprint(turn: Pick<DialogueTurn, 'speaker' | 
 export function formatChatCaptureSpeakerLabel(
   turn: Pick<DialogueTurn, 'speaker' | 'source'> & Partial<Pick<DialogueTurn, 'captureId' | 'text'>>,
 ): string {
+  // Approved historical captures keep their reviewed historical label.
   const historicalLabel = historicalAttributionLabel(turn);
   if (historicalLabel) return historicalLabel;
+  // Attribution design f5d77712 section 4: new records render plain names;
+  // the hat lives in tags and the attribution column. Behind the shared
+  // writer switch so every writer changes together.
+  if (attributionWritersEnabled()) return plainSpeakerName(turn);
   if (turn.speaker === 'CLAUDE_CODE') return 'Claude Code';
   if (turn.source === 'claude-code') {
     return turn.speaker === 'DAVID' ? 'David [Claude Code]' : 'Luca [Claude Code]';
