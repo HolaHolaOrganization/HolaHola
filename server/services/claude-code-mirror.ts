@@ -272,7 +272,7 @@ export async function runShadowProjection(sessionIdInput: unknown): Promise<{ ru
     return {
       runId, sessionId, openingPosition: e.openingPosition, captureId: e.captureId, kind: e.kind, state: e.state,
       reasons: e.reasons, versionSha256: e.versionSha256, userSha256: sha256Hex(e.userText), replySha256: sha256Hex(e.replyText),
-      comparison, comparisonDetail: detail, existingRowId: rowId,
+      comparison, comparisonDetail: detail, sidesVerified: false, existingRowId: rowId,
     };
   });
   for (let i = 0; i < values.length; i += 500) {

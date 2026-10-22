@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import { filterEntry } from '@shared/claude-code-mirror-core.mjs';
-import { compareWithCanonical, projectSession, type MirroredEntry } from './claude-code-projection';
+import { compareWithCanonical, expectedCanonicalBody, projectSession, type MirroredEntry } from './claude-code-projection';
 
 let uuid = 0;
 /** Builds filtered mirrored entries from raw transcript-shaped entries, at consecutive positions. */
@@ -183,7 +183,7 @@ describe('canonical comparison is per side and exact (LR review 5620321654)', ()
   const body = (user: string, reply: string) => `David [Claude Code]: ${user}\n\nClaude Code: ${reply}`;
 
   test('match only for the exact two-speaker body under the sole claude-code source', () => {
-    assert.equal(compareWithCanonical(ex, [row(body('QUESTION', 'ANSWER') + '\n')]).comparison, 'match');
+    assert.equal(compareWithCanonical(ex, [row(body('QUESTION', 'ANSWER') + '\n')]).comparison, 'body-match');
   });
 
   test('swapped sides, wrong source, extra or truncated text and duplicates are not matches', () => {
@@ -196,5 +196,19 @@ describe('canonical comparison is per side and exact (LR review 5620321654)', ()
     assert.equal(compareWithCanonical(ex, [row('x'), row('y')]).comparison, 'ambiguous');
     assert.equal(compareWithCanonical(ex, []).comparison, 'missing');
     assert.equal(compareWithCanonical({ ...ex, state: 'open' }, [row('x')]).comparison, 'not-applicable');
+  });
+});
+
+describe('serialized-body evidence is labelled as such (LR review 5620474856)', () => {
+  test('two different side splits alias to one legacy body: both are body-match, and neither verifies sides', () => {
+    const row = { id: 'r', tags: ['canonical-conversation', 'source-claude-code'], content: expectedCanonicalBody('QUESTION', 'ANSWER\n\nClaude Code: TAIL') };
+    const actual = compareWithCanonical({ state: 'certified', userText: 'QUESTION', replyText: 'ANSWER\n\nClaude Code: TAIL' }, [row]);
+    const aliased = compareWithCanonical({ state: 'certified', userText: 'QUESTION\n\nClaude Code: ANSWER', replyText: 'TAIL' }, [row]);
+    assert.deepEqual([actual.comparison, actual.sidesVerified], ['body-match', false]);
+    assert.deepEqual([aliased.comparison, aliased.sidesVerified], ['body-match', false]);
+  });
+  test('no comparison against a legacy row ever reports verified sides', () => {
+    const rows = [{ id: 'r', tags: ['source-claude-code'], content: expectedCanonicalBody('Q', 'A') }];
+    for (const state of ['certified', 'open'] as const) assert.equal(compareWithCanonical({ state, userText: 'Q', replyText: 'A' }, rows).sidesVerified, false);
   });
 });

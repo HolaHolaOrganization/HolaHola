@@ -1,17 +1,19 @@
 /**
  * Claude Code transcript mirror ingest (recording-gap design R6.5, stage R-P1).
  *
- * All routes require coordination auth as the luca-claude-code actor. They store
+ * All routes require coordination auth as the luca-claude-code actor, under
+ * /api/coordination/ so the actor's own runtime credential (RuntimeOnboardingClient)
+ * can reach them; legacy tokens still work there. They store
  * preservation evidence only: nothing here publishes canonical dialogue or feeds
  * Daniela's recall. Until the hook client (stage R-P3) exists, nothing calls them.
  *
- * - POST /api/internal/claude-code-mirror/entries        { sessionId, entries: [{ position, uuid?, entry }] }
- * - POST /api/internal/claude-code-mirror/coverage       { sessionId, blocks: [{ index, digest }] }
- * - POST /api/internal/claude-code-mirror/block-tuples   { sessionId, blockIndex, localDigest, tuples: [{ position, uuid, sha256 }] }
- * - POST /api/internal/claude-code-mirror/roots          { sessionIds: [...] }
- * - POST /api/internal/claude-code-mirror/challenge      { sessionId }
- * - POST /api/internal/claude-code-mirror/hook-evidence  { occurrenceId, sessionId, kind, text, transcriptLineCount? }
- * - POST /api/internal/claude-code-mirror/shadow-projection { sessionId }   (R-P2: records what WOULD publish; publishes nothing)
+ * - POST /api/coordination/claude-code-mirror/entries        { sessionId, entries: [{ position, uuid?, entry }] }
+ * - POST /api/coordination/claude-code-mirror/coverage       { sessionId, blocks: [{ index, digest }] }
+ * - POST /api/coordination/claude-code-mirror/block-tuples   { sessionId, blockIndex, localDigest, tuples: [{ position, uuid, sha256 }] }
+ * - POST /api/coordination/claude-code-mirror/roots          { sessionIds: [...] }
+ * - POST /api/coordination/claude-code-mirror/challenge      { sessionId }
+ * - POST /api/coordination/claude-code-mirror/hook-evidence  { occurrenceId, sessionId, kind, text, transcriptLineCount? }
+ * - POST /api/coordination/claude-code-mirror/shadow-projection { sessionId }   (R-P2: records what WOULD publish; publishes nothing)
  */
 import type { Application, RequestHandler, Response } from 'express';
 import { requireCoordinationAuth, type CoordinationAuthenticatedRequest } from '../middleware/coordination-auth';
@@ -27,7 +29,7 @@ import {
 } from '../services/claude-code-mirror';
 
 const MIRROR_ACTORS = new Set(['luca-claude-code']);
-const PREFIX = '/api/internal/claude-code-mirror';
+const PREFIX = '/api/coordination/claude-code-mirror';
 
 function handle(fn: (req: CoordinationAuthenticatedRequest, res: Response) => Promise<unknown>): RequestHandler {
   return async (req, res) => {

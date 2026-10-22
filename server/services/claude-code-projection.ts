@@ -205,7 +205,16 @@ export function projectSession(sessionId: string, entries: MirroredEntry[]): Pro
   return out;
 }
 
-export type Comparison = 'match' | 'mismatch' | 'missing' | 'ambiguous' | 'not-applicable';
+/**
+ * 'body-match' is serialized-body equality ONLY. The legacy two-label body is not
+ * injective (either side may quote "
+
+Claude Code: "), so it cannot establish
+ * the original side split, side hashes, initiator or topology. It is therefore
+ * never a deep match and can never satisfy the R-P4 publication/cutover gate;
+ * sidesVerified is always false for a comparison against legacy rows.
+ */
+export type Comparison = 'body-match' | 'mismatch' | 'missing' | 'ambiguous' | 'not-applicable';
 
 /** The exact canonical body the drain writes for one Claude Code exchange (transcript-parser buildDialogueChunk). */
 export function expectedCanonicalBody(userText: string, replyText: string): string {
@@ -214,25 +223,27 @@ export function expectedCanonicalBody(userText: string, replyText: string): stri
 
 /**
  * Compares a certified exchange with the canonical rows that carry its capture id.
- * Pure. "match" requires exactly one row, a sole source tag of source-claude-code,
- * and a body equal to the exact two-speaker form, so each side is checked in its
- * place and order. Anything else names why it is not a match.
+ * Pure. "body-match" requires exactly one row, a sole source tag of
+ * source-claude-code, and a body byte-equal to the exact two-speaker form. That
+ * is serialized-body evidence only (see Comparison); sides are NOT verified.
+ * Anything else names why it is not a body match.
  */
 export function compareWithCanonical(
   exchange: Pick<ProjectedExchange, 'state' | 'userText' | 'replyText'>,
   rows: Array<{ id: string; content: string; tags: string[] }>,
-): { comparison: Comparison; detail: string | null; rowId: string | null } {
-  if (exchange.state !== 'certified') return { comparison: 'not-applicable', detail: null, rowId: null };
-  if (rows.length === 0) return { comparison: 'missing', detail: null, rowId: null };
-  if (rows.length > 1) return { comparison: 'ambiguous', detail: `${rows.length} rows share this capture id`, rowId: null };
+): { comparison: Comparison; detail: string | null; rowId: string | null; sidesVerified: false } {
+  const result = (comparison: Comparison, detail: string | null, rowId: string | null) => ({ comparison, detail, rowId, sidesVerified: false as const });
+  if (exchange.state !== 'certified') return result('not-applicable', null, null);
+  if (rows.length === 0) return result('missing', null, null);
+  if (rows.length > 1) return result('ambiguous', `${rows.length} rows share this capture id`, null);
   const [row] = rows;
   const sources = row.tags.filter((t) => t.startsWith('source-')).sort();
-  if (sources.length !== 1 || sources[0] !== 'source-claude-code') return { comparison: 'mismatch', detail: `source:${sources.join(',') || 'none'}`, rowId: row.id };
+  if (sources.length !== 1 || sources[0] !== 'source-claude-code') return result('mismatch', `source:${sources.join(',') || 'none'}`, row.id);
   const body = row.content.replace(/\s+$/, '');
-  if (body === expectedCanonicalBody(exchange.userText, exchange.replyText)) return { comparison: 'match', detail: null, rowId: row.id };
-  if (body === expectedCanonicalBody(exchange.replyText, exchange.userText)) return { comparison: 'mismatch', detail: 'sides-swapped', rowId: row.id };
-  if (/\[turn (truncated|omitted)/.test(body)) return { comparison: 'mismatch', detail: 'truncated', rowId: row.id };
+  if (body === expectedCanonicalBody(exchange.userText, exchange.replyText)) return result('body-match', null, row.id);
+  if (body === expectedCanonicalBody(exchange.replyText, exchange.userText)) return result('mismatch', 'sides-swapped', row.id);
+  if (/\[turn (truncated|omitted)/.test(body)) return result('mismatch', 'truncated', row.id);
   const userPrefix = `David [Claude Code]: ${exchange.userText}\n\n`;
-  if (!body.startsWith(userPrefix)) return { comparison: 'mismatch', detail: 'user-side', rowId: row.id };
-  return { comparison: 'mismatch', detail: 'reply-side', rowId: row.id };
+  if (!body.startsWith(userPrefix)) return result('mismatch', 'user-side', row.id);
+  return result('mismatch', 'reply-side', row.id);
 }

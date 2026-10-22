@@ -13148,11 +13148,13 @@ export const claudeCodeProjectionShadow = pgTable("claude_code_projection_shadow
   replySha256: varchar("reply_sha256", { length: 64 }).notNull(),
   comparison: varchar("comparison", { length: 32 }).notNull(),
   comparisonDetail: varchar("comparison_detail", { length: 120 }),
+  /** Always false against legacy rows: body equality does not verify sides, initiator or topology. */
+  sidesVerified: boolean("sides_verified").notNull().default(false),
   existingRowId: varchar("existing_row_id"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().default(sql`clock_timestamp()`),
 }, (table) => [
   primaryKey({ name: "claude_code_projection_shadow_pk", columns: [table.runId, table.sessionId, table.openingPosition] }),
   index("idx_claude_code_shadow_session").on(table.sessionId, table.createdAt),
   check("claude_code_projection_shadow_state", sql`${table.state} in ('certified', 'provisional-candidate', 'open', 'retained')`),
-  check("claude_code_projection_shadow_comparison", sql`${table.comparison} in ('match', 'mismatch', 'missing', 'ambiguous', 'not-applicable')`),
+  check("claude_code_projection_shadow_comparison", sql`${table.comparison} in ('body-match', 'mismatch', 'missing', 'ambiguous', 'not-applicable')`),
 ]);
