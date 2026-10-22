@@ -1,5 +1,5 @@
 {
-  "id": "94ae89bb-2065-4abc-bdd7-e9632c19bbf9",
+  "id": "d733a0f6-a57f-4bcb-8052-09d58ba359b6",
   "prevId": "3b2d20f8-d3e6-4c6f-9197-95ec2c26bebf",
   "version": "7",
   "dialect": "postgresql",
@@ -6256,6 +6256,13 @@
           "primaryKey": false,
           "notNull": false
         },
+        "sides_verified": {
+          "name": "sides_verified",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
         "existing_row_id": {
           "name": "existing_row_id",
           "type": "varchar",
@@ -6313,7 +6320,7 @@
         },
         "claude_code_projection_shadow_comparison": {
           "name": "claude_code_projection_shadow_comparison",
-          "value": "\"claude_code_projection_shadow\".\"comparison\" in ('match', 'mismatch', 'missing', 'ambiguous', 'not-applicable')"
+          "value": "\"claude_code_projection_shadow\".\"comparison\" in ('body-match', 'mismatch', 'missing', 'ambiguous', 'not-applicable')"
         }
       },
       "isRLSEnabled": false

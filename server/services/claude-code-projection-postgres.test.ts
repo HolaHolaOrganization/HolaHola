@@ -50,11 +50,11 @@ test('shadow projection compares with existing rows and never writes canonical r
     const result = await mirror.runShadowProjection(session);
     assert.equal(result.exchanges, 4);
     assert.deepEqual(result.byState, { certified: 3, 'provisional-candidate': 1 });
-    assert.deepEqual(result.byComparison, { match: 1, mismatch: 1, ambiguous: 1, 'not-applicable': 1 });
+    assert.deepEqual(result.byComparison, { 'body-match': 1, mismatch: 1, ambiguous: 1, 'not-applicable': 1 });
 
     const shadow = await client.query(`select opening_position, state, comparison, comparison_detail from claude_code_projection_shadow where run_id = $1 order by opening_position`, [result.runId]);
     assert.deepEqual(shadow.rows.map((r) => [r.opening_position, r.state, r.comparison, r.comparison_detail]), [
-      [0, 'certified', 'match', null],
+      [0, 'certified', 'body-match', null],
       [2, 'certified', 'mismatch', 'sides-swapped'],
       [4, 'certified', 'ambiguous', '2 rows share this capture id'],
       [6, 'provisional-candidate', 'not-applicable', null],
