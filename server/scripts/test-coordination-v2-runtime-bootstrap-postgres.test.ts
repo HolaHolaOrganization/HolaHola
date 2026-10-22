@@ -344,8 +344,12 @@ test("runtime manifests survive a real PostgreSQL round trip without changing hi
         `INSERT INTO coordination_v2_runtime_bootstrap_issues
           (id, host_enrollment_id, runtime_release_id, request_key, request_digest,
            manifest_digest, issued_at, expires_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+        // Date values, not ISO strings: issued_at/expires_at are timestamp WITHOUT time zone,
+        // and node-postgres reads them back as local time. An ISO "Z" string would be stored
+        // as UTC wall-clock and then re-read as local, shifting the instant by the process
+        // timezone offset on any non-UTC host. A Date round-trips in every timezone.
         [id, hostId, releaseId, key, requestDigest(key), stored,
-          fresh.payload.issuedAt, fresh.payload.expiresAt],
+          new Date(fresh.payload.issuedAt), new Date(fresh.payload.expiresAt)],
       );
       await insertSyntheticIssue(legacyId, legacyKey, legacyDigest);
       const snapshot = () => client.query(
