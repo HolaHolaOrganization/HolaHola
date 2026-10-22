@@ -296,7 +296,10 @@ export async function reserveCoordinationWindowsPreparationBeforeSession(input: 
           operatorGrantId: input.operatorGrantId, operatorActor: input.operatorActor, generationId,
           publicMaterialDigest: input.publicMaterialDigest, reserveRequestKey,
         });
-        const now = new Date();
+        // Every lifecycle stamp (created/promoted/acknowledged) comes from the
+        // database clock, so the timestamp-order constraint holds even when the
+        // application host's clock is skewed from the database's.
+        const now = await databaseNow(tx);
         const inserted = await tx.insert(coordinationV2PreparationReservations).values({
           id: randomUUID(), sessionId: null, enrolledHostId: input.enrolledHostId, generationId,
           taskRef: input.taskRef, taskArtifactSha256: input.taskArtifactSha256,
@@ -354,10 +357,10 @@ export async function acknowledgeCoordinationWindowsPreparationBeforeSession(inp
       }
       return dto(row);
     }
-    if (row.state !== "promoted" || row.expiresAt <= new Date()) fail("PREPARATION_INVALID_TRANSITION");
+    const acknowledgementNow = await databaseNow(tx);
+    if (row.state !== "promoted" || row.expiresAt <= acknowledgementNow) fail("PREPARATION_INVALID_TRANSITION");
     if (!row.promotedAt || !row.safePromotionEvidenceDigest
       || row.safePromotionEvidenceDigest !== input.safePromotionEvidenceDigest) fail("PREPARATION_CONFLICT");
-    const acknowledgementNow = await databaseNow(tx);
     const rawPolicy = (await tx.select({ canonicalPolicy: coordinationV2PolicyVersions.canonicalPolicy })
       .from(coordinationV2PolicyVersions).where(eq(coordinationV2PolicyVersions.id, row.policyVersionId!)).limit(1))[0]?.canonicalPolicy as any;
     let policy: Record<string, unknown>;
@@ -451,9 +454,10 @@ export async function promoteCoordinationWindowsPreparationBeforeSession(input: 
     if (!row || row.operatorActor !== input.actorId || row.generationId !== input.generationId
       || row.publicMaterialDigest !== input.publicMaterialDigest) fail("PREPARATION_CONFLICT");
     if (row.state === "promoted" || row.state === "acknowledged") return dto(row);
-    if (row.state !== "reserved" || row.expiresAt <= new Date()) fail("PREPARATION_INVALID_TRANSITION");
+    const now = await databaseNow(tx);
+    if (row.state !== "reserved" || row.expiresAt <= now) fail("PREPARATION_INVALID_TRANSITION");
     const updated = await tx.update(coordinationV2PreparationReservations).set({
-      state: "promoted", promotedAt: new Date(), safePromotionEvidenceDigest: input.safePromotionEvidenceDigest,
+      state: "promoted", promotedAt: now, safePromotionEvidenceDigest: input.safePromotionEvidenceDigest,
     }).where(eq(coordinationV2PreparationReservations.id, row.id)).returning();
     return dto(updated[0] as CoordinationV2PreparationReservation);
   });
