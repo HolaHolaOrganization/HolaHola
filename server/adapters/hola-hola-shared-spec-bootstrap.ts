@@ -4,7 +4,7 @@ import {
   COORDINATION_ACTOR_IDS,
   type CoordinationActorId,
 } from "@shared/schema";
-import { resolveCoordinationActor } from "../middleware/coordination-auth";
+import { resolveCoordinationActor, resolveCoordinationCapability } from "../middleware/coordination-auth";
 import type { SharedSpecActorAuthenticator } from "../services/shared-spec-auth";
 import { registerPostgresSharedSpecApi } from "../services/shared-spec-bootstrap";
 import {
@@ -38,7 +38,10 @@ export class HolaHolaSharedSpecAuthenticator
 {
   private readonly policyAdmins: ReadonlySet<string>;
 
-  constructor(private readonly environment: HostEnvironment = process.env) {
+  constructor(
+    private readonly environment: HostEnvironment = process.env,
+    private readonly resolveCapability: typeof resolveCoordinationCapability = resolveCoordinationCapability,
+  ) {
     this.policyAdmins = new Set(
       (environment.SHARED_SPEC_POLICY_ADMIN_ACTORS ?? "david,luca-replit")
         .split(",")
@@ -51,15 +54,27 @@ export class HolaHolaSharedSpecAuthenticator
     const credential =
       readHeader(request, "x-shared-spec-token") ??
       readHeader(request, "x-coordination-token");
-    const resolution = resolveCoordinationActor(
-      credential,
-      undefined,
-      this.environment,
-    );
-    if (!resolution.ok || !actorIds.has(resolution.actor)) return undefined;
+    if (!credential) return undefined;
+    const legacy = resolveCoordinationActor(credential, undefined, this.environment);
+    let actor: string | undefined = legacy.ok ? legacy.actor : undefined;
+    if (!legacy.ok) {
+      // A runtime that has migrated to the coordination credential broker has
+      // no legacy token. Its own short-lived broker credential is accepted
+      // when it carries coordination:write, the same capability the
+      // coordination routes require for writes.
+      const broker = await this.resolveCapability(
+        credential,
+        "coordination:write",
+        undefined,
+        request.ip,
+        this.environment,
+      );
+      if (broker.ok && broker.authType === "broker") actor = broker.actor;
+    }
+    if (!actor || !actorIds.has(actor)) return undefined;
     return {
-      actorId: resolution.actor,
-      capabilities: this.policyAdmins.has(resolution.actor)
+      actorId: actor,
+      capabilities: this.policyAdmins.has(actor)
         ? (["policy_admin"] as const)
         : undefined,
     };
