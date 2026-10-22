@@ -1,31 +1,45 @@
 /**
  * Claude Code transcript mirror: sync client (recording-gap design R6.5, stage R-P3).
  *
- *   npx tsx server/scripts/claude-code-mirror-sync.ts --transcript <path> --session <id> [--remote URL] [--budget-ms N]
+ *   npx tsx server/scripts/claude-code-mirror-sync.ts --transcript <path> --session <id> --runtime-id <id> [--remote URL] [--budget-ms N]
  *
  * Preservation only. It filters the local transcript with the shared core, asks
  * the server which 256-position blocks differ from its confirmed digests, sends
  * the exact tuples for those blocks, and uploads only the entries the server
  * lacks, oldest first, in bounded batches. It never publishes canonical dialogue.
  *
- * Positions are the index among successfully parsed, non-empty lines: the same
- * coordinate the existing Stop recorder uses, so capture ids stay compatible.
- * One sync per session at a time (an exclusive local lock with the owner pid;
- * a stale lock is taken over only when that pid is gone). Every failure exits
- * non-zero with a reason and is retried by the next hook event or sweep.
+ * - Positions are the index among truthy parsed, non-empty lines: the existing
+ *   Stop recorder's coordinate, so capture ids stay compatible.
+ * - An entry above the server's per-entry limit is never clipped, dropped or
+ *   claimed as preserved: it is listed in the local status file as unaccepted,
+ *   its block stays unconfirmed, and the run reports complete:false while every
+ *   other entry still syncs.
+ * - One sync per session at a time: an exclusive local lock whose token names its
+ *   owner; takeover of a dead owner and release are compare-and-swap on that
+ *   token, so a stale contender can never remove a newer owner's lock. The lock
+ *   is an efficiency guard; the server is idempotent and serializes per session.
+ * - One shared deadline bounds every request of the run; an expired run returns
+ *   partial progress (complete:false) and the next hook event resumes.
+ * - Authentication is the actor's own runtime credential (RuntimeOnboardingClient
+ *   for luca-claude-code), never a raw legacy token.
  */
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync, unlinkSync, writeSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
+import { closeSync, linkSync, mkdirSync, openSync, readFileSync, renameSync, unlinkSync, writeFileSync, writeSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import {
   blockDigest,
   blockIndexOf,
+  canonicalJson,
   contentSha256,
   filterEntry,
   type MirrorTuple,
 } from '@shared/claude-code-mirror-core.mjs';
-import { getAgentAuthHeaders } from '../services/agent-auth';
 
-export interface LocalEntry { position: number; uuid: string; entry: Record<string, unknown>; sha256: string }
+/** Must equal the server's MIRROR_LIMITS.maxEntryBytes (a test pins it). */
+export const MAX_ENTRY_BYTES = 256 * 1024;
+const MAX_REQUEST_MS = 30_000;
+
+export interface LocalEntry { position: number; uuid: string; entry: Record<string, unknown>; sha256: string; bytes: number }
 
 const UUID = /^[A-Za-z0-9-]{1,64}$/;
 
@@ -41,7 +55,10 @@ export function readTranscript(text: string): LocalEntry[] {
     if (!raw) continue;
     const rawUuid = (raw as { uuid?: unknown }).uuid;
     const entry = filterEntry(raw);
-    out.push({ position, uuid: typeof rawUuid === 'string' && UUID.test(rawUuid) ? rawUuid : '', entry, sha256: contentSha256(entry) });
+    out.push({
+      position, uuid: typeof rawUuid === 'string' && UUID.test(rawUuid) ? rawUuid : '', entry,
+      sha256: contentSha256(entry), bytes: Buffer.byteLength(canonicalJson(entry), 'utf8'),
+    });
     position++;
   }
   return out;
@@ -58,13 +75,13 @@ export function localBlocks(sessionId: string, entries: LocalEntry[]): Array<{ i
   return [...groups.entries()].sort((a, b) => a[0] - b[0]).map(([index, tuples]) => ({ index, digest: blockDigest(sessionId, tuples), tuples }));
 }
 
-/** Splits entries into upload batches within the server's count and byte limits. Pure. */
+/** Splits uploadable entries into batches within the server's count and byte limits. Pure. */
 export function batches(entries: LocalEntry[], maxCount = 200, maxBytes = 4 * 1024 * 1024): LocalEntry[][] {
   const out: LocalEntry[][] = [];
   let cur: LocalEntry[] = [];
   let bytes = 0;
   for (const e of entries) {
-    const size = Buffer.byteLength(JSON.stringify(e.entry), 'utf8') + 128;
+    const size = e.bytes + 128;
     if (cur.length && (cur.length >= maxCount || bytes + size > maxBytes)) { out.push(cur); cur = []; bytes = 0; }
     cur.push(e);
     bytes += size;
@@ -73,82 +90,151 @@ export function batches(entries: LocalEntry[], maxCount = 200, maxBytes = 4 * 10
   return out;
 }
 
-function arg(args: string[], name: string): string | undefined {
-  const i = args.indexOf(`--${name}`);
-  return i >= 0 ? args[i + 1] : undefined;
+// ---- Lock: compare-and-swap on an owner token -------------------------------------------
+
+type KillFn = (pid: number, signal: 0) => void;
+
+/** 'dead' only when the OS says the process does not exist; any other error is not evidence of death. */
+export function ownerState(pid: number, kill: KillFn = (p, s) => { process.kill(p, s); }): 'alive' | 'dead' | 'unknown' {
+  try { kill(pid, 0); return 'alive'; } catch (e) {
+    const code = (e as NodeJS.ErrnoException).code;
+    if (code === 'ESRCH') return 'dead';
+    if (code === 'EPERM') return 'alive';
+    return 'unknown';
+  }
 }
 
-function pidAlive(pid: number): boolean {
-  try { process.kill(pid, 0); return true; } catch { return false; }
+/**
+ * Removes the file at path only if it still holds expectedToken. The file is first
+ * renamed aside (atomic), then checked; if it was a different (newer) lock it is
+ * put back with link(), which never overwrites an existing file.
+ */
+export function removeIfToken(path: string, expectedToken: string): boolean {
+  const aside = `${path}.cas-${randomUUID()}`;
+  try { renameSync(path, aside); } catch { return false; }
+  let content = '';
+  try { content = readFileSync(aside, 'utf8'); } catch { /* unreadable: treat as foreign */ }
+  if (content === expectedToken) { unlinkSync(aside); return true; }
+  try { linkSync(aside, path); } catch { /* a newer lock now exists at path; leave it */ }
+  try { unlinkSync(aside); } catch { /* already gone */ }
+  return false;
 }
 
-/** Exclusive per-session lock; returns a release function, or null when another live sync holds it. */
-export function acquireLock(dir: string, sessionId: string): (() => void) | null {
+/** Exclusive per-session lock; returns a release function, or null when another (or unknown) owner holds it. */
+export function acquireLock(dir: string, sessionId: string, kill?: KillFn): (() => void) | null {
   mkdirSync(dir, { recursive: true });
   const path = join(dir, `${sessionId}.lock`);
+  const token = `${process.pid}:${randomUUID()}`;
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       const fd = openSync(path, 'wx');
-      writeSync(fd, String(process.pid));
+      writeSync(fd, token);
       closeSync(fd);
-      return () => { try { unlinkSync(path); } catch { /* already gone */ } };
+      return () => { removeIfToken(path, token); };
     } catch {
-      const owner = Number(existsSync(path) ? readFileSync(path, 'utf8') : NaN);
-      if (Number.isSafeInteger(owner) && pidAlive(owner)) return null;
-      try { unlinkSync(path); } catch { /* raced */ }
+      let seen = '';
+      try { seen = readFileSync(path, 'utf8'); } catch { continue; } // vanished: retry the exclusive create
+      const pid = Number(seen.split(':')[0]);
+      if (!Number.isSafeInteger(pid) || ownerState(pid, kill) !== 'dead') return null;
+      if (!removeIfToken(path, seen)) return null; // someone else replaced or removed it first
     }
   }
   return null;
 }
 
-async function post(remote: string, path: string, body: unknown, headers: Record<string, string>): Promise<any> {
-  const res = await fetch(`${remote}/api/internal/claude-code-mirror/${path}`, {
-    method: 'POST',
-    headers: { ...headers, 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-    signal: AbortSignal.timeout(30_000),
-  });
-  const text = await res.text();
-  if (!res.ok) throw new Error(`${path} returned ${res.status}: ${text.slice(0, 200)}`);
-  return JSON.parse(text);
+// ---- Sync ----------------------------------------------------------------------------
+
+export type Transport = (path: string, body: unknown, signal: AbortSignal) => Promise<any>;
+
+export interface SyncResult {
+  sent: number;
+  blocksDiffering: number;
+  complete: boolean;
+  reason: 'complete' | 'budget' | 'unaccepted-entries';
+  unaccepted: Array<{ position: number; bytes: number }>;
 }
 
-export async function syncSession(opts: { transcript: string; sessionId: string; remote: string; budgetMs: number; headers: Record<string, string> }): Promise<{ sent: number; blocksDiffering: number; complete: boolean }> {
-  const started = Date.now();
-  const entries = readTranscript(readFileSync(opts.transcript, 'utf8'));
+export async function syncSession(opts: {
+  text: string; sessionId: string; budgetMs: number; transport: Transport; now?: () => number;
+}): Promise<SyncResult> {
+  if (!Number.isFinite(opts.budgetMs) || opts.budgetMs <= 0) throw new Error('budget must be a finite positive number of milliseconds');
+  const now = opts.now ?? Date.now;
+  const deadline = now() + opts.budgetMs;
+  const call = async (path: string, body: unknown) => {
+    const remaining = deadline - now();
+    if (remaining <= 0) throw new BudgetExpired();
+    return opts.transport(path, body, AbortSignal.timeout(Math.min(MAX_REQUEST_MS, remaining)));
+  };
+  const entries = readTranscript(opts.text);
   const blocks = localBlocks(opts.sessionId, entries);
-  const coverage = await post(opts.remote, 'coverage', { sessionId: opts.sessionId, blocks: blocks.map(({ index, digest }) => ({ index, digest })) }, opts.headers);
   const byPosition = new Map(entries.map((e) => [e.position, e]));
+  const unaccepted = entries.filter((e) => e.bytes > MAX_ENTRY_BYTES).map((e) => ({ position: e.position, bytes: e.bytes }));
+  const unacceptedAt = new Set(unaccepted.map((u) => u.position));
   let sent = 0;
-  for (const index of coverage.differing as number[]) {
-    if (Date.now() - started > opts.budgetMs) return { sent, blocksDiffering: coverage.differing.length, complete: false };
-    const block = blocks.find((b) => b.index === index)!;
-    const check = await post(opts.remote, 'block-tuples', { sessionId: opts.sessionId, blockIndex: index, localDigest: block.digest, tuples: block.tuples }, opts.headers);
-    const missing = (check.missing as MirrorTuple[]).map((t) => byPosition.get(t.position)!).filter(Boolean);
-    for (const batch of batches(missing)) {
-      await post(opts.remote, 'entries', { sessionId: opts.sessionId, entries: batch.map((e) => ({ position: e.position, uuid: e.uuid, entry: e.entry })) }, opts.headers);
-      sent += batch.length;
+  let differing: number[] = [];
+  try {
+    const coverage = await call('coverage', { sessionId: opts.sessionId, blocks: blocks.map(({ index, digest }) => ({ index, digest })) });
+    differing = coverage.differing as number[];
+    for (const index of differing) {
+      const block = blocks.find((b) => b.index === index)!;
+      const check = await call('block-tuples', { sessionId: opts.sessionId, blockIndex: index, localDigest: block.digest, tuples: block.tuples });
+      const missing = (check.missing as MirrorTuple[]).map((t) => byPosition.get(t.position)).filter((e): e is LocalEntry => Boolean(e));
+      const uploadable = missing.filter((e) => !unacceptedAt.has(e.position));
+      for (const batch of batches(uploadable)) {
+        await call('entries', { sessionId: opts.sessionId, entries: batch.map((e) => ({ position: e.position, uuid: e.uuid, entry: e.entry })) });
+        sent += batch.length;
+      }
+      // Re-confirm only when every missing tuple of this block was uploadable.
+      if (uploadable.length && uploadable.length === missing.length) {
+        await call('block-tuples', { sessionId: opts.sessionId, blockIndex: index, localDigest: block.digest, tuples: block.tuples });
+      }
     }
-    if (missing.length) await post(opts.remote, 'block-tuples', { sessionId: opts.sessionId, blockIndex: index, localDigest: block.digest, tuples: block.tuples }, opts.headers);
+  } catch (e) {
+    if (e instanceof BudgetExpired || (e as Error)?.name === 'TimeoutError') {
+      return { sent, blocksDiffering: differing.length, complete: false, reason: 'budget', unaccepted };
+    }
+    throw e;
   }
-  return { sent, blocksDiffering: coverage.differing.length, complete: true };
+  if (unaccepted.length) return { sent, blocksDiffering: differing.length, complete: false, reason: 'unaccepted-entries', unaccepted };
+  return { sent, blocksDiffering: differing.length, complete: true, reason: 'complete', unaccepted };
+}
+
+class BudgetExpired extends Error {}
+
+function arg(args: string[], name: string): string | undefined {
+  const i = args.indexOf(`--${name}`);
+  return i >= 0 ? args[i + 1] : undefined;
 }
 
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
   const transcript = arg(args, 'transcript');
   const sessionId = arg(args, 'session');
+  const runtimeId = arg(args, 'runtime-id') ?? process.env.HOLAHOLA_RUNTIME_ID;
   const remote = arg(args, 'remote') ?? 'https://getholahola.com';
   const budgetMs = Number(arg(args, 'budget-ms') ?? 60_000);
-  if (!transcript || !sessionId || !/^[A-Za-z0-9-]{8,64}$/.test(sessionId)) throw new Error('usage: --transcript <path> --session <id> [--remote URL] [--budget-ms N]');
+  if (!transcript || !sessionId || !/^[A-Za-z0-9-]{8,64}$/.test(sessionId)) throw new Error('usage: --transcript <path> --session <id> --runtime-id <id> [--remote URL] [--budget-ms N]');
+  if (!runtimeId) throw new Error('a runtime id is required (--runtime-id or HOLAHOLA_RUNTIME_ID): the sync uses the actor\'s own runtime credential');
   if (!/^https:\/\/[A-Za-z0-9.-]+$/.test(remote)) throw new Error('--remote must be an https origin');
-  const headers = getAgentAuthHeaders('luca-claude-code');
-  if (!headers) throw new Error('Luca [Claude Code] coordination credential is not set');
-  const release = acquireLock(resolve('.local/claude-code-mirror'), sessionId);
-  if (!release) { console.log('[mirror-sync] another sync for this session is running; skipping'); return; }
+  const { RuntimeOnboardingClient } = await import('../services/runtime-onboarding-client');
+  const { createNativeRuntimeOnboardingStore } = await import('../services/runtime-onboarding-store');
+  const client = new RuntimeOnboardingClient({ endpoint: remote, actor: 'luca-claude-code', runtimeId, store: createNativeRuntimeOnboardingStore() });
+  const transport: Transport = async (path, body, signal) => {
+    const res = await client.authenticatedFetch(`${remote}/api/coordination/claude-code-mirror/${path}`, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body), signal,
+    });
+    const text = await res.text();
+    if (!res.ok) throw new Error(`${path} returned ${res.status}: ${text.slice(0, 200)}`);
+    return JSON.parse(text);
+  };
+  const dir = resolve('.local/claude-code-mirror');
+  const release = acquireLock(dir, sessionId);
+  if (!release) { console.log('[mirror-sync] another sync for this session holds the lock; skipping'); return; }
   try {
-    const result = await syncSession({ transcript, sessionId, remote, budgetMs, headers });
-    console.log(`[mirror-sync] session ${sessionId}: sent ${result.sent}, differing blocks ${result.blocksDiffering}, ${result.complete ? 'complete' : 'budget reached; resumes next run'}`);
+    const result = await syncSession({ text: readFileSync(transcript, 'utf8'), sessionId, budgetMs, transport });
+    writeFileSync(join(dir, `${sessionId}.status.json`), JSON.stringify({ at: new Date().toISOString(), ...result }, null, 2));
+    console.log(`[mirror-sync] session ${sessionId}: sent ${result.sent}, differing blocks ${result.blocksDiffering}, ${result.reason}` +
+      (result.unaccepted.length ? `; ${result.unaccepted.length} entr${result.unaccepted.length === 1 ? 'y' : 'ies'} above the per-entry limit NOT preserved remotely (see status file)` : ''));
   } finally {
     release();
   }
