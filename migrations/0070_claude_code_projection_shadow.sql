@@ -10,11 +10,12 @@ CREATE TABLE "claude_code_projection_shadow" (
 	"user_sha256" varchar(64) NOT NULL,
 	"reply_sha256" varchar(64) NOT NULL,
 	"comparison" varchar(32) NOT NULL,
+	"comparison_detail" varchar(120),
 	"existing_row_id" varchar,
 	"created_at" timestamp with time zone DEFAULT clock_timestamp() NOT NULL,
 	CONSTRAINT "claude_code_projection_shadow_pk" PRIMARY KEY("run_id","session_id","opening_position"),
 	CONSTRAINT "claude_code_projection_shadow_state" CHECK ("claude_code_projection_shadow"."state" in ('certified', 'provisional-candidate', 'open', 'retained')),
-	CONSTRAINT "claude_code_projection_shadow_comparison" CHECK ("claude_code_projection_shadow"."comparison" in ('match', 'mismatch', 'missing', 'not-applicable'))
+	CONSTRAINT "claude_code_projection_shadow_comparison" CHECK ("claude_code_projection_shadow"."comparison" in ('match', 'mismatch', 'missing', 'ambiguous', 'not-applicable'))
 );
 --> statement-breakpoint
 CREATE INDEX "idx_claude_code_shadow_session" ON "claude_code_projection_shadow" USING btree ("session_id","created_at");

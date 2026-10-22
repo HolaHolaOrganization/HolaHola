@@ -174,19 +174,22 @@ export function projectSession(sessionId: string, entries: MirroredEntry[]): Pro
         reasons.add('unresolved-lookahead');
       }
     }
+    if (openTools.size) reasons.add('unmatched-tool-call');
     if (next === null) {
-      if (openTools.size) reasons.add('unmatched-tool-call');
       if (trailingFeedback) reasons.add('trailing-hook-feedback');
-    } else if (openTools.size) {
-      // A later turn start proves this exchange ended, but an interrupted tool is recorded as a reason for review.
-      reasons.add('interrupted-tool-call');
+    } else {
+      // Certified closure needs an unambiguous, resolved closing witness (R6.5 §3b.2):
+      // a human, absorbed-human or runtime start, held exactly once.
+      const closing = roles.get(next) as Extract<Role, { role: 'start' }>;
+      if (closing.kind === 'unresolved-boundary') reasons.add('unresolved-closing-boundary');
+      if (byPos.get(next)!.conflicted) reasons.add('conflicted-closing-boundary');
     }
     const replyText = replies.join('\n\n');
     let state: ExchangeState;
     if (start.kind === 'unresolved-boundary') state = 'retained';
     else if (reasons.has('conflicting-variants')) state = 'retained';
-    else if (reasons.has('hole') || reasons.has('unresolved-lookahead')) state = 'open';
-    else if (next === null) state = reasons.size ? 'open' : (replyText ? 'provisional-candidate' : 'open');
+    else if (reasons.size) state = 'open';
+    else if (next === null) state = replyText ? 'provisional-candidate' : 'open';
     else state = replyText ? 'certified' : 'retained';
     if (state === 'retained' && !replyText && start.kind !== 'unresolved-boundary') reasons.add('no-reply');
     if (start.kind === 'unresolved-boundary') reasons.add('unresolved-boundary');
@@ -200,4 +203,36 @@ export function projectSession(sessionId: string, entries: MirroredEntry[]): Pro
     });
   }
   return out;
+}
+
+export type Comparison = 'match' | 'mismatch' | 'missing' | 'ambiguous' | 'not-applicable';
+
+/** The exact canonical body the drain writes for one Claude Code exchange (transcript-parser buildDialogueChunk). */
+export function expectedCanonicalBody(userText: string, replyText: string): string {
+  return `David [Claude Code]: ${userText}\n\nClaude Code: ${replyText}`;
+}
+
+/**
+ * Compares a certified exchange with the canonical rows that carry its capture id.
+ * Pure. "match" requires exactly one row, a sole source tag of source-claude-code,
+ * and a body equal to the exact two-speaker form, so each side is checked in its
+ * place and order. Anything else names why it is not a match.
+ */
+export function compareWithCanonical(
+  exchange: Pick<ProjectedExchange, 'state' | 'userText' | 'replyText'>,
+  rows: Array<{ id: string; content: string; tags: string[] }>,
+): { comparison: Comparison; detail: string | null; rowId: string | null } {
+  if (exchange.state !== 'certified') return { comparison: 'not-applicable', detail: null, rowId: null };
+  if (rows.length === 0) return { comparison: 'missing', detail: null, rowId: null };
+  if (rows.length > 1) return { comparison: 'ambiguous', detail: `${rows.length} rows share this capture id`, rowId: null };
+  const [row] = rows;
+  const sources = row.tags.filter((t) => t.startsWith('source-')).sort();
+  if (sources.length !== 1 || sources[0] !== 'source-claude-code') return { comparison: 'mismatch', detail: `source:${sources.join(',') || 'none'}`, rowId: row.id };
+  const body = row.content.replace(/\s+$/, '');
+  if (body === expectedCanonicalBody(exchange.userText, exchange.replyText)) return { comparison: 'match', detail: null, rowId: row.id };
+  if (body === expectedCanonicalBody(exchange.replyText, exchange.userText)) return { comparison: 'mismatch', detail: 'sides-swapped', rowId: row.id };
+  if (/\[turn (truncated|omitted)/.test(body)) return { comparison: 'mismatch', detail: 'truncated', rowId: row.id };
+  const userPrefix = `David [Claude Code]: ${exchange.userText}\n\n`;
+  if (!body.startsWith(userPrefix)) return { comparison: 'mismatch', detail: 'user-side', rowId: row.id };
+  return { comparison: 'mismatch', detail: 'reply-side', rowId: row.id };
 }

@@ -35,23 +35,29 @@ test('shadow projection compares with existing rows and never writes canonical r
       { position: 4, uuid: 'e', entry: human('third question') }, { position: 5, uuid: 'f', entry: reply('third answer') },
       { position: 6, uuid: 'g', entry: human('last question') }, { position: 7, uuid: 'h', entry: reply('last answer') },
     ]);
-    // Existing canonical rows: one matching, one with different words; none for position 4.
+    // Existing canonical rows: one exact, one with the sides swapped (LR's sentinel case),
+    // two sharing position 4's capture id, none for position 6.
     const row = async (pos: number, content: string) => client.query(
       `insert into conversation_memories (id, title, summary, content, tags) values ($1, 't', 's', $2, $3)`,
       [randomUUID(), content, ['canonical-conversation', 'source-claude-code', `capture-id:cc-${session}-${pos}`]],
     );
     await row(0, 'David [Claude Code]: first question\n\nClaude Code: first answer');
-    await row(2, 'David [Claude Code]: a notice, not the question\n\nClaude Code: second answer');
+    await row(2, 'David [Claude Code]: second answer\n\nClaude Code: second question');
+    await row(4, 'David [Claude Code]: third question\n\nClaude Code: third answer');
+    await row(4, 'David [Claude Code]: third question\n\nClaude Code: third answer');
     const before = (await client.query(`select count(*)::int as n from conversation_memories`)).rows[0].n;
 
     const result = await mirror.runShadowProjection(session);
     assert.equal(result.exchanges, 4);
     assert.deepEqual(result.byState, { certified: 3, 'provisional-candidate': 1 });
-    assert.deepEqual(result.byComparison, { match: 1, mismatch: 1, missing: 1, 'not-applicable': 1 });
+    assert.deepEqual(result.byComparison, { match: 1, mismatch: 1, ambiguous: 1, 'not-applicable': 1 });
 
-    const shadow = await client.query(`select opening_position, state, comparison from claude_code_projection_shadow where run_id = $1 order by opening_position`, [result.runId]);
-    assert.deepEqual(shadow.rows.map((r) => [r.opening_position, r.state, r.comparison]), [
-      [0, 'certified', 'match'], [2, 'certified', 'mismatch'], [4, 'certified', 'missing'], [6, 'provisional-candidate', 'not-applicable'],
+    const shadow = await client.query(`select opening_position, state, comparison, comparison_detail from claude_code_projection_shadow where run_id = $1 order by opening_position`, [result.runId]);
+    assert.deepEqual(shadow.rows.map((r) => [r.opening_position, r.state, r.comparison, r.comparison_detail]), [
+      [0, 'certified', 'match', null],
+      [2, 'certified', 'mismatch', 'sides-swapped'],
+      [4, 'certified', 'ambiguous', '2 rows share this capture id'],
+      [6, 'provisional-candidate', 'not-applicable', null],
     ]);
     const after = (await client.query(`select count(*)::int as n from conversation_memories`)).rows[0].n;
     assert.equal(after, before, 'the shadow run writes nothing to conversation_memories');
