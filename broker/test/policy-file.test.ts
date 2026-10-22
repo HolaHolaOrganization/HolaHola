@@ -24,7 +24,7 @@ describe('committed broker/policy.json', () => {
     assert.deepEqual(policy.qualification, []);
     assert.deepEqual([...policy.actors.keys()], ['luca-claude-code']);
     const lcc = policy.actors.get('luca-claude-code')!;
-    assert.deepEqual([lcc.appId, lcc.installationId, lcc.host], [5350010, 172194780, 'LITTLENEMO']);
+    assert.deepEqual([lcc.appId, lcc.installationId, lcc.host], [5350010, 174218337, 'LITTLENEMO']);
     assert.deepEqual(lcc.signingKeys.map(k => k.id), ['lcc-littlenemo-1']);
     const fingerprint = createHash('sha256').update(lcc.signingKeys[0].publicKey.export({ type: 'spki', format: 'der' })).digest('hex');
     assert.equal(fingerprint, '4c1c96dcaac778cd67302a2bd7ba1a240393cdb1aa810ee84a2fe0ed2c8cc040', 'the key created on LITTLENEMO');
