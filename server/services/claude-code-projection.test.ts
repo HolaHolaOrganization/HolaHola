@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import { filterEntry } from '@shared/claude-code-mirror-core.mjs';
-import { projectSession, type MirroredEntry } from './claude-code-projection';
+import { compareWithCanonical, projectSession, type MirroredEntry } from './claude-code-projection';
 
 let uuid = 0;
 /** Builds filtered mirrored entries from raw transcript-shaped entries, at consecutive positions. */
@@ -123,14 +123,14 @@ describe('revision 3 provenance rules', () => {
     ]);
   });
 
-  test('an unresolved queued_command shape is a retained boundary, never merged', () => {
+  test('an unresolved queued_command shape is a retained boundary that never merges and never certifies its predecessor', () => {
     const out = projectSession(S, mirror([
       human('U1'), reply('A1'),
       { type: 'attachment', attachment: { type: 'queued_command', origin: { kind: 'mystery' }, commandMode: 'other' } },
       reply('x'), human('U2'),
     ]));
     assert.deepEqual(summary(out).slice(0, 2), [
-      [0, 'human', 'certified', 'U1', 'A1', []],
+      [0, 'human', 'open', 'U1', 'A1', ['unresolved-closing-boundary']],
       [2, 'unresolved-boundary', 'retained', '', 'x', ['unresolved-boundary']],
     ]);
   });
@@ -145,17 +145,56 @@ describe('revision 3 provenance rules', () => {
     assert.equal(out[0].apiErrorCount, 1);
   });
 
-  test('a turn with no reply is retained, not published; an interrupted tool is flagged when a later start closes it', () => {
-    const out = projectSession(S, mirror([human('U1'), human('U2'), toolCall('t9'), human('U3')]));
-    assert.deepEqual(summary(out).slice(0, 2), [
-      [0, 'human', 'retained', 'U1', '', ['no-reply']],
-      [1, 'human', 'retained', 'U2', '', ['interrupted-tool-call', 'no-reply']],
-    ]);
+  test('a turn with no reply is retained, not published', () => {
+    const out = projectSession(S, mirror([human('U1'), human('U2')]));
+    assert.deepEqual(summary(out)[0], [0, 'human', 'retained', 'U1', '', ['no-reply']]);
   });
 
   test('the version hash changes when an exchange grows', () => {
     const v1 = projectSession(S, mirror([human('U'), reply('A')]))[0].versionSha256;
     const v2 = projectSession(S, mirror([human('U'), reply('A'), ...feedback(), reply('B')]))[0].versionSha256;
     assert.notEqual(v1, v2);
+  });
+});
+
+describe('closing boundaries are verified, not assumed (LR review 5620321654)', () => {
+  test('a conflicted closing start never certifies the previous exchange, whichever variant was chosen', () => {
+    for (const closing of [human('NEXT'), reply('continuation')]) {
+      const entries = mirror([human('Q'), reply('A'), closing]);
+      entries[2].conflicted = true;
+      const out = projectSession(S, entries);
+      assert.notEqual(out[0].state, 'certified', JSON.stringify(closing));
+      if (closing.type === 'user') assert.deepEqual([out[0].state, out[0].reasons], ['open', ['conflicted-closing-boundary']]);
+      else assert.deepEqual([out[0].state, out[0].reasons], ['retained', ['conflicting-variants']]);
+    }
+  });
+
+  test('a positive-text turn with an unmatched tool call is not certified by a later start', () => {
+    const out = projectSession(S, mirror([human('Q'), reply('A'), toolCall('t1'), human('NEXT'), reply('B')]));
+    assert.deepEqual(summary(out)[0], [0, 'human', 'open', 'Q', 'A', ['unmatched-tool-call']]);
+    const done = projectSession(S, mirror([human('Q'), reply('A'), toolCall('t1'), toolResult('t1'), human('NEXT')]));
+    assert.equal(done[0].state, 'certified');
+  });
+});
+
+describe('canonical comparison is per side and exact (LR review 5620321654)', () => {
+  const ex = { state: 'certified' as const, userText: 'QUESTION', replyText: 'ANSWER' };
+  const row = (content: string, tags = ['canonical-conversation', 'source-claude-code']) => ({ id: 'r', content, tags });
+  const body = (user: string, reply: string) => `David [Claude Code]: ${user}\n\nClaude Code: ${reply}`;
+
+  test('match only for the exact two-speaker body under the sole claude-code source', () => {
+    assert.equal(compareWithCanonical(ex, [row(body('QUESTION', 'ANSWER') + '\n')]).comparison, 'match');
+  });
+
+  test('swapped sides, wrong source, extra or truncated text and duplicates are not matches', () => {
+    assert.equal(compareWithCanonical(ex, [row(body('ANSWER', 'QUESTION'))]).detail, 'sides-swapped');
+    assert.equal(compareWithCanonical(ex, [row(body('QUESTION', 'ANSWER'), ['source-replit'])]).detail, 'source:source-replit');
+    assert.equal(compareWithCanonical(ex, [row(body('QUESTION', 'ANSWER'), ['source-claude-code', 'source-replit'])]).comparison, 'mismatch');
+    assert.equal(compareWithCanonical(ex, [row(body('QUESTION', 'ANSWER and more'))]).detail, 'reply-side');
+    assert.equal(compareWithCanonical(ex, [row(body('A NOTICE', 'ANSWER'))]).detail, 'user-side');
+    assert.equal(compareWithCanonical(ex, [row(body('QUESTION', 'ANS') + '\n[turn truncated — exceeded chunk limit]')]).detail, 'truncated');
+    assert.equal(compareWithCanonical(ex, [row('x'), row('y')]).comparison, 'ambiguous');
+    assert.equal(compareWithCanonical(ex, []).comparison, 'missing');
+    assert.equal(compareWithCanonical({ ...ex, state: 'open' }, [row('x')]).comparison, 'not-applicable');
   });
 });

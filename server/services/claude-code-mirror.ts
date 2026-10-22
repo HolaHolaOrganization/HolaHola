@@ -226,7 +226,7 @@ export async function recordHookEvidence(actor: string, input: unknown): Promise
  */
 export async function runShadowProjection(sessionIdInput: unknown): Promise<{ runId: string; exchanges: number; byState: Record<string, number>; byComparison: Record<string, number> }> {
   const sessionId = assertSessionId(sessionIdInput);
-  const { projectSession } = await import('./claude-code-projection');
+  const { projectSession, compareWithCanonical } = await import('./claude-code-projection');
   const db = getSharedDb();
   const obs = await db.select({
     position: claudeCodeEntryObservations.sourcePosition,
@@ -254,31 +254,25 @@ export async function runShadowProjection(sessionIdInput: unknown): Promise<{ ru
     ? await db.execute(sql`select id::text as id, content, tags from conversation_memories
         where tags && ${`{${captureIds.join(',')}}`}::text[]`)
     : { rows: [] };
-  const byCapture = new Map<string, { id: string; content: string }>();
+  const byCapture = new Map<string, Array<{ id: string; content: string; tags: string[] }>>();
   for (const r of (existing as unknown as { rows: Array<{ id: string; content: string; tags: string[] }> }).rows) {
-    const tag = r.tags.find((t) => t.startsWith('capture-id:'));
-    if (tag) byCapture.set(tag.slice('capture-id:'.length), { id: r.id, content: r.content });
+    for (const tag of r.tags.filter((t) => t.startsWith('capture-id:'))) {
+      const id = tag.slice('capture-id:'.length);
+      if (!byCapture.has(id)) byCapture.set(id, []);
+      byCapture.get(id)!.push(r);
+    }
   }
-  const norm = (s: string) => s.replace(/\s+/g, ' ').trim();
   const runId = sha256Hex(`${sessionId}:${Date.now()}:${Math.random()}`).slice(0, 32);
   const byState: Record<string, number> = {};
   const byComparison: Record<string, number> = {};
   const values = exchanges.map((e) => {
-    const row = byCapture.get(e.captureId);
-    let comparison: 'match' | 'mismatch' | 'missing' | 'not-applicable' = 'not-applicable';
-    if (e.state === 'certified') {
-      if (!row) comparison = 'missing';
-      else {
-        const content = norm(row.content);
-        comparison = content.includes(norm(e.userText)) && content.includes(norm(e.replyText)) ? 'match' : 'mismatch';
-      }
-    }
+    const { comparison, detail, rowId } = compareWithCanonical(e, byCapture.get(e.captureId) ?? []);
     byState[e.state] = (byState[e.state] ?? 0) + 1;
     byComparison[comparison] = (byComparison[comparison] ?? 0) + 1;
     return {
       runId, sessionId, openingPosition: e.openingPosition, captureId: e.captureId, kind: e.kind, state: e.state,
       reasons: e.reasons, versionSha256: e.versionSha256, userSha256: sha256Hex(e.userText), replySha256: sha256Hex(e.replyText),
-      comparison, existingRowId: row?.id ?? null,
+      comparison, comparisonDetail: detail, existingRowId: rowId,
     };
   });
   for (let i = 0; i < values.length; i += 500) {
