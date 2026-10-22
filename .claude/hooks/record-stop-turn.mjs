@@ -17,6 +17,7 @@ import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
+import { isRuntimeInjectedText } from './runtime-entries.mjs';
 
 // .claude/hooks/record-stop-turn.mjs -> project root is two levels up.
 const PROJECT_ROOT = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
@@ -94,6 +95,14 @@ function main() {
   if (lastUserIdx === -1) return; // nothing real to record yet
 
   const userText = extractText(entries[lastUserIdx].message?.content).trim();
+  // A turn the runtime started (task notice, system reminder, scheduled task,
+  // classifier notice, slash command) has no founder words to record. Recording
+  // it would label runtime text as David. Nothing is recorded for it; the reply
+  // stays in the Claude Code transcript until a non-dialogue label exists.
+  if (isRuntimeInjectedText(userText)) {
+    console.error('[record-stop-turn] turn was started by a runtime notice, not by David; nothing recorded');
+    return;
+  }
   const assistantText = entries
     .slice(lastUserIdx + 1)
     .filter(entry => entry.type === 'assistant')
