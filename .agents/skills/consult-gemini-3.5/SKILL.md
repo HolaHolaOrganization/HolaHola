@@ -25,7 +25,7 @@ Every rule in `consult-gemini`'s "Ask the real question, and don't lead the witn
 - no trust or authority cue, and no desired-answer framing;
 - verdicts per question: BLOCKING / CONCERN / NO ISSUE FOUND / INSUFFICIENT EVIDENCE;
 - no re-asking without a real change;
-- recommendations are weighed for fit with HolaHola, never applied automatically (`consult-gemini` Step 4), and the unconditional sign-off bar still applies;
+- recommendations are implemented by default and re-presented until unconditional sign-off, and declined only for a concrete reason put back to Gemini (`consult-gemini` Step 4);
 - the exact prompt saved alongside the response.
 
 When comparing 3.1 and 3.5, send both the identical prompt.
@@ -142,7 +142,7 @@ Questions:
 ## After the review
 
 - Write findings to `docs/gemini-3.5-audit-YYYY-MM-DD.md` for significant reviews, with the consult directory's exact requests next to the verbatim responses
-- A recommendation is a suggestion to weigh, not an instruction (see `consult-gemini` Step 4). Ask why, and whether it fits HolaHola. **A recommendation to move Daniela to 3.5 is never applied automatically.** Changing her model is a primary-LLM change, which needs David's approval (replit.md, Tiered Autonomy) and goes through the normal reviewed release path. Bring David the evidence and the verdicts.
+- Design and code recommendations follow `consult-gemini` Step 4: implement them by default and re-present. **One exception is never applied automatically: a recommendation to move Daniela to 3.5.** Changing her model is a primary-LLM change, which needs David's approval (replit.md, Tiered Autonomy) and goes through the normal reviewed release path. Bring David the evidence and the verdicts.
 - Note: the consult model (`gemini-3.5-flash`) and the GL streaming model (`gemini-3.5-flash-live-preview`) are different endpoints — if a switch is approved, confirm the live model string works before switching Daniela
 
 ---
