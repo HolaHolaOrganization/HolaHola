@@ -755,7 +755,7 @@ export class SourceControlService {
     this.uuid = options.uuid || randomUUID;
     this.runCommand = options.runCommand || defaultRunner;
     this.branch = this.env.SOURCE_BRIDGE_BRANCH || 'main';
-    this.repoUrl = this.env.GITHUB_REPO_URL || 'https://github.com/davidwmcintosh/holahola.git';
+    this.repoUrl = this.env.GITHUB_REPO_URL || 'https://github.com/HolaHolaOrganization/HolaHola.git';
     this.repositoryIdentity = normalizeCoordinationRepositoryIdentity(this.repoUrl);
     this.resolveRemoteCommit = options.resolveRemoteCommit ?? ((sha) => this.fetchRemoteCommitProof(sha));
     this.resolveRemoteSnapshot = options.resolveRemoteSnapshot

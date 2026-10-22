@@ -109,7 +109,7 @@ const R = (s: string) => `\x1b[31m${s}\x1b[0m`;
 const B = (s: string) => `\x1b[34m${s}\x1b[0m`;
 const sep = () => console.log('\n' + '─'.repeat(70));
 
-const OWNER = 'davidwmcintosh';
+const OWNER = 'HolaHolaOrganization';
 const REPO = 'HolaHola';
 const BRANCH = 'main';
 const RULESET_ID = 21584232;

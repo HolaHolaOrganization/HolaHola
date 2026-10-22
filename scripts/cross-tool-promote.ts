@@ -68,7 +68,7 @@ if (existsSync('.env')) {
   process.loadEnvFile('.env');
 }
 
-const OWNER = 'davidwmcintosh';
+const OWNER = 'HolaHolaOrganization';
 const REPO = 'HolaHola';
 const WORKFLOW_FILE = 'cross-tool-promote.yml';
 const GITHUB_API = 'https://api.github.com';

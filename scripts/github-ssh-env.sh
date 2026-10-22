@@ -3,7 +3,7 @@
 # Shared SSH setup for the guarded GitHub synchronization scripts.
 # This file is sourced by scripts/sync-{to,from}-github.sh.
 
-readonly HOLAHOLA_GITHUB_REPO_SSH="git@github.com:davidwmcintosh/HolaHola.git"
+readonly HOLAHOLA_GITHUB_REPO_SSH="git@github.com:HolaHolaOrganization/HolaHola.git"
 
 github_ssh_key_file=""
 github_ssh_known_hosts_file=""

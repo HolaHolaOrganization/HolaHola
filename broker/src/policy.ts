@@ -148,6 +148,19 @@ export const MAX_POLICY_TTL_MS = 60_000;
  * populate the cache, so a late, older result can never overwrite a newer
  * one. A fetch still pending after `ttlMs` is abandoned and superseded.
  */
+/** A short, secret-free reason for a failed policy load. */
+export function policyFailureReason(error: unknown): string {
+  if (error && typeof error === 'object' && 'status' in error && 'path' in error) {
+    const { status, path } = error as { status: unknown; path: unknown };
+    return `GitHub ${String(path)} returned ${String(status)}`;
+  }
+  const cause = (error as { cause?: { message?: unknown } } | null)?.cause?.message;
+  if (typeof cause === 'string' && /redirect/i.test(cause)) return 'GitHub answered with a redirect, which the broker refuses (has the repository moved? check BROKER_MAIN_REPO_OWNER)';
+  if (error instanceof Error && error.name === 'TimeoutError') return 'GitHub request timed out';
+  if (error instanceof SyntaxError || (error instanceof Error && /policy/i.test(error.message))) return 'policy file is invalid';
+  return 'GitHub request failed';
+}
+
 export class PolicyLoader {
   private readonly source: PolicySource;
   private readonly now: () => number;
@@ -155,12 +168,15 @@ export class PolicyLoader {
   private cached: { policy: Policy; fetchedAt: number } | null = null;
   private inflight: { promise: Promise<Policy | null>; startedAt: number } | null = null;
   private generation = 0;
+  private readonly log: (line: string) => void;
+  private lastFailure: string | null = null;
 
-  constructor(source: PolicySource, now: () => number = Date.now, ttlMs: number = MAX_POLICY_TTL_MS) {
+  constructor(source: PolicySource, now: () => number = Date.now, ttlMs: number = MAX_POLICY_TTL_MS, log: (line: string) => void = (line) => console.error(line)) {
     if (!(ttlMs > 0 && ttlMs <= MAX_POLICY_TTL_MS)) throw new RangeError('policy TTL must be in (0, 60000] ms');
     this.source = source;
     this.now = now;
     this.ttlMs = ttlMs;
+    this.log = log;
   }
 
   /** Returns the current policy, or null when it cannot be proven. Never throws. */
@@ -177,11 +193,22 @@ export class PolicyLoader {
 
   private async load(startedAt: number, generation: number): Promise<Policy | null> {
     let policy: Policy | null = null;
+    let failure: string | null = null;
     try {
       const snapshot = await this.source.fetch();
       if (gitBlobSha(snapshot.bytes) === snapshot.blobSha) policy = parsePolicy(snapshot.bytes);
-    } catch {
+      else failure = 'policy blob hash mismatch';
+    } catch (error) {
       policy = null;
+      failure = policyFailureReason(error);
+    }
+    // One line per change of reason, so a failing health check names its cause
+    // (for example a moved repository answering with a refused redirect) without
+    // flooding the log on every probe. Reasons never include tokens or bodies.
+    if (failure !== this.lastFailure) {
+      if (failure) this.log(`broker: policy unavailable: ${failure}`);
+      else if (this.lastFailure) this.log('broker: policy available again');
+      this.lastFailure = failure;
     }
     const superseded = generation !== this.generation;
     if (!superseded) this.inflight = null;
