@@ -27,13 +27,13 @@ describe('broker configuration', () => {
     assert.equal(config.actors.get('luca-claude-code')?.installationId, 172194780);
     assert.equal(config.audit.repo.name, 'holahola-broker-audit');
     assert.equal(config.port, 10_000);
-    assert.deepEqual(config.mainRepository, { owner: 'davidwmcintosh', name: 'HolaHola', id: 1170208766 });
+    assert.deepEqual(config.mainRepository, { owner: 'HolaHolaOrganization', name: 'HolaHola', id: 1170208766 });
   });
 
-  test('BROKER_MAIN_REPO_OWNER moves the main repository to the organization; name and id stay fixed', () => {
+  test('the main repository is the organization by default and by BROKER_MAIN_REPO_OWNER; name and id stay fixed', () => {
     assert.deepEqual(loadConfig(env({ BROKER_MAIN_REPO_OWNER: 'HolaHolaOrganization' })).mainRepository,
       { owner: 'HolaHolaOrganization', name: 'HolaHola', id: 1170208766 });
-    assert.equal(loadConfig(env({ BROKER_MAIN_REPO_OWNER: '  ' })).mainRepository.owner, 'davidwmcintosh');
+    assert.equal(loadConfig(env({ BROKER_MAIN_REPO_OWNER: '  ' })).mainRepository.owner, 'HolaHolaOrganization');
   });
 
   const invalid: Array<[string, Record<string, string | undefined>, string]> = [
@@ -49,6 +49,7 @@ describe('broker configuration', () => {
     ['audit repo is the main repo', { BROKER_AUDIT_REPO: 'davidwmcintosh/HolaHola' }, 'invalid BROKER_AUDIT_REPO'],
     ['audit repo is the main repo under the organization', { BROKER_AUDIT_REPO: 'holaholaorganization/holahola' }, 'invalid BROKER_AUDIT_REPO'],
     ['main repo owner outside the founder accounts', { BROKER_MAIN_REPO_OWNER: 'mallory' }, 'invalid BROKER_MAIN_REPO_OWNER'],
+    ['main repo owner is the former personal account', { BROKER_MAIN_REPO_OWNER: 'davidwmcintosh' }, 'invalid BROKER_MAIN_REPO_OWNER'],
     ['main repo owner given as owner/name', { BROKER_MAIN_REPO_OWNER: 'HolaHolaOrganization/HolaHola' }, 'invalid BROKER_MAIN_REPO_OWNER'],
     ['audit installation reused by an actor', { BROKER_AUDIT_INSTALLATION_ID: '172194780' }, 'invalid BROKER_AUDIT_INSTALLATION_ID'],
     ['bad port', { PORT: '99999' }, 'invalid PORT'],
@@ -85,7 +86,7 @@ describe('assembly', () => {
 
   test('the policy source and the gateway both target the configured owner (private fields read at runtime)', () => {
     type Inner = { source: { repo: unknown } };
-    for (const owner of ['davidwmcintosh', 'HolaHolaOrganization']) {
+    for (const owner of ['HolaHolaOrganization']) {
       const { healthLoader, gateway } = assemble(loadConfig(env({ BROKER_MAIN_REPO_OWNER: owner })), new GitHubApi(async () => new Response('{}')));
       const expected = { owner, name: 'HolaHola', id: 1170208766 };
       assert.deepEqual((healthLoader as unknown as Inner).source.repo, expected);

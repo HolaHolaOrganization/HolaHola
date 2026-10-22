@@ -148,7 +148,7 @@ PRIVATE_OBJECT_DIR = "/holaholar2bucket/.private"
 PUBLIC_OBJECT_SEARCH_PATHS = "/holaholar2bucket/public"
 SOURCE_PROMOTION_API_ENABLED = "true"
 SOURCE_RELEASE_HEALTH_URL = "https://getholahola.com/health/release"
-GITHUB_REPO_URL = "https://github.com/davidwmcintosh/holahola.git"
+GITHUB_REPO_URL = "https://github.com/HolaHolaOrganization/HolaHola.git"
 
 [userenv.development]
 SYNC_PEER_URL = "https://getholahola.com"
