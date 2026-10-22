@@ -17,6 +17,7 @@ import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
+import { readOrCreateActivation, stopTurnId } from './stop-turn-id.mjs';
 
 // .claude/hooks/record-stop-turn.mjs -> project root is two levels up.
 const PROJECT_ROOT = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
@@ -126,10 +127,16 @@ function main() {
     .map(entry => ({ text: extractText(entry.message?.content), model: entry.message?.model ?? null }));
   writeFileSync(segmentsFile, JSON.stringify(segments), 'utf8');
 
-  // Stable per-turn identity: same session + same transcript position always
-  // produces the same id, so a retry (or an accidental double-fire) is a
-  // safe no-op on the server side rather than a duplicate row.
-  const turnId = `cc-${sessionId}-${lastUserIdx}`.replace(/[^A-Za-z0-9-]/g, '-');
+  // Stable per-turn identity (stop-turn-id.mjs): the user entry's own
+  // transcript uuid, so a retry (or an accidental double-fire) is a safe no-op
+  // on the server side rather than a duplicate row. Messages from before the
+  // uuid ids were first used here keep their old position-based id.
+  const turnId = stopTurnId({
+    sessionId,
+    entry: entries[lastUserIdx],
+    index: lastUserIdx,
+    activatedAt: readOrCreateActivation(join(PROJECT_ROOT, '.local', 'stop-hook-turn-id-v2.json')),
+  });
 
   const result = spawnSync(
     'npx',
