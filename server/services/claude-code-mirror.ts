@@ -200,7 +200,9 @@ export async function recordHookEvidence(actor: string, input: unknown): Promise
     throw new MirrorInputError('invalid transcriptLineCount');
   }
   const occurrenceId = body.occurrenceId;
-  const sha = sha256Hex(canonicalJson({ kind: body.kind, sessionId, text: body.text }));
+  // Every accepted field is part of the identity, so a retransmission that differs in
+  // any of them (anchor metadata included) is kept as a flagged conflict, never dropped.
+  const sha = sha256Hex(canonicalJson({ kind: body.kind, sessionId, text: body.text, transcriptLineCount: lineCount ?? null }));
   return withSessionLock(sessionId, async (tx) => {
     const existing = await tx.select({ sha: claudeCodeHookEvidence.contentSha256 }).from(claudeCodeHookEvidence)
       .where(eq(claudeCodeHookEvidence.occurrenceId, occurrenceId));
