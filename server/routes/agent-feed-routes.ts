@@ -1,20 +1,21 @@
 /**
  * Agent awareness feed endpoints (hat feed design r5.1, stage F-P1).
  *
- * Coordination auth; the reader is always the authenticated actor, never a
+ * Coordination auth, under /api/coordination/ so a runtime's own credential
+ * (RuntimeOnboardingClient) can reach it; the reader is always the authenticated actor, never a
  * request parameter. Only actors with a canonical source (luca-claude-code,
  * luca-replit) can read. Nothing here writes to conversation_memories.
  *
- * - POST /api/agent-feed/enroll                       one-time baseline
- * - POST /api/agent-feed/register     { runtimeSessionId }
- * - POST /api/agent-feed/bootstrap    { registrationId }            once per epoch
- * - POST /api/agent-feed/page         { registrationId }
- * - POST /api/agent-feed/ack          { registrationId, servedId, items }
- * - POST /api/agent-feed/peek         { registrationId }            writes nothing
- * - POST /api/agent-feed/notice       { registrationId }            debits one notice
- * - POST /api/agent-feed/notice-seen  { registrationId, attemptId }
- * - POST /api/agent-feed/row          { registrationId, rowId, chunk }
- * - POST /api/agent-feed/read         { registrationId, rowId, sha256, receivedSha256 }
+ * - POST /api/coordination/agent-feed/enroll                       one-time baseline
+ * - POST /api/coordination/agent-feed/register     { runtimeSessionId }
+ * - POST /api/coordination/agent-feed/bootstrap    { registrationId }            once per epoch
+ * - POST /api/coordination/agent-feed/page         { registrationId }
+ * - POST /api/coordination/agent-feed/ack          { registrationId, servedId, items }
+ * - POST /api/coordination/agent-feed/peek         { registrationId }            writes nothing
+ * - POST /api/coordination/agent-feed/notice       { registrationId }            debits one notice
+ * - POST /api/coordination/agent-feed/notice-seen  { registrationId, attemptId }
+ * - POST /api/coordination/agent-feed/row          { registrationId, rowId, chunk }
+ * - POST /api/coordination/agent-feed/read         { registrationId, rowId, sha256, receivedSha256 }
  */
 import type { Application, RequestHandler, Response } from 'express';
 import { requireCoordinationAuth, type CoordinationAuthenticatedRequest } from '../middleware/coordination-auth';
@@ -32,7 +33,7 @@ import {
   rowChunk,
 } from '../services/agent-feed';
 
-const PREFIX = '/api/agent-feed';
+const PREFIX = '/api/coordination/agent-feed';
 
 function handle(fn: (actor: string, body: Record<string, unknown>) => Promise<unknown>): RequestHandler {
   return async (req, res: Response) => {
