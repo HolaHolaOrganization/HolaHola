@@ -21,6 +21,7 @@ import {
   claudeCodeEntryContents,
   claudeCodeEntryObservations,
   claudeCodeHookEvidence,
+  claudeCodeProjectionShadow,
   claudeCodeSessionRoots,
   claudeCodeSyncChallenges,
 } from '@shared/schema';
@@ -212,4 +213,74 @@ export async function recordHookEvidence(actor: string, input: unknown): Promise
     });
     return { stored: true, conflict };
   });
+}
+
+/**
+ * Stage R-P2: shadow projection. Projects the session from its held observations
+ * (the latest observation per position; a position with several observations is
+ * marked conflicted), compares each exchange with the existing canonical row for
+ * its capture id, and records the outcome in claude_code_projection_shadow.
+ * It publishes nothing and never writes conversation_memories.
+ */
+export async function runShadowProjection(sessionIdInput: unknown): Promise<{ runId: string; exchanges: number; byState: Record<string, number>; byComparison: Record<string, number> }> {
+  const sessionId = assertSessionId(sessionIdInput);
+  const { projectSession } = await import('./claude-code-projection');
+  const db = getSharedDb();
+  const obs = await db.select({
+    position: claudeCodeEntryObservations.sourcePosition,
+    uuid: claudeCodeEntryObservations.entryUuid,
+    sha256: claudeCodeEntryObservations.contentSha256,
+    firstSeen: claudeCodeEntryObservations.firstSeen,
+    entry: claudeCodeEntryContents.entry,
+  }).from(claudeCodeEntryObservations)
+    .innerJoin(claudeCodeEntryContents, and(
+      eq(claudeCodeEntryContents.sessionId, claudeCodeEntryObservations.sessionId),
+      eq(claudeCodeEntryContents.contentSha256, claudeCodeEntryObservations.contentSha256),
+    ))
+    .where(eq(claudeCodeEntryObservations.sessionId, sessionId));
+  const latest = new Map<number, { uuid: string; entry: Record<string, unknown>; firstSeen: Date; count: number }>();
+  for (const o of obs) {
+    const prev = latest.get(o.position);
+    const firstSeen = new Date(o.firstSeen);
+    if (!prev || firstSeen > prev.firstSeen) latest.set(o.position, { uuid: o.uuid, entry: o.entry as Record<string, unknown>, firstSeen, count: (prev?.count ?? 0) + 1 });
+    else prev.count += 1;
+  }
+  const entries = [...latest.entries()].map(([position, v]) => ({ position, uuid: v.uuid, entry: v.entry, conflicted: v.count > 1 }));
+  const exchanges = projectSession(sessionId, entries);
+  const captureIds = exchanges.map((e) => `capture-id:${e.captureId}`);
+  const existing = captureIds.length
+    ? await db.execute(sql`select id::text as id, content, tags from conversation_memories
+        where tags && ${`{${captureIds.join(',')}}`}::text[]`)
+    : { rows: [] };
+  const byCapture = new Map<string, { id: string; content: string }>();
+  for (const r of (existing as unknown as { rows: Array<{ id: string; content: string; tags: string[] }> }).rows) {
+    const tag = r.tags.find((t) => t.startsWith('capture-id:'));
+    if (tag) byCapture.set(tag.slice('capture-id:'.length), { id: r.id, content: r.content });
+  }
+  const norm = (s: string) => s.replace(/\s+/g, ' ').trim();
+  const runId = sha256Hex(`${sessionId}:${Date.now()}:${Math.random()}`).slice(0, 32);
+  const byState: Record<string, number> = {};
+  const byComparison: Record<string, number> = {};
+  const values = exchanges.map((e) => {
+    const row = byCapture.get(e.captureId);
+    let comparison: 'match' | 'mismatch' | 'missing' | 'not-applicable' = 'not-applicable';
+    if (e.state === 'certified') {
+      if (!row) comparison = 'missing';
+      else {
+        const content = norm(row.content);
+        comparison = content.includes(norm(e.userText)) && content.includes(norm(e.replyText)) ? 'match' : 'mismatch';
+      }
+    }
+    byState[e.state] = (byState[e.state] ?? 0) + 1;
+    byComparison[comparison] = (byComparison[comparison] ?? 0) + 1;
+    return {
+      runId, sessionId, openingPosition: e.openingPosition, captureId: e.captureId, kind: e.kind, state: e.state,
+      reasons: e.reasons, versionSha256: e.versionSha256, userSha256: sha256Hex(e.userText), replySha256: sha256Hex(e.replyText),
+      comparison, existingRowId: row?.id ?? null,
+    };
+  });
+  for (let i = 0; i < values.length; i += 500) {
+    await db.insert(claudeCodeProjectionShadow).values(values.slice(i, i + 500));
+  }
+  return { runId, exchanges: exchanges.length, byState, byComparison };
 }

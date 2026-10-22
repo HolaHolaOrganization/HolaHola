@@ -11,6 +11,7 @@
  * - POST /api/internal/claude-code-mirror/roots          { sessionIds: [...] }
  * - POST /api/internal/claude-code-mirror/challenge      { sessionId }
  * - POST /api/internal/claude-code-mirror/hook-evidence  { occurrenceId, sessionId, kind, text, transcriptLineCount? }
+ * - POST /api/internal/claude-code-mirror/shadow-projection { sessionId }   (R-P2: records what WOULD publish; publishes nothing)
  */
 import type { Application, RequestHandler, Response } from 'express';
 import { requireCoordinationAuth, type CoordinationAuthenticatedRequest } from '../middleware/coordination-auth';
@@ -22,6 +23,7 @@ import {
   ingestEntries,
   issueChallenge,
   recordHookEvidence,
+  runShadowProjection,
 } from '../services/claude-code-mirror';
 
 const MIRROR_ACTORS = new Set(['luca-claude-code']);
@@ -61,4 +63,6 @@ export function registerClaudeCodeMirrorRoutes(app: Application): void {
     issueChallenge(req.coordinationActor!, req.body?.sessionId)));
   app.post(`${PREFIX}/hook-evidence`, auth, handle((req) =>
     recordHookEvidence(req.coordinationActor!, req.body)));
+  app.post(`${PREFIX}/shadow-projection`, auth, handle((req) =>
+    runShadowProjection(req.body?.sessionId)));
 }

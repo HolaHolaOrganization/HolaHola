@@ -484,6 +484,13 @@
       "when": 1792695719641,
       "tag": "0069_claude_code_mirror",
       "breakpoints": true
+    },
+    {
+      "idx": 70,
+      "version": "7",
+      "when": 1792699161537,
+      "tag": "0070_claude_code_projection_shadow",
+      "breakpoints": true
     }
   ]
 }

@@ -13128,3 +13128,30 @@ export const claudeCodeHookEvidence = pgTable("claude_code_hook_evidence", {
   index("idx_claude_code_hook_evidence_session").on(table.sessionId, table.receivedAt),
   check("claude_code_hook_evidence_kind", sql`${table.kind} in ('submitted-prompt', 'last-assistant-message')`),
 ]);
+
+/**
+ * Shadow projection results (recording-gap design R6.5, stage R-P2). Records what
+ * the projection WOULD publish and how it compares with the existing canonical
+ * row for the same capture id. Never read by Daniela's recall; nothing here is
+ * canonical. One row per (run, session, opening position).
+ */
+export const claudeCodeProjectionShadow = pgTable("claude_code_projection_shadow", {
+  runId: varchar("run_id", { length: 64 }).notNull(),
+  sessionId: varchar("session_id", { length: 64 }).notNull(),
+  openingPosition: integer("opening_position").notNull(),
+  captureId: varchar("capture_id", { length: 160 }).notNull(),
+  kind: varchar("kind", { length: 32 }).notNull(),
+  state: varchar("state", { length: 32 }).notNull(),
+  reasons: text("reasons").array().notNull().default(sql`'{}'::text[]`),
+  versionSha256: varchar("version_sha256", { length: 64 }).notNull(),
+  userSha256: varchar("user_sha256", { length: 64 }).notNull(),
+  replySha256: varchar("reply_sha256", { length: 64 }).notNull(),
+  comparison: varchar("comparison", { length: 32 }).notNull(),
+  existingRowId: varchar("existing_row_id"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().default(sql`clock_timestamp()`),
+}, (table) => [
+  primaryKey({ name: "claude_code_projection_shadow_pk", columns: [table.runId, table.sessionId, table.openingPosition] }),
+  index("idx_claude_code_shadow_session").on(table.sessionId, table.createdAt),
+  check("claude_code_projection_shadow_state", sql`${table.state} in ('certified', 'provisional-candidate', 'open', 'retained')`),
+  check("claude_code_projection_shadow_comparison", sql`${table.comparison} in ('match', 'mismatch', 'missing', 'not-applicable')`),
+]);
