@@ -91,6 +91,21 @@ describe('the Stop hook', () => {
     assert.doesNotMatch(r.stderr, RECORDED);
   });
 
+  test('the compaction summary is excluded by its field; a founder quoting that sentence is kept', () => {
+    const SUMMARY = 'This session is being continued from a previous conversation that ran out of context.';
+    const summary = { type: 'user', isCompactSummary: true, turnOrigin: 'human', message: { content: SUMMARY } };
+    // The summary never starts a turn: the founder message before it is the turn.
+    let r = runHook([human('please check the deploy'), summary, assistant('Checking now.')]);
+    assert.match(r.stderr, RECORDED);
+    // A founder message that quotes the sentence (origin human) is recorded.
+    r = runHook([human(`${SUMMARY} What does that line mean?`), assistant('It marks a resumed session.')]);
+    assert.doesNotMatch(r.stderr, SKIPPED);
+    assert.match(r.stderr, RECORDED);
+    // With no provenance fields at all, the original text rule still excludes the summary text.
+    r = runHook([{ type: 'user', message: { content: SUMMARY } }, assistant('Resuming.')]);
+    assert.doesNotMatch(r.stderr, RECORDED);
+  });
+
   test('an ordinary founder turn is recorded exactly as before', () => {
     const r = runHook([human('please check the deploy'), assistant('Checking now.')]);
     assert.equal(r.status, 0);

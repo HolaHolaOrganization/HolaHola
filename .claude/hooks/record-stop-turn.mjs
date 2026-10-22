@@ -17,7 +17,7 @@ import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
-import { classifyUserEntry } from './runtime-entries.mjs';
+import { classifyUserEntry, hasProvenanceFields } from './runtime-entries.mjs';
 
 // .claude/hooks/record-stop-turn.mjs -> project root is two levels up.
 const PROJECT_ROOT = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
@@ -39,14 +39,20 @@ const COMPACTION_SUMMARY_PREFIX = 'This session is being continued from a previo
 
 function isRealUserMessage(entry) {
   if (!entry || entry.type !== 'user') return false;
+  // The transcript marks the re-injected summary itself (isCompactSummary).
+  // The text prefix is only a fallback for entries with no provenance fields,
+  // so a founder message that happens to quote that sentence is still kept.
+  if (entry.isCompactSummary === true) return false;
+  const byPrefix = !hasProvenanceFields(entry);
+  const isSummaryText = text => byPrefix && text.startsWith(COMPACTION_SUMMARY_PREFIX);
   const content = entry.message?.content;
   if (typeof content === 'string') {
     const trimmed = content.trim();
-    return trimmed.length > 0 && !trimmed.startsWith(COMPACTION_SUMMARY_PREFIX);
+    return trimmed.length > 0 && !isSummaryText(trimmed);
   }
   if (Array.isArray(content)) {
     return content.some(block => block && block.type === 'text' && block.text?.trim()
-      && !block.text.trim().startsWith(COMPACTION_SUMMARY_PREFIX));
+      && !isSummaryText(block.text.trim()));
   }
   return false;
 }

@@ -17,6 +17,12 @@
  * says so, so a caller can tell a legacy decision from an evidenced one.
  */
 
+/** True when the entry carries any of the provenance fields classifyUserEntry reads. */
+export function hasProvenanceFields(entry) {
+  return entry?.isMeta === true || entry?.isCompactSummary === true || typeof entry?.origin?.kind === 'string'
+    || typeof entry?.turnOrigin === 'string' || typeof entry?.promptSource === 'string';
+}
+
 /**
  * Classify a "user" entry from its provenance fields.
  * @returns {{ founder: boolean, basis: string }}
