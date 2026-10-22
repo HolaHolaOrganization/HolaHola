@@ -101,22 +101,46 @@ test('feed delivery: enrollment, snapshot visibility, served-only acks, budgets 
     const receipts = await admin.query(`select count(*)::int as n from agent_feed_session_receipts where registration_id = $1 and receipt_kind = 'notice-seen'`, [d]);
     assert.equal(receipts.rows[0].n, 0, 'attempts never create receipts by themselves');
 
-    // Peek writes nothing; notice-seen suppresses only that (id, hash).
+    // Peek writes nothing: the epoch row version (xmin) and activity time are unchanged.
     const { registrationId: e } = await feed.register(reader, 'session-e');
+    const rowVersion = async () => (await admin.query(`select xmin::text as x, last_activity_at from agent_feed_registrations where id = $1`, [e])).rows[0];
+    const v0 = await rowVersion();
     const peek1 = await feed.peek(reader, e);
     const peek2 = await feed.peek(reader, e);
     assert.deepEqual(peek1.manifest, peek2.manifest);
+    assert.deepEqual(await rowVersion(), v0, 'peek must not write the epoch');
     const attempt = await feed.noticeAttempt(reader, e);
     await feed.noticeSeen(reader, e, attempt.attemptId);
     const peek3 = await feed.peek(reader, e);
     assert.ok(!peek3.manifest.some((m) => peek1.manifest.slice(0, 3).some((x) => x.id === m.id)), 'noticed items are not noticed again');
 
+    // Acceptance case 4: a row whose bytes change after delivery is pending again, flagged changed.
+    const { registrationId: g } = await feed.register(reader, 'session-g');
+    const edited = await insertRow(admin, 'David [Replit]: before edit');
+    let pg1 = await feed.page(reader, g);
+    const first = pg1.items.find((i) => i.id === edited)!;
+    assert.equal(first.changed, false);
+    await feed.ackPage(reader, g, pg1.servedId, [{ itemKind: 'canonical', id: edited, sha256: first.sha256 }]);
+    await admin.query(`update conversation_memories set content = 'David [Replit]: after edit' where id = $1`, [edited]);
+    pg1 = await feed.page(reader, g);
+    const again = pg1.items.find((i) => i.id === edited)!;
+    assert.ok(again, 'changed bytes are pending again');
+    assert.notEqual(again.sha256, first.sha256);
+    assert.equal(again.changed, true);
+
+    // Every source-carrying response stays within 9,000 serialized bytes.
+    for (let i = 0; i < 30; i++) await insertRow(admin, `David [Replit]: filler ${i} ${'y'.repeat(400)}`);
+    const { registrationId: h } = await feed.register(reader, 'session-h');
+    assert.ok(Buffer.byteLength(JSON.stringify(await feed.bootstrap(reader, h)), 'utf8') <= 9000);
+    assert.ok(Buffer.byteLength(JSON.stringify(await feed.page(reader, h)), 'utf8') <= 9000);
+
     // Chunked read (test 17): fetched per chunk, read only on a verified complete version.
     const big = await insertRow(admin, 'x'.repeat(30_000));
-    const first = await feed.rowChunk(reader, e, big, 0);
-    assert.equal(first.chunks, 4);
-    assert.equal((await feed.confirmRead(reader, e, big, first.sha256, 'b'.repeat(64))).read, false);
-    assert.equal((await feed.confirmRead(reader, e, big, first.sha256, first.sha256)).read, true);
+    const firstChunk = await feed.rowChunk(reader, e, big, 0);
+    assert.equal(firstChunk.chunks, Math.ceil(30_000 / 6_498));
+    assert.ok(Buffer.byteLength(JSON.stringify(firstChunk), 'utf8') <= 9000, 'an encoded chunk response stays within the cap');
+    assert.equal((await feed.confirmRead(reader, e, big, firstChunk.sha256, 'b'.repeat(64))).read, false);
+    assert.equal((await feed.confirmRead(reader, e, big, firstChunk.sha256, firstChunk.sha256)).read, true);
 
     // Epoch TTL: an epoch idle for 48 hours is closed, and registering again opens a new one.
     await admin.query(`update agent_feed_registrations set last_activity_at = clock_timestamp() - interval '49 hours' where id = $1`, [e]);

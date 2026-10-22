@@ -26,7 +26,10 @@ export const FEED_LIMITS = Object.freeze({
   noticeBytes: 400,
   noticesPerEpoch: 12,
   noticeItems: 3,
-  chunkBytes: 9_000,
+  /** Raw bytes per row chunk: base64 (4/3) plus the response fields stays within responseBytes. */
+  chunkRawBytes: 6_498,
+  /** Hard cap on every serialized response that carries source text (page, bootstrap, row chunk). */
+  responseBytes: 9_000,
   headlineChars: 200,
   ownBootstrapRows: 5,
   epochIdleMs: 48 * 60 * 60 * 1000,
@@ -72,10 +75,12 @@ export interface FeedItem {
   createdAt: string;
   excerpt: string;
   clipped: { shown: number; total: number } | null;
+  /** True when this reader already had an earlier version (another hash) of this row. */
+  changed: boolean;
 }
 
 /** A bounded, clearly clipped headline for one canonical row. Pure. */
-export function headline(row: { id: string; sha: string; tags: string[]; created_at: Date | string; content: string }): FeedItem {
+export function headline(row: { id: string; sha: string; tags: string[]; created_at: Date | string; content: string; changed?: boolean }): FeedItem {
   const total = [...row.content].length;
   const shown = Math.min(total, FEED_LIMITS.headlineChars);
   return {
@@ -86,6 +91,7 @@ export function headline(row: { id: string; sha: string; tags: string[]; created
     createdAt: new Date(row.created_at).toISOString(),
     excerpt: [...row.content].slice(0, shown).join(''),
     clipped: shown < total ? { shown, total } : null,
+    changed: row.changed === true,
   };
 }
 
@@ -105,6 +111,22 @@ export function fitToBudget<T>(items: T[], budget: number): { taken: T[]; overfl
   }
   return { taken, overflow: items.length - taken.length };
 }
+
+/**
+ * Largest prefix of items whose WHOLE serialized response (as built by build())
+ * stays within cap bytes. Pure. Placeholder ids must have their final length.
+ */
+export function fitResponse<T>(items: T[], cap: number, build: (taken: T[]) => unknown): { taken: T[]; overflow: number } {
+  const taken: T[] = [];
+  if (itemBytes(build(taken)) > cap) throw new Error('response skeleton exceeds its byte cap');
+  for (const item of items) {
+    taken.push(item);
+    if (itemBytes(build(taken)) > cap) { taken.pop(); break; }
+  }
+  return { taken, overflow: items.length - taken.length };
+}
+
+const ID_PLACEHOLDER = '00000000-0000-0000-0000-000000000000';
 
 /** One-time enrollment: baseline receipts for every canonical row visible to this transaction. */
 export async function enroll(actor: string): Promise<{ baselineCount: number }> {
@@ -147,21 +169,26 @@ export async function register(actor: string, runtimeSessionId: unknown): Promis
   });
 }
 
-/** Loads a live epoch for the actor, closing it if idle past the TTL. */
-async function liveEpoch(tx: Tx, actor: string, registrationId: unknown): Promise<Row> {
+/**
+ * Loads a live epoch for the actor. With writes (the default) it locks the epoch,
+ * closes it if idle past the TTL and records activity. readOnly (peek) does none
+ * of that: it only reads, and reports an idle epoch as closed without closing it.
+ */
+async function liveEpoch(tx: Tx, actor: string, registrationId: unknown, opts: { readOnly?: boolean } = {}): Promise<Row> {
   if (typeof registrationId !== 'string') throw new FeedError(400, 'invalid registrationId');
-  const found = rows(await tx.execute(sql`select * from agent_feed_registrations
-    where id = ${registrationId} and actor = ${actor} for update`));
+  const found = rows(await tx.execute(opts.readOnly
+    ? sql`select *, (last_activity_at < clock_timestamp() - make_interval(secs => ${FEED_LIMITS.epochIdleMs / 1000})) as idle
+        from agent_feed_registrations where id = ${registrationId} and actor = ${actor}`
+    : sql`select *, (last_activity_at < clock_timestamp() - make_interval(secs => ${FEED_LIMITS.epochIdleMs / 1000})) as idle
+        from agent_feed_registrations where id = ${registrationId} and actor = ${actor} for update`));
   if (!found.length) throw new FeedError(404, 'unknown registration');
   const epoch = found[0];
   if (epoch.closed_at) throw new FeedError(410, 'epoch closed; register again');
-  const idle = rows(await tx.execute(sql`select (last_activity_at < clock_timestamp() - make_interval(secs => ${FEED_LIMITS.epochIdleMs / 1000})) as idle
-    from agent_feed_registrations where id = ${registrationId}`))[0].idle;
-  if (idle) {
-    await tx.execute(sql`update agent_feed_registrations set closed_at = clock_timestamp() where id = ${registrationId}`);
+  if (epoch.idle) {
+    if (!opts.readOnly) await tx.execute(sql`update agent_feed_registrations set closed_at = clock_timestamp() where id = ${registrationId}`);
     throw new FeedError(410, 'epoch closed; register again');
   }
-  await tx.execute(sql`update agent_feed_registrations set last_activity_at = clock_timestamp() where id = ${registrationId}`);
+  if (!opts.readOnly) await tx.execute(sql`update agent_feed_registrations set last_activity_at = clock_timestamp() where id = ${registrationId}`);
   return epoch;
 }
 
@@ -169,7 +196,10 @@ async function liveEpoch(tx: Tx, actor: string, registrationId: unknown): Promis
 async function pendingRows(tx: Tx, actor: string, epoch: Row, opts: { excludeNoticeSeen?: boolean; limit: number }): Promise<Row[]> {
   const own = sourceTag(actor);
   return rows(await tx.execute(sql`
-    select c.id, c.sha, c.tags, c.created_at, c.content
+    select c.id, c.sha, c.tags, c.created_at, c.content,
+      (exists (select 1 from agent_feed_actor_receipts r2 where r2.actor = ${actor} and r2.row_id = c.id and r2.content_sha256 <> c.sha)
+        or exists (select 1 from agent_feed_session_receipts s2 where s2.registration_id = ${epoch.id as string}
+          and s2.item_kind = 'canonical' and s2.item_id = c.id and s2.item_sha256 <> c.sha)) as changed
     from ${CANONICAL} c
     where not (${own} = any(c.tags))
       and not exists (select 1 from agent_feed_session_receipts s
@@ -185,10 +215,11 @@ async function pendingRows(tx: Tx, actor: string, epoch: Row, opts: { excludeNot
     limit ${opts.limit}`));
 }
 
-async function servePage(tx: Tx, actor: string, epoch: Row, kind: 'page' | 'bootstrap', budget: number) {
+async function servePage(tx: Tx, actor: string, epoch: Row, kind: 'page' | 'bootstrap', wrap: (page: { servedId: string; items: FeedItem[]; morePending: boolean }) => unknown) {
   const candidates = (await pendingRows(tx, actor, epoch, { limit: 200 })).map((r) => headline(r as never));
-  const { taken, overflow } = fitToBudget(candidates, budget);
-  const bytes = itemBytes(taken);
+  const { taken, overflow } = fitResponse(candidates, FEED_LIMITS.responseBytes,
+    (items) => wrap({ servedId: ID_PLACEHOLDER, items, morePending: false }));
+  const bytes = itemBytes(wrap({ servedId: ID_PLACEHOLDER, items: taken, morePending: false }));
   const served = rows(await tx.execute(sql`insert into agent_feed_served (registration_id, kind, items, bytes)
     values (${epoch.id as string}, ${kind}, ${JSON.stringify(taken.map((t) => ({ itemKind: t.itemKind, id: t.id, sha256: t.sha256 })))}::jsonb, ${bytes})
     returning id`));
@@ -199,7 +230,7 @@ async function servePage(tx: Tx, actor: string, epoch: Row, kind: 'page' | 'boot
 export async function page(actor: string, registrationId: unknown) {
   return getSharedDb().transaction(async (tx) => {
     const epoch = await liveEpoch(tx, actor, registrationId);
-    return servePage(tx, actor, epoch, 'page', FEED_LIMITS.pageBytes);
+    return servePage(tx, actor, epoch, 'page', (p) => p);
   });
 }
 
@@ -214,7 +245,7 @@ export async function bootstrap(actor: string, registrationId: unknown) {
       where ${sourceTag(actor)} = any(c.tags) order by c.created_at desc, c.id desc limit ${FEED_LIMITS.ownBootstrapRows}`))
       .map((r) => headline(r as never)).reverse();
     const ownFit = fitToBudget(ownRecent, Math.floor(FEED_LIMITS.bootstrapBytes / 3));
-    const other = await servePage(tx, actor, epoch, 'bootstrap', FEED_LIMITS.bootstrapBytes - itemBytes(ownFit.taken));
+    const other = await servePage(tx, actor, epoch, 'bootstrap', (p) => ({ ...p, ownRecent: ownFit.taken }));
     return { ...other, ownRecent: ownFit.taken };
   });
 }
@@ -254,7 +285,8 @@ export async function ackPage(actor: string, registrationId: unknown, servedId: 
 /** What would a notice say? Writes nothing. */
 export async function peek(actor: string, registrationId: unknown) {
   return getSharedDb().transaction(async (tx) => {
-    const epoch = await liveEpoch(tx, actor, registrationId);
+    await tx.execute(sql`set transaction read only`);
+    const epoch = await liveEpoch(tx, actor, registrationId, { readOnly: true });
     const pending = await pendingRows(tx, actor, epoch, { excludeNoticeSeen: true, limit: 201 });
     const manifest = pending.slice(0, FEED_LIMITS.noticeItems).map((r) => ({ itemKind: 'canonical' as const, id: r.id as string, sha256: r.sha as string }));
     return { manifest, more: Math.max(0, pending.length - manifest.length), attemptsLeft: FEED_LIMITS.noticesPerEpoch - (epoch.notice_attempts as number) };
@@ -315,13 +347,13 @@ export async function rowChunk(actor: string, registrationId: unknown, rowId: un
     const found = rows(await tx.execute(sql`select c.id, c.sha, c.content, c.tags from ${CANONICAL} c where c.id = ${rowId}`));
     if (!found.length) throw new FeedError(404, 'no canonical row with that id');
     const buf = Buffer.from(found[0].content as string, 'utf8');
-    const chunks = Math.max(1, Math.ceil(buf.length / FEED_LIMITS.chunkBytes));
+    const chunks = Math.max(1, Math.ceil(buf.length / FEED_LIMITS.chunkRawBytes));
     if (chunk >= chunks) throw new FeedError(416, 'chunk out of range');
     await tx.execute(sql`insert into agent_feed_session_receipts (registration_id, receipt_kind, item_kind, item_id, item_sha256)
       values (${epoch.id as string}, 'fetched', 'canonical', ${rowId}, ${found[0].sha as string}) on conflict do nothing`);
     return {
       id: rowId, sha256: found[0].sha as string, chunk, chunks,
-      bytesBase64: buf.subarray(chunk * FEED_LIMITS.chunkBytes, (chunk + 1) * FEED_LIMITS.chunkBytes).toString('base64'),
+      bytesBase64: buf.subarray(chunk * FEED_LIMITS.chunkRawBytes, (chunk + 1) * FEED_LIMITS.chunkRawBytes).toString('base64'),
     };
   });
 }
