@@ -17,7 +17,7 @@ import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
-import { isRuntimeInjectedText } from './runtime-entries.mjs';
+import { classifyUserEntry } from './runtime-entries.mjs';
 
 // .claude/hooks/record-stop-turn.mjs -> project root is two levels up.
 const PROJECT_ROOT = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
@@ -39,6 +39,11 @@ const COMPACTION_SUMMARY_PREFIX = 'This session is being continued from a previo
 
 function isRealUserMessage(entry) {
   if (!entry || entry.type !== 'user') return false;
+  // Runtime metadata entries (an attached image's source path, the classifier
+  // notice) belong to the turn they follow; they never start one. Without this
+  // the hook recorded "[Image: source: ...]" as David and dropped the founder's
+  // actual message just before it.
+  if (entry.isMeta === true) return false;
   const content = entry.message?.content;
   if (typeof content === 'string') {
     const trimmed = content.trim();
@@ -96,11 +101,14 @@ function main() {
 
   const userText = extractText(entries[lastUserIdx].message?.content).trim();
   // A turn the runtime started (task notice, system reminder, scheduled task,
-  // classifier notice, slash command) has no founder words to record. Recording
-  // it would label runtime text as David. Nothing is recorded for it; the reply
-  // stays in the Claude Code transcript until a non-dialogue label exists.
-  if (isRuntimeInjectedText(userText)) {
-    console.error('[record-stop-turn] turn was started by a runtime notice, not by David; nothing recorded');
+  // classifier notice, image metadata, slash command) has no founder words to
+  // record. Recording it would label runtime text as David. The transcript's
+  // own provenance fields decide (runtime-entries.mjs). Nothing is recorded for
+  // such a turn; the reply stays in the Claude Code transcript until a
+  // non-dialogue label exists.
+  const author = classifyUserEntry(entries[lastUserIdx], userText);
+  if (!author.founder) {
+    console.error(`[record-stop-turn] turn was started by the runtime (${author.basis}), not by David; nothing recorded`);
     return;
   }
   const assistantText = entries

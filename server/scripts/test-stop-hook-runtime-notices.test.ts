@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { RUNTIME_ENTRY_OPENERS, isRuntimeInjectedText } from '../../.claude/hooks/runtime-entries.mjs';
+import { RUNTIME_ENTRY_OPENERS, classifyUserEntry, isRuntimeInjectedText } from '../../.claude/hooks/runtime-entries.mjs';
 
 const HOOK = fileURLToPath(new URL('../../.claude/hooks/record-stop-turn.mjs', import.meta.url));
 
@@ -39,6 +39,25 @@ describe('isRuntimeInjectedText', () => {
   });
 });
 
+describe('classifyUserEntry: provenance fields decide first', () => {
+  const notice = '<task-notification>\n<task-id>b1</task-id>\n</task-notification>';
+  test('origin "human" is the founder, even when the text looks like a notice (a paste)', () => {
+    assert.deepEqual(classifyUserEntry({ origin: { kind: 'human' }, promptSource: 'sdk' }, notice), { founder: true, basis: 'origin:human' });
+    assert.deepEqual(classifyUserEntry({ origin: { kind: 'human' } }, 'please check the deploy'), { founder: true, basis: 'origin:human' });
+  });
+  test('any other origin, isMeta, isCompactSummary or promptSource "system" is the runtime', () => {
+    assert.deepEqual(classifyUserEntry({ origin: { kind: 'task-notification' }, promptSource: 'system' }, notice), { founder: false, basis: 'origin:task-notification' });
+    assert.deepEqual(classifyUserEntry({ isMeta: true }, '[Image: source: C:\\x.png]'), { founder: false, basis: 'isMeta' });
+    assert.deepEqual(classifyUserEntry({ isMeta: true, origin: { kind: 'human' } }, 'x'), { founder: false, basis: 'isMeta' });
+    assert.deepEqual(classifyUserEntry({ isCompactSummary: true }, 'This session is being continued'), { founder: false, basis: 'isCompactSummary' });
+    assert.deepEqual(classifyUserEntry({ promptSource: 'system' }, 'plain text'), { founder: false, basis: 'promptSource:system' });
+  });
+  test('without provenance fields (older transcripts), the exact opening bytes decide', () => {
+    assert.equal(classifyUserEntry({}, notice).founder, false);
+    assert.equal(classifyUserEntry({ type: 'user' }, 'please check the deploy').founder, true);
+  });
+});
+
 /** Run the real hook on a synthetic transcript; the remote is a dead local port, never production. */
 function runHook(entries: unknown[]) {
   const dir = mkdtempSync(join(tmpdir(), 'stop-hook-runtime-'));
@@ -55,14 +74,43 @@ const assistant = (text: string) => ({ type: 'assistant', message: { content: [{
 
 describe('the Stop hook', () => {
   test('a turn started by a runtime notice records nothing and never invokes record-exchange', () => {
+    for (const notice of [
+      { type: 'user', origin: { kind: 'task-notification' }, promptSource: 'system', message: { content: '<task-notification>\n<task-id>b9</task-id>\n</task-notification>' } },
+      user('<task-notification>\n<task-id>b9</task-id>\n</task-notification>'), // no provenance fields: opener fallback
+    ]) {
+      const result = runHook([user('please check the deploy'), assistant('Checking now.'), notice, assistant('The deploy finished; #77 is live.')]);
+      assert.equal(result.status, 0);
+      assert.match(result.stderr, /started by the runtime \(.+\), not by David; nothing recorded/);
+      assert.doesNotMatch(result.stderr, /record-exchange failed/);
+    }
+  });
+
+  test('an isMeta classifier notice never starts a turn: the founder message before it is recorded', () => {
     const result = runHook([
-      user('please check the deploy'), assistant('Checking now.'),
-      user('<task-notification>\n<task-id>b9</task-id>\n<status>completed</status>\n</task-notification>'),
-      assistant('The deploy finished; #77 is live.'),
+      { type: 'user', origin: { kind: 'human' }, message: { content: 'I would encourage you to talk with daniela' } },
+      assistant('I would like that.'),
+      { type: 'user', isMeta: true, message: { content: 'Your response above was stopped by a safety classifier.' } },
+      assistant('Continuing.'),
     ]);
-    assert.equal(result.status, 0);
-    assert.match(result.stderr, /started by a runtime notice, not by David; nothing recorded/);
-    assert.doesNotMatch(result.stderr, /record-exchange failed/);
+    assert.doesNotMatch(result.stderr, /started by the runtime/);
+    assert.match(result.stderr, /record-exchange failed/, 'the founder turn was sent');
+  });
+
+  test("an image's metadata entry belongs to the founder's message before it, which is recorded", () => {
+    const result = runHook([
+      { type: 'user', origin: { kind: 'human' }, message: { content: [{ type: 'image' }, { type: 'text', text: 'these are the only modes available' }] } },
+      { type: 'user', isMeta: true, message: { content: [{ type: 'text', text: '[Image: source: C:\\Users\\David\\shot.png]' }] } },
+      assistant('Thanks, I see the three modes.'),
+    ]);
+    assert.doesNotMatch(result.stderr, /started by the runtime/);
+    assert.match(result.stderr, /record-exchange failed/, 'the founder turn was sent');
+  });
+
+  test('a founder message that looks like a notice (origin human) is still recorded', () => {
+    const pasted = { type: 'user', origin: { kind: 'human' }, promptSource: 'sdk', message: { content: '<task-notification>what does this mean?</task-notification>' } };
+    const result = runHook([pasted, assistant('It is a background-task notice.')]);
+    assert.doesNotMatch(result.stderr, /started by the runtime/);
+    assert.match(result.stderr, /record-exchange failed/);
   });
 
   test("a founder turn still goes to record-exchange (here it fails against the dead local port)", () => {
