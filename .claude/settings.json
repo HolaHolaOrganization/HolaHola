@@ -22,6 +22,15 @@
             "statusMessage": "Recording turn..."
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node .claude/hooks/listener-guard.mjs",
+            "timeout": 10
+          }
+        ]
       }
     ]
   }
