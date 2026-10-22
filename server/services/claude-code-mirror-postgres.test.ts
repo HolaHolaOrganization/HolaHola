@@ -71,6 +71,16 @@ test('mirror ingest keeps every observation immutable and converges coverage', a
   assert.deepEqual(await mirror.recordHookEvidence(actor, { occurrenceId, sessionId: session, kind: 'submitted-prompt', text: 'hello' }), { stored: false, conflict: false });
   assert.deepEqual(await mirror.recordHookEvidence(actor, { occurrenceId, sessionId: session, kind: 'submitted-prompt', text: 'hello!' }), { stored: true, conflict: true });
 
+  // Anchor metadata is part of the identity: null then 99, and 99 then 100, are kept as conflicts.
+  const anchored = randomUUID();
+  const ev = (n: number | undefined) => ({ occurrenceId: anchored, sessionId: session, kind: 'last-assistant-message', text: 'done', ...(n === undefined ? {} : { transcriptLineCount: n }) });
+  assert.deepEqual(await mirror.recordHookEvidence(actor, ev(undefined)), { stored: true, conflict: false });
+  assert.deepEqual(await mirror.recordHookEvidence(actor, ev(99)), { stored: true, conflict: true });
+  assert.deepEqual(await mirror.recordHookEvidence(actor, ev(100)), { stored: true, conflict: true });
+  assert.deepEqual(await mirror.recordHookEvidence(actor, ev(99)), { stored: false, conflict: false });
+  const counts = await getSharedDb().execute(sql`select transcript_line_count as n from claude_code_hook_evidence where occurrence_id = ${anchored} order by n nulls first`);
+  assert.deepEqual((counts as unknown as { rows: Array<{ n: number | null }> }).rows.map((r) => r.n), [null, 99, 100]);
+
   // Challenges carry the server clock.
   const challenge = await mirror.issueChallenge(actor, session);
   assert.match(challenge.challengeId, /^[0-9a-f-]{36}$/);
