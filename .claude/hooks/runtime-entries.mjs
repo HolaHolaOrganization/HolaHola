@@ -5,50 +5,33 @@
  * slash-command records. The Stop hook must never record one of these as
  * David's words.
  *
- * The transcript's own provenance fields decide first:
+ * Only the transcript's own provenance fields decide, never the text's shape,
+ * so a founder message that looks like a notice (a paste) is still David's:
  * - `isMeta: true` or `isCompactSummary: true` is runtime material;
  * - `origin.kind` names the author: "human" is the founder, any other value
  *   (for example "task-notification") is the runtime;
- * - `promptSource: "system"` is the runtime.
- * A founder message whose text happens to look like a notice (a paste, say)
- * still carries origin "human" and is kept. Only an entry with no provenance
- * fields at all (an older transcript format) falls back to the exact opening
- * bytes of the known runtime kinds.
+ * - with no `origin`, `turnOrigin` ("human" or another value) decides, then
+ *   `promptSource` ("sdk" is the founder, "system" the runtime).
+ * An entry with none of these fields (an older transcript format) keeps the
+ * hook's original rule and is treated as the founder's, as before; the basis
+ * says so, so a caller can tell a legacy decision from an evidenced one.
  */
-export const RUNTIME_ENTRY_OPENERS = Object.freeze([
-  '<task-notification>',
-  '<system-reminder>',
-  '<scheduled-task',
-  '[SYSTEM NOTIFICATION',
-  'Your response above was stopped by a safety classifier',
-  '<command-name>',
-  '<command-message>',
-  '<local-command-',
-]);
-
-/** True when the entry text opens with a runtime-injected kind's exact bytes. */
-export function isRuntimeInjectedText(text) {
-  if (typeof text !== 'string') return false;
-  const trimmed = text.trimStart();
-  return RUNTIME_ENTRY_OPENERS.some(opener => trimmed.startsWith(opener));
-}
 
 /**
- * Classify a "user" entry. `text` is the entry's extracted text, used only
- * when the entry carries no provenance fields.
+ * Classify a "user" entry from its provenance fields.
  * @returns {{ founder: boolean, basis: string }}
  */
-export function classifyUserEntry(entry, text) {
+export function classifyUserEntry(entry) {
   if (entry?.isMeta === true) return { founder: false, basis: 'isMeta' };
   if (entry?.isCompactSummary === true) return { founder: false, basis: 'isCompactSummary' };
   const originKind = entry?.origin?.kind;
   if (typeof originKind === 'string') {
-    return originKind === 'human'
-      ? { founder: true, basis: 'origin:human' }
-      : { founder: false, basis: `origin:${originKind}` };
+    return { founder: originKind === 'human', basis: `origin:${originKind}` };
   }
+  if (typeof entry?.turnOrigin === 'string') {
+    return { founder: entry.turnOrigin === 'human', basis: `turnOrigin:${entry.turnOrigin}` };
+  }
+  if (entry?.promptSource === 'sdk') return { founder: true, basis: 'promptSource:sdk' };
   if (entry?.promptSource === 'system') return { founder: false, basis: 'promptSource:system' };
-  return isRuntimeInjectedText(text)
-    ? { founder: false, basis: 'opener (no provenance fields)' }
-    : { founder: true, basis: 'no provenance fields' };
+  return { founder: true, basis: 'no provenance fields (legacy rule)' };
 }

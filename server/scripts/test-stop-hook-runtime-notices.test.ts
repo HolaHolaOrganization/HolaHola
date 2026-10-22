@@ -6,55 +6,29 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { RUNTIME_ENTRY_OPENERS, classifyUserEntry, isRuntimeInjectedText } from '../../.claude/hooks/runtime-entries.mjs';
+import { classifyUserEntry } from '../../.claude/hooks/runtime-entries.mjs';
 
 const HOOK = fileURLToPath(new URL('../../.claude/hooks/record-stop-turn.mjs', import.meta.url));
+const NOTICE = '<task-notification>\n<task-id>b9</task-id>\n</task-notification>';
 
-describe('isRuntimeInjectedText', () => {
-  test('each runtime kind is recognised by its exact opening bytes', () => {
-    for (const text of [
-      '<task-notification>\n<task-id>b1</task-id>\n<status>completed</status>',
-      '<system-reminder>\nContext...\n</system-reminder>',
-      '<scheduled-task name="holahola-inbox-proof" file="C:\\x\\SKILL.md">',
-      '[SYSTEM NOTIFICATION - NOT USER INPUT]',
-      'Your response above was stopped by a safety classifier — this is not a tool or API error.',
-      '<command-name>/compact</command-name>',
-      '<command-message>compact</command-message>',
-      '<local-command-stdout>Compacted</local-command-stdout>',
-      '   \n<task-notification>leading whitespace</task-notification>',
-    ]) assert.equal(isRuntimeInjectedText(text), true, text.slice(0, 40));
-    assert.equal(RUNTIME_ENTRY_OPENERS.length, 8);
+describe('classifyUserEntry: only provenance fields decide, never the text', () => {
+  test('origin "human" is the founder; any other origin is the runtime', () => {
+    assert.deepEqual(classifyUserEntry({ origin: { kind: 'human' }, promptSource: 'sdk' }), { founder: true, basis: 'origin:human' });
+    assert.deepEqual(classifyUserEntry({ origin: { kind: 'task-notification' }, promptSource: 'system' }), { founder: false, basis: 'origin:task-notification' });
   });
-
-  test("founder text is never classified as runtime, even when it mentions a marker", () => {
-    for (const text of [
-      'yes for hat lables. As for who the hat was talking to...',
-      'daniela is more than just a tutor here she is a cofounder, collaborator and friend',
-      'what does <task-notification> mean in the transcript?',
-      'I saw "Your response above was stopped by a safety classifier" earlier, what happened?',
-      'system reminder: call me later',
-      '',
-    ]) assert.equal(isRuntimeInjectedText(text), false, text.slice(0, 40));
-    assert.equal(isRuntimeInjectedText(undefined), false);
+  test('isMeta and isCompactSummary are runtime material, whatever the origin says', () => {
+    assert.deepEqual(classifyUserEntry({ isMeta: true }), { founder: false, basis: 'isMeta' });
+    assert.deepEqual(classifyUserEntry({ isMeta: true, origin: { kind: 'human' } }), { founder: false, basis: 'isMeta' });
+    assert.deepEqual(classifyUserEntry({ isCompactSummary: true, turnOrigin: 'human' }), { founder: false, basis: 'isCompactSummary' });
   });
-});
-
-describe('classifyUserEntry: provenance fields decide first', () => {
-  const notice = '<task-notification>\n<task-id>b1</task-id>\n</task-notification>';
-  test('origin "human" is the founder, even when the text looks like a notice (a paste)', () => {
-    assert.deepEqual(classifyUserEntry({ origin: { kind: 'human' }, promptSource: 'sdk' }, notice), { founder: true, basis: 'origin:human' });
-    assert.deepEqual(classifyUserEntry({ origin: { kind: 'human' } }, 'please check the deploy'), { founder: true, basis: 'origin:human' });
+  test('partial metadata: turnOrigin, then promptSource, decide', () => {
+    assert.deepEqual(classifyUserEntry({ turnOrigin: 'human' }), { founder: true, basis: 'turnOrigin:human' });
+    assert.deepEqual(classifyUserEntry({ turnOrigin: 'task_notification' }), { founder: false, basis: 'turnOrigin:task_notification' });
+    assert.deepEqual(classifyUserEntry({ promptSource: 'sdk' }), { founder: true, basis: 'promptSource:sdk' });
+    assert.deepEqual(classifyUserEntry({ promptSource: 'system' }), { founder: false, basis: 'promptSource:system' });
   });
-  test('any other origin, isMeta, isCompactSummary or promptSource "system" is the runtime', () => {
-    assert.deepEqual(classifyUserEntry({ origin: { kind: 'task-notification' }, promptSource: 'system' }, notice), { founder: false, basis: 'origin:task-notification' });
-    assert.deepEqual(classifyUserEntry({ isMeta: true }, '[Image: source: C:\\x.png]'), { founder: false, basis: 'isMeta' });
-    assert.deepEqual(classifyUserEntry({ isMeta: true, origin: { kind: 'human' } }, 'x'), { founder: false, basis: 'isMeta' });
-    assert.deepEqual(classifyUserEntry({ isCompactSummary: true }, 'This session is being continued'), { founder: false, basis: 'isCompactSummary' });
-    assert.deepEqual(classifyUserEntry({ promptSource: 'system' }, 'plain text'), { founder: false, basis: 'promptSource:system' });
-  });
-  test('without provenance fields (older transcripts), the exact opening bytes decide', () => {
-    assert.equal(classifyUserEntry({}, notice).founder, false);
-    assert.equal(classifyUserEntry({ type: 'user' }, 'please check the deploy').founder, true);
+  test('no provenance fields keeps the original rule (founder), and says so', () => {
+    assert.deepEqual(classifyUserEntry({ type: 'user' }), { founder: true, basis: 'no provenance fields (legacy rule)' });
   });
 });
 
@@ -69,54 +43,58 @@ function runHook(entries: unknown[]) {
     encoding: 'utf8', timeout: 60_000,
   });
 }
-const user = (text: string) => ({ type: 'user', message: { content: text } });
+const human = (content: unknown) => ({ type: 'user', origin: { kind: 'human' }, promptSource: 'sdk', message: { content } });
+const meta = (text: string) => ({ type: 'user', isMeta: true, message: { content: [{ type: 'text', text }] } });
 const assistant = (text: string) => ({ type: 'assistant', message: { content: [{ type: 'text', text }] } });
+const RECORDED = /record-exchange failed/; // reached record-exchange (which then fails on the dead port)
+const SKIPPED = /started by the runtime \(.+\), not by David; nothing recorded/;
 
 describe('the Stop hook', () => {
-  test('a turn started by a runtime notice records nothing and never invokes record-exchange', () => {
-    for (const notice of [
-      { type: 'user', origin: { kind: 'task-notification' }, promptSource: 'system', message: { content: '<task-notification>\n<task-id>b9</task-id>\n</task-notification>' } },
-      user('<task-notification>\n<task-id>b9</task-id>\n</task-notification>'), // no provenance fields: opener fallback
+  test('a turn started by a task notice records nothing and never invokes record-exchange', () => {
+    const notice = { type: 'user', origin: { kind: 'task-notification' }, promptSource: 'system', message: { content: NOTICE } };
+    const r = runHook([human('please check the deploy'), assistant('Checking now.'), notice, assistant('The deploy finished.')]);
+    assert.equal(r.status, 0);
+    assert.match(r.stderr, SKIPPED);
+    assert.doesNotMatch(r.stderr, RECORDED);
+  });
+
+  test('founder text that looks like a notice is recorded: with origin human, with partial metadata, and with none', () => {
+    for (const entry of [
+      human(NOTICE),
+      { type: 'user', promptSource: 'sdk', message: { content: NOTICE } },
+      { type: 'user', message: { content: NOTICE } },
     ]) {
-      const result = runHook([user('please check the deploy'), assistant('Checking now.'), notice, assistant('The deploy finished; #77 is live.')]);
-      assert.equal(result.status, 0);
-      assert.match(result.stderr, /started by the runtime \(.+\), not by David; nothing recorded/);
-      assert.doesNotMatch(result.stderr, /record-exchange failed/);
+      const r = runHook([entry, assistant('That is a background-task notice.')]);
+      assert.doesNotMatch(r.stderr, SKIPPED);
+      assert.match(r.stderr, RECORDED);
     }
   });
 
-  test('an isMeta classifier notice never starts a turn: the founder message before it is recorded', () => {
-    const result = runHook([
-      { type: 'user', origin: { kind: 'human' }, message: { content: 'I would encourage you to talk with daniela' } },
-      assistant('I would like that.'),
-      { type: 'user', isMeta: true, message: { content: 'Your response above was stopped by a safety classifier.' } },
-      assistant('Continuing.'),
-    ]);
-    assert.doesNotMatch(result.stderr, /started by the runtime/);
-    assert.match(result.stderr, /record-exchange failed/, 'the founder turn was sent');
-  });
-
-  test("an image's metadata entry belongs to the founder's message before it, which is recorded", () => {
-    const result = runHook([
-      { type: 'user', origin: { kind: 'human' }, message: { content: [{ type: 'image' }, { type: 'text', text: 'these are the only modes available' }] } },
-      { type: 'user', isMeta: true, message: { content: [{ type: 'text', text: '[Image: source: C:\\Users\\David\\shot.png]' }] } },
+  test("image metadata before any reply belongs to the founder's message, which is recorded", () => {
+    const r = runHook([
+      human([{ type: 'image' }, { type: 'text', text: 'these are the only modes available' }]),
+      meta('[Image: source: C:\\Users\\David\\one.png]'), meta('[Image: source: C:\\Users\\David\\two.png]'),
       assistant('Thanks, I see the three modes.'),
     ]);
-    assert.doesNotMatch(result.stderr, /started by the runtime/);
-    assert.match(result.stderr, /record-exchange failed/, 'the founder turn was sent');
+    assert.doesNotMatch(r.stderr, SKIPPED);
+    assert.match(r.stderr, RECORDED);
   });
 
-  test('a founder message that looks like a notice (origin human) is still recorded', () => {
-    const pasted = { type: 'user', origin: { kind: 'human' }, promptSource: 'sdk', message: { content: '<task-notification>what does this mean?</task-notification>' } };
-    const result = runHook([pasted, assistant('It is a background-task notice.')]);
-    assert.doesNotMatch(result.stderr, /started by the runtime/);
-    assert.match(result.stderr, /record-exchange failed/);
+  test('metadata after reply text has started is never folded back into an already-replied founder turn', () => {
+    // Stop 1 could already have recorded (human, "I would like that."). Re-selecting the human entry here
+    // would resend that turn id with a longer reply, so the metadata entry stays the start and nothing is sent.
+    const r = runHook([
+      human('I would encourage you to talk with daniela'), assistant('I would like that.'),
+      meta('Your response above was stopped by a safety classifier.'), assistant('Continuing.'),
+    ]);
+    assert.match(r.stderr, /started by the runtime \(isMeta\)/);
+    assert.doesNotMatch(r.stderr, RECORDED);
   });
 
-  test("a founder turn still goes to record-exchange (here it fails against the dead local port)", () => {
-    const result = runHook([user('please check the deploy'), assistant('Checking now.')]);
-    assert.equal(result.status, 0);
-    assert.doesNotMatch(result.stderr, /runtime notice/);
-    assert.match(result.stderr, /record-exchange failed/);
+  test('an ordinary founder turn is recorded exactly as before', () => {
+    const r = runHook([human('please check the deploy'), assistant('Checking now.')]);
+    assert.equal(r.status, 0);
+    assert.doesNotMatch(r.stderr, SKIPPED);
+    assert.match(r.stderr, RECORDED);
   });
 });

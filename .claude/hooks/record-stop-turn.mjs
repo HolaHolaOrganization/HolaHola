@@ -39,11 +39,6 @@ const COMPACTION_SUMMARY_PREFIX = 'This session is being continued from a previo
 
 function isRealUserMessage(entry) {
   if (!entry || entry.type !== 'user') return false;
-  // Runtime metadata entries (an attached image's source path, the classifier
-  // notice) belong to the turn they follow; they never start one. Without this
-  // the hook recorded "[Image: source: ...]" as David and dropped the founder's
-  // actual message just before it.
-  if (entry.isMeta === true) return false;
   const content = entry.message?.content;
   if (typeof content === 'string') {
     const trimmed = content.trim();
@@ -99,6 +94,22 @@ function main() {
   }
   if (lastUserIdx === -1) return; // nothing real to record yet
 
+  // A runtime metadata entry (isMeta) written right after a founder message,
+  // before any reply text, belongs to that message: an attached image's
+  // "[Image: source: ...]" entry, for example. Without this the hook recorded
+  // the image path as David and dropped the founder's actual words. Once reply
+  // text has started, a metadata entry is not folded back: re-selecting the
+  // earlier message would resend an already-recorded turn with a different
+  // reply, so the metadata entry stays the turn's start and is not recorded.
+  if (entries[lastUserIdx].isMeta === true) {
+    let j = lastUserIdx - 1;
+    while (j >= 0 && !(isRealUserMessage(entries[j]) && entries[j].isMeta !== true)) {
+      if (entries[j].type === 'assistant' && extractText(entries[j].message?.content).trim()) { j = -1; break; }
+      j--;
+    }
+    if (j >= 0) lastUserIdx = j;
+  }
+
   const userText = extractText(entries[lastUserIdx].message?.content).trim();
   // A turn the runtime started (task notice, system reminder, scheduled task,
   // classifier notice, image metadata, slash command) has no founder words to
@@ -106,7 +117,7 @@ function main() {
   // own provenance fields decide (runtime-entries.mjs). Nothing is recorded for
   // such a turn; the reply stays in the Claude Code transcript until a
   // non-dialogue label exists.
-  const author = classifyUserEntry(entries[lastUserIdx], userText);
+  const author = classifyUserEntry(entries[lastUserIdx]);
   if (!author.founder) {
     console.error(`[record-stop-turn] turn was started by the runtime (${author.basis}), not by David; nothing recorded`);
     return;
