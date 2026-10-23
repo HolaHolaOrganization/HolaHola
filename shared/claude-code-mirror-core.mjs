@@ -7,7 +7,19 @@ import { createHash } from 'node:crypto';
 /** Positions per coverage block. */
 export const BLOCK_SIZE = 256;
 
-const USER_FIELDS = ['origin', 'promptSource', 'turnOrigin', 'isMeta', 'isCompactSummary', 'userType', 'timestamp'];
+/** The filter version clients write today. */
+export const FILTER_VERSION = 2;
+/** Every filter version a stored observation may carry. */
+export const SUPPORTED_FILTER_VERSIONS = Object.freeze([1, 2]);
+
+const USER_FIELDS_V1 = ['origin', 'promptSource', 'turnOrigin', 'isMeta', 'isCompactSummary', 'userType', 'timestamp'];
+/** Fields v2 adds to user entries: the companion link between a prompt and its companions. */
+const V2_ADDED_USER_FIELDS = ['promptId', 'turnCompanion'];
+const USER_FIELDS = { 1: USER_FIELDS_V1, 2: [...USER_FIELDS_V1, ...V2_ADDED_USER_FIELDS] };
+
+function assertVersion(version) {
+  if (!SUPPORTED_FILTER_VERSIONS.includes(version)) throw new Error(`unsupported filter version ${version}`);
+}
 
 /** JSON with object keys sorted at every level, so equal values give equal bytes. */
 export function canonicalJson(value) {
@@ -54,6 +66,7 @@ function assistantBlocks(content) {
  * The privacy filter. Returns the mirrored form of one parsed transcript entry:
  * - user: provenance fields, timestamp, text blocks; tool_result as an id-only
  *   witness; every other block (image included) as a content-free type marker;
+ *   from v2 also promptId and turnCompanion (companion linkage);
  * - assistant: isApiErrorMessage, model, timestamp, text blocks; tool_use as an
  *   id-only witness; thinking dropped;
  * - queued_command attachment: the whole attachment;
@@ -62,11 +75,12 @@ function assistantBlocks(content) {
  * - anything else: a content-free position placeholder.
  * The entry's uuid is not part of the mirrored content; it travels beside it.
  */
-export function filterEntry(raw) {
+export function filterEntry(raw, version = FILTER_VERSION) {
+  assertVersion(version);
   if (!raw || typeof raw !== 'object') return { type: 'unparseable' };
   const type = typeof raw.type === 'string' ? raw.type : 'unknown';
   if (type === 'user') {
-    return { type, ...pick(raw, USER_FIELDS), message: { content: userBlocks(raw.message?.content) } };
+    return { type, ...pick(raw, USER_FIELDS[version]), message: { content: userBlocks(raw.message?.content) } };
   }
   if (type === 'assistant') {
     const message = { content: assistantBlocks(raw.message?.content) };
@@ -85,10 +99,23 @@ export function filterEntry(raw) {
   return typeof raw.subtype === 'string' ? { type, subtype: raw.subtype } : { type };
 }
 
-/** A mirrored entry is valid only if the filter leaves it unchanged (nothing extra was sent). */
-export function isFilterFixedPoint(entry) {
+/** A mirrored entry is valid only if the version's filter leaves it unchanged (nothing extra was sent). */
+export function isFilterFixedPoint(entry, version = FILTER_VERSION) {
   if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return false;
-  return canonicalJson(filterEntry(entry)) === canonicalJson(entry);
+  if (!SUPPORTED_FILTER_VERSIONS.includes(version)) return false;
+  return canonicalJson(filterEntry(entry, version)) === canonicalJson(entry);
+}
+
+/**
+ * The lineage relation between filter versions: v1(raw) = stripToV1(v2(raw)).
+ * Deletes exactly the fields v2 added to user entries; the identity on every
+ * other entry. The server recomputes this at read time; it is never stored.
+ */
+export function stripToV1(entry) {
+  if (!entry || typeof entry !== 'object' || entry.type !== 'user') return entry;
+  const out = { ...entry };
+  for (const f of V2_ADDED_USER_FIELDS) delete out[f];
+  return out;
 }
 
 /** Content hash of a mirrored entry. Excludes position and uuid (R6.2). */

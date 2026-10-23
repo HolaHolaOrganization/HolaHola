@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, timestamp, integer, boolean, real, bigint, bigserial, index, unique, uniqueIndex, jsonb, pgEnum, date, doublePrecision, check, customType, foreignKey, primaryKey } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, timestamp, integer, smallint, boolean, real, bigint, bigserial, index, unique, uniqueIndex, jsonb, pgEnum, date, doublePrecision, check, customType, foreignKey, primaryKey } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { RESOLUTION_TYPE_VALUES } from "./absence-types";
@@ -13142,8 +13142,10 @@ export const claudeCodeEntryObservations = pgTable("claude_code_entry_observatio
   flags: text("flags").array().notNull().default(sql`'{}'::text[]`),
   actor: varchar("actor", { length: 80 }).notNull(),
   firstSeen: timestamp("first_seen", { withTimezone: true }).notNull().default(sql`clock_timestamp()`),
+  /** Mirror filter version that produced the content. Rows written before 0072 came from the only filter that existed: v1. */
+  filterVersion: smallint("filter_version").notNull().default(1),
 }, (table) => [
-  primaryKey({ name: "claude_code_observations_pk", columns: [table.sessionId, table.sourcePosition, table.entryUuid, table.contentSha256] }),
+  primaryKey({ name: "claude_code_observations_pk", columns: [table.sessionId, table.sourcePosition, table.entryUuid, table.contentSha256, table.filterVersion] }),
   foreignKey({ name: "claude_code_observations_content_fk", columns: [table.sessionId, table.contentSha256], foreignColumns: [claudeCodeEntryContents.sessionId, claudeCodeEntryContents.contentSha256] }),
   index("idx_claude_code_observations_uuid").on(table.sessionId, table.entryUuid),
   check("claude_code_entry_observations_position", sql`${table.sourcePosition} >= 0`),
@@ -13155,8 +13157,10 @@ export const claudeCodeBlockConfirmations = pgTable("claude_code_block_confirmat
   blockIndex: integer("block_index").notNull(),
   confirmedLocalDigest: varchar("confirmed_local_digest", { length: 64 }).notNull(),
   confirmedAt: timestamp("confirmed_at", { withTimezone: true }).notNull().default(sql`clock_timestamp()`),
+  /** Confirmations are per filter version: a local digest is only meaningful for the filter that produced it. */
+  filterVersion: smallint("filter_version").notNull().default(1),
 }, (table) => [
-  primaryKey({ name: "claude_code_block_confirmations_pk", columns: [table.sessionId, table.blockIndex] }),
+  primaryKey({ name: "claude_code_block_confirmations_pk", columns: [table.sessionId, table.blockIndex, table.filterVersion] }),
 ]);
 
 /** Per session: the root digest last confirmed in full, used by the SessionStart sweep. */
@@ -13224,6 +13228,13 @@ export const claudeCodeProjectionShadow = pgTable("claude_code_projection_shadow
   sidesVerified: boolean("sides_verified").notNull().default(false),
   existingRowId: varchar("existing_row_id"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().default(sql`clock_timestamp()`),
+  /** Effective filter version and projection rules version the row was computed under (null on rows from before 0072). */
+  filterVersion: smallint("filter_version"),
+  rulesVersion: smallint("rules_version"),
+  /** Positions held only at an older filter version, so treated as holes. */
+  v1OnlyPositions: integer("v1_only_positions"),
+  /** Set on the single marker row of a session that was not evaluated. */
+  excludedReason: varchar("excluded_reason", { length: 64 }),
 }, (table) => [
   primaryKey({ name: "claude_code_projection_shadow_pk", columns: [table.runId, table.sessionId, table.openingPosition] }),
   index("idx_claude_code_shadow_session").on(table.sessionId, table.createdAt),

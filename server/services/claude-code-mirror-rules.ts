@@ -1,5 +1,5 @@
 /** Pure validation and flag rules for the Claude Code transcript mirror (no database). */
-import { canonicalJson, contentSha256, isFilterFixedPoint } from '@shared/claude-code-mirror-core.mjs';
+import { FILTER_VERSION, canonicalJson, contentSha256, isFilterFixedPoint } from '@shared/claude-code-mirror-core.mjs';
 
 export const MIRROR_LIMITS = Object.freeze({
   maxEntriesPerBatch: 200,
@@ -34,14 +34,24 @@ export function normalizeUuid(value: unknown): string {
   return value;
 }
 
+/**
+ * The filter version a write must declare. Only the current version is accepted:
+ * an older or unknown version is refused here. Correctness never depends on this
+ * refusal (selection re-checks every held row at read time); it keeps new writes clean.
+ */
+export function assertWriteFilterVersion(value: unknown): number {
+  if (value !== FILTER_VERSION) throw new MirrorInputError(`filterVersion must be ${FILTER_VERSION}`);
+  return value;
+}
+
 export interface IncomingEntry { position: number; uuid?: string | null; entry: unknown }
 export interface PreparedEntry { position: number; uuid: string; entry: Record<string, unknown>; sha256: string; byteLength: number }
 
-/** Validates one incoming entry: it must already be in mirrored form (a fixed point of the filter). */
-export function prepareEntry(input: IncomingEntry): PreparedEntry {
+/** Validates one incoming entry: it must already be in mirrored form (a fixed point of the declared version's filter). */
+export function prepareEntry(input: IncomingEntry, filterVersion: number = FILTER_VERSION): PreparedEntry {
   const position = assertPosition(input?.position);
   const uuid = normalizeUuid(input?.uuid);
-  if (!isFilterFixedPoint(input?.entry)) throw new MirrorInputError(`entry at ${position} is not in filtered form`);
+  if (!isFilterFixedPoint(input?.entry, filterVersion)) throw new MirrorInputError(`entry at ${position} is not in filtered form`);
   const json = canonicalJson(input.entry);
   const byteLength = Buffer.byteLength(json, 'utf8');
   if (byteLength > MIRROR_LIMITS.maxEntryBytes) throw new MirrorInputError(`entry at ${position} is too large`);
