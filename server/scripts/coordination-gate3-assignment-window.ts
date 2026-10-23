@@ -1,3 +1,5 @@
+import { isDirectCliInvocation } from "./lib/cli-entrypoint";
+
 class UsageError extends Error {}
 
 function parseArgs(): { bundle: string; receiptId: string; attemptId: string } {
@@ -14,7 +16,7 @@ function parseArgs(): { bundle: string; receiptId: string; attemptId: string } {
   return { bundle: values["--bundle"], receiptId: values["--receipt-id"], attemptId: values["--attempt-id"] };
 }
 
-if (process.argv[1]?.endsWith("coordination-gate3-assignment-window.ts")) {
+if (isDirectCliInvocation("coordination-gate3-assignment-window.ts")) {
   (async () => {
     let closeDbConnections: (() => Promise<void>) | undefined;
     const originalLog = console.log;

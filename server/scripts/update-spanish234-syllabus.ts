@@ -1,3 +1,4 @@
+import { isDirectCliInvocation } from "./lib/cli-entrypoint";
 import { db } from "../db";
 import { curriculumLessons, curriculumUnits, curriculumPaths } from "@shared/schema";
 import { eq, and, like } from "drizzle-orm";
@@ -169,7 +170,7 @@ export async function updateSpanish234Syllabus(): Promise<{
 }
 
 // Run if called directly
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (isDirectCliInvocation("update-spanish234-syllabus.ts")) {
   updateSpanish234Syllabus()
     .then(result => {
       console.log("\nComplete!", result);

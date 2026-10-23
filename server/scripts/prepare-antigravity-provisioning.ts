@@ -1,3 +1,4 @@
+import { isDirectCliInvocation } from './lib/cli-entrypoint';
 import { createHash } from 'node:crypto';
 import { execFile as nodeExecFile } from 'node:child_process';
 import { promisify } from 'node:util';
@@ -115,6 +116,6 @@ async function main(): Promise<void> {
   process.stdout.write(`${JSON.stringify(bundle)}\n`);
 }
 
-if (process.argv[1]?.endsWith('prepare-antigravity-provisioning.ts')) {
+if (isDirectCliInvocation('prepare-antigravity-provisioning.ts')) {
   main().catch((error) => { process.stderr.write(`${safe(error instanceof Error ? error.message : error)}\n`); process.exitCode = 1; });
 }

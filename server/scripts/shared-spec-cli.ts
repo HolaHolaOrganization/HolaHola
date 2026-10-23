@@ -1,3 +1,5 @@
+import { isDirectCliInvocation } from "./lib/cli-entrypoint";
+
 type Options = Record<string, string | boolean>;
 
 const commands = new Set(["list", "show", "show-review", "my-reviews", "create", "revision", "ready", "claim", "approve", "reject", "export", "share", "pull", "resync"]);
@@ -119,6 +121,6 @@ export async function runSharedSpecCli(
   (dependencies.writeOutput ?? ((value) => process.stdout.write(value)))(command === "export" ? output : `${output}\n`);
 }
 
-if (process.argv[1]?.endsWith("/shared-spec-cli.ts")) {
+if (isDirectCliInvocation("shared-spec-cli.ts")) {
   runSharedSpecCli().catch(error => { process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`); process.exitCode = 1; });
 }

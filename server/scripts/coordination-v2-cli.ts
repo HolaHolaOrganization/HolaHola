@@ -1,3 +1,4 @@
+import { isDirectCliInvocation } from "./lib/cli-entrypoint";
 import {
   COORDINATION_WINDOWS_EXIT_CODES,
   runCoordinationWindowsHost,
@@ -252,7 +253,7 @@ async function main(): Promise<void> {
   process.exitCode = run.exitCode;
 }
 
-if (process.argv[1]?.endsWith("coordination-v2-cli.ts")) {
+if (isDirectCliInvocation("coordination-v2-cli.ts")) {
   main().catch(() => {
     process.stdout.write('{"state":"host_unavailable","cleanupAcknowledged":false}\n');
     process.exitCode = 69;

@@ -8,6 +8,7 @@
  * - Ordinals (1st, 22nd)
  */
 
+import { isDirectCliInvocation } from './lib/cli-entrypoint';
 import { getSharedDb } from '../db';
 import { curriculumLessons, curriculumDrillItems } from '@shared/schema';
 
@@ -253,7 +254,7 @@ export async function addAdvancedNumberDrills() {
 }
 
 // Run if executed directly
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (isDirectCliInvocation('add-advanced-number-drills.ts')) {
   addAdvancedNumberDrills()
     .then((results) => {
       console.log('\n=== Summary ===');

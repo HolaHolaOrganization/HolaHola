@@ -11,6 +11,7 @@
  * Also updates descriptions to be more inviting using pattern templates.
  */
 
+import { isDirectCliInvocation } from "./lib/cli-entrypoint";
 import { db } from "../db";
 import { curriculumLessons, curriculumUnits, curriculumPaths } from "@shared/schema";
 import { eq, and, like, or } from "drizzle-orm";
@@ -193,7 +194,7 @@ export async function updateAllNonSpanishCurricula(): Promise<void> {
   console.log(`TOTAL: ${totalUpdated} lessons updated, ${totalSkipped} skipped, ${totalErrors} errors`);
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (isDirectCliInvocation("update-syllabus-labels.ts")) {
   const curriculumArg = process.argv[2];
   
   if (curriculumArg === "--all") {

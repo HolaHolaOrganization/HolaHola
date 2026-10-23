@@ -1,3 +1,4 @@
+import { isDirectCliInvocation } from "./scripts/lib/cli-entrypoint";
 import { db } from "./db";
 import { curriculumPaths, curriculumUnits, curriculumLessons } from "@shared/schema";
 
@@ -625,7 +626,7 @@ export async function seedCurriculum() {
 }
 
 // Run seed if called directly
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (isDirectCliInvocation("curriculum-seed.ts")) {
   seedCurriculum()
     .then(() => {
       console.log("✅ Curriculum seeding complete!");

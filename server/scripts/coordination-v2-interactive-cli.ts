@@ -15,6 +15,7 @@
  *
  * Subcommands: start | poll | claim | renew | submit-result | cleanup | status
  */
+import { isDirectCliInvocation } from "./lib/cli-entrypoint";
 import { createHash } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -380,7 +381,7 @@ async function main(): Promise<void> {
   process.exitCode = output.ok ? 0 : 1;
 }
 
-if (process.argv[1]?.endsWith("coordination-v2-interactive-cli.ts")) {
+if (isDirectCliInvocation("coordination-v2-interactive-cli.ts")) {
   main().catch(() => {
     process.stdout.write(`${JSON.stringify({ ok: false, step: "parse", taskRef: "", error: "interactive_cli_crash" })}\n`);
     process.exitCode = 70;

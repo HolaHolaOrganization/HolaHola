@@ -1,3 +1,4 @@
+import { isDirectCliInvocation } from "./lib/cli-entrypoint";
 import { db } from "../db";
 import { 
   classCurriculumLessons, 
@@ -110,7 +111,7 @@ export async function syncClassSyllabiFromTemplates(): Promise<{
 }
 
 // Run if called directly
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (isDirectCliInvocation("sync-class-syllabi.ts")) {
   syncClassSyllabiFromTemplates()
     .then(result => {
       console.log("\nComplete!", result);
