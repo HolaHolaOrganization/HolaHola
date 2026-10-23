@@ -15,6 +15,7 @@ const reply = (text: string) => ({ type: 'assistant', message: { content: [{ typ
 const toolCall = () => ({ type: 'assistant', message: { content: [{ type: 'tool_use', id: 't1', name: 'Bash', input: {} }] } });
 const toolResult = () => ({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 't1', content: 'out' }] } });
 const absorbed = (prompt: unknown) => ({ type: 'attachment', attachment: { type: 'queued_command', origin: { kind: 'human' }, commandMode: 'prompt', prompt } });
+const notice = (text: string) => ({ type: 'user', origin: { kind: 'task-notification' }, promptSource: 'system', message: { content: text } });
 const queuedNotice = (prompt: string) => ({ type: 'attachment', attachment: { type: 'queued_command', origin: { kind: 'task-notification' }, commandMode: 'task-notification', prompt } });
 
 test('a plain turn is one exchange, unchanged: the last user message and all assistant text after it', () => {
@@ -104,48 +105,131 @@ test('an absorbed message that was answered is never carried into a later turn',
   assert.deepEqual(out, [{ index: 4, userText: 'U3', assistantText: 'A3' }]);
 });
 
+test('repeated anchor advances: every unanswered message is carried once, in order', () => {
+  const s1 = [human('U1'), reply('A1'), absorbed('U2')];
+  const s2 = [...s1, toolCall(), toolResult(), human('U3')];
+  const s3 = [...s2, human('U4'), reply('A4')];
+  assert.deepEqual(exchangesForStop(s1), [{ index: 0, userText: 'U1', assistantText: 'A1' }]);
+  assert.deepEqual(exchangesForStop(s2), []);
+  assert.deepEqual(exchangesForStop(s3), [{ index: 6, userText: 'U2\n\nU3\n\nU4', assistantText: 'A4' }]);
+  const union = [s1, s2, s3].flatMap((s) => exchangesForStop(s)).flatMap((e: { userText: string }) => e.userText.split('\n\n'));
+  assert.deepEqual(union.sort(), ['U1', 'U2', 'U3', 'U4']);
+});
+
+test('a runtime notice in the unanswered run is never carried into the founder text', () => {
+  const out = exchangesForStop([human('U1'), reply('A1'), absorbed('U2'), notice('<task-notification>x</task-notification>'), human('U3'), reply('A3')]);
+  assert.deepEqual(out, [{ index: 4, userText: 'U2\n\nU3', assistantText: 'A3' }]);
+});
+
 function outbox() {
   const dir = mkdtempSync(join(tmpdir(), 'stop-outbox-'));
   return { dir, done: () => rmSync(dir, { recursive: true, force: true }) };
 }
+const files = (dir: string) => readdirSync(dir).filter((n) => n.endsWith('.json')).sort();
+const item = (turnId: string, assistantText: string) => ({ turnId, userText: 'U', assistantText });
 
 test('delivery stays within one deadline; what is not sent stays queued and goes at the next Stop', () => {
   const box = outbox();
   try {
-    queueExchange(box.dir, { turnId: 'cc-s-1', userText: 'U1', assistantText: 'A1' });
-    queueExchange(box.dir, { turnId: 'cc-s-2', userText: 'U2', assistantText: 'A2' });
+    queueExchange(box.dir, item('cc-s-1', 'A1'));
+    queueExchange(box.dir, item('cc-s-2', 'A2'));
     let clock = 0;
-    const slowSend = () => { clock += 18000; return true; }; // each send takes 18 s
-    const first = deliverOutbox({ outboxDir: box.dir, send: slowSend, now: () => clock, budgetMs: 21000 });
+    const first = deliverOutbox({ outboxDir: box.dir, send: () => { clock += 18000; return true; }, now: () => clock, budgetMs: 21000 });
     assert.deepEqual(first, { sent: 1, left: 1 });
-    assert.equal(readdirSync(box.dir).length, 1);
     clock = 0;
-    const second = deliverOutbox({ outboxDir: box.dir, send: () => true, now: () => clock, budgetMs: 21000 });
-    assert.deepEqual(second, { sent: 1, left: 0 });
-    assert.equal(readdirSync(box.dir).length, 0);
+    assert.deepEqual(deliverOutbox({ outboxDir: box.dir, send: () => true, now: () => clock, budgetMs: 21000 }), { sent: 1, left: 0 });
+    assert.deepEqual(files(box.dir), []);
   } finally { box.done(); }
 });
 
-test('a failed send keeps the exchange queued; a later success removes it', () => {
+test('a failed send keeps the exchange queued, the next one is still attempted, and a later success removes it', () => {
   const box = outbox();
   try {
-    queueExchange(box.dir, { turnId: 'cc-s-1', userText: 'U1', assistantText: 'A1' });
-    queueExchange(box.dir, { turnId: 'cc-s-2', userText: 'U2', assistantText: 'A2' });
+    queueExchange(box.dir, item('cc-s-1', 'A1'));
+    queueExchange(box.dir, item('cc-s-2', 'A2'));
     const seen: string[] = [];
-    const flaky = (item: { turnId: string }) => { seen.push(item.turnId); return item.turnId !== 'cc-s-1'; };
+    const flaky = (i: { turnId: string }) => { seen.push(i.turnId); return i.turnId !== 'cc-s-1'; };
     assert.deepEqual(deliverOutbox({ outboxDir: box.dir, send: flaky }), { sent: 1, left: 1 });
-    assert.deepEqual(seen.sort(), ['cc-s-1', 'cc-s-2']); // the failure did not stop the next send
-    assert.ok(existsSync(join(box.dir, 'cc-s-1.json')));
+    assert.deepEqual(seen.sort(), ['cc-s-1', 'cc-s-2']);
     assert.deepEqual(deliverOutbox({ outboxDir: box.dir, send: () => true }), { sent: 1, left: 0 });
+  } finally { box.done(); }
+});
+
+test('an interrupted replacement write keeps the earlier valid version intact and deliverable', () => {
+  const box = outbox();
+  try {
+    queueExchange(box.dir, item('cc-s-1', 'old'));
+    const failing = {
+      writeFileSync: (p: string) => { writeFileSync(p, '{"partial":'); throw new Error('EIO'); },
+      renameSync: () => { throw new Error('unreachable'); },
+    };
+    assert.throws(() => queueExchange(box.dir, item('cc-s-1', 'new'), failing), /EIO/);
+    assert.equal(files(box.dir).length, 1); // the old version, no partial file, no leftover temp
+    assert.deepEqual(readdirSync(box.dir).filter((n) => n.endsWith('.tmp')), []);
+    const sent: string[] = [];
+    deliverOutbox({ outboxDir: box.dir, send: (i: { assistantText: string }) => { sent.push(i.assistantText); return true; } });
+    assert.deepEqual(sent, ['old']);
+  } finally { box.done(); }
+});
+
+test('a newer version queued during an in-flight send survives that send', () => {
+  const box = outbox();
+  try {
+    queueExchange(box.dir, item('cc-s-1', 'old'));
+    const sent: string[] = [];
+    const send = (i: { assistantText: string }) => {
+      sent.push(i.assistantText);
+      if (i.assistantText === 'old') queueExchange(box.dir, item('cc-s-1', 'new unsent'));
+      return true;
+    };
+    deliverOutbox({ outboxDir: box.dir, send });
+    assert.deepEqual(sent, ['old']);
+    assert.equal(files(box.dir).length, 1); // the new version remains queued
+    deliverOutbox({ outboxDir: box.dir, send });
+    assert.deepEqual(sent, ['old', 'new unsent']);
+    assert.deepEqual(files(box.dir), []);
+  } finally { box.done(); }
+});
+
+test('only the newest version of a turn is sent; superseded versions are removed when a newer one is queued', () => {
+  const box = outbox();
+  try {
+    queueExchange(box.dir, item('cc-s-1', 'v1'));
+    queueExchange(box.dir, item('cc-s-1', 'v2'));
+    assert.equal(files(box.dir).length, 1);
+    const sent: string[] = [];
+    deliverOutbox({ outboxDir: box.dir, send: (i: { assistantText: string }) => { sent.push(i.assistantText); return true; } });
+    assert.deepEqual(sent, ['v2']);
+  } finally { box.done(); }
+});
+
+test('a concurrent drainer removing files mid-drain causes no failure', () => {
+  const box = outbox();
+  try {
+    queueExchange(box.dir, item('cc-s-1', 'A1'));
+    queueExchange(box.dir, item('cc-s-2', 'A2'));
+    const other = files(box.dir);
+    const send = () => { for (const n of other) rmSync(join(box.dir, n), { force: true }); return true; };
+    assert.doesNotThrow(() => deliverOutbox({ outboxDir: box.dir, send }));
+    assert.deepEqual(files(box.dir), []);
+  } finally { box.done(); }
+});
+
+test('queueing the same version twice is a no-op', () => {
+  const box = outbox();
+  try {
+    queueExchange(box.dir, item('cc-s-1', 'A1'));
+    queueExchange(box.dir, item('cc-s-1', 'A1'));
+    assert.equal(files(box.dir).length, 1);
   } finally { box.done(); }
 });
 
 test('an unreadable outbox file is left in place, never deleted unseen', () => {
   const box = outbox();
   try {
-    writeFileSync(join(box.dir, 'cc-s-bad.json'), '{not json');
+    writeFileSync(join(box.dir, 'cc-s-bad.0000000000000000.json'), '{not json');
     assert.deepEqual(deliverOutbox({ outboxDir: box.dir, send: () => true }), { sent: 0, left: 1 });
-    assert.ok(existsSync(join(box.dir, 'cc-s-bad.json')));
+    assert.ok(existsSync(join(box.dir, 'cc-s-bad.0000000000000000.json')));
   } finally { box.done(); }
 });
 

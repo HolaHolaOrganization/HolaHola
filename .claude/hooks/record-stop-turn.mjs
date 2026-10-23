@@ -23,7 +23,8 @@
  * registered hook timeout. Whatever is not sent in time, or fails, stays queued
  * and is retried at the next Stop.
  */
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -101,12 +102,17 @@ export function exchangesForStop(entries) {
   }
   if (lastUserIdx === -1) return [];
 
-  // Absorbed messages still unanswered when the turn opened: back to the
-  // previous assistant text or user message, whichever comes first.
+  // David's messages still unanswered when this turn opened: every absorbed
+  // prompt and every explicitly human user message back to the previous
+  // assistant text, however many earlier turns opened and ended without a
+  // reply. None of them was returned before, because an exchange without
+  // assistant text never is. Runtime-shaped user entries (notices, entries
+  // without provenance) are skipped: never carried into David's words.
   const carried = [];
   for (let i = lastUserIdx - 1; i >= 0; i--) {
-    if (hasAssistantText(entries[i]) || isRealUserMessage(entries[i])) break;
+    if (hasAssistantText(entries[i])) break;
     if (isAbsorbedHumanPrompt(entries[i])) carried.unshift(extractText(entries[i].attachment.prompt).trim());
+    else if (isRealUserMessage(entries[i]) && entries[i].origin?.kind === 'human') carried.unshift(extractText(entries[i].message?.content).trim());
   }
 
   const starts = [lastUserIdx];
@@ -175,7 +181,11 @@ function main() {
   // the hook's deadline. Anything not delivered stays for the next Stop.
   for (const exchange of exchangesForStop(entries)) {
     const turnId = `cc-${sessionId}-${exchange.index}`.replace(/[^A-Za-z0-9-]/g, '-');
-    queueExchange(OUTBOX_DIR, { turnId, userText: exchange.userText, assistantText: exchange.assistantText });
+    try {
+      queueExchange(OUTBOX_DIR, { turnId, userText: exchange.userText, assistantText: exchange.assistantText });
+    } catch (err) {
+      console.error('[record-stop-turn] could not queue', turnId, '(any earlier queued version is kept):', err instanceof Error ? err.message : err);
+    }
   }
   deliverOutbox({ outboxDir: OUTBOX_DIR, send: recordExchange });
 }
@@ -187,28 +197,77 @@ const DELIVERY_BUDGET_MS = 21000;
 const MIN_SEND_MS = 4000;
 const PER_SEND_MAX_MS = 20000;
 
-/** Writes one exchange to the outbox (replacing an older version of the same turn). */
-export function queueExchange(outboxDir, item) {
-  mkdirSync(outboxDir, { recursive: true });
-  writeFileSync(join(outboxDir, `${item.turnId}.json`), JSON.stringify(item), 'utf8');
+/** One file per exchange version: <turnId>.<content hash>.json. turnIds contain no dots. */
+function versionName(item) {
+  const hash = createHash('sha256').update(`${item.userText}\u0000${item.assistantText}`, 'utf8').digest('hex').slice(0, 16);
+  return `${item.turnId}.${hash}.json`;
+}
+
+function turnIdOf(name) {
+  return name.split('.')[0];
+}
+
+function safeList(dir) {
+  try {
+    return readdirSync(dir).filter(n => n.endsWith('.json'));
+  } catch {
+    return [];
+  }
 }
 
 /**
- * Sends queued exchanges oldest first, within one shared deadline. A sent item
- * is removed; a failed or unattempted one stays for the next Stop. The server
- * treats a turn id it already holds as a no-op, so a resend is safe.
+ * Writes one exchange version to the outbox. The file appears only complete:
+ * it is written under a temporary name and renamed into place, so an
+ * interrupted write never truncates a valid queued version. Once the new
+ * version is in place, older versions of the same turn are removed (they are
+ * superseded; a send of one already in flight stays harmless).
+ */
+export function queueExchange(outboxDir, item, io = { writeFileSync, renameSync }) {
+  mkdirSync(outboxDir, { recursive: true });
+  const name = versionName(item);
+  const finalPath = join(outboxDir, name);
+  if (existsSync(finalPath)) return;
+  const tmpPath = join(outboxDir, `${name}.${process.pid}.${Date.now()}.tmp`);
+  try {
+    io.writeFileSync(tmpPath, JSON.stringify(item), 'utf8');
+    io.renameSync(tmpPath, finalPath);
+  } catch (err) {
+    rmSync(tmpPath, { force: true });
+    throw err; // the caller logs it; any older queued version is untouched
+  }
+  for (const other of safeList(outboxDir)) {
+    if (other !== name && turnIdOf(other) === item.turnId) rmSync(join(outboxDir, other), { force: true });
+  }
+}
+
+/**
+ * Sends queued exchanges oldest first, within one shared deadline: for each
+ * turn only its newest queued version. A successful send removes exactly the
+ * version file it sent, so a newer version queued meanwhile survives. A failed
+ * or unattempted version stays for the next Stop.
+ *
+ * Ownership: any hook process may drain; there is no lock. Two drainers can
+ * send the same version, which is safe because the server treats a turn id it
+ * already holds with identical content as a no-op. Files that another process
+ * removes or replaces mid-drain are skipped, never an uncaught failure.
  */
 export function deliverOutbox({ outboxDir, send, now = Date.now, budgetMs = DELIVERY_BUDGET_MS }) {
   const started = now();
-  let names;
-  try {
-    names = readdirSync(outboxDir).filter(n => n.endsWith('.json'));
-  } catch {
-    return { sent: 0, left: 0 };
+  const newest = new Map(); // turnId -> { name, mtime }
+  let total = 0;
+  for (const name of safeList(outboxDir)) {
+    let mtime;
+    try {
+      mtime = statSync(join(outboxDir, name)).mtimeMs;
+    } catch {
+      continue; // removed by another process since the listing
+    }
+    total++;
+    const turnId = turnIdOf(name);
+    const seen = newest.get(turnId);
+    if (!seen || mtime > seen.mtime || (mtime === seen.mtime && name > seen.name)) newest.set(turnId, { name, mtime });
   }
-  const queued = names
-    .map(name => ({ name, mtime: statSync(join(outboxDir, name)).mtimeMs }))
-    .sort((a, b) => a.mtime - b.mtime || a.name.localeCompare(b.name));
+  const queued = [...newest.values()].sort((a, b) => a.mtime - b.mtime || a.name.localeCompare(b.name));
   let sent = 0;
   for (const { name } of queued) {
     const remaining = budgetMs - (now() - started);
@@ -217,14 +276,14 @@ export function deliverOutbox({ outboxDir, send, now = Date.now, budgetMs = DELI
     try {
       item = JSON.parse(readFileSync(join(outboxDir, name), 'utf8'));
     } catch {
-      continue; // unreadable: left in place for inspection, never deleted unseen
+      continue; // gone, or unreadable: never deleted unseen
     }
     if (send(item, Math.min(PER_SEND_MAX_MS, remaining))) {
       rmSync(join(outboxDir, name), { force: true });
       sent++;
     }
   }
-  return { sent, left: queued.length - sent };
+  return { sent, left: total - sent };
 }
 
 function recordExchange({ turnId, userText, assistantText }, timeoutMs) {
