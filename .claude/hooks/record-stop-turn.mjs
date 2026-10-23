@@ -11,6 +11,12 @@
  * tool_result-only message), then concatenates every text block from every
  * assistant message after it -- this is the dialogue for the turn that just
  * completed, independent of how many tool calls happened in between.
+ *
+ * A message David sends while a turn is running is absorbed into that turn as
+ * a queued_command attachment (origin human, commandMode prompt), not as a
+ * user entry. Each absorbed message starts its own exchange: the assistant
+ * text before it stays with the earlier message, the text after it belongs to
+ * the absorbed one. Each exchange keeps the stable id of its own position.
  */
 import { readFileSync, writeFileSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -50,6 +56,58 @@ function isRealUserMessage(entry) {
   return false;
 }
 
+/** A message David sent mid-turn, absorbed as a queued_command attachment. */
+function isAbsorbedHumanPrompt(entry) {
+  const a = entry?.type === 'attachment' ? entry.attachment : null;
+  return a?.type === 'queued_command' && a.origin?.kind === 'human' && a.commandMode === 'prompt';
+}
+
+/**
+ * The exchanges to record for the turn that just completed: the last real user
+ * message, then one more per absorbed mid-turn message after it. Each runs to
+ * the next start. Consecutive messages with no assistant text between them are
+ * one exchange: their texts, in order, under the first one's position, so a
+ * message is never dropped for having no reply of its own. An exchange still
+ * without assistant text is skipped until a later Stop.
+ */
+export function exchangesForStop(entries) {
+  let lastUserIdx = -1;
+  for (let i = entries.length - 1; i >= 0; i--) {
+    if (isRealUserMessage(entries[i])) {
+      lastUserIdx = i;
+      break;
+    }
+  }
+  if (lastUserIdx === -1) return [];
+
+  const starts = [lastUserIdx];
+  for (let i = lastUserIdx + 1; i < entries.length; i++) {
+    if (isAbsorbedHumanPrompt(entries[i])) starts.push(i);
+  }
+
+  const exchanges = [];
+  let pending = null; // messages not yet answered: { index, texts }
+  starts.forEach((start, k) => {
+    const end = k + 1 < starts.length ? starts[k + 1] : entries.length;
+    const source = start === lastUserIdx ? entries[start].message?.content : entries[start].attachment.prompt;
+    const text = extractText(source).trim();
+    pending = pending ?? { index: start, texts: [] };
+    if (text) pending.texts.push(text);
+    const assistantText = entries
+      .slice(start + 1, end)
+      .filter(entry => entry.type === 'assistant')
+      .map(entry => extractText(entry.message?.content))
+      .filter(Boolean)
+      .join('\n\n')
+      .trim();
+    if (!assistantText) return; // no reply yet: this message joins the next one's exchange
+    const userText = pending.texts.join('\n\n');
+    if (userText) exchanges.push({ index: pending.index, userText, assistantText });
+    pending = null;
+  });
+  return exchanges;
+}
+
 function main() {
   let input = '';
   try {
@@ -84,26 +142,11 @@ function main() {
     })
     .filter(Boolean);
 
-  let lastUserIdx = -1;
-  for (let i = entries.length - 1; i >= 0; i--) {
-    if (isRealUserMessage(entries[i])) {
-      lastUserIdx = i;
-      break;
-    }
-  }
-  if (lastUserIdx === -1) return; // nothing real to record yet
+  // Nothing real to record yet, or an incomplete turn: skip silently, the next Stop catches it.
+  for (const exchange of exchangesForStop(entries)) recordExchange(sessionId, exchange);
+}
 
-  const userText = extractText(entries[lastUserIdx].message?.content).trim();
-  const assistantText = entries
-    .slice(lastUserIdx + 1)
-    .filter(entry => entry.type === 'assistant')
-    .map(entry => extractText(entry.message?.content))
-    .filter(Boolean)
-    .join('\n\n')
-    .trim();
-
-  if (!userText || !assistantText) return; // incomplete turn -- skip silently, will catch next Stop
-
+function recordExchange(sessionId, { index, userText, assistantText }) {
   let tmpDir;
   try {
     tmpDir = mkdtempSync(join(tmpdir(), 'cc-stop-hook-'));
@@ -119,7 +162,7 @@ function main() {
   // Stable per-turn identity: same session + same transcript position always
   // produces the same id, so a retry (or an accidental double-fire) is a
   // safe no-op on the server side rather than a duplicate row.
-  const turnId = `cc-${sessionId}-${lastUserIdx}`.replace(/[^A-Za-z0-9-]/g, '-');
+  const turnId = `cc-${sessionId}-${index}`.replace(/[^A-Za-z0-9-]/g, '-');
 
   const result = spawnSync(
     'npx',
@@ -136,4 +179,4 @@ function main() {
   }
 }
 
-main();
+if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) main();
