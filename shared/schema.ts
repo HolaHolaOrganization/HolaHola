@@ -13039,3 +13039,194 @@ export const coordinationV2RuntimeReleaseRevocations = pgTable("coordination_v2_
   check("coordination_v2_runtime_revocation_reason", sql`${table.reasonCode} ~ '^[A-Z0-9_]{1,128}$'`),
   check("coordination_v2_runtime_revocation_digest", sql`${table.canonicalRecordDigest} ~ '^[0-9a-f]{64}$'`),
 ]);
+
+// ===== Agent awareness feed (hat feed design r5.1, stage F-P1) =====
+// Tells each hat what the OTHER hats said, from the canonical record, within a
+// bounded byte budget. Receipts are a set, not a cursor; concurrent-session
+// visibility uses MVCC snapshots (xid8 / pg_snapshot stored as text), never
+// timestamps. Feed outputs are never written back into conversation_memories.
+
+/** One-time per-actor enrollment; its transaction writes the baseline receipts. */
+export const agentFeedEnrollments = pgTable("agent_feed_enrollments", {
+  actor: varchar("actor", { length: 80 }).primaryKey(),
+  enrollmentXid: text("enrollment_xid").notNull(),
+  baselineCount: integer("baseline_count").notNull(),
+  enrolledAt: timestamp("enrolled_at", { withTimezone: true }).notNull().default(sql`clock_timestamp()`),
+});
+
+/** Durable, first-ack, immutable actor receipts (baseline or delivered). */
+export const agentFeedActorReceipts = pgTable("agent_feed_actor_receipts", {
+  actor: varchar("actor", { length: 80 }).notNull(),
+  rowId: varchar("row_id").notNull(),
+  contentSha256: varchar("content_sha256", { length: 64 }).notNull(),
+  kind: varchar("kind", { length: 16 }).notNull(),
+  xid: text("xid").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().default(sql`clock_timestamp()`),
+}, (table) => [
+  primaryKey({ name: "agent_feed_actor_receipts_pk", columns: [table.actor, table.rowId, table.contentSha256] }),
+  check("agent_feed_actor_receipts_kind", sql`${table.kind} in ('baseline', 'delivered')`),
+]);
+
+/** A session epoch: the registering transaction's snapshot and its byte allowance. */
+export const agentFeedRegistrations = pgTable("agent_feed_registrations", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  actor: varchar("actor", { length: 80 }).notNull(),
+  runtimeSessionId: varchar("runtime_session_id", { length: 128 }).notNull(),
+  snapshot: text("snapshot").notNull(),
+  noticeAttempts: integer("notice_attempts").notNull().default(0),
+  bootstrapAt: timestamp("bootstrap_at", { withTimezone: true }),
+  registeredAt: timestamp("registered_at", { withTimezone: true }).notNull().default(sql`clock_timestamp()`),
+  lastActivityAt: timestamp("last_activity_at", { withTimezone: true }).notNull().default(sql`clock_timestamp()`),
+  closedAt: timestamp("closed_at", { withTimezone: true }),
+}, (table) => [
+  uniqueIndex("uq_agent_feed_registrations_live").on(table.actor, table.runtimeSessionId).where(sql`${table.closedAt} is null`),
+  check("agent_feed_registrations_attempts", sql`${table.noticeAttempts} between 0 and 12`),
+]);
+
+/** Per-epoch receipts: page-notified, notice-seen, fetched, read. */
+export const agentFeedSessionReceipts = pgTable("agent_feed_session_receipts", {
+  registrationId: varchar("registration_id").notNull(),
+  receiptKind: varchar("receipt_kind", { length: 16 }).notNull(),
+  itemKind: varchar("item_kind", { length: 16 }).notNull(),
+  itemId: varchar("item_id").notNull(),
+  itemSha256: varchar("item_sha256", { length: 64 }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().default(sql`clock_timestamp()`),
+}, (table) => [
+  primaryKey({ name: "agent_feed_session_receipts_pk", columns: [table.registrationId, table.receiptKind, table.itemKind, table.itemId, table.itemSha256] }),
+  foreignKey({ name: "agent_feed_session_receipts_reg_fk", columns: [table.registrationId], foreignColumns: [agentFeedRegistrations.id] }),
+  check("agent_feed_session_receipts_kind", sql`${table.receiptKind} in ('page-notified', 'notice-seen', 'fetched', 'read')`),
+  check("agent_feed_session_receipts_item", sql`${table.itemKind} in ('canonical', 'provisional')`),
+]);
+
+/** What a catch-up page or a debited notice actually served; acknowledgments must match it. */
+export const agentFeedServed = pgTable("agent_feed_served", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  registrationId: varchar("registration_id").notNull(),
+  kind: varchar("kind", { length: 16 }).notNull(),
+  items: jsonb("items").notNull(),
+  bytes: integer("bytes").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().default(sql`clock_timestamp()`),
+}, (table) => [
+  foreignKey({ name: "agent_feed_served_reg_fk", columns: [table.registrationId], foreignColumns: [agentFeedRegistrations.id] }),
+  index("idx_agent_feed_served_registration").on(table.registrationId),
+  check("agent_feed_served_kind", sql`${table.kind} in ('page', 'bootstrap', 'notice')`),
+]);
+
+// ===== Claude Code transcript mirror (recording-gap design R6.5, stage R-P1) =====
+// Preservation staging only: nothing here is canonical dialogue, and nothing
+// here is read by Daniela's recall. Rows are immutable observations; nothing is
+// ever updated except the coverage bookkeeping (confirmations, roots, challenges).
+
+/** One mirrored (privacy-filtered) entry body, stored once per session and content hash. */
+export const claudeCodeEntryContents = pgTable("claude_code_entry_contents", {
+  sessionId: varchar("session_id", { length: 64 }).notNull(),
+  contentSha256: varchar("content_sha256", { length: 64 }).notNull(),
+  entry: jsonb("entry").notNull(),
+  byteLength: integer("byte_length").notNull(),
+  firstSeen: timestamp("first_seen", { withTimezone: true }).notNull().default(sql`clock_timestamp()`),
+}, (table) => [
+  primaryKey({ name: "claude_code_entry_contents_pk", columns: [table.sessionId, table.contentSha256] }),
+  check("claude_code_entry_contents_sha", sql`${table.contentSha256} ~ '^[0-9a-f]{64}$'`),
+]);
+
+/**
+ * Every observed association of a transcript position with an entry. Coverage is
+ * the exact tuple (position, uuid, content hash); a moved, reused or changed
+ * entry is a new observation with a flag, never an update.
+ */
+export const claudeCodeEntryObservations = pgTable("claude_code_entry_observations", {
+  sessionId: varchar("session_id", { length: 64 }).notNull(),
+  sourcePosition: integer("source_position").notNull(),
+  entryUuid: varchar("entry_uuid", { length: 64 }).notNull().default(''),
+  contentSha256: varchar("content_sha256", { length: 64 }).notNull(),
+  flags: text("flags").array().notNull().default(sql`'{}'::text[]`),
+  actor: varchar("actor", { length: 80 }).notNull(),
+  firstSeen: timestamp("first_seen", { withTimezone: true }).notNull().default(sql`clock_timestamp()`),
+}, (table) => [
+  primaryKey({ name: "claude_code_observations_pk", columns: [table.sessionId, table.sourcePosition, table.entryUuid, table.contentSha256] }),
+  foreignKey({ name: "claude_code_observations_content_fk", columns: [table.sessionId, table.contentSha256], foreignColumns: [claudeCodeEntryContents.sessionId, claudeCodeEntryContents.contentSha256] }),
+  index("idx_claude_code_observations_uuid").on(table.sessionId, table.entryUuid),
+  check("claude_code_entry_observations_position", sql`${table.sourcePosition} >= 0`),
+]);
+
+/** Per block: the last local digest for which the server verified it holds every local tuple. */
+export const claudeCodeBlockConfirmations = pgTable("claude_code_block_confirmations", {
+  sessionId: varchar("session_id", { length: 64 }).notNull(),
+  blockIndex: integer("block_index").notNull(),
+  confirmedLocalDigest: varchar("confirmed_local_digest", { length: 64 }).notNull(),
+  confirmedAt: timestamp("confirmed_at", { withTimezone: true }).notNull().default(sql`clock_timestamp()`),
+}, (table) => [
+  primaryKey({ name: "claude_code_block_confirmations_pk", columns: [table.sessionId, table.blockIndex] }),
+]);
+
+/** Per session: the root digest last confirmed in full, used by the SessionStart sweep. */
+export const claudeCodeSessionRoots = pgTable("claude_code_session_roots", {
+  sessionId: varchar("session_id", { length: 64 }).primaryKey(),
+  actor: varchar("actor", { length: 80 }).notNull(),
+  confirmedRootDigest: varchar("confirmed_root_digest", { length: 64 }).notNull(),
+  confirmedAt: timestamp("confirmed_at", { withTimezone: true }).notNull().default(sql`clock_timestamp()`),
+});
+
+/** Server-issued challenges for challenge-bound quiescence reads (R6.4 §3b.3). */
+export const claudeCodeSyncChallenges = pgTable("claude_code_sync_challenges", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  sessionId: varchar("session_id", { length: 64 }).notNull(),
+  actor: varchar("actor", { length: 80 }).notNull(),
+  issuedAt: timestamp("issued_at", { withTimezone: true }).notNull().default(sql`clock_timestamp()`),
+  consumedAt: timestamp("consumed_at", { withTimezone: true }),
+  observedRootDigest: varchar("observed_root_digest", { length: 64 }),
+}, (table) => [
+  index("idx_claude_code_challenges_session").on(table.sessionId, table.issuedAt),
+]);
+
+/**
+ * Hook-side evidence that is not yet linked to a transcript entry: submitted
+ * prompts (UserPromptSubmit) and last_assistant_message (Stop). Never assumed
+ * founder-authored. Keyed by a client occurrence id; the same id with other
+ * bytes is kept as a separate, flagged row.
+ */
+export const claudeCodeHookEvidence = pgTable("claude_code_hook_evidence", {
+  occurrenceId: varchar("occurrence_id", { length: 64 }).notNull(),
+  contentSha256: varchar("content_sha256", { length: 64 }).notNull(),
+  sessionId: varchar("session_id", { length: 64 }).notNull(),
+  kind: varchar("kind", { length: 32 }).notNull(),
+  text: text("text").notNull(),
+  transcriptLineCount: integer("transcript_line_count"),
+  conflict: boolean("conflict").notNull().default(false),
+  actor: varchar("actor", { length: 80 }).notNull(),
+  receivedAt: timestamp("received_at", { withTimezone: true }).notNull().default(sql`clock_timestamp()`),
+}, (table) => [
+  primaryKey({ name: "claude_code_hook_evidence_pk", columns: [table.occurrenceId, table.contentSha256] }),
+  index("idx_claude_code_hook_evidence_session").on(table.sessionId, table.receivedAt),
+  check("claude_code_hook_evidence_kind", sql`${table.kind} in ('submitted-prompt', 'last-assistant-message')`),
+]);
+
+/**
+ * Shadow projection results (recording-gap design R6.5, stage R-P2). Records what
+ * the projection WOULD publish and how it compares with the existing canonical
+ * row for the same capture id. Never read by Daniela's recall; nothing here is
+ * canonical. One row per (run, session, opening position).
+ */
+export const claudeCodeProjectionShadow = pgTable("claude_code_projection_shadow", {
+  runId: varchar("run_id", { length: 64 }).notNull(),
+  sessionId: varchar("session_id", { length: 64 }).notNull(),
+  openingPosition: integer("opening_position").notNull(),
+  captureId: varchar("capture_id", { length: 160 }).notNull(),
+  kind: varchar("kind", { length: 32 }).notNull(),
+  state: varchar("state", { length: 32 }).notNull(),
+  reasons: text("reasons").array().notNull().default(sql`'{}'::text[]`),
+  versionSha256: varchar("version_sha256", { length: 64 }).notNull(),
+  userSha256: varchar("user_sha256", { length: 64 }).notNull(),
+  replySha256: varchar("reply_sha256", { length: 64 }).notNull(),
+  comparison: varchar("comparison", { length: 32 }).notNull(),
+  comparisonDetail: varchar("comparison_detail", { length: 120 }),
+  /** Always false against legacy rows: body equality does not verify sides, initiator or topology. */
+  sidesVerified: boolean("sides_verified").notNull().default(false),
+  existingRowId: varchar("existing_row_id"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().default(sql`clock_timestamp()`),
+}, (table) => [
+  primaryKey({ name: "claude_code_projection_shadow_pk", columns: [table.runId, table.sessionId, table.openingPosition] }),
+  index("idx_claude_code_shadow_session").on(table.sessionId, table.createdAt),
+  check("claude_code_projection_shadow_state", sql`${table.state} in ('certified', 'provisional-candidate', 'open', 'retained')`),
+  check("claude_code_projection_shadow_comparison", sql`${table.comparison} in ('body-match', 'mismatch', 'missing', 'ambiguous', 'not-applicable')`),
+]);
