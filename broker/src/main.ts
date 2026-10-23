@@ -14,14 +14,16 @@ import { GitHubApi, GitHubLedger, GitHubPolicySource, InstallationToken } from '
 import { PolicyLoader, REPOSITORY_ID } from './policy.ts';
 import { createBrokerServer } from './server.ts';
 
-export const MAIN_REPOSITORY = { owner: 'davidwmcintosh', name: 'HolaHola', id: REPOSITORY_ID } as const;
+export const MAIN_REPOSITORY = { owner: 'HolaHolaOrganization', name: 'HolaHola', id: REPOSITORY_ID } as const;
 /**
- * The founder-owned accounts HolaHola may live under while it moves from the
- * personal account to the organization. Requests refuse redirects, so the broker
- * must name the current owner: BROKER_MAIN_REPO_OWNER picks one of these at the
- * cutover (default: MAIN_REPOSITORY.owner). The repository id never changes.
+ * The account HolaHola lives under: the organization, since the move from the
+ * personal account on 2026-10-22. Requests refuse redirects, so the broker must
+ * name the current owner; BROKER_MAIN_REPO_OWNER may only select this account
+ * (default: MAIN_REPOSITORY.owner). The repository id never changes.
  */
-export const MAIN_REPOSITORY_OWNERS: readonly string[] = ['davidwmcintosh', 'HolaHolaOrganization'];
+export const MAIN_REPOSITORY_OWNERS: readonly string[] = ['HolaHolaOrganization'];
+/** Former owners. Their HolaHola path still redirects to the main repository, so it can never be the audit repo. */
+export const FORMER_MAIN_REPOSITORY_OWNERS: readonly string[] = ['davidwmcintosh'];
 
 export class ConfigError extends Error {}
 
@@ -108,8 +110,8 @@ export function loadConfig(env: Env): BrokerConfig {
   if (!MAIN_REPOSITORY_OWNERS.includes(mainOwner)) throw new ConfigError('invalid BROKER_MAIN_REPO_OWNER');
   const mainRepository = { owner: mainOwner, name: MAIN_REPOSITORY.name, id: MAIN_REPOSITORY.id };
   const auditRepo = required(env, 'BROKER_AUDIT_REPO');
-  // The audit repo is never HolaHola itself, under either owner.
-  if (!REPO_NAME.test(auditRepo) || MAIN_REPOSITORY_OWNERS.some((o) => auditRepo.toLowerCase() === `${o}/${MAIN_REPOSITORY.name}`.toLowerCase())) {
+  // The audit repo is never HolaHola itself, under its current or any former owner.
+  if (!REPO_NAME.test(auditRepo) || [...MAIN_REPOSITORY_OWNERS, ...FORMER_MAIN_REPOSITORY_OWNERS].some((o) => auditRepo.toLowerCase() === `${o}/${MAIN_REPOSITORY.name}`.toLowerCase())) {
     throw new ConfigError('invalid BROKER_AUDIT_REPO');
   }
   const [owner, name] = auditRepo.split('/');

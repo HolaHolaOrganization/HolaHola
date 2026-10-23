@@ -24,6 +24,8 @@ import { registerCoordinationV2HostAdminRoutes } from "./routes/coordination-v2-
 import { registerCoordinationV2RuntimeBootstrapRoutes } from "./routes/coordination-v2-runtime-bootstrap-routes";
 import { registerRuntimeOnboardingRoutes } from "./routes/runtime-onboarding-routes";
 import { registerGithubTokenBrokerRoutes } from "./routes/github-token-broker-routes";
+import { registerAgentFeedRoutes } from "./routes/agent-feed-routes";
+import { registerClaudeCodeMirrorRoutes } from "./routes/claude-code-mirror-routes";
 import { POSTGRES_COORDINATION_TASK_METADATA_REGISTRY } from "./services/coordination-task-metadata-postgres-registry";
 import { getReleaseIdentity } from "./services/release-identity";
 import { registerAgentNoteReplyRoute } from "./routes/agent-note-reply-route";
@@ -668,6 +670,8 @@ export async function registerRoutes(app: Application): Promise<void> {
   // Founder onboarding routes need the session and Passport middleware above.
   registerRuntimeOnboardingRoutes(app);
   registerGithubTokenBrokerRoutes(app);
+  registerAgentFeedRoutes(app);
+  registerClaudeCodeMirrorRoutes(app);
   registerCoordinationPolicyRoutes(app);
   // Explicit Postgres wiring, not the DB-free default exported from
   // coordination-task-metadata-service.ts: production must resolve a task's

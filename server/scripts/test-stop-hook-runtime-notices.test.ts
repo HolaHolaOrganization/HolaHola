@@ -32,14 +32,18 @@ describe('classifyUserEntry: only provenance fields decide, never the text', () 
   });
 });
 
-/** Run the real hook on a synthetic transcript; the remote is a dead local port, never production. */
+/**
+ * Run the real hook on a synthetic transcript. The remote is a dead local port,
+ * never production, and the outbox is private to this run: a live checkout's
+ * outbox is never written, and no earlier run's exchanges are delivered here.
+ */
 function runHook(entries: unknown[]) {
   const dir = mkdtempSync(join(tmpdir(), 'stop-hook-runtime-'));
   const transcript = join(dir, 'transcript.jsonl');
   writeFileSync(transcript, entries.map(e => JSON.stringify(e)).join('\n') + '\n');
   return spawnSync(process.execPath, [HOOK], {
     input: JSON.stringify({ transcript_path: transcript, session_id: '11111111-1111-4111-8111-111111111111' }),
-    env: { ...process.env, HOLAHOLA_STOP_HOOK_URL: 'http://127.0.0.1:9' },
+    env: { ...process.env, HOLAHOLA_STOP_HOOK_URL: 'http://127.0.0.1:9', HOLAHOLA_STOP_HOOK_OUTBOX: join(dir, 'outbox') },
     encoding: 'utf8', timeout: 60_000,
   });
 }
@@ -47,7 +51,7 @@ const human = (content: unknown) => ({ type: 'user', origin: { kind: 'human' }, 
 const meta = (text: string) => ({ type: 'user', isMeta: true, message: { content: [{ type: 'text', text }] } });
 const assistant = (text: string) => ({ type: 'assistant', message: { content: [{ type: 'text', text }] } });
 const RECORDED = /record-exchange failed/; // reached record-exchange (which then fails on the dead port)
-const SKIPPED = /started by the runtime \(.+\), not by David; nothing recorded/;
+const SKIPPED = /started by the runtime \(.+\), not by David; its opening entry is not recorded/;
 
 describe('the Stop hook', () => {
   test('a turn started by a task notice records nothing and never invokes record-exchange', () => {

@@ -80,7 +80,7 @@ function harness(options: {
       events.push(`getInstallation lock=${lockHeld}`);
       const [h, p, sig] = jwt.split('.');
       assert.ok(crypto.verify('RSA-SHA256', Buffer.from(`${h}.${p}`), publicKey, Buffer.from(sig, 'base64url')), 'JWT must verify');
-      return options.installation ?? { app_id: APP_ID, account: { id: HOLAHOLA_OWNER_ACCOUNT_ID, login: 'davidwmcintosh' } };
+      return options.installation ?? { app_id: APP_ID, account: { id: HOLAHOLA_ORGANIZATION_ACCOUNT_ID, login: 'HolaHolaOrganization' } };
     },
     async createInstallationToken(_jwt, _id, body) {
       events.push(`createToken lock=${lockHeld}`);
@@ -211,12 +211,11 @@ test('a missing or unusable App key is reported as unavailable', async () => {
   await expectDenied(harness({ key: '-----BEGIN PRIVATE KEY-----\nnot-a-key\n-----END PRIVATE KEY-----' }), AGENT, 503, 'app_key_unavailable');
 });
 
-test('during the move to the organization, an installation on either founder account mints', async () => {
-  for (const id of [HOLAHOLA_OWNER_ACCOUNT_ID, HOLAHOLA_ORGANIZATION_ACCOUNT_ID]) {
-    const result = await mintAgentGithubToken(AGENT, harness({ installation: { app_id: APP_ID, account: { id } } }).deps);
-    assert.equal(result.ok, true, `account ${id}`);
-  }
-  assert.deepEqual([...HOLAHOLA_INSTALLATION_ACCOUNT_IDS].sort(), [34244604, 346076814]);
+test('after the move, only an installation on the organization mints; the personal account is refused', async () => {
+  const result = await mintAgentGithubToken(AGENT, harness({ installation: { app_id: APP_ID, account: { id: HOLAHOLA_ORGANIZATION_ACCOUNT_ID } } }).deps);
+  assert.equal(result.ok, true);
+  await expectDenied(harness({ installation: { app_id: APP_ID, account: { id: HOLAHOLA_OWNER_ACCOUNT_ID } } }), AGENT, 403, 'installation_mismatch');
+  assert.deepEqual([...HOLAHOLA_INSTALLATION_ACCOUNT_IDS], [346076814]);
 });
 
 test('an installation belonging to another App or account is refused', async () => {

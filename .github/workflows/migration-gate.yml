@@ -1,0 +1,174 @@
+name: Migration Gate
+
+# Runs `npm run db:branch -- gate` (the holahola-schema skill's step 3) on
+# Linux against one exact, already-pushed candidate commit, and nothing else.
+#
+# Why this exists: the gate's test groups were last run end to end on Linux by
+# cross-tool-promote.yml, which is retired. On a Windows host several groups
+# fail on pre-existing path and child-process portability bugs that also fail
+# on unmodified main, so a Windows run cannot produce READY_TO_PROMOTE.
+#
+# What this deliberately does NOT do, unlike the retired workflow:
+#   - no push, merge or fast-forward of any ref (permissions: contents: read,
+#     checkouts without persisted credentials, no GitHub App or deploy key);
+#   - no `drizzle-kit migrate` or data-op against the shared database. The
+#     gate only ever applies to the disposable Neon branch it creates from
+#     production and deletes afterwards (scripts/neon-branch.ts cmdGate);
+#   - no deploy or activation.
+# Merging remains a normal reviewed PR; Render's pre-deploy applies the
+# migration on deploy.
+#
+# Definition and trust: the job runs only when dispatched from main, so this
+# file and the scripts in the trusted checkout (scripts/migration-gate/) are
+# always main's reviewed versions. The candidate is checked out separately and
+# its own code runs only in the build and gate steps.
+#
+# Secrets and custody: the gate needs NEON_API_KEY and NEON_PROJECT_ID to
+# create and delete the disposable branch, and NEON_SHARED_DATABASE_URL to read
+# the app database name and to pass it to every test group as
+# *_FORBIDDEN_SHARED_URL, so each group refuses to connect to it. The remaining
+# secrets are the same test-group inputs the retired workflow's gate step
+# received. The candidate's install, build and gate code runs with these
+# secrets, so a run is a founder decision about that exact candidate, not a
+# blanket approval of any pushed branch. Nothing here prints a connection string.
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: "Pushed branch holding the candidate"
+        required: true
+        type: string
+      expectedSha:
+        description: "Exact candidate commit (40 hex); the run refuses if the branch is elsewhere"
+        required: true
+        type: string
+
+run-name: "migration-gate ${{ inputs.expectedSha }} (${{ inputs.branch }})"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: migration-gate
+  cancel-in-progress: false
+
+jobs:
+  gate:
+    # Enforced by GitHub before any step runs: a dispatch from any other ref is
+    # skipped as a whole, so no step (including the always() cleanup) receives
+    # a secret.
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Require the main workflow definition
+        id: dispatch
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          DISPATCH_REF: ${{ github.ref }}
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          [[ "$EVENT_NAME" == "workflow_dispatch" ]] || { echo "::error::Not a workflow_dispatch run"; exit 1; }
+          [[ "$DISPATCH_REF" == "refs/heads/main" ]] || { echo "::error::Dispatch from $DISPATCH_REF refused; dispatch from main"; exit 1; }
+          [[ "$WORKFLOW_REF" == "$REPOSITORY/.github/workflows/migration-gate.yml@refs/heads/main" ]] || { echo "::error::Workflow definition is not main's migration-gate.yml"; exit 1; }
+
+      - name: Validate pinned inputs
+        env:
+          CANDIDATE_BRANCH: ${{ inputs.branch }}
+          EXPECTED_SHA: ${{ inputs.expectedSha }}
+        run: |
+          [[ "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::Invalid expected SHA"; exit 1; }
+          [[ "$CANDIDATE_BRANCH" =~ ^[A-Za-z0-9._/-]+$ && ${#CANDIDATE_BRANCH} -le 200 && "$CANDIDATE_BRANCH" != -* && "$CANDIDATE_BRANCH" != *..* ]] || { echo "::error::Invalid branch"; exit 1; }
+          git check-ref-format --branch "$CANDIDATE_BRANCH"
+
+      - name: Check out the trusted main definition
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+          path: trusted
+          persist-credentials: false
+
+      - name: Check out the candidate
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.expectedSha }}
+          path: candidate
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Refuse a moved candidate branch
+        working-directory: candidate
+        env:
+          CANDIDATE_BRANCH: ${{ inputs.branch }}
+          EXPECTED_SHA: ${{ inputs.expectedSha }}
+        run: |
+          remote="$(git ls-remote --heads origin "refs/heads/$CANDIDATE_BRANCH")"
+          [[ "$remote" == "$EXPECTED_SHA"$'\t'"refs/heads/$CANDIDATE_BRANCH" ]] || { echo "::error::Branch is not at the expected SHA"; exit 1; }
+          [[ "$(git rev-parse HEAD)" == "$EXPECTED_SHA" ]] || { echo "::error::Checkout differs from expected SHA"; exit 1; }
+
+      - name: Candidate manifest
+        working-directory: candidate
+        env:
+          BASE_SHA: ${{ github.sha }}
+        run: node ../trusted/scripts/migration-gate/candidate-manifest.mjs --base "$BASE_SHA"
+
+      - name: Use Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: candidate/package-lock.json
+
+      - name: Install PostgreSQL test binaries
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes postgresql ripgrep
+          POSTGRES_BINDIR="$(pg_config --bindir)"
+          test -x "$POSTGRES_BINDIR/initdb"
+          test -x "$POSTGRES_BINDIR/postgres"
+          echo "$POSTGRES_BINDIR" >> "$GITHUB_PATH"
+
+      - name: Install dependencies
+        working-directory: candidate
+        run: npm ci --include=dev
+
+      - name: Build
+        working-directory: candidate
+        run: npm run build
+
+      - name: Gate on a disposable Neon branch
+        id: gate
+        working-directory: candidate
+        env:
+          NEON_SHARED_DATABASE_URL: ${{ secrets.NEON_SHARED_DATABASE_URL }}
+          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+          NEON_PROJECT_ID: ${{ secrets.NEON_PROJECT_ID }}
+          DEFAULT_OBJECT_STORAGE_BUCKET_ID: ${{ secrets.DEFAULT_OBJECT_STORAGE_BUCKET_ID }}
+          AWS_S3_ENDPOINT: ${{ secrets.AWS_S3_ENDPOINT }}
+          AWS_S3_ACCESS_KEY_ID: ${{ secrets.AWS_S3_ACCESS_KEY_ID }}
+          AWS_S3_SECRET_ACCESS_KEY: ${{ secrets.AWS_S3_SECRET_ACCESS_KEY }}
+          DEEPGRAM_API_KEY: ${{ secrets.DEEPGRAM_API_KEY }}
+          DEV_TEST_ACCOUNT_PASSWORD: ${{ secrets.DEV_TEST_ACCOUNT_PASSWORD }}
+        # The repository is public, so this job log is public, and the suite runs
+        # against a copy of production: any line of its output can contain
+        # production rows. The full output stays in a runner-local file (read by
+        # the cleanup step, never uploaded). The trusted summarizer prints only a
+        # fixed template with a closed-set verdict and re-rendered counts.
+        run: |
+          rc=0
+          npm run db:branch -- gate > "$RUNNER_TEMP/gate.log" 2>&1 || rc=$?
+          node "$GITHUB_WORKSPACE/trusted/scripts/migration-gate/summarize-gate-log.mjs" "$RUNNER_TEMP/gate.log" "$rc"
+
+      - name: Confirm the disposable branch is gone
+        if: always() && steps.dispatch.outcome == 'success'
+        env:
+          GATE_OUTCOME: ${{ steps.gate.outcome }}
+          GATE_LOG: ${{ runner.temp }}/gate.log
+          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+          NEON_PROJECT_ID: ${{ secrets.NEON_PROJECT_ID }}
+        run: node trusted/scripts/migration-gate/verify-branch-absent.mjs
