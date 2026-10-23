@@ -11,7 +11,10 @@ import { existsSync, readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
 const READY_LINE = '[gate] READY_TO_PROMOTE — migration and data-ops both passed on an isolated branch.';
-const COUNT_LINE = /^ℹ (tests|pass|fail|skipped|cancelled|todo) (\d{1,9})$/;
+// node:test prints its summary with the spec reporter (`ℹ tests 12`) on a TTY and
+// with the TAP reporter (`# tests 12`) otherwise, as on a CI runner.
+const COUNT_LINE = /^(?:ℹ|#) (tests|pass|fail|skipped|cancelled|todo) (\d{1,9})$/;
+const TAP_FAILURE_LINE = /^\s*not ok \d{1,9}\b/;
 const COUNT_KEYS = ['tests', 'pass', 'fail', 'skipped', 'cancelled', 'todo'];
 
 /** Returns { lines, exitCode } for a raw gate log and the gate's exit code string. */
@@ -27,7 +30,7 @@ export function summarize(text, exitCodeRaw) {
     const count = COUNT_LINE.exec(row);
     if (count) totals[count[1]] += Number(count[2]);
     if (row.startsWith('[gate] Running ')) groupsStarted += 1;
-    if (row.startsWith('✖ ') && row !== '✖ failing tests:') failedTestLines += 1;
+    if ((row.startsWith('✖ ') && row !== '✖ failing tests:') || TAP_FAILURE_LINE.test(row)) failedTestLines += 1;
     if (row === READY_LINE) readyLines += 1;
     if (row.startsWith('[gate] FAILED: ')) failedLines += 1;
   }
