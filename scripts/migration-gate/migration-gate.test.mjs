@@ -301,6 +301,37 @@ test('summary: a fixed template with re-rendered values, whatever follows an acc
   }
 });
 
+test('summary: counts TAP reporter output, as printed on a CI runner', () => {
+  const tap = [
+    '[gate] Running npm run test:ci:unit against the branch...',
+    '# Subtest: first file test',
+    'ok 1 - first file test',
+    '# Subtest: second file test',
+    'not ok 2 - second file test',
+    '    not ok 1 - nested failing case',
+    '# tests 17',
+    '# suites 0',
+    '# pass 15',
+    '# fail 2',
+    '# cancelled 0',
+    '# skipped 0',
+    '# todo 0',
+    '# duration_ms 1234.5',
+    '# tests 6',
+    '# pass 6',
+    '# fail 0',
+  ].join('\n');
+  const out = summarize(tap, '1').lines.join('\n');
+  assert.match(out, /test totals: tests 23, pass 21, fail 2, skipped 0, cancelled 0, todo 0/);
+  assert.match(out, /failing test lines: 2/);
+  // Same strictness as the spec form: trailing text, non-digits or a bare keyword never count.
+  const noisy = ['# tests 5 PRIVATE', '# pass x', '# fail', `# Subtest: ${PRIVATE}`, `notok 3 - ${PRIVATE}`, `# not ok 4 - ${PRIVATE}`].join('\n');
+  const quiet = summarize(noisy, '1').lines.join('\n');
+  assert.match(quiet, /test totals: tests 0, pass 0, fail 0/);
+  assert.match(quiet, /failing test lines: 0/);
+  assert.doesNotMatch(quiet, /PRIVATE/);
+});
+
 test('summary: verdict is a closed set and only an exact READY line with exit 0 passes', () => {
   assert.deepEqual(summarize(`${READY}\n`, '0').exitCode, 0);
   assert.match(summarize(`${READY}\n`, '0').lines[1], /^verdict: READY_TO_PROMOTE$/);
