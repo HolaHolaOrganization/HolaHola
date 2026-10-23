@@ -12,6 +12,7 @@
  * Strategy: Create new drills from existing vocabulary patterns
  */
 
+import { isDirectCliInvocation } from './lib/cli-entrypoint';
 import { getSharedDb } from '../db';
 import { curriculumLessons, curriculumDrillItems, curriculumUnits, curriculumPaths } from '@shared/schema';
 import { eq, sql, and, like, notLike } from 'drizzle-orm';
@@ -384,7 +385,7 @@ export async function boostDrillVariety(): Promise<DrillGenerationResult[]> {
 }
 
 // Run if executed directly
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (isDirectCliInvocation('boost-drill-variety.ts')) {
   boostDrillVariety()
     .then((results) => {
       console.log('\n=== Summary ===');

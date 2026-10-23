@@ -3,6 +3,7 @@
  * database, shell, or fixed-token implementation: the coordinator is the
  * authority and Antigravity is only the bounded local executor.
  */
+import { isDirectCliInvocation } from './lib/cli-entrypoint';
 import { createHash } from 'node:crypto';
 import { lstat, readFile, realpath, writeFile } from 'node:fs/promises';
 import { spawn as nodeSpawn } from 'node:child_process';
@@ -571,6 +572,6 @@ export async function main(): Promise<void> {
   });
   await driver.run();
 }
-if (process.argv[1]?.endsWith('coordination-runtime-antigravity.ts')) main().catch((error) => {
+if (isDirectCliInvocation('coordination-runtime-antigravity.ts')) main().catch((error) => {
   console.error(safeError(error).message); process.exitCode = 1;
 });

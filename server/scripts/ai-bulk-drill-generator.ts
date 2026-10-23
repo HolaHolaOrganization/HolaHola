@@ -10,6 +10,7 @@
  * - Prioritize most-used paths
  */
 
+import { isDirectCliInvocation } from './lib/cli-entrypoint';
 import { getSharedDb } from '../db';
 import { 
   curriculumLessons, 
@@ -467,7 +468,7 @@ export async function runAIBulkDrillGeneration(): Promise<DrillGenerationResult[
 }
 
 // Run if executed directly
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (isDirectCliInvocation('ai-bulk-drill-generator.ts')) {
   runAIBulkDrillGeneration()
     .then((results) => {
       console.log('\n=== Summary ===');

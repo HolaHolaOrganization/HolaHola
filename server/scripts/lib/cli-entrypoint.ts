@@ -34,8 +34,17 @@
  * it's the test file's own name (never an exact match either, even though it
  * contains the script's name as a substring). Only a direct
  * `npx tsx server/scripts/<name>.ts` invocation makes it match.
+ *
+ * The basename is taken with `path.win32.basename`, which splits on both `\`
+ * and `/` on every platform. On Windows `process.argv[1]` holds backslashes,
+ * so a hand-written `.endsWith('/<name>.ts')` guard never matches there and
+ * the script exits 0 having done nothing (a shared-spec `share` looked
+ * successful but wrote nothing). The plain platform `basename`
+ * would be correct on Windows itself but not when a test running on Linux
+ * CI exercises a Windows-style argv[1], so the separator handling is made
+ * explicit here rather than left to the host platform.
  */
-import { basename } from 'node:path';
+import { win32 } from 'node:path';
 
 /**
  * @param scriptBasename The exact filename of the calling script, e.g.
@@ -43,5 +52,5 @@ import { basename } from 'node:path';
  *   this is intentionally a plain string, not derived from `import.meta.url`.
  */
 export function isDirectCliInvocation(scriptBasename: string): boolean {
-  return process.argv[1] !== undefined && basename(process.argv[1]) === scriptBasename;
+  return process.argv[1] !== undefined && win32.basename(process.argv[1]) === scriptBasename;
 }

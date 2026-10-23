@@ -19,11 +19,17 @@
  * failure mode (import.meta.url inside the esbuild production bundle) that
  * isDirectCliInvocation() also guards against.
  *
+ * It also flags two separator-dependent forms that silently never match on
+ * Windows, where process.argv[1] holds backslashes: `process.argv[1]` +
+ * `.endsWith(` (a `'/<name>.ts'` suffix never matches a backslash path, and
+ * a bare `'<name>.ts'` suffix shares the test-file collision above), and the
+ * `file://${process.argv[1]}` template compared against import.meta.url (a
+ * Windows path never forms the same file URL that way). A guard that never
+ * matches makes the CLI exit 0 having done nothing -- a shared-spec `share`
+ * looked successful but wrote nothing this way.
+ *
  * This is a narrow, syntactic guard -- it does not evaluate every possible
- * hand-rolled entry-point check (e.g. plain `.endsWith(...)` forms, which do
- * not share the substring-collision failure mode), only the exact
- * `process.argv[1]` + `.includes(` combination task 1583 already found and
- * fixed everywhere in this codebase.
+ * hand-rolled entry-point check, only those exact combinations.
  *
  * Self-check (--self-check flag):
  *   Uses scanForUnsafeEntrypointGuard() as a live test seam: points it at a
@@ -53,10 +59,11 @@ const SCRIPTS_ROOT = path.join(REPO_ROOT, 'server', 'scripts');
 const IS_SELF_CHECK = process.argv.includes('--self-check');
 
 // Matches `process.argv[1]` optionally followed by `?`, then `.includes(` --
-// the exact antipattern task 1583 fixed. Kept as one regex (rather than
-// separate optional-chaining / non-optional-chaining string constants) so
-// there is exactly one definition of "the pattern" to keep in sync.
-const UNSAFE_GUARD_PATTERN = /process\.argv\[1\]\??\.includes\(/;
+// the exact antipattern task 1583 fixed -- or by `.endsWith(`, or the
+// `file://${process.argv[1]}` template (see the header for why each is
+// unsafe). Kept as one regex so there is exactly one definition of "the
+// pattern" to keep in sync.
+const UNSAFE_GUARD_PATTERN = /process\.argv\[1\]\??\.(?:includes|endsWith)\(|file:\/\/\$\{process\.argv\[1\]\}/;
 
 // Scan-root-relative (POSIX) paths that legitimately mention the pattern
 // without using it -- cli-entrypoint.ts documents the antipattern in its own
@@ -143,6 +150,17 @@ function runSelfCheck(): void {
       "const isMain = process.argv[1]?.includes('brand-new-script');\n",
     );
 
+    // Scenarios A2/A3: the separator-dependent forms that never match on
+    // Windows -- a `'/<name>.ts'` suffix and the `file://${argv[1]}` template.
+    fs.writeFileSync(
+      path.join(tmpBase, 'suffix-script.ts'),
+      "if (process.argv[1]?.endsWith('/suffix-script.ts')) main();\n",
+    );
+    fs.writeFileSync(
+      path.join(tmpBase, 'file-url-script.ts'),
+      'if (import.meta.url === `file://${process.argv[1]}`) main();\n',
+    );
+
     // Scenario B: a script correctly using the safe shared helper -- must NOT
     // be flagged, proving no false positive on the fix itself.
     fs.mkdirSync(path.join(tmpBase, 'lib'));
@@ -164,6 +182,8 @@ function runSelfCheck(): void {
 
     const brandNewFlagged = results.some(v => v.file === 'brand-new-script.ts');
     assert(brandNewFlagged, 'a brand-new script reintroducing the unsafe substring guard is detected');
+    assert(results.some(v => v.file === 'suffix-script.ts'), 'a process.argv[1] .endsWith() suffix guard is detected');
+    assert(results.some(v => v.file === 'file-url-script.ts'), 'a file://${process.argv[1]} template guard is detected');
 
     const safeFlagged = results.some(v => v.file === 'safe-script.ts');
     assert(!safeFlagged, 'a script correctly using the shared isDirectCliInvocation() helper is not flagged');
@@ -172,8 +192,8 @@ function runSelfCheck(): void {
     assert(!libExemptFlagged, 'the lib/cli-entrypoint.ts doc-comment mention is exempted, exactly like the real file');
 
     assert(
-      results.length === 1,
-      'exactly one real violation is reported (the brand-new script, nothing else)',
+      results.length === 3,
+      'exactly three real violations are reported (the three unsafe scripts, nothing else)',
       `found ${results.length}: ${JSON.stringify(results)}`,
     );
 

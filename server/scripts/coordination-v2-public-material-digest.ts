@@ -1,3 +1,4 @@
+import { isDirectCliInvocation } from './lib/cli-entrypoint';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import {
@@ -269,6 +270,6 @@ async function main(): Promise<void> {
   }
 }
 
-if (process.argv[1]?.endsWith('coordination-v2-public-material-digest.ts')) {
+if (isDirectCliInvocation('coordination-v2-public-material-digest.ts')) {
   main();
 }

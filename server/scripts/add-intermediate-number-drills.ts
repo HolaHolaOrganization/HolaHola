@@ -7,6 +7,7 @@
  * - Add real-world numbers: years, phone numbers, prices, larger numbers
  */
 
+import { isDirectCliInvocation } from './lib/cli-entrypoint';
 import { getSharedDb } from '../db';
 import { curriculumLessons, curriculumDrillItems } from '@shared/schema';
 import { sql } from 'drizzle-orm';
@@ -225,7 +226,7 @@ export async function addIntermediateNumberDrills() {
 }
 
 // Run if executed directly
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (isDirectCliInvocation('add-intermediate-number-drills.ts')) {
   addIntermediateNumberDrills()
     .then((results) => {
       console.log('\n=== Summary ===');

@@ -27,6 +27,26 @@ describe('isDirectCliInvocation', () => {
     assert.equal(isDirectCliInvocation('coordination-cli.ts'), true);
   });
 
+  it('matches a Windows argv[1] with backslash separators, on any host platform', () => {
+    // On Windows, `npx tsx server/scripts/shared-spec-cli.ts` puts a
+    // backslash path in argv[1]; the old `.endsWith('/shared-spec-cli.ts')`
+    // guard never matched it, so the CLI exited 0 having done nothing.
+    process.argv[1] = 'C:\\Users\\David\\HolaHola\\server\\scripts\\shared-spec-cli.ts';
+    assert.equal(isDirectCliInvocation('shared-spec-cli.ts'), true);
+  });
+
+  it('matches the same script with forward-slash separators', () => {
+    process.argv[1] = 'C:/Users/David/HolaHola/server/scripts/shared-spec-cli.ts';
+    assert.equal(isDirectCliInvocation('shared-spec-cli.ts'), true);
+    process.argv[1] = '/home/runner/workspace/server/scripts/shared-spec-cli.ts';
+    assert.equal(isDirectCliInvocation('shared-spec-cli.ts'), true);
+  });
+
+  it('is false for a Windows argv[1] naming a superstring test file', () => {
+    process.argv[1] = 'C:\\Users\\David\\HolaHola\\server\\scripts\\shared-spec-cli.test.ts';
+    assert.equal(isDirectCliInvocation('shared-spec-cli.ts'), false);
+  });
+
   it('is false when the invoking file is a superstring of the script name -- the exact test-file collision this guard exists to prevent', () => {
     // This repo's test-file convention (`test-<subject>.test.ts`) means a test
     // that imports a script for its exports has a filename that naturally

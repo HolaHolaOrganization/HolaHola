@@ -5,6 +5,7 @@
  * inputs are public bundle bytes only; in particular, there is no parameter
  * which can contain a bootstrap or access credential.
  */
+import { isDirectCliInvocation } from "./lib/cli-entrypoint";
 import { readFile } from "node:fs/promises";
 import { stdin } from "node:process";
 import { and, eq, sql } from "drizzle-orm";
@@ -342,7 +343,7 @@ async function readBundle(path?: string): Promise<unknown> {
   catch { throw new AntigravityProvisioningError("invalid_bundle"); }
 }
 
-if (process.argv[1]?.endsWith("provision-antigravity-runtime.ts")) {
+if (isDirectCliInvocation("provision-antigravity-runtime.ts")) {
   const phase = process.argv[2];
   const bundlePath = process.argv.includes("--bundle") ? process.argv[process.argv.indexOf("--bundle") + 1] : undefined;
   const challengeId = process.argv.includes("--challenge-id") ? process.argv[process.argv.indexOf("--challenge-id") + 1] : undefined;
