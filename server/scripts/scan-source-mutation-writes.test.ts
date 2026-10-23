@@ -420,6 +420,10 @@ const ALLOWLIST: AllowlistEntry[] = [
   { kind: 'unresolved', file: 'daniela-safety-net-dialogue.ts', fn: 'appendFileSync', argExprText: 'LOG', reason: "same LOG declaration as the writeFileSync entry above" },
   { kind: 'unresolved', file: 'daniela-thought-dialogue.ts', fn: 'writeFileSync', argExprText: 'LOG', reason: "LOG = `/home/runner/workspace/.local/daniela-consults/thought-dialogue-${Date.now()}.txt`; verified by reading the declaration" },
   { kind: 'unresolved', file: 'daniela-thought-dialogue.ts', fn: 'appendFileSync', argExprText: 'LOG', reason: "same LOG declaration as the writeFileSync entry above" },
+  { kind: 'unresolved', file: 'test-record-stop-turn-absorbed.test.ts', fn: 'writeFileSync', argExprText: 'p', reason: "p is the path argument of an injected io.writeFileSync; its only caller is queueExchange(box.dir, ...), which writes inside box.dir = mkdtempSync(join(tmpdir(), 'stop-outbox-')) (outbox() helper, removed in finally); verified by reading the test and the hook" },
+  { kind: 'unresolved', file: 'test-record-stop-turn-absorbed.test.ts', fn: 'renameSync', argExprText: 'to', reason: "to is the destination argument of an injected io.renameSync; its only caller is queueExchange(box.dir, ...), which renames within box.dir = mkdtempSync(join(tmpdir(), 'stop-outbox-')); verified by reading the test and the hook" },
+  { kind: 'unresolved', file: 'test-record-stop-turn-absorbed.test.ts', fn: 'writeFileSync', argExprText: "join(box.dir, 'cc-s-1.0000000000000000.json')", reason: "box.dir = mkdtempSync(join(tmpdir(), 'stop-outbox-')) from the outbox() helper, removed in finally; verified by reading the helper" },
+  { kind: 'unresolved', file: 'test-record-stop-turn-absorbed.test.ts', fn: 'writeFileSync', argExprText: "join(box.dir, 'cc-s-bad.0000000000000000.json')", reason: "box.dir = mkdtempSync(join(tmpdir(), 'stop-outbox-')) from the outbox() helper, removed in finally; verified by reading the helper" },
 ];
 
 const TARGET_ALLOWLIST = new Set(
