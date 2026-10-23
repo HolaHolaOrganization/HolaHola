@@ -138,12 +138,16 @@ export function exchangesForStop(entries) {
   // assistant text, however many earlier turns opened and ended without a
   // reply. None of them was returned before, because an exchange without
   // assistant text never is. Runtime-shaped user entries (notices, entries
-  // without provenance) are skipped: never carried into David's words.
+  // without provenance) are skipped: never carried into David's words. So is
+  // runtime material (isMeta, isCompactSummary) even when it names origin
+  // human: classifyUserEntry's precedence applies here as it does to the anchor.
   const carried = [];
   for (let i = lastUserIdx - 1; i >= 0; i--) {
     if (hasAssistantText(entries[i])) break;
     if (isAbsorbedHumanPrompt(entries[i])) carried.unshift(extractText(entries[i].attachment.prompt).trim());
-    else if (isRealUserMessage(entries[i]) && entries[i].origin?.kind === 'human') carried.unshift(extractText(entries[i].message?.content).trim());
+    else if (isRealUserMessage(entries[i]) && entries[i].origin?.kind === 'human' && classifyUserEntry(entries[i]).founder) {
+      carried.unshift(extractText(entries[i].message?.content).trim());
+    }
   }
 
   const starts = [lastUserIdx];

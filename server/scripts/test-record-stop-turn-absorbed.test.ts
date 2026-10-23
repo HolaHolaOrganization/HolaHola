@@ -336,3 +336,28 @@ test('a founder paste that looks like a notice is still David\'s (provenance dec
   const out = exchangesForStop([human('<task-notification>pasted</task-notification>'), reply('That is a notice.')]);
   assert.deepEqual(out, [{ index: 0, userText: '<task-notification>pasted</task-notification>', assistantText: 'That is a notice.' }]);
 });
+
+// --- PR #81 review (LR 5635424280): carried entries follow classifyUserEntry's precedence ---
+
+const humanMeta = (text: string) => ({ ...human(text), isMeta: true });
+
+test('runtime metadata marked origin human is never carried into a runtime-opened turn', () => {
+  const out = exchangesForStop([human('prior'), reply('prior reply'), humanMeta('runtime metadata'), notice('<task-notification>n</task-notification>'), reply('runtime reply')]);
+  assert.deepEqual(out, []);
+});
+
+test('runtime metadata marked origin human is never carried into David\'s next message', () => {
+  const out = exchangesForStop([human('prior'), reply('prior reply'), humanMeta('runtime metadata'), human('new human'), reply('new reply')]);
+  assert.deepEqual(out, [{ index: 3, userText: 'new human', assistantText: 'new reply' }]);
+});
+
+test('a genuine unanswered human message next to runtime metadata still carries, in order, under the anchor index', () => {
+  const out = exchangesForStop([human('prior'), reply('prior reply'), human('unanswered'), humanMeta('runtime metadata'), absorbed('also mine'), notice('<task-notification>n</task-notification>'), reply('reply to David')]);
+  assert.deepEqual(out, [{ index: 5, userText: 'unanswered\n\nalso mine', assistantText: 'reply to David' }]);
+});
+
+test('a compaction summary marked origin human is never carried', () => {
+  const summary = { ...human('This session is being continued from a previous conversation...'), isCompactSummary: true };
+  const out = exchangesForStop([human('prior'), reply('prior reply'), summary, human('next'), reply('next reply')]);
+  assert.deepEqual(out, [{ index: 3, userText: 'next', assistantText: 'next reply' }]);
+});
