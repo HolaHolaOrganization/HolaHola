@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { resolve } from 'node:path';
 import {
   CoordinationTaskMetadataError,
   resolveCoordinationTaskMetadata,
@@ -62,7 +63,11 @@ test('task metadata resolver is generic and rejects unsupported tasks', async ()
 });
 
 test('fixed-root production registry hashes only the numeric task file and requires clean provenance', async () => {
-  const files = new Map<string, Uint8Array>([['/srv/coordinator/.local/tasks/task-9001.md', new TextEncoder().encode('approved task')]]);
+  // The registry resolves its root with path.resolve, so on Windows '/srv/coordinator'
+  // becomes 'C:\srv\coordinator'. Key the fixture the same way so the test is
+  // host-independent; on POSIX this is the identical literal path.
+  const taskFile = resolve('/srv/coordinator', '.local', 'tasks', 'task-9001.md');
+  const files = new Map<string, Uint8Array>([[taskFile, new TextEncoder().encode('approved task')]]);
   const readers = {
     lstat: async (path: string) => ({
       isFile: () => files.has(path),
