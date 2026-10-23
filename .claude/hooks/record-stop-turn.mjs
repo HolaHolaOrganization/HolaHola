@@ -218,9 +218,10 @@ function safeList(dir) {
 /**
  * Writes one exchange version to the outbox. The file appears only complete:
  * it is written under a temporary name and renamed into place, so an
- * interrupted write never truncates a valid queued version. Once the new
- * version is in place, older versions of the same turn are removed (they are
- * superseded; a send of one already in flight stays harmless).
+ * interrupted write never truncates a valid queued version. A producer never
+ * deletes anything, so concurrent producers cannot remove each other's
+ * versions; superseded versions are removed only by a drainer, after a newer
+ * version of the same turn was sent.
  */
 export function queueExchange(outboxDir, item, io = { writeFileSync, renameSync }) {
   mkdirSync(outboxDir, { recursive: true });
@@ -235,26 +236,28 @@ export function queueExchange(outboxDir, item, io = { writeFileSync, renameSync 
     rmSync(tmpPath, { force: true });
     throw err; // the caller logs it; any older queued version is untouched
   }
-  for (const other of safeList(outboxDir)) {
-    if (other !== name && turnIdOf(other) === item.turnId) rmSync(join(outboxDir, other), { force: true });
-  }
 }
 
 /**
- * Sends queued exchanges oldest first, within one shared deadline: for each
- * turn only its newest queued version. A successful send removes exactly the
- * version file it sent, so a newer version queued meanwhile survives. A failed
- * or unattempted version stays for the next Stop.
+ * Sends queued exchanges within one shared deadline: for each turn only its
+ * newest queued version, newest turns first, so a version that keeps failing
+ * (the server rejects changed content under a turn id it already holds) can
+ * never use up the budget ahead of newer exchanges. A failed or unattempted
+ * version stays on disk for the next Stop and for inspection.
  *
- * Ownership: any hook process may drain; there is no lock. Two drainers can
- * send the same version, which is safe because the server treats a turn id it
- * already holds with identical content as a no-op. Files that another process
- * removes or replaces mid-drain are skipped, never an uncaught failure.
+ * A successful send removes exactly the file it sent, then the versions of the
+ * same turn that are strictly older than it (superseded). A version queued
+ * after the one sent is never removed.
+ *
+ * Ownership: producers only add files; only drainers remove them. Any hook
+ * process may drain; there is no lock. Two drainers can send the same version,
+ * which is safe because the server treats a turn id it already holds with
+ * identical content as a no-op. Files another process removes mid-drain are
+ * skipped, never an uncaught failure.
  */
 export function deliverOutbox({ outboxDir, send, now = Date.now, budgetMs = DELIVERY_BUDGET_MS }) {
   const started = now();
-  const newest = new Map(); // turnId -> { name, mtime }
-  let total = 0;
+  const byTurn = new Map(); // turnId -> versions, oldest first
   for (const name of safeList(outboxDir)) {
     let mtime;
     try {
@@ -262,28 +265,38 @@ export function deliverOutbox({ outboxDir, send, now = Date.now, budgetMs = DELI
     } catch {
       continue; // removed by another process since the listing
     }
-    total++;
     const turnId = turnIdOf(name);
-    const seen = newest.get(turnId);
-    if (!seen || mtime > seen.mtime || (mtime === seen.mtime && name > seen.name)) newest.set(turnId, { name, mtime });
+    if (!byTurn.has(turnId)) byTurn.set(turnId, []);
+    byTurn.get(turnId).push({ name, mtime });
   }
-  const queued = [...newest.values()].sort((a, b) => a.mtime - b.mtime || a.name.localeCompare(b.name));
+  const order = (a, b) => a.mtime - b.mtime || a.name.localeCompare(b.name);
+  for (const versions of byTurn.values()) versions.sort(order);
+  const turns = [...byTurn.values()].sort((a, b) => order(b.at(-1), a.at(-1))); // newest turn first
   let sent = 0;
-  for (const { name } of queued) {
+  for (const versions of turns) {
     const remaining = budgetMs - (now() - started);
     if (remaining < MIN_SEND_MS) break;
+    const chosen = versions.at(-1);
     let item;
     try {
-      item = JSON.parse(readFileSync(join(outboxDir, name), 'utf8'));
+      item = JSON.parse(readFileSync(join(outboxDir, chosen.name), 'utf8'));
     } catch {
       continue; // gone, or unreadable: never deleted unseen
     }
     if (send(item, Math.min(PER_SEND_MAX_MS, remaining))) {
-      rmSync(join(outboxDir, name), { force: true });
+      rmSync(join(outboxDir, chosen.name), { force: true });
+      for (const older of versions.slice(0, -1)) {
+        try {
+          JSON.parse(readFileSync(join(outboxDir, older.name), 'utf8'));
+          rmSync(join(outboxDir, older.name), { force: true });
+        } catch {
+          // gone already, or unreadable: never deleted unseen
+        }
+      }
       sent++;
     }
   }
-  return { sent, left: total - sent };
+  return { sent, left: safeList(outboxDir).length };
 }
 
 function recordExchange({ turnId, userText, assistantText }, timeoutMs) {

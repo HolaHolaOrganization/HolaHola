@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, renameSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 // @ts-expect-error -- plain ESM hook script without type declarations
@@ -191,15 +191,66 @@ test('a newer version queued during an in-flight send survives that send', () =>
   } finally { box.done(); }
 });
 
-test('only the newest version of a turn is sent; superseded versions are removed when a newer one is queued', () => {
+test('only the newest version of a turn is sent; superseded versions are removed after that send', () => {
   const box = outbox();
   try {
     queueExchange(box.dir, item('cc-s-1', 'v1'));
+    const t = Date.now() / 1000;
+    utimesSync(join(box.dir, files(box.dir)[0]), t - 10, t - 10);
     queueExchange(box.dir, item('cc-s-1', 'v2'));
-    assert.equal(files(box.dir).length, 1);
+    assert.equal(files(box.dir).length, 2); // a producer never deletes
     const sent: string[] = [];
     deliverOutbox({ outboxDir: box.dir, send: (i: { assistantText: string }) => { sent.push(i.assistantText); return true; } });
     assert.deepEqual(sent, ['v2']);
+    assert.deepEqual(files(box.dir), []);
+  } finally { box.done(); }
+});
+
+test('two producers interleaved (publish A, publish B, A resumes) leave both versions; the newest is sent', () => {
+  const box = outbox();
+  try {
+    let resumeA: (() => void) | null = null;
+    const pausingIo = {
+      writeFileSync,
+      renameSync: (from: string, to: string) => { renameSync(from, to); resumeA = () => {}; },
+    };
+    queueExchange(box.dir, item('cc-s-1', 'A'), pausingIo); // A published; any cleanup would run now
+    queueExchange(box.dir, item('cc-s-1', 'B')); // B published
+    assert.ok(resumeA);
+    queueExchange(box.dir, item('cc-s-1', 'A')); // A again (resumed or retried): an existing version is a no-op
+    assert.equal(files(box.dir).length, 2); // nothing pruned by producers
+    const sent: string[] = [];
+    deliverOutbox({ outboxDir: box.dir, send: (i: { assistantText: string }) => { sent.push(i.assistantText); return true; } });
+    assert.equal(sent.length, 1);
+    assert.deepEqual(files(box.dir), []);
+  } finally { box.done(); }
+});
+
+test('a version that keeps failing does not starve newer exchanges and stays for inspection', () => {
+  const box = outbox();
+  try {
+    queueExchange(box.dir, item('cc-s-old', 'rejected'));
+    const t = Date.now() / 1000;
+    utimesSync(join(box.dir, files(box.dir)[0]), t - 60, t - 60);
+    queueExchange(box.dir, item('cc-s-new', 'fresh'));
+    let clock = 0;
+    const sent: string[] = [];
+    const send = (i: { turnId: string }) => { clock += 18000; if (i.turnId === 'cc-s-old') return false; sent.push(i.turnId); return true; };
+    deliverOutbox({ outboxDir: box.dir, send, now: () => clock, budgetMs: 21000 });
+    assert.deepEqual(sent, ['cc-s-new']); // newest first: the stuck one could not use the budget first
+    assert.equal(files(box.dir).length, 1); // the failing version remains on disk
+  } finally { box.done(); }
+});
+
+test('an unreadable superseded version is not deleted when a newer one is sent', () => {
+  const box = outbox();
+  try {
+    writeFileSync(join(box.dir, 'cc-s-1.0000000000000000.json'), '{bad');
+    const t = Date.now() / 1000;
+    utimesSync(join(box.dir, 'cc-s-1.0000000000000000.json'), t - 10, t - 10);
+    queueExchange(box.dir, item('cc-s-1', 'good'));
+    deliverOutbox({ outboxDir: box.dir, send: () => true });
+    assert.deepEqual(files(box.dir), ['cc-s-1.0000000000000000.json']);
   } finally { box.done(); }
 });
 
