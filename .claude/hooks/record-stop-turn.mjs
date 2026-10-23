@@ -224,17 +224,37 @@ function main() {
       console.error('[record-stop-turn] could not queue', turnId, '(any earlier queued version is kept):', err instanceof Error ? err.message : err);
     }
   }
-  deliverOutbox({ outboxDir: OUTBOX_DIR, send: recordExchange });
+  deliverOutbox({ outboxDir: OUTBOX_DIR, rejectedDir: REJECTED_DIR, send: recordExchange });
+  reportRejected(REJECTED_DIR);
+}
+
+/**
+ * While any rejected version is unresolved, say so where the founder sees it:
+ * a Stop hook's JSON systemMessage is shown in the session, unlike its stderr.
+ */
+export function rejectedStatusMessage(rejectedDir) {
+  const count = safeList(rejectedDir).length;
+  if (!count) return null;
+  return `Turn recorder: ${count} exchange version(s) were rejected by the canonical record because it already holds different text for the same turn. They are kept, unrecorded, in .local/record-stop-turn/rejected for review.`;
+}
+
+function reportRejected(rejectedDir) {
+  const message = rejectedStatusMessage(rejectedDir);
+  if (message) process.stdout.write(JSON.stringify({ systemMessage: message }));
 }
 
 // Tests that run the real hook point this at a private temporary directory, so
 // their exchanges can never sit in a live checkout's outbox and be delivered.
 const OUTBOX_DIR = process.env.HOLAHOLA_STOP_HOOK_OUTBOX || join(PROJECT_ROOT, '.local', 'record-stop-turn', 'outbox');
+/** Versions the canonical record permanently rejected: kept, never retried, reported. */
+const REJECTED_DIR = join(dirname(OUTBOX_DIR), 'rejected');
 /** The registered Stop hook timeout is 25 s; leave room to exit cleanly. */
 const DELIVERY_BUDGET_MS = 21000;
 /** Below this, a send cannot complete in time, so it is left for the next Stop. */
 const MIN_SEND_MS = 4000;
 const PER_SEND_MAX_MS = 20000;
+/** Must match CHANGED_CONTENT_REJECTION_EXIT in server/scripts/record-exchange.ts. */
+const CHANGED_CONTENT_REJECTION_EXIT = 3;
 
 /** One file per exchange version: <turnId>.<content hash>.json. turnIds contain no dots. */
 function versionName(item) {
@@ -288,13 +308,19 @@ export function queueExchange(outboxDir, item, io = { writeFileSync, renameSync 
  * same turn that are strictly older than it (superseded). A version queued
  * after the one sent is never removed.
  *
+ * A version the server permanently rejects (send returns { rejected: reason }:
+ * it already holds different text under that turn id) is written, complete,
+ * to rejectedDir with its reason, and only after that write succeeds is it
+ * removed from the outbox, so it is never lost and never retried. Older
+ * versions of that turn stay queued. Any other failure leaves it pending.
+ *
  * Ownership: producers only add files; only drainers remove them. Any hook
  * process may drain; there is no lock. Two drainers can send the same version,
  * which is safe because the server treats a turn id it already holds with
  * identical content as a no-op. Files another process removes mid-drain are
  * skipped, never an uncaught failure.
  */
-export function deliverOutbox({ outboxDir, send, now = Date.now, budgetMs = DELIVERY_BUDGET_MS }) {
+export function deliverOutbox({ outboxDir, rejectedDir = join(dirname(outboxDir), 'rejected'), send, now = Date.now, budgetMs = DELIVERY_BUDGET_MS, io = { writeFileSync, renameSync } }) {
   const started = now();
   const byTurn = new Map(); // turnId -> versions, oldest first
   for (const name of safeList(outboxDir)) {
@@ -312,6 +338,7 @@ export function deliverOutbox({ outboxDir, send, now = Date.now, budgetMs = DELI
   for (const versions of byTurn.values()) versions.sort(order);
   const turns = [...byTurn.values()].sort((a, b) => order(b.at(-1), a.at(-1))); // newest turn first
   let sent = 0;
+  let rejected = 0;
   for (const versions of turns) {
     const remaining = budgetMs - (now() - started);
     if (remaining < MIN_SEND_MS) break;
@@ -322,7 +349,15 @@ export function deliverOutbox({ outboxDir, send, now = Date.now, budgetMs = DELI
     } catch {
       continue; // gone, or unreadable: never deleted unseen
     }
-    if (send(item, Math.min(PER_SEND_MAX_MS, remaining))) {
+    const result = send(item, Math.min(PER_SEND_MAX_MS, remaining));
+    if (result && typeof result === 'object' && typeof result.rejected === 'string') {
+      if (retainRejected(rejectedDir, chosen.name, item, result.rejected, io)) {
+        rmSync(join(outboxDir, chosen.name), { force: true });
+        rejected++;
+      }
+      continue;
+    }
+    if (result === true) {
       rmSync(join(outboxDir, chosen.name), { force: true });
       for (const older of versions.slice(0, -1)) {
         try {
@@ -335,7 +370,29 @@ export function deliverOutbox({ outboxDir, send, now = Date.now, budgetMs = DELI
       sent++;
     }
   }
-  return { sent, left: safeList(outboxDir).length };
+  return { sent, left: safeList(outboxDir).length, rejected };
+}
+
+/**
+ * Keeps a rejected version complete, with the server's reason, under its own
+ * version name. Returns true only once the file is in place; any failure
+ * leaves the outbox copy as the pending original.
+ */
+function retainRejected(rejectedDir, name, item, reason, io) {
+  const finalPath = join(rejectedDir, name);
+  const tmpPath = join(rejectedDir, `${name}.${process.pid}.${Date.now()}.tmp`);
+  try {
+    mkdirSync(rejectedDir, { recursive: true });
+    if (!existsSync(finalPath)) {
+      io.writeFileSync(tmpPath, JSON.stringify({ ...item, rejectedAt: new Date().toISOString(), reason }), 'utf8');
+      io.renameSync(tmpPath, finalPath);
+    }
+    return true;
+  } catch (err) {
+    rmSync(tmpPath, { force: true });
+    console.error('[record-stop-turn] could not keep rejected version', name, '(left pending):', err instanceof Error ? err.message : err);
+    return false;
+  }
 }
 
 function recordExchange({ turnId, userText, assistantText }, timeoutMs) {
@@ -363,6 +420,14 @@ function recordExchange({ turnId, userText, assistantText }, timeoutMs) {
     ],
     { cwd: PROJECT_ROOT, encoding: 'utf8', timeout: timeoutMs, shell: true },
   );
+  // Exit 3 is record-exchange's one permanent outcome: the canonical record
+  // already holds different text under this turn id. Everything else (auth,
+  // network, busy, timeout, unknown) stays pending for the next Stop.
+  if (result.status === CHANGED_CONTENT_REJECTION_EXIT) {
+    const reason = /already has different (?:user|assistant) text/.exec(result.stderr || '')?.[0] ?? 'changed content under an existing turn id';
+    console.error('[record-stop-turn] canonical record rejected', turnId, '(kept in rejected/):', reason);
+    return { rejected: reason };
+  }
   if (result.status !== 0) {
     console.error('[record-stop-turn] record-exchange failed (kept for the next Stop):', result.stderr || result.stdout || `exit ${result.status}`);
     return false;

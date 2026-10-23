@@ -135,9 +135,9 @@ test('delivery stays within one deadline; what is not sent stays queued and goes
     queueExchange(box.dir, item('cc-s-2', 'A2'));
     let clock = 0;
     const first = deliverOutbox({ outboxDir: box.dir, send: () => { clock += 18000; return true; }, now: () => clock, budgetMs: 21000 });
-    assert.deepEqual(first, { sent: 1, left: 1 });
+    assert.deepEqual(first, { sent: 1, left: 1, rejected: 0 });
     clock = 0;
-    assert.deepEqual(deliverOutbox({ outboxDir: box.dir, send: () => true, now: () => clock, budgetMs: 21000 }), { sent: 1, left: 0 });
+    assert.deepEqual(deliverOutbox({ outboxDir: box.dir, send: () => true, now: () => clock, budgetMs: 21000 }), { sent: 1, left: 0, rejected: 0 });
     assert.deepEqual(files(box.dir), []);
   } finally { box.done(); }
 });
@@ -149,9 +149,9 @@ test('a failed send keeps the exchange queued, the next one is still attempted, 
     queueExchange(box.dir, item('cc-s-2', 'A2'));
     const seen: string[] = [];
     const flaky = (i: { turnId: string }) => { seen.push(i.turnId); return i.turnId !== 'cc-s-1'; };
-    assert.deepEqual(deliverOutbox({ outboxDir: box.dir, send: flaky }), { sent: 1, left: 1 });
+    assert.deepEqual(deliverOutbox({ outboxDir: box.dir, send: flaky }), { sent: 1, left: 1, rejected: 0 });
     assert.deepEqual(seen.sort(), ['cc-s-1', 'cc-s-2']);
-    assert.deepEqual(deliverOutbox({ outboxDir: box.dir, send: () => true }), { sent: 1, left: 0 });
+    assert.deepEqual(deliverOutbox({ outboxDir: box.dir, send: () => true }), { sent: 1, left: 0, rejected: 0 });
   } finally { box.done(); }
 });
 
@@ -279,13 +279,13 @@ test('an unreadable outbox file is left in place, never deleted unseen', () => {
   const box = outbox();
   try {
     writeFileSync(join(box.dir, 'cc-s-bad.0000000000000000.json'), '{not json');
-    assert.deepEqual(deliverOutbox({ outboxDir: box.dir, send: () => true }), { sent: 0, left: 1 });
+    assert.deepEqual(deliverOutbox({ outboxDir: box.dir, send: () => true }), { sent: 0, left: 1, rejected: 0 });
     assert.ok(existsSync(join(box.dir, 'cc-s-bad.0000000000000000.json')));
   } finally { box.done(); }
 });
 
 test('a missing outbox directory is nothing to deliver', () => {
-  assert.deepEqual(deliverOutbox({ outboxDir: join(tmpdir(), 'no-such-outbox-dir-xyz'), send: () => true }), { sent: 0, left: 0 });
+  assert.deepEqual(deliverOutbox({ outboxDir: join(tmpdir(), 'no-such-outbox-dir-xyz'), send: () => true }), { sent: 0, left: 0, rejected: 0 });
 });
 
 // --- Runtime-opened turns (PR #81 on top of the absorbed-message recorder) ---
