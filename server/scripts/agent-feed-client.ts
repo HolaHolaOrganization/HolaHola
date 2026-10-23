@@ -70,11 +70,19 @@ export function renderBootstrap(result: { items?: FeedItem[]; morePending?: bool
 }
 
 /**
- * Marks the end of a complete output block on stdout. The hook forwards a block
- * only once this marker has arrived, and forwards it even if the client fails
- * or times out afterwards, so anything acknowledged has always been delivered.
+ * Output framing. Each block goes to stdout as one line: this prefix, then the
+ * block as a JSON string. JSON escapes every newline in the block, so arbitrary
+ * source text (even text containing the prefix) can never end or forge a frame.
+ * The hook forwards only complete, newline-terminated frames, and forwards them
+ * even if the client fails or times out afterwards; the client acknowledges a
+ * receipt only after its frame was written, so anything acknowledged was delivered.
  */
-export const OUTPUT_END = '[[agent-feed:end]]';
+export const FRAME_PREFIX = '[[agent-feed:frame]]';
+
+/** One block as one stdout line. Pure. */
+export function frame(text: string): string {
+  return `${FRAME_PREFIX}${JSON.stringify(text)}\n`;
+}
 
 export type Print = (text: string) => void | Promise<void>;
 
@@ -136,9 +144,9 @@ async function main(): Promise<void> {
     if (!res.ok) throw new Error(`${path} returned ${res.status}: ${text.slice(0, 200)}`);
     return JSON.parse(text);
   };
-  // Writes the whole block and its end marker, and resolves only once the pipe
-  // has taken them, before any acknowledgement is sent.
-  const print: Print = (text) => new Promise<void>((done) => { process.stdout.write(`${text}\n${OUTPUT_END}\n`, () => done()); });
+  // Writes the whole block as one frame, and resolves only once the pipe has
+  // taken it, before any acknowledgement is sent.
+  const print: Print = (text) => new Promise<void>((done) => { process.stdout.write(frame(text), () => done()); });
   if (command === 'session-start') await sessionStart(transport, sessionId, print);
   else await promptNotice(transport, sessionId, print);
 }

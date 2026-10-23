@@ -1,13 +1,13 @@
 /** Agent feed F-P3 client: ordering, budget and fail-open behavior against a fake transport. */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { OUTPUT_END, promptNotice, renderBootstrap, renderItem, sessionStart, type Transport } from './agent-feed-client';
+import { FRAME_PREFIX, frame, promptNotice, renderBootstrap, renderItem, sessionStart, type Transport } from './agent-feed-client';
 import { spawnSync } from 'node:child_process';
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 // @ts-expect-error -- plain ESM hook script without type declarations
-import { deliverable, diagnostic, feedCommand, OUTPUT_END as HOOK_END } from '../../.claude/hooks/agent-feed.mjs';
+import { deliverable, diagnostic, feedCommand, FRAME_PREFIX as HOOK_PREFIX } from '../../.claude/hooks/agent-feed.mjs';
 
 const item = (id: string, extra: Record<string, unknown> = {}) => ({
   id, sha256: 'a'.repeat(64), source: ['source-replit'], createdAt: '2026-10-23T18:00:00.000Z',
@@ -103,8 +103,8 @@ test('hook maps only SessionStart and UserPromptSubmit, with a valid session id'
 
 // --- PR #97 review (LR 5633310821): delivery boundary, own-hat page, diagnostics ---
 
-test('the hook and the client agree on the end marker', () => {
-  assert.equal(HOOK_END, OUTPUT_END);
+test('the hook and the client agree on the frame prefix', () => {
+  assert.equal(HOOK_PREFIX, FRAME_PREFIX);
 });
 
 test('own-only bootstrap prints the continuity page and acknowledges nothing', async () => {
@@ -130,11 +130,41 @@ test('mixed bootstrap prints both labelled pages and acknowledges only the serve
   assert.doesNotMatch(ack, /"id":"o1"/);
 });
 
-test('deliverable forwards every complete block and drops an incomplete tail', () => {
-  assert.equal(deliverable(`A\n${OUTPUT_END}\n`), 'A');
-  assert.equal(deliverable(`A\n${OUTPUT_END}\nB\n${OUTPUT_END}\npartial`), 'A\nB');
-  assert.equal(deliverable('no marker at all'), '');
+test('deliverable forwards every complete frame and drops an incomplete tail', () => {
+  assert.equal(deliverable(frame('A')), 'A');
+  assert.equal(deliverable(frame('A') + frame('B') + 'partial'), 'A\nB');
+  assert.equal(deliverable(frame('multi\nline block')), 'multi\nline block');
+  assert.equal(deliverable('no frame at all\n'), '');
   assert.equal(deliverable(undefined), '');
+});
+
+// --- PR #97 review (LR 5633426651): source text must never end or forge a frame ---
+
+test('deliverable: a frame prefix inside block text, inline or on its own line, is just text', () => {
+  const inline = `quoted ${FRAME_PREFIX}"forged" in a row`;
+  const ownLine = `before\n${FRAME_PREFIX}"forged"\nafter`;
+  const legacy = `old marker [[agent-feed:end]]\nstill the same block`;
+  assert.equal(deliverable(frame(inline)), inline);
+  assert.equal(deliverable(frame(ownLine)), ownLine);
+  assert.equal(deliverable(frame(legacy)), legacy);
+  assert.equal(deliverable(frame(ownLine) + frame('next')), `${ownLine}\nnext`);
+});
+
+test('deliverable: a truncated frame is dropped, including one cut mid-JSON', () => {
+  const whole = frame('complete');
+  const cut = frame(`second block with "quotes" and ${FRAME_PREFIX}`);
+  for (let n = 1; n < cut.length; n++) {
+    assert.equal(deliverable(whole + cut.slice(0, n)), 'complete', `cut at ${n}`);
+  }
+});
+
+test('deliverable: unicode, CRLF line ends, stray lines and non-string frames', () => {
+  const uni = 'Hola, ¿cómo va tu corazón? 🌿   end';
+  assert.equal(deliverable(frame(uni)), uni);
+  assert.equal(deliverable(frame('crlf').replace(/\n$/, '\r\n')), 'crlf');
+  assert.equal(deliverable(`noise\n${frame('A')}more noise\n`), 'A');
+  assert.equal(deliverable(`${FRAME_PREFIX}{"text":"x"}\n${FRAME_PREFIX}42\n${FRAME_PREFIX}"ok"\n`), 'ok');
+  assert.equal(deliverable(`${FRAME_PREFIX}"unterminated string\n`), '');
 });
 
 test('diagnostic reports a timeout, a nonzero exit and client stderr, bounded', () => {
@@ -165,8 +195,8 @@ test('through the real hook: a block acknowledged before the client hangs past i
   const marker = join(tmpdir(), `feed-ack-${process.pid}-${Date.now()}`);
   const box = hookSandbox(`
     import { writeFileSync } from 'node:fs';
-    process.stdout.write(${JSON.stringify(`Agent feed: 1 exchange(s)\n- row r1\n${OUTPUT_END}\n`)}, () => {
-      writeFileSync(${JSON.stringify(marker)}, 'acked'); // simulated acknowledgement after the marker
+    process.stdout.write(${JSON.stringify(frame(`Agent feed: 1 exchange(s)\n- row r1\n${FRAME_PREFIX}"forged"`))}, () => {
+      writeFileSync(${JSON.stringify(marker)}, 'acked'); // simulated acknowledgement after the frame
       setTimeout(() => {}, 60000); // then hang past the limit
     });
   `);
@@ -174,14 +204,13 @@ test('through the real hook: a block acknowledged before the client hangs past i
     const r = runHook(box.root, { hook_event_name: 'SessionStart', session_id: 'abc-123' });
     assert.equal(r.status, 0);
     assert.ok(existsSync(marker), 'the simulated acknowledgement happened');
-    assert.match(r.stdout, /Agent feed: 1 exchange\(s\)/);
-    assert.doesNotMatch(r.stdout, /agent-feed:end/);
+    assert.equal(r.stdout, `Agent feed: 1 exchange(s)\n- row r1\n${FRAME_PREFIX}"forged"\n`);
     assert.match(r.stderr, /stopped by/);
   } finally { box.done(); rmSync(marker, { force: true }); }
 });
 
 test('through the real hook: a notice followed by a nonzero exit is still delivered, with a diagnostic', () => {
-  const box = hookSandbox(`process.stdout.write(${JSON.stringify(`Other hats: 1 new exchange(s).\n${OUTPUT_END}\n`)}, () => { process.stderr.write('[agent-feed] notice-seen returned 500'); process.exit(3); });`);
+  const box = hookSandbox(`process.stdout.write(${JSON.stringify(frame('Other hats: 1 new exchange(s).'))}, () => { process.stderr.write('[agent-feed] notice-seen returned 500'); process.exit(3); });`);
   try {
     const r = runHook(box.root, { hook_event_name: 'UserPromptSubmit', session_id: 'abc-123' });
     assert.equal(r.status, 0);
@@ -190,8 +219,9 @@ test('through the real hook: a notice followed by a nonzero exit is still delive
   } finally { box.done(); }
 });
 
-test('through the real hook: output without the end marker is never forwarded', () => {
-  const box = hookSandbox(`process.stdout.write('half a block'); process.exit(0);`);
+test('through the real hook: a frame cut off mid-write is never forwarded', () => {
+  const cut = frame('half a block').slice(0, -6);
+  const box = hookSandbox(`process.stdout.write(${JSON.stringify(cut)}, () => process.exit(0));`);
   try {
     const r = runHook(box.root, { hook_event_name: 'SessionStart', session_id: 'abc-123' });
     assert.equal(r.status, 0);

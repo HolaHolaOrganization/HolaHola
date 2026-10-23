@@ -11,8 +11,8 @@
  * timeout of at least 12 s) and the actor's one-time enrollment need the
  * founder's explicit go-ahead.
  *
- * Delivery boundary: the client writes each complete block followed by an end
- * marker, and acknowledges a receipt only after that. This hook forwards every
+ * Delivery boundary: the client writes each complete block as one JSON frame
+ * line, and acknowledges a receipt only after that. This hook forwards every
  * complete block it received even if the client later fails or times out, so
  * an acknowledged item has always reached the session. An unacknowledged item
  * may be shown again later (a duplicate), never lost.
@@ -45,8 +45,8 @@ export function feedCommand(input, root = PROJECT_ROOT) {
   };
 }
 
-/** Must match OUTPUT_END in server/scripts/agent-feed-client.ts. */
-export const OUTPUT_END = '[[agent-feed:end]]';
+/** Must match FRAME_PREFIX in server/scripts/agent-feed-client.ts. */
+export const FRAME_PREFIX = '[[agent-feed:frame]]';
 /**
  * The client's time limit. The hook's registered timeout must exceed it (12 s
  * or more). Tests may lower it through AGENT_FEED_CHILD_TIMEOUT_MS, clamped to
@@ -55,17 +55,28 @@ export const OUTPUT_END = '[[agent-feed:end]]';
 export const CHILD_TIMEOUT_MS = Math.min(9000, Math.max(1000, Number(process.env.AGENT_FEED_CHILD_TIMEOUT_MS) || 9000));
 
 /**
- * The context to forward: every complete block the client wrote, whatever
- * happened afterwards (a later failure, a nonzero exit, a timeout). A block
- * counts only once its end marker arrived, because the client acknowledges a
- * receipt only after writing that marker. Text after the last marker is an
- * incomplete block and is dropped.
+ * The context to forward: every complete frame the client wrote, whatever
+ * happened afterwards (a later failure, a nonzero exit, a timeout). A frame is
+ * one newline-terminated line: FRAME_PREFIX, then the block as a JSON string.
+ * The client acknowledges a receipt only after its frame was written. The
+ * unterminated tail, any line that is not a frame, and any frame that does not
+ * parse as a JSON string are dropped, so a truncated block is never forwarded
+ * and text inside a block can never end or forge one.
  */
 export function deliverable(stdout) {
   if (typeof stdout !== 'string') return '';
-  const end = stdout.lastIndexOf(OUTPUT_END);
-  if (end < 0) return '';
-  return stdout.slice(0, end).split(`${OUTPUT_END}\n`).join('').replace(/\s+$/, '');
+  const lines = stdout.split('\n');
+  lines.pop(); // unterminated (possibly empty) tail
+  const blocks = [];
+  for (const raw of lines) {
+    const line = raw.endsWith('\r') ? raw.slice(0, -1) : raw;
+    if (!line.startsWith(FRAME_PREFIX)) continue;
+    try {
+      const text = JSON.parse(line.slice(FRAME_PREFIX.length));
+      if (typeof text === 'string' && text) blocks.push(text);
+    } catch { /* not a complete frame */ }
+  }
+  return blocks.join('\n');
 }
 
 /** One bounded diagnostic line for the hook's stderr, or '' when the client ran cleanly. */
