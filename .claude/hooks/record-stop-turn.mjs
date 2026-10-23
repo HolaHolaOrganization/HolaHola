@@ -29,6 +29,7 @@ import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
+import { classifyUserEntry, hasProvenanceFields } from './runtime-entries.mjs';
 
 // .claude/hooks/record-stop-turn.mjs -> project root is two levels up.
 const PROJECT_ROOT = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
@@ -50,14 +51,20 @@ const COMPACTION_SUMMARY_PREFIX = 'This session is being continued from a previo
 
 function isRealUserMessage(entry) {
   if (!entry || entry.type !== 'user') return false;
+  // The transcript marks the re-injected summary itself (isCompactSummary).
+  // The text prefix is only a fallback for entries with no provenance fields,
+  // so a founder message that happens to quote that sentence is still kept.
+  if (entry.isCompactSummary === true) return false;
+  const byPrefix = !hasProvenanceFields(entry);
+  const isSummaryText = text => byPrefix && text.startsWith(COMPACTION_SUMMARY_PREFIX);
   const content = entry.message?.content;
   if (typeof content === 'string') {
     const trimmed = content.trim();
-    return trimmed.length > 0 && !trimmed.startsWith(COMPACTION_SUMMARY_PREFIX);
+    return trimmed.length > 0 && !isSummaryText(trimmed);
   }
   if (Array.isArray(content)) {
     return content.some(block => block && block.type === 'text' && block.text?.trim()
-      && !block.text.trim().startsWith(COMPACTION_SUMMARY_PREFIX));
+      && !isSummaryText(block.text.trim()));
   }
   return false;
 }
@@ -88,9 +95,13 @@ function hasAssistantText(entry) {
  * text between, so they open its exchange, under the opening message's
  * existing id. An exchange still without assistant text is not returned.
  *
- * Limitation: the opening message is the last user entry with text, so a
- * runtime notice shaped as a user entry can still become the anchor and hide
- * an absorbed message before it. Notice attribution is out of this change's scope.
+ * Authorship comes from the transcript's provenance (runtime-entries.mjs). A
+ * turn the runtime opened (a task notice, a system reminder, a scheduled task,
+ * the classifier notice, a slash-command record) has no words of David's, so
+ * its opening entry is never recorded as his. Its reply is recorded only with
+ * David's messages still unanswered before it (they own the open exchange), and
+ * otherwise stays in the transcript only. David's messages absorbed after it
+ * are still recorded as their own exchanges.
  */
 export function exchangesForStop(entries) {
   let lastUserIdx = -1;
@@ -102,17 +113,41 @@ export function exchangesForStop(entries) {
   }
   if (lastUserIdx === -1) return [];
 
+  // A runtime metadata entry (isMeta) written right after a founder message,
+  // before any reply text, belongs to that message: an attached image's
+  // "[Image: source: ...]" entry, for example. Without this the hook recorded
+  // the image path as David and dropped the founder's actual words. Once reply
+  // text has started, a metadata entry is not folded back: re-selecting the
+  // earlier message would resend an already-recorded turn with a different
+  // reply, so the metadata entry stays the turn's start and is not recorded.
+  if (entries[lastUserIdx].isMeta === true) {
+    let j = lastUserIdx - 1;
+    while (j >= 0 && !(isRealUserMessage(entries[j]) && entries[j].isMeta !== true)) {
+      if (hasAssistantText(entries[j])) { j = -1; break; }
+      j--;
+    }
+    if (j >= 0) lastUserIdx = j;
+  }
+  const author = classifyUserEntry(entries[lastUserIdx]);
+  if (!author.founder) {
+    console.error(`[record-stop-turn] turn was started by the runtime (${author.basis}), not by David; its opening entry is not recorded`);
+  }
+
   // David's messages still unanswered when this turn opened: every absorbed
   // prompt and every explicitly human user message back to the previous
   // assistant text, however many earlier turns opened and ended without a
   // reply. None of them was returned before, because an exchange without
   // assistant text never is. Runtime-shaped user entries (notices, entries
-  // without provenance) are skipped: never carried into David's words.
+  // without provenance) are skipped: never carried into David's words. So is
+  // runtime material (isMeta, isCompactSummary) even when it names origin
+  // human: classifyUserEntry's precedence applies here as it does to the anchor.
   const carried = [];
   for (let i = lastUserIdx - 1; i >= 0; i--) {
     if (hasAssistantText(entries[i])) break;
     if (isAbsorbedHumanPrompt(entries[i])) carried.unshift(extractText(entries[i].attachment.prompt).trim());
-    else if (isRealUserMessage(entries[i]) && entries[i].origin?.kind === 'human') carried.unshift(extractText(entries[i].message?.content).trim());
+    else if (isRealUserMessage(entries[i]) && entries[i].origin?.kind === 'human' && classifyUserEntry(entries[i]).founder) {
+      carried.unshift(extractText(entries[i].message?.content).trim());
+    }
   }
 
   const starts = [lastUserIdx];
@@ -125,8 +160,10 @@ export function exchangesForStop(entries) {
   starts.forEach((start, k) => {
     const end = k + 1 < starts.length ? starts[k + 1] : entries.length;
     const source = start === lastUserIdx ? entries[start].message?.content : entries[start].attachment.prompt;
-    const text = extractText(source).trim();
-    pending = pending ?? { index: start, texts: [] };
+    const text = start === lastUserIdx && !author.founder ? '' : extractText(source).trim();
+    // A runtime-opened turn with nothing unanswered leaves an empty pending
+    // exchange; the next message of David's starts its own, under its own id.
+    pending = pending?.texts.length ? pending : { index: start, texts: [] };
     if (text) pending.texts.push(text);
     const assistantText = entries
       .slice(start + 1, end)
@@ -190,7 +227,9 @@ function main() {
   deliverOutbox({ outboxDir: OUTBOX_DIR, send: recordExchange });
 }
 
-const OUTBOX_DIR = join(PROJECT_ROOT, '.local', 'record-stop-turn', 'outbox');
+// Tests that run the real hook point this at a private temporary directory, so
+// their exchanges can never sit in a live checkout's outbox and be delivered.
+const OUTBOX_DIR = process.env.HOLAHOLA_STOP_HOOK_OUTBOX || join(PROJECT_ROOT, '.local', 'record-stop-turn', 'outbox');
 /** The registered Stop hook timeout is 25 s; leave room to exit cleanly. */
 const DELIVERY_BUDGET_MS = 21000;
 /** Below this, a send cannot complete in time, so it is left for the next Stop. */
