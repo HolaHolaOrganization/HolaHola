@@ -44,39 +44,68 @@ export function renderItem(item: FeedItem): string {
   return `- ${label(item.source)}, ${item.createdAt.slice(0, 16)}Z, row ${item.id}${changed}\n${item.excerpt}${clip}`;
 }
 
-/** The session-start context block, or '' when there is nothing to show. Pure. */
-export function renderBootstrap(result: { items?: FeedItem[]; morePending?: boolean }): string {
+/**
+ * The session-start context block, or '' when there is nothing to show. Pure.
+ * Two bounded, separately labelled pages: other hats' pending exchanges, and
+ * this hat's own most recent prior-session exchanges (continuity, lookup only).
+ */
+export function renderBootstrap(result: { items?: FeedItem[]; morePending?: boolean; ownRecent?: FeedItem[] }): string {
   const items = result.items ?? [];
-  if (items.length === 0) return '';
-  const more = result.morePending ? '\nMore is pending: it arrives through notices or a catch-up page.' : '';
-  return [
-    `Agent feed: ${items.length} exchange(s) from other hats since you last read the record (oldest first). Excerpts only; fetch a full row by id.`,
-    ...items.map(renderItem),
-  ].join('\n') + more;
+  const own = result.ownRecent ?? [];
+  const sections: string[] = [];
+  if (items.length) {
+    const more = result.morePending ? '\nMore is pending: it arrives through notices or a catch-up page.' : '';
+    sections.push([
+      `Agent feed: ${items.length} exchange(s) from other hats since you last read the record (oldest first). Excerpts only; fetch a full row by id.`,
+      ...items.map(renderItem),
+    ].join('\n') + more);
+  }
+  if (own.length) {
+    sections.push([
+      `Your own most recent exchanges from earlier sessions (${own.length}, oldest first), for continuity. Excerpts only.`,
+      ...own.map(renderItem),
+    ].join('\n'));
+  }
+  return sections.join('\n\n');
 }
+
+/**
+ * Marks the end of a complete output block on stdout. The hook forwards a block
+ * only once this marker has arrived, and forwards it even if the client fails
+ * or times out afterwards, so anything acknowledged has always been delivered.
+ */
+export const OUTPUT_END = '[[agent-feed:end]]';
+
+export type Print = (text: string) => void | Promise<void>;
 
 function servedItems(items: FeedItem[]): Array<{ itemKind: 'canonical'; id: string; sha256: string }> {
   return items.map((i) => ({ itemKind: 'canonical', id: i.id, sha256: i.sha256 }));
 }
 
-/** Session start: register, bootstrap once, print, then acknowledge what was printed. */
-export async function sessionStart(transport: Transport, sessionId: string, print: (text: string) => void): Promise<void> {
+/**
+ * Session start: register, bootstrap once, print the complete block, then
+ * acknowledge only the other-hat items that bootstrap served. Own-hat rows are
+ * lookup only (not in the served manifest), so they are never acknowledged.
+ */
+export async function sessionStart(transport: Transport, sessionId: string, print: Print): Promise<void> {
   const { registrationId } = await transport('register', { runtimeSessionId: sessionId });
-  const result = await transport('bootstrap', { registrationId }) as { servedId?: string; items?: FeedItem[]; morePending?: boolean };
+  const result = await transport('bootstrap', { registrationId }) as { servedId?: string; items?: FeedItem[]; morePending?: boolean; ownRecent?: FeedItem[] };
   const text = renderBootstrap(result);
   if (!text) return;
-  print(text);
-  await transport('ack', { registrationId, servedId: result.servedId, items: servedItems(result.items ?? []) });
+  await print(text);
+  if ((result.items ?? []).length) {
+    await transport('ack', { registrationId, servedId: result.servedId, items: servedItems(result.items ?? []) });
+  }
 }
 
 /** Before a prompt: only when something unseen is pending, take one notice, print it, then record it seen. */
-export async function promptNotice(transport: Transport, sessionId: string, print: (text: string) => void): Promise<void> {
+export async function promptNotice(transport: Transport, sessionId: string, print: Print): Promise<void> {
   const { registrationId } = await transport('register', { runtimeSessionId: sessionId });
   const peeked = await transport('peek', { registrationId }) as { manifest?: unknown[]; attemptsLeft?: number };
   if (!peeked.manifest?.length || !peeked.attemptsLeft) return;
   const notice = await transport('notice', { registrationId }) as { attemptId?: string | null; body?: string | null };
   if (!notice.attemptId || !notice.body) return;
-  print(notice.body);
+  await print(notice.body);
   await transport('notice-seen', { registrationId, attemptId: notice.attemptId });
 }
 
@@ -107,7 +136,9 @@ async function main(): Promise<void> {
     if (!res.ok) throw new Error(`${path} returned ${res.status}: ${text.slice(0, 200)}`);
     return JSON.parse(text);
   };
-  const print = (text: string) => process.stdout.write(`${text}\n`);
+  // Writes the whole block and its end marker, and resolves only once the pipe
+  // has taken them, before any acknowledgement is sent.
+  const print: Print = (text) => new Promise<void>((done) => { process.stdout.write(`${text}\n${OUTPUT_END}\n`, () => done()); });
   if (command === 'session-start') await sessionStart(transport, sessionId, print);
   else await promptNotice(transport, sessionId, print);
 }

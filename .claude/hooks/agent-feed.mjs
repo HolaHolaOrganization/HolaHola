@@ -7,9 +7,16 @@
  * client and passes the client's stdout through, which Claude Code adds to the
  * session context.
  *
- * NOT REGISTERED in any settings file by this change. Registering it, and the
- * actor's one-time enrollment, need the founder's explicit go-ahead.
- * Any error fails open: nothing is printed and the exit code is 0.
+ * NOT REGISTERED in any settings file by this change. Registering it (with a
+ * timeout of at least 12 s) and the actor's one-time enrollment need the
+ * founder's explicit go-ahead.
+ *
+ * Delivery boundary: the client writes each complete block followed by an end
+ * marker, and acknowledges a receipt only after that. This hook forwards every
+ * complete block it received even if the client later fails or times out, so
+ * an acknowledged item has always reached the session. An unacknowledged item
+ * may be shown again later (a duplicate), never lost.
+ * Errors exit 0 with one bounded line on stderr; no feed context goes to stderr.
  */
 import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
@@ -38,13 +45,56 @@ export function feedCommand(input, root = PROJECT_ROOT) {
   };
 }
 
+/** Must match OUTPUT_END in server/scripts/agent-feed-client.ts. */
+export const OUTPUT_END = '[[agent-feed:end]]';
+/**
+ * The client's time limit. The hook's registered timeout must exceed it (12 s
+ * or more). Tests may lower it through AGENT_FEED_CHILD_TIMEOUT_MS, clamped to
+ * 1 to 9 seconds, so it can never be raised past the hook's own budget.
+ */
+export const CHILD_TIMEOUT_MS = Math.min(9000, Math.max(1000, Number(process.env.AGENT_FEED_CHILD_TIMEOUT_MS) || 9000));
+
+/**
+ * The context to forward: every complete block the client wrote, whatever
+ * happened afterwards (a later failure, a nonzero exit, a timeout). A block
+ * counts only once its end marker arrived, because the client acknowledges a
+ * receipt only after writing that marker. Text after the last marker is an
+ * incomplete block and is dropped.
+ */
+export function deliverable(stdout) {
+  if (typeof stdout !== 'string') return '';
+  const end = stdout.lastIndexOf(OUTPUT_END);
+  if (end < 0) return '';
+  return stdout.slice(0, end).split(`${OUTPUT_END}\n`).join('').replace(/\s+$/, '');
+}
+
+/** One bounded diagnostic line for the hook's stderr, or '' when the client ran cleanly. */
+export function diagnostic(result) {
+  const parts = [];
+  if (result?.error) parts.push(`client could not run: ${result.error.code ?? result.error.message}`);
+  if (result?.signal) parts.push(`client stopped by ${result.signal} (time limit ${CHILD_TIMEOUT_MS} ms)`);
+  else if (typeof result?.status === 'number' && result.status !== 0) parts.push(`client exited ${result.status}`);
+  const stderr = typeof result?.stderr === 'string' ? result.stderr.trim() : '';
+  if (stderr) parts.push(stderr.replace(/\s+/g, ' '));
+  const line = parts.join('; ');
+  return line ? `[agent-feed] ${line.slice(0, 500)}` : '';
+}
+
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+  let out = '';
+  let err = '';
   try {
     const cmd = feedCommand(JSON.parse(readFileSync(0, 'utf8') || '{}'));
     if (cmd) {
-      const result = spawnSync(cmd.command, cmd.args, { cwd: cmd.cwd, encoding: 'utf8', timeout: 9000, windowsHide: true });
-      if (result.status === 0 && result.stdout) process.stdout.write(result.stdout);
+      const result = spawnSync(cmd.command, cmd.args, { cwd: cmd.cwd, encoding: 'utf8', timeout: CHILD_TIMEOUT_MS, windowsHide: true });
+      out = deliverable(result.stdout);
+      err = diagnostic(result);
     }
-  } catch { /* fail open */ }
-  process.exit(0);
+  } catch (e) {
+    err = `[agent-feed] hook error: ${e instanceof Error ? e.message : String(e)}`.slice(0, 500);
+  }
+  if (err) process.stderr.write(`${err}\n`);
+  // Exit only after stdout has taken the context, so it is never cut off.
+  if (out) process.stdout.write(`${out}\n`, () => process.exit(0));
+  else process.exit(0);
 }

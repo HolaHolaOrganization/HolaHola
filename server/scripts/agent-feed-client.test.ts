@@ -1,9 +1,13 @@
 /** Agent feed F-P3 client: ordering, budget and fail-open behavior against a fake transport. */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { promptNotice, renderBootstrap, renderItem, sessionStart, type Transport } from './agent-feed-client';
+import { OUTPUT_END, promptNotice, renderBootstrap, renderItem, sessionStart, type Transport } from './agent-feed-client';
+import { spawnSync } from 'node:child_process';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 // @ts-expect-error -- plain ESM hook script without type declarations
-import { feedCommand } from '../../.claude/hooks/agent-feed.mjs';
+import { deliverable, diagnostic, feedCommand, OUTPUT_END as HOOK_END } from '../../.claude/hooks/agent-feed.mjs';
 
 const item = (id: string, extra: Record<string, unknown> = {}) => ({
   id, sha256: 'a'.repeat(64), source: ['source-replit'], createdAt: '2026-10-23T18:00:00.000Z',
@@ -95,4 +99,112 @@ test('hook maps only SessionStart and UserPromptSubmit, with a valid session id'
   assert.equal(feedCommand({ hook_event_name: 'Stop', session_id: 'abc-123' }, '/r'), null);
   assert.equal(feedCommand({ hook_event_name: 'SessionStart', session_id: 'bad id!' }, '/r'), null);
   assert.equal(feedCommand(null, '/r'), null);
+});
+
+// --- PR #97 review (LR 5633310821): delivery boundary, own-hat page, diagnostics ---
+
+test('the hook and the client agree on the end marker', () => {
+  assert.equal(HOOK_END, OUTPUT_END);
+});
+
+test('own-only bootstrap prints the continuity page and acknowledges nothing', async () => {
+  const f = fake({ register: { registrationId: 'reg1' }, bootstrap: { servedId: 's1', items: [], ownRecent: [item('o1', { source: ['source-claude-code'] })] } });
+  await sessionStart(f.transport, 'sess', f.print);
+  const printed = f.log.find((l) => l.startsWith('print:')) ?? '';
+  assert.match(printed, /Your own most recent exchanges from earlier sessions \(1/);
+  assert.match(printed, /Luca \[Claude Code\]/);
+  assert.ok(!f.log.some((l) => l.startsWith('call:ack')));
+});
+
+test('mixed bootstrap prints both labelled pages and acknowledges only the served other-hat items', async () => {
+  const f = fake({
+    register: { registrationId: 'reg1' },
+    bootstrap: { servedId: 's1', items: [item('r1')], ownRecent: [item('o1', { source: ['source-claude-code'] })] },
+    ack: { acknowledged: 1 },
+  });
+  await sessionStart(f.transport, 'sess', f.print);
+  const printed = f.log.find((l) => l.startsWith('print:')) ?? '';
+  assert.ok(printed.indexOf('from other hats') < printed.indexOf('Your own most recent'));
+  const ack = f.log.find((l) => l.startsWith('call:ack')) ?? '';
+  assert.match(ack, /"id":"r1"/);
+  assert.doesNotMatch(ack, /"id":"o1"/);
+});
+
+test('deliverable forwards every complete block and drops an incomplete tail', () => {
+  assert.equal(deliverable(`A\n${OUTPUT_END}\n`), 'A');
+  assert.equal(deliverable(`A\n${OUTPUT_END}\nB\n${OUTPUT_END}\npartial`), 'A\nB');
+  assert.equal(deliverable('no marker at all'), '');
+  assert.equal(deliverable(undefined), '');
+});
+
+test('diagnostic reports a timeout, a nonzero exit and client stderr, bounded', () => {
+  assert.equal(diagnostic({ status: 0, stderr: '' }), '');
+  assert.match(diagnostic({ status: null, signal: 'SIGTERM', stderr: '' }), /stopped by SIGTERM/);
+  assert.match(diagnostic({ status: 0, stderr: '[agent-feed] a runtime id is required\n' }), /a runtime id is required/);
+  assert.ok(diagnostic({ status: 2, stderr: 'x'.repeat(5000) }).length <= 520);
+});
+
+/** Builds a throwaway project root holding the real hook and a fake tsx child. */
+function hookSandbox(childSource: string) {
+  const root = mkdtempSync(join(tmpdir(), 'feed-hook-'));
+  mkdirSync(join(root, '.claude', 'hooks'), { recursive: true });
+  copyFileSync(join(process.cwd(), '.claude', 'hooks', 'agent-feed.mjs'), join(root, '.claude', 'hooks', 'agent-feed.mjs'));
+  mkdirSync(join(root, 'node_modules', 'tsx', 'dist'), { recursive: true });
+  writeFileSync(join(root, 'node_modules', 'tsx', 'dist', 'cli.mjs'), childSource);
+  return { root, done: () => rmSync(root, { recursive: true, force: true }) };
+}
+
+function runHook(root: string, input: unknown) {
+  return spawnSync(process.execPath, [join(root, '.claude', 'hooks', 'agent-feed.mjs')], {
+    input: JSON.stringify(input), encoding: 'utf8', timeout: 20000,
+    env: { ...process.env, AGENT_FEED_CHILD_TIMEOUT_MS: '1500' },
+  });
+}
+
+test('through the real hook: a block acknowledged before the client hangs past its limit is still delivered', () => {
+  const marker = join(tmpdir(), `feed-ack-${process.pid}-${Date.now()}`);
+  const box = hookSandbox(`
+    import { writeFileSync } from 'node:fs';
+    process.stdout.write(${JSON.stringify(`Agent feed: 1 exchange(s)\n- row r1\n${OUTPUT_END}\n`)}, () => {
+      writeFileSync(${JSON.stringify(marker)}, 'acked'); // simulated acknowledgement after the marker
+      setTimeout(() => {}, 60000); // then hang past the limit
+    });
+  `);
+  try {
+    const r = runHook(box.root, { hook_event_name: 'SessionStart', session_id: 'abc-123' });
+    assert.equal(r.status, 0);
+    assert.ok(existsSync(marker), 'the simulated acknowledgement happened');
+    assert.match(r.stdout, /Agent feed: 1 exchange\(s\)/);
+    assert.doesNotMatch(r.stdout, /agent-feed:end/);
+    assert.match(r.stderr, /stopped by/);
+  } finally { box.done(); rmSync(marker, { force: true }); }
+});
+
+test('through the real hook: a notice followed by a nonzero exit is still delivered, with a diagnostic', () => {
+  const box = hookSandbox(`process.stdout.write(${JSON.stringify(`Other hats: 1 new exchange(s).\n${OUTPUT_END}\n`)}, () => { process.stderr.write('[agent-feed] notice-seen returned 500'); process.exit(3); });`);
+  try {
+    const r = runHook(box.root, { hook_event_name: 'UserPromptSubmit', session_id: 'abc-123' });
+    assert.equal(r.status, 0);
+    assert.match(r.stdout, /Other hats: 1 new exchange/);
+    assert.match(r.stderr, /exited 3.*notice-seen returned 500/);
+  } finally { box.done(); }
+});
+
+test('through the real hook: output without the end marker is never forwarded', () => {
+  const box = hookSandbox(`process.stdout.write('half a block'); process.exit(0);`);
+  try {
+    const r = runHook(box.root, { hook_event_name: 'SessionStart', session_id: 'abc-123' });
+    assert.equal(r.status, 0);
+    assert.equal(r.stdout, '');
+  } finally { box.done(); }
+});
+
+test('through the real hook: a credential failure is surfaced on stderr, exit 0, nothing on stdout', () => {
+  const box = hookSandbox(`process.stderr.write('[agent-feed] mint failed: 401'); process.exit(0);`);
+  try {
+    const r = runHook(box.root, { hook_event_name: 'SessionStart', session_id: 'abc-123' });
+    assert.equal(r.status, 0);
+    assert.equal(r.stdout, '');
+    assert.match(r.stderr, /mint failed: 401/);
+  } finally { box.done(); }
 });
