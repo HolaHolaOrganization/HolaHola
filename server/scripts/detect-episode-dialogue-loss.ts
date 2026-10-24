@@ -107,6 +107,7 @@ import { tmpdir } from 'os';
 import { neon } from '@neondatabase/serverless';
 import { LEGACY_RESERVED_FIXTURE_EPISODE_NUMBERS } from '../services/episode-content-loss-guard';
 import { attributionSha256, verifyEpisodeClaudeAttributionReceipt } from '../services/episode-claude-attribution-repair';
+import { RUNTIME_NOTICE_LABEL, runtimeNoticeRelabelReceiptPath, verifyRuntimeNoticeRelabelReceipt } from '../services/runtime-notice-relabel';
 
 const G = (s: string) => `\x1b[32m${s}\x1b[0m`;
 const R = (s: string) => `\x1b[31m${s}\x1b[0m`;
@@ -120,13 +121,18 @@ const REPO_ROOT = process.cwd();
 // Claude Code alias or an exemption by filename/label. The verifier requires
 // complete old/new snapshot hashes and reconstructs every exact label span.
 function readEpisodeAttributionReceipts(repoRoot: string, relPath: string): unknown[] {
-  if (relPath !== 'docs/episode-34.md') return [];
-  const filenames = [
+  const noticeReceipt = runtimeNoticeRelabelReceiptPath(relPath);
+  const notice = noticeReceipt ? readReceiptFiles(repoRoot, [noticeReceipt]) : [];
+  if (relPath !== 'docs/episode-34.md') return notice;
+  return [...notice, ...readReceiptFiles(repoRoot, [
     'docs/episode-34-attribution-repair-evidence.json',
     'docs/episode-34-attribution-repair-backfill-evidence.json',
     'docs/episode-34-attribution-repair-post-merge-evidence.json',
     'docs/episode-34-attribution-repair-validation-startup-evidence.json',
-  ];
+  ])];
+}
+
+function readReceiptFiles(repoRoot: string, filenames: string[]): unknown[] {
   return filenames.flatMap(filename => {
     try {
       return [JSON.parse(readFileSync(join(repoRoot, filename), 'utf8')) as unknown];
@@ -267,8 +273,10 @@ function extractBlocks(content: string): LostBlock[] {
  * stripping already applied to each `oldContent` block by extractBlocks() —
  * see stripCommentLines() for why this symmetry matters.
  */
-export function findLostBlocks(oldContent: string, newContent: string, attributionReceipts: unknown[] = []): LostBlock[] {
-  if (attributionReceipts.some(receipt => verifyEpisodeClaudeAttributionReceipt(oldContent, newContent, receipt))) return [];
+export function findLostBlocks(oldContent: string, newContent: string, attributionReceipts: unknown[] = [], relPath?: string): LostBlock[] {
+  if (attributionReceipts.some(receipt =>
+    verifyEpisodeClaudeAttributionReceipt(oldContent, newContent, receipt) ||
+    (relPath !== undefined && verifyRuntimeNoticeRelabelReceipt(relPath, oldContent, newContent, receipt)))) return [];
   const oldBlocks = extractBlocks(oldContent);
   const newNorm = norm(stripCommentLines(newContent));
   return oldBlocks.filter(b => !newNorm.includes(b.normalized));
@@ -292,9 +300,9 @@ export function findLostBlocks(oldContent: string, newContent: string, attributi
  * diffing the new content against an empty string for the wrong conceptual
  * reason.
  */
-export function findLostBlocksForTransition(oldContent: string | null, newContent: string | null, attributionReceipts: unknown[] = []): LostBlock[] {
+export function findLostBlocksForTransition(oldContent: string | null, newContent: string | null, attributionReceipts: unknown[] = [], relPath?: string): LostBlock[] {
   if (oldContent === null) return [];
-  return findLostBlocks(oldContent, newContent ?? '', attributionReceipts);
+  return findLostBlocks(oldContent, newContent ?? '', attributionReceipts, relPath);
 }
 
 /**
@@ -663,7 +671,7 @@ async function checkFileGitHistory(relPath: string, fullHistory: boolean, repoRo
       continue;
     }
 
-    const lost = findLostBlocksForTransition(oldContent, newContent, readEpisodeAttributionReceipts(repoRoot, relPath));
+    const lost = findLostBlocksForTransition(oldContent, newContent, readEpisodeAttributionReceipts(repoRoot, relPath), relPath);
     if (lost.length === 0) continue;
 
     const stillMissing = currentTipContent !== null ? stillMissingAtTip(lost, currentTipContent) : lost;
@@ -686,7 +694,7 @@ async function checkFileGitHistory(relPath: string, fullHistory: boolean, repoRo
   if (headContent !== null && existsSync(wtPath)) {
     const wtContent = readFileSync(wtPath, 'utf8');
     if (wtContent !== headContent) {
-      const lost = findLostBlocks(headContent, wtContent, readEpisodeAttributionReceipts(repoRoot, relPath));
+      const lost = findLostBlocks(headContent, wtContent, readEpisodeAttributionReceipts(repoRoot, relPath), relPath);
       if (lost.length > 0) {
         reports.push({
           file: relPath,
@@ -1314,6 +1322,30 @@ async function runSelfCheck(): Promise<void> {
     process.exit(1);
   }
   console.log(G('  ✓ complete label-only receipts distinguish attribution correction from dialogue loss; missing/forged receipts, actual lost words, and whole-file deletion remain blocking'));
+
+  // Runtime-notice relabel receipts: accepted only for their replica path and
+  // only when they reconstruct the exact label-only change.
+  const noticeLine = '<task-notification> background task "CI" completed </task-notification>';
+  const noticeOld = `**David [Claude Code]:** ${noticeLine}
+
+**Claude Code:** Synthetic reply words must survive.
+`;
+  const noticeNew = noticeOld.replace('**David [Claude Code]:**', `**${RUNTIME_NOTICE_LABEL}:**`);
+  const noticeReceipt = {
+    kind: 'runtime-notice-relabel', episodeId: '41200170-1c49-4660-838c-9d397aff5d27', label: RUNTIME_NOTICE_LABEL,
+    applied: true, replicaParity: true,
+    beforeSha256: attributionSha256(noticeOld), afterSha256: attributionSha256(noticeNew),
+    edits: [{ offset: 0, oldLabel: '**David [Claude Code]:**', newLabel: `**${RUNTIME_NOTICE_LABEL}:**`, lineSha256: attributionSha256(noticeLine) }],
+  };
+  if (!findLostBlocks(noticeOld, noticeNew).length ||
+      findLostBlocks(noticeOld, noticeNew, [noticeReceipt], 'docs/episode-34.md').length ||
+      !findLostBlocks(noticeOld, noticeNew, [noticeReceipt]).length ||
+      !findLostBlocks(noticeOld, noticeNew, [noticeReceipt], 'docs/episode-35.md').length ||
+      !findLostBlocks(noticeOld, noticeNew.replace('reply words ', ''), [noticeReceipt], 'docs/episode-34.md').length) {
+    console.error(R('SELF-CHECK FAIL: runtime-notice relabel receipt verification suppressed an unproven change or failed to accept its exact byte proof.'));
+    process.exit(1);
+  }
+  console.log(G('  ✓ runtime-notice relabel receipts are accepted only for their replica path and the exact label-only change'));
 
   sep();
   console.log(G('\n  ✓ SELF-CHECK PASSED — detector proven against the real Sep 21 2026 episode-34 incident, a known-safe dedup regression case, a hermetic whole-file-deletion integration case, target-discovery union/fixture-exclusion rules, committer-date recency filtering, and strict label-only receipts.\n'));
