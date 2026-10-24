@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { judgeRow, leadingBlock } from './generate-runtime-notice-relabel-receipt';
-import { relabelContent } from '../../scripts/data-ops/relabel-runtime-notices';
+import { applyReceipt, relabelContent } from '../../scripts/data-ops/relabel-runtime-notices';
 import { RUNTIME_NOTICE_LABEL } from '../services/runtime-notice-relabel';
 
 const sha = (t: string) => createHash('sha256').update(t, 'utf8').digest('hex');
@@ -61,4 +61,68 @@ test('the data-op applies exactly the receipt, is idempotent, and leaves a drift
   assert.deepEqual(relabelContent(content + ' edited', v.entry), { status: 'drifted' });
   assert.deepEqual(relabelContent(content, { ...v.entry, postSha256: '0'.repeat(64) }), { status: 'drifted' });
   assert.deepEqual(relabelContent(content, { ...v.entry, oldLabel: 'Claude Code:' }), { status: 'drifted' });
+});
+
+// --- PR #100 review (LR 5636691169) ---
+
+function correctEntry() {
+  const v = judgeRow(row(content), noticeEntry, true);
+  if (v.kind !== 'correct') throw new Error('expected a correct verdict');
+  return v.entry;
+}
+
+test('P2: only the exact permitted notice label is ever written, even from a self-consistent receipt', () => {
+  const entry = correctEntry();
+  for (const newLabel of ['Daniela:', 'David:', `${RUNTIME_NOTICE_LABEL}`, `**${RUNTIME_NOTICE_LABEL}:**`]) {
+    const forged = { ...entry, newLabel, postSha256: sha(newLabel + content.slice('David [Claude Code]:'.length)) };
+    assert.deepEqual(relabelContent(content, forged), { status: 'drifted' }, newLabel);
+  }
+});
+
+/** A fake pool recording every statement; SELECT returns the given row. */
+function fakePool(selected: { content: string; attribution: unknown } | null) {
+  const statements: string[] = [];
+  const pool = {
+    async connect() {
+      return {
+        async query(sql: string) {
+          statements.push(sql.split(' ')[0]);
+          return { rows: sql.startsWith('SELECT') && selected ? [selected] : [] };
+        },
+        release() {},
+      };
+    },
+  };
+  return { pool, statements };
+}
+
+const receiptOf = (entries: unknown[], extra: Record<string, unknown> = {}) =>
+  ({ kind: 'runtime-notice-relabel-rows', label: RUNTIME_NOTICE_LABEL, entries, listSha256: sha(JSON.stringify(entries)), ...extra }) as any;
+
+test('P1: a row that gained per-turn attribution after generation is left untouched under the lock', async () => {
+  const { pool, statements } = fakePool({ content, attribution: { turnAttribution: { legacyPrefixEnd: 0 } } });
+  const r = await applyReceipt(pool, receiptOf([correctEntry()]));
+  assert.equal(r.applied, false);
+  assert.deepEqual(r.counts, { applied: 0, alreadyApplied: 0, drifted: 0, attributed: 1 });
+  assert.deepEqual(statements, ['BEGIN', 'SELECT', 'COMMIT'], 'no UPDATE is issued');
+});
+
+test('an unattributed matching row is updated once; a rerun is a no-op; a missing row is drifted', async () => {
+  const entry = correctEntry();
+  const fresh = fakePool({ content, attribution: null });
+  assert.deepEqual((await applyReceipt(fresh.pool, receiptOf([entry]))).counts, { applied: 1, alreadyApplied: 0, drifted: 0, attributed: 0 });
+  assert.deepEqual(fresh.statements, ['BEGIN', 'SELECT', 'UPDATE', 'COMMIT']);
+  const done = fakePool({ content: content.replace('David [Claude Code]:', `${RUNTIME_NOTICE_LABEL}:`), attribution: null });
+  assert.deepEqual((await applyReceipt(done.pool, receiptOf([entry]))).counts, { applied: 0, alreadyApplied: 1, drifted: 0, attributed: 0 });
+  const gone = fakePool(null);
+  assert.deepEqual((await applyReceipt(gone.pool, receiptOf([entry]))).counts, { applied: 0, alreadyApplied: 0, drifted: 1, attributed: 0 });
+});
+
+test('a receipt of another kind, for another label, or with a broken list hash is refused before any row is touched', async () => {
+  const entry = correctEntry();
+  for (const bad of [receiptOf([entry], { kind: 'other' }), receiptOf([entry], { label: 'Daniela' }), receiptOf([entry], { listSha256: '0'.repeat(64) })]) {
+    const { pool, statements } = fakePool({ content, attribution: null });
+    await assert.rejects(() => applyReceipt(pool, bad));
+    assert.deepEqual(statements, []);
+  }
 });
