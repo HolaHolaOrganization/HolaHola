@@ -135,9 +135,9 @@ test('delivery stays within one deadline; what is not sent stays queued and goes
     queueExchange(box.dir, item('cc-s-2', 'A2'));
     let clock = 0;
     const first = deliverOutbox({ outboxDir: box.dir, send: () => { clock += 18000; return true; }, now: () => clock, budgetMs: 21000 });
-    assert.deepEqual(first, { sent: 1, left: 1 });
+    assert.deepEqual(first, { sent: 1, left: 1, rejected: 0 });
     clock = 0;
-    assert.deepEqual(deliverOutbox({ outboxDir: box.dir, send: () => true, now: () => clock, budgetMs: 21000 }), { sent: 1, left: 0 });
+    assert.deepEqual(deliverOutbox({ outboxDir: box.dir, send: () => true, now: () => clock, budgetMs: 21000 }), { sent: 1, left: 0, rejected: 0 });
     assert.deepEqual(files(box.dir), []);
   } finally { box.done(); }
 });
@@ -149,9 +149,9 @@ test('a failed send keeps the exchange queued, the next one is still attempted, 
     queueExchange(box.dir, item('cc-s-2', 'A2'));
     const seen: string[] = [];
     const flaky = (i: { turnId: string }) => { seen.push(i.turnId); return i.turnId !== 'cc-s-1'; };
-    assert.deepEqual(deliverOutbox({ outboxDir: box.dir, send: flaky }), { sent: 1, left: 1 });
+    assert.deepEqual(deliverOutbox({ outboxDir: box.dir, send: flaky }), { sent: 1, left: 1, rejected: 0 });
     assert.deepEqual(seen.sort(), ['cc-s-1', 'cc-s-2']);
-    assert.deepEqual(deliverOutbox({ outboxDir: box.dir, send: () => true }), { sent: 1, left: 0 });
+    assert.deepEqual(deliverOutbox({ outboxDir: box.dir, send: () => true }), { sent: 1, left: 0, rejected: 0 });
   } finally { box.done(); }
 });
 
@@ -279,11 +279,85 @@ test('an unreadable outbox file is left in place, never deleted unseen', () => {
   const box = outbox();
   try {
     writeFileSync(join(box.dir, 'cc-s-bad.0000000000000000.json'), '{not json');
-    assert.deepEqual(deliverOutbox({ outboxDir: box.dir, send: () => true }), { sent: 0, left: 1 });
+    assert.deepEqual(deliverOutbox({ outboxDir: box.dir, send: () => true }), { sent: 0, left: 1, rejected: 0 });
     assert.ok(existsSync(join(box.dir, 'cc-s-bad.0000000000000000.json')));
   } finally { box.done(); }
 });
 
 test('a missing outbox directory is nothing to deliver', () => {
-  assert.deepEqual(deliverOutbox({ outboxDir: join(tmpdir(), 'no-such-outbox-dir-xyz'), send: () => true }), { sent: 0, left: 0 });
+  assert.deepEqual(deliverOutbox({ outboxDir: join(tmpdir(), 'no-such-outbox-dir-xyz'), send: () => true }), { sent: 0, left: 0, rejected: 0 });
+});
+
+// --- Runtime-opened turns (PR #81 on top of the absorbed-message recorder) ---
+// A turn the runtime opened is never recorded as David's words. Its reply goes
+// with David's messages still unanswered before it (founder decision C), and
+// otherwise stays in the transcript only. Absorbed messages after it are kept.
+
+test('a turn opened by a task notice, with nothing of David unanswered, records nothing', () => {
+  const out = exchangesForStop([human('U1'), reply('A1'), notice('<task-notification>ci</task-notification>'), reply('CI passed.')]);
+  assert.deepEqual(out, []);
+});
+
+test('a notice-opened reply goes with David\'s unanswered message before it, never with the notice text', () => {
+  const out = exchangesForStop([human('U1'), reply('A1'), absorbed('U2'), notice('<task-notification>ci</task-notification>'), reply('A2')]);
+  assert.deepEqual(out, [{ index: 3, userText: 'U2', assistantText: 'A2' }]);
+});
+
+test('David\'s message absorbed after a notice is recorded under its own position; the notice reply before it is not', () => {
+  const out = exchangesForStop([human('U1'), reply('A1'), notice('<task-notification>ci</task-notification>'), reply('CI passed.'), absorbed('U2'), reply('A2')]);
+  assert.deepEqual(out, [{ index: 4, userText: 'U2', assistantText: 'A2' }]);
+});
+
+test('David\'s message absorbed right after a notice, before any reply, takes its own id, not the notice\'s', () => {
+  const out = exchangesForStop([human('U1'), reply('A1'), notice('<task-notification>ci</task-notification>'), absorbed('U2'), reply('A2')]);
+  assert.deepEqual(out, [{ index: 3, userText: 'U2', assistantText: 'A2' }]);
+});
+
+test('a system-reminder turn (promptSource system, no origin) records nothing', () => {
+  const reminder = { type: 'user', promptSource: 'system', message: { content: '<system-reminder>x</system-reminder>' } };
+  assert.deepEqual(exchangesForStop([human('U1'), reply('A1'), reminder, reply('A2')]), []);
+});
+
+test('a peer session\'s message is not recorded as David', () => {
+  const peer = { type: 'user', origin: { kind: 'peer' }, message: { content: 'Another Claude session sent a message' } };
+  assert.deepEqual(exchangesForStop([human('U1'), reply('A1'), peer, reply('A2')]), []);
+});
+
+test('image metadata right after David\'s message folds back to it; an absorbed message after still gets its own exchange', () => {
+  const imageMeta = { type: 'user', isMeta: true, message: { content: [{ type: 'text', text: '[Image: source: /tmp/x.png]' }] } };
+  const out = exchangesForStop([human('look at this'), imageMeta, reply('I see it.'), absorbed('and this'), reply('Yes.')]);
+  assert.deepEqual(out, [
+    { index: 0, userText: 'look at this', assistantText: 'I see it.' },
+    { index: 3, userText: 'and this', assistantText: 'Yes.' },
+  ]);
+});
+
+test('a founder paste that looks like a notice is still David\'s (provenance decides, not text)', () => {
+  const out = exchangesForStop([human('<task-notification>pasted</task-notification>'), reply('That is a notice.')]);
+  assert.deepEqual(out, [{ index: 0, userText: '<task-notification>pasted</task-notification>', assistantText: 'That is a notice.' }]);
+});
+
+// --- PR #81 review (LR 5635424280): carried entries follow classifyUserEntry's precedence ---
+
+const humanMeta = (text: string) => ({ ...human(text), isMeta: true });
+
+test('runtime metadata marked origin human is never carried into a runtime-opened turn', () => {
+  const out = exchangesForStop([human('prior'), reply('prior reply'), humanMeta('runtime metadata'), notice('<task-notification>n</task-notification>'), reply('runtime reply')]);
+  assert.deepEqual(out, []);
+});
+
+test('runtime metadata marked origin human is never carried into David\'s next message', () => {
+  const out = exchangesForStop([human('prior'), reply('prior reply'), humanMeta('runtime metadata'), human('new human'), reply('new reply')]);
+  assert.deepEqual(out, [{ index: 3, userText: 'new human', assistantText: 'new reply' }]);
+});
+
+test('a genuine unanswered human message next to runtime metadata still carries, in order, under the anchor index', () => {
+  const out = exchangesForStop([human('prior'), reply('prior reply'), human('unanswered'), humanMeta('runtime metadata'), absorbed('also mine'), notice('<task-notification>n</task-notification>'), reply('reply to David')]);
+  assert.deepEqual(out, [{ index: 5, userText: 'unanswered\n\nalso mine', assistantText: 'reply to David' }]);
+});
+
+test('a compaction summary marked origin human is never carried', () => {
+  const summary = { ...human('This session is being continued from a previous conversation...'), isCompactSummary: true };
+  const out = exchangesForStop([human('prior'), reply('prior reply'), summary, human('next'), reply('next reply')]);
+  assert.deepEqual(out, [{ index: 3, userText: 'next', assistantText: 'next reply' }]);
 });
