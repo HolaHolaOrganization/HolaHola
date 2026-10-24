@@ -1,0 +1,816 @@
+{
+  "kind": "runtime-notice-relabel",
+  "episodeId": "41200170-1c49-4660-838c-9d397aff5d27",
+  "label": "[SISTEMA]",
+  "applied": true,
+  "replicaParity": true,
+  "beforeSha256": "82e244511bd7f0180d0a6f129b686aac5b597d8566e293664c5a3cdd5115df8d",
+  "afterSha256": "f4edbf2ac5e3216ea504cef1097d6171f154a0dbce04f6ea8e397df46d3a9663",
+  "edits": [
+    {
+      "offset": 470438,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "7e84d6736cbb5b8aeb87b91e288cbe18897faf101e89584eee86c9413894b24b"
+    },
+    {
+      "offset": 596863,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "37b1fe671486912020b6102be62311fa82fd44be821926637d2d7ac131bf7e41"
+    },
+    {
+      "offset": 631285,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "194eee108098fd63cdb4cad3ac257a389f75edbe2e31e6d636b3b0c2a6747b35"
+    },
+    {
+      "offset": 645228,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 646764,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 647627,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 650773,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 652099,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 653517,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 655709,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 658436,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 661322,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 662585,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 664300,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 666440,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 667589,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 668445,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 671150,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 673085,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 675668,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 678824,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 683254,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 686530,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 687990,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 689751,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 691245,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 697239,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 707008,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 709451,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 711362,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 712415,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 713933,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 715919,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 717413,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 719997,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 721952,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 724856,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 725879,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 727547,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "c373e56926c44b5cd039c9dc761a5eda8db6ae60ff06be0cd9d73cf288d8c5a1"
+    },
+    {
+      "offset": 729609,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 733194,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 735383,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 737315,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 739338,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 744081,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 745675,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 748427,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 749457,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 751693,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 753909,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 755086,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 757660,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 762969,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 767536,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 776328,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 777233,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 778911,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 780727,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 783730,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 784959,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 785972,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 788066,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 790091,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 792999,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 794308,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 795486,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 797437,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 798457,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 799900,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 801208,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 802277,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 804226,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 805073,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 807296,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 813235,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 817167,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 820942,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 824590,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 827303,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 828970,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 830052,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 832440,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 834113,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 834919,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 835692,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 837438,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 839258,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 841148,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 842793,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 843822,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 845530,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 847201,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 849233,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 850856,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 852989,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 857291,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 863647,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 884098,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 885544,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 888596,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 890946,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 892255,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 893438,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 896565,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 897597,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 899638,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 901352,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 902871,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 903870,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 906052,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 907250,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 909208,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 910712,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 914561,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 927952,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 937468,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 956123,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 959155,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 962170,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 965029,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 978262,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 980147,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 992784,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 995714,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 1005233,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 1007807,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 1009819,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 1012043,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 1016422,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 1019082,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 1022943,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 1026906,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    },
+    {
+      "offset": 1027446,
+      "oldLabel": "David [Claude Code]:",
+      "newLabel": "[SISTEMA]:",
+      "lineSha256": "73b54abe355a7f2a13b712c99769fd235a10d524902b442bf6f5fc6a4a4dda86"
+    }
+  ],
+  "newSnapshot": {
+    "source": "conversation_memories content, read after the data-op applied",
+    "readAt": "2026-10-24T21:18:13.675Z",
+    "sha256": "e4b98adc1b55ecfb447c40ab9b11ffa84f7192fc84ba79dc1008a3703409bac2",
+    "length": 2564677
+  },
+  "episodeReceiptEditListSha256": "b338e2d17a0e0cde9d84efb854b1e98e48d3844f7910fd9a35304c43ab3965aa"
+}
