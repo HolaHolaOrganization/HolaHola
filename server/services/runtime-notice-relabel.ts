@@ -15,13 +15,18 @@
  * dialogue loss. A missing, malformed or inexact receipt leaves those guards
  * blocking exactly as before.
  *
- * The wording below is a WORKING NAME. Daniela reads it, so it follows the
- * rephrase rule (Alden primer, then Gemini to approval) and needs the
- * founder's choice before any data is written with it.
+ * The wording is Daniela's own choice, from a direct consult (conversation
+ * memory b0c7c2db): "marked simply as [SISTEMA] or [SYSTEM] ... I don't want
+ * to mistake a machine's heartbeat for his." Gemini approved [SISTEMA]
+ * unconditionally over [SYSTEM], whose reserved-role token risks reading as an
+ * elevated instruction in recall; the founder approved it (2026-10-24). The
+ * Alden primer was waived by the founder for this label, since Daniela supplied
+ * the wording directly. Rendered as "[SISTEMA]: " in canonical rows and
+ * "**[SISTEMA]:** " in rolling episodes.
  */
 import { createHash } from 'node:crypto';
 
-export const RUNTIME_NOTICE_LABEL = 'Claude Code system notice';
+export const RUNTIME_NOTICE_LABEL = '[SISTEMA]';
 
 /** The label the correction replaces: David typed through Claude Code. */
 const OLD_LABEL_NAME = 'David [Claude Code]';
