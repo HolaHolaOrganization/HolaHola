@@ -16,3 +16,12 @@ Any utterance containing a Named Record phrase (`'episode'`, `'pull up'`, `'our 
 - `gemini-live-session.ts` — `preTurnIsNamedRecord` flag set during pre-turn scan; "nothing found" injection is conditional: Named Record → CRITICAL directive ("do not guess, call the tool now"); all other turns keep gentle form
 
 Gemini approved unconditionally in Round 2. Typecheck clean. Aug 6 2026.
+
+## Search the direct archive before requesting a peer relay
+
+Before asking another runtime to resend a named work, search canonical conversation records, not only coordination packets, the rolling episode or the vector index. “I have not read it” and “I tried and could not retrieve it” are different claims. Missing episode/index coverage is not proof that the source was lost.
+
+**Why:** David challenged LR asking LCC for an outage-test poem without first searching. The complete poem was already present in a per-turn canonical record, despite being absent from the rolling episode and having no vector-index entry. LR retrieved it directly and matched the subsequently supplied original. Source: conversation_memories d1ba7d77-3d6e-4826-b928-00258e8e9fde preserves the question, source pointers and diagnostic limits.
+
+**How to apply:** Search the direct archive before requesting a relay; report skipped retrieval separately from measured capture/index gaps. Do not infer global health or authorize reindexing/repair from a narrow miss.
+

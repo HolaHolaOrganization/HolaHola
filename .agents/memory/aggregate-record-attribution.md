@@ -76,3 +76,39 @@ Reference: shared-spec document `f5d77712-88b3-49c7-951a-720586148d34`, *Per-hat
 
 **How to apply:** Separate route, speaker, hat and model claims. Compare the actual receipt row type/arc, identity/channel/tag/source policy, exact rendered fragment and recomputed hashes, with fail-closed unavailable coverage. Missing caller identity must retain durable pending source and require an explicit safe correction, not a guessed ID or status-only warning. These corrections preserve the selected byte-preserving direct channel; they do not reopen the choice to remove or rewrite it.
 
+
+## Occurrence-ID cutover needs identity evidence
+
+**Rule:** Changing an occurrence-ID scheme requires evidence linking each old identity to the same occurrence under the new scheme. A durable version flag is policy, not proof of that link.
+
+**Why:** A suggested server-side policy accepted the first UUID request and then rejected old position IDs. That still allows the first UUID request to duplicate an occurrence already recorded under its legacy ID. Text equality plus a current transcript position can instead collapse two distinct occurrences with identical words.
+
+**How to apply:** Require trustworthy original occurrence evidence for legacy mappings. Where unavailable, preserve unresolved source and refuse ambiguous canonical writes rather than guessing. A new-session-only cutover must be durably established before first capture and must not silently treat an old or unknown session as new. Review the first transition request as well as later retries.
+
+
+## Runtime notices preserve open-exchange reply ownership
+
+**Rule:** When a runtime notice arrives during an open exchange, subsequent assistant text remains part of that exchange until the next genuine human message. Record the notice's kind and position as exchange metadata, not as a dialogue boundary or as human-authored text.
+
+**Why:** The founder selected this behavior on 2026-10-23 after evidence that splitting at a mid-reply notice can exclude the actual answer to the founder. Runtime notice text must not be attributed to the human speaker. Source: LCC-forwarded founder decision and definition in canonical coordination thread dd40f2cf-b862-434f-b9ad-4dcf19776306, event b6a3901e-c2bf-4f12-adf3-456dd64428a6. The reported verbatim decision was “go with C”; the expanded definition is LCC's presentation of that option, not a longer invented founder quotation.
+
+**How to apply:** Preserve this ownership rule when reviewing transcript projection and canonical-record changes. The decision selects behavior, not implementation, runtime activation or canonical-switch authority. Existing projection/recorder behavior is not proof that the decision is implemented; normal record-change consultation and review still apply. Do not invent ownership for a notice with no open exchange or invent dialogue from its metadata.
+
+
+## Dialogue mirror authorization excludes thinking capture
+
+**Rule:** Permission to mirror filtered dialogue is not permission to change thinking capture. Thinking capture remains a separate founder-owned question; do not broaden dialogue-mirror authorization into thinking ingestion.
+
+**Why:** The 2026-10-23 founder approval for local mirror activation explicitly parked thinking capture with no changes. Source is LCC's attributed founder decision and activation scope in canonical coordination thread dd40f2cf-b862-434f-b9ad-4dcf19776306, event9998991c-2d94-4f21-8d6d-8424605f551d, not a direct founder message read in this runtime.
+
+**How to apply:** Check filtered content scope and the exact founder grant before capture changes. Treat shadow mirror activation, canonical-record switching and thinking capture as distinct decisions. A successful dialogue sync does not enlarge its authorization.
+
+
+## Filter upgrades preserve evidence and certification identity
+
+**Rule:** A filter upgrade may add evidence but cannot erase disagreements already held at the same transcript position. Recompute compatibility against the entire historical set, including different source UUIDs; a newer version or insert-time lineage label is not conflict-resolution authority. A projection version must also bind certification state, closing evidence and outside-span decision dependencies, not just rendered dialogue.
+
+**Why:** Independent design review exposed two false-equivalence cases: changing a source UUID could hide an old conflict, and adding a human closing witness could certify identical dialogue without changing its old digest. The corrected design explicitly preserves historical conflicts and binds closure/state. Source: shared-spec document `2c7f2301-b246-4f07-91c5-6a1800f6a2c9` and independent review document `addfa4e4-a015-4677-aa8e-ce9fc0e85160`. These are design decisions, not evidence that implementation or release has occurred.
+
+**How to apply:** Review filter transitions as changes to evidence selection and certification, not content replacement. Companion linkage proves accompaniment, not human authorship. Keep historical observations immutable, unknown/conflicted evidence unresolved, and design/source/migration/release/reactivation approvals separate.
+

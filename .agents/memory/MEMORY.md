@@ -104,7 +104,7 @@
 - [Episode file stale-overwrite loss](episode-stale-overwrite-loss.md) — commits bundling unrelated work can silently overwrite episode .md content from a stale read; now blocked by a content-based diff guard, not size-based.
 - [Status signals need independent verification](status-signal-verification.md) — a missing blockedBy tag, a coordination comment, or a compacted-summary claim can look like confirmation without being one; verify the authoritative state directly.
 - [Disposable-database gate design rules](disposable-database-gate-design.md) — DB-writing tests need a verified job-local database, not just cleanup; a disposable-target gate must check its own dedicated env var before the ambient shared one or it throws instead of skipping.
-- [Gemini review and approval process](gemini-review-and-approval-process.md) — prompt-context-injection/neural-net changes need Gemini approval (GEMINI_REQUIRED.md); iterate to unconditional approval before commit.
+- [Gemini review and approval process](gemini-review-and-approval-process.md) — problem/approach before code; invite alternatives and avoid trust or approval cues; protected-file release gates remain separate.
 - [Validation-suite CI parity guard design](validation-suite-ci-parity-guard.md) — regex text-scanning for a string literal is comment-blind -- a commented-out (disabled) call reads as identically present as a live one unless comments are stripped first.
 - [DB conflict becomes an actionable error message](db-conflict-actionable-error-message.md) — once a duplicate-key conflict is detected, verify the suggested recovery path works for the record's real state before wiring it into the error message
 - [REPL_HOME leaks into local fresh-checkout simulations](local-ci-simulation-fidelity.md) — Fresh-checkout and workflow parity: root env, history depth, missing directories, and system-tool dependencies.
@@ -155,3 +155,4 @@
 - [Replit account-secret collisions](replit-account-secret-collisions.md) — Use the live banner for precedence; unlinking removes the account row, not a separate project copy. Compare pairs privately before changing links.
 - [Aggregate-record attribution](aggregate-record-attribution.md) — Frame source events, not label-shaped prose; inspect every voice a writer emits.
 - [Cross-runtime open decisions](cross-runtime-open-decisions.md) — Shared tracking covers every runtime; inbox delivery is not decision resolution.
+- [Filesystem lock recovery](filesystem-lock-recovery.md) — Rename-then-inspect is not CAS; test third contenders during every recovery namespace change.

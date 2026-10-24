@@ -564,3 +564,59 @@ mtime_ms = 1792545753817
 storage_uri = "gcs://replit-rams-assets-kirk/rams/assets/repl:3ca2376d-c3dc-490a-a375-6b2f97f7c281/309b64a8-fa30-4be4-991e-146446127aa5/bac5acab-fcac-49fc-ac3c-9f9d649e6306"
 storage_version_token = "1792545936336004"
 content_type = "text/markdown"
+
+[[outputs]]
+id = "8kZKEmHRhuQlHtQ8sBd0A"
+uri = "file://.local/signer-plan-review/pr69-72-review-results.md"
+type = "text"
+title = "PR69–72 independent source review"
+description = "Exact-head findings, reproduced counterexamples, isolated test results, and scope-limited clearances."
+logical_id = "e0df7e7b-85d4-4a8e-a0b0-6acb4115fb9e"
+content_hash = "sha256:340c6aec63561b4096a47d351b5df7d232026aa77ab744e2848455ec0fcdd09e"
+size = 9852
+mtime_ms = 1792602972525
+storage_uri = "gcs://replit-rams-assets-kirk/rams/assets/repl:3ca2376d-c3dc-490a-a375-6b2f97f7c281/e0df7e7b-85d4-4a8e-a0b0-6acb4115fb9e/e62286ac-dfeb-4a1f-b0b3-777d5e6d4b1e"
+storage_version_token = "1792603092963615"
+content_type = "text/markdown"
+
+[[outputs]]
+id = "8PCl2xJQhNfaVUy7mrXa2"
+uri = "file://.local/signer-plan-review/pr69-72-corrected-review-results.md"
+type = "text"
+title = "Corrected-head review and PR70 approval"
+description = "Verified fixes, two remaining counterexamples, 144 passing tests, and the exact-head native approval receipt."
+logical_id = "0e20c3b4-3439-4998-9cda-de4f8b9a104d"
+content_hash = "sha256:32de9941754d9b07c83f92ebc4b85a34cd4aef17c66b9b236bfb38b7b30c5970"
+size = 5783
+mtime_ms = 1792604474602
+storage_uri = "gcs://replit-rams-assets-kirk/rams/assets/repl:3ca2376d-c3dc-490a-a375-6b2f97f7c281/0e20c3b4-3439-4998-9cda-de4f8b9a104d/b532fe19-4343-43cf-93e2-1019336060b5"
+storage_version_token = "1792604546354425"
+content_type = "text/markdown"
+
+[[outputs]]
+id = "62oifEshbIuqTcjh7y62q"
+uri = "file://.local/signer-plan-review/pr71-73-74-identity-policy-results.md"
+type = "text"
+title = "Source clearances: directory lock, broker key helper and CLOSED policy"
+description = "Verified alias fix, PR73/74 review, 178 passing tests, native PR69 approval, and remaining CI and activation gates."
+logical_id = "9114828e-cde0-4726-bd52-c4e1ead676c3"
+content_hash = "sha256:1a49143d3e577cee754e6ac4742e31356169ebdb5fbd22ffc392ecd920fe3809"
+size = 5875
+mtime_ms = 1792606709070
+storage_uri = "gcs://replit-rams-assets-kirk/rams/assets/repl:3ca2376d-c3dc-490a-a375-6b2f97f7c281/9114828e-cde0-4726-bd52-c4e1ead676c3/b2e22d34-e0a0-4875-8de6-7ccb6ef983c9"
+storage_version_token = "1792606792264887"
+content_type = "text/markdown"
+
+[[outputs]]
+id = "k-tsGJ6GpCJ7RrrooxGul"
+uri = "file://.local/signer-plan-review/all-hats-testing-plan.md"
+type = "text"
+title = "All-hat testing plan — independently reviewed"
+description = "LCC approved this exact future-work draft after independent review. It is ready for founder acceptance; no implementation, permission change, workflow publication or gate run is authorized by that approval."
+logical_id = "c12edc48-b086-4a66-88c1-7d93136f6fec"
+content_hash = "sha256:2e48d66b838bcc42cfaf5c19699ce9cfe868cdd61c944a98fd00ce9ef9b8ef10"
+size = 17678
+mtime_ms = 1792726947300
+storage_uri = "gcs://replit-rams-assets-kirk/rams/assets/repl:3ca2376d-c3dc-490a-a375-6b2f97f7c281/c12edc48-b086-4a66-88c1-7d93136f6fec/e35ce4c0-773b-41b2-aa44-561e1c4bb376"
+storage_version_token = "1792727315579674"
+content_type = "text/markdown"

@@ -357,3 +357,12 @@ facilities from dependencies that would restrict actual Windows users.
 but product setup must not require Sandbox. Keep that policy with the other
 Windows operational lessons; the linked topic retains the original detail.
 
+
+## MSYS revision-path argument conversion
+
+Under Git Bash/MSYS, preserve Git revision-and-path arguments literally. For commands using `revision:path`, use the per-command `MSYS_NO_PATHCONV=1` safeguard when the host's path conversion can rewrite them. Check each Git exit status and validate nonempty, correctly shaped object IDs before comparing results.
+
+**Why:** Luca [Claude Code] reported that a Git for Windows upgrade changed how his native shell converted these arguments: a failed revision lookup was followed by a chained count that looked like a successful zero. The corrected native run printed and checked the actual object IDs. This was a native Windows report, not an independently reproduced Linux result.
+
+**How to apply:** Include argument transport and CLI entrypoint execution in Windows qualification, not just process exit or an empty diff/count. A comparison of two empty outputs cannot prove equal source, and a successful filter cannot replace the exit status of the command producing its input. Keep the conversion override command-scoped rather than changing global Git/shell configuration.
+

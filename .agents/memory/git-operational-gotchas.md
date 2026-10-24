@@ -201,3 +201,39 @@ Related Git source-integrity lessons:
 
 These linked topic files retain the full rules, reasons and recovery guidance.
 
+
+## Organization transfer purpose: protected merge queue
+
+The founder moved the repository from personal ownership to an organization to enable the merge queue. Treat the ownership change as supporting the existing protected review/CI process, not replacing it.
+
+**Why:** The founder explicitly stated that purpose on2026-10-22; a read-only own-App check then confirmed an effective main merge_queue rule alongside code-owner/last-push review and required CI checks. Exact statement and bounded verification: conversation_memories 5ba034f3-18a9-4609-b700-d0fa7213f19c.
+
+**How to apply:** Distinguish organization ownership, active branch queue configuration and a successfully completed queue cycle. Verify each independently before claiming it; a settings read is not an end-to-end queue test. Queue availability does not lift unrelated implementation or activation holds.
+
+
+## Explicit host for own-App GitHub CLI calls
+
+GitHub CLI routing can be overridden by the Replit environment even inside the own-App github-exec wrapper. For direct, own-App GitHub API reviews, explicitly use `gh api --hostname github.com`.
+
+**Why:** An unqualified `gh api` request was sent to github.replit.internal and returned a disconnected Replit-connection error despite successful own-App minting. The same request with the explicit GitHub hostname succeeded.
+
+**How to apply:** Distinguish CLI host routing from credential failure before reconnecting integrations or rotating broker credentials. Preserve the own-actor broker credential and token-custody boundaries; do not print or export minted tokens.
+
+
+## Read-only object checks may trigger transport
+
+**Rule:** In a partial/promisor checkout, an apparently local read-only object check can start a network fetch. Do not assume a Git read has no transport or credential requirements.
+
+**Why:** Checking whether a pinned commit existed triggered SSH host-key confirmation and exhausted the shell timeout instead of returning a local availability result. Exact-source review could continue through the actor's authenticated, pinned provider-content path without changing Git trust.
+
+**How to apply:** Bound Git inspection timeouts. For strictly local availability checks, explicitly disable lazy fetching where supported; otherwise use the established authenticated transport. Never accept a host key, disable verification or change the remote just to make a review probe succeed. Exact content plus verified Git blob hashes can establish the reviewed bytes without hydrating unrelated history.
+
+
+## Potential merge refs can lag the current base
+
+GitHub's `potentialMergeCommit` can reference a synthetic merge against an older base even while the live main ref is newer and the PR reports MERGEABLE/CLEAN.
+
+**Why:** During a source-identity review on2026-10-23, the provider's synthetic merge tree differed from the independently composed and gated current-base tree. Inspecting the synthetic commit's actual parents proved it used the older base; the approved source pins had not changed.
+
+**How to apply:** Inspect synthetic merge parents and tree before trusting it as current merge composition. Compare with the actual current base/head and eventual merge-group result; a mismatch can mean stale provider metadata, not a new source defect. Check before an automatic merge can cause deployment; post-merge verification alone cannot prevent production effects.
+

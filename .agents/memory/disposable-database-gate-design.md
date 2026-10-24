@@ -83,3 +83,21 @@ Verifying a disposable database URL is not proof that a module-level application
 
 **How to apply:** For tests exercising production singletons, prove isolation with a permitted disposable database and a separate ambient trap. Require real fixture and dispatch success in the permitted database, no writes in the trap, and unchanged databases for rejected target contracts. Keep required dedicated-variable checks independent of alternate CI selectors.
 
+
+## Testing environment is required for every Luca hat
+
+**Rule:** "A proper testing environment is a requirement for every Luca hat." This applies across runtimes, not just the current Windows/Linux gate work.
+
+**Why:** The founder explicitly set this project-wide requirement after the migration-gate portability problems and asked for a plan covering it.
+
+**How to apply:** Include safe, reliable test access when planning support for existing or new Luca hats. Do not assume fixing one hat's Linux gate satisfies the requirement for the others. Shared versus local execution, rollout and credential custody still need an agreed design; this requirement alone does not authorize infrastructure or permission changes.
+
+
+## Public diagnostics are a separate privacy boundary
+
+Production-copy test execution and public test reporting have separate privacy boundaries. A diagnostic prefix, a failing-test name, or a successful clean-log sample does not establish that future subprocess output is safe to publish.
+
+**Why:** The repository's CI output is public, while a disposable production-copy database can still contain private learner and conversation data. A reviewed prefix filter passed its original private-row test yet relayed synthetic private content carried after allowed status and test-name prefixes.
+
+**How to apply:** Keep raw production-copy diagnostics with an authorized private holder. Public reports should use fixed outer-wrapper status messages and strictly validated, re-rendered numeric summaries, not arbitrary subprocess lines, test names, error reasons or command text. Test accepted-prefix-shaped private content on both success and failure paths.
+

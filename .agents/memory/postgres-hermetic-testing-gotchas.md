@@ -157,3 +157,30 @@ Permanent identity ownership must be serialized by the shared identity being ass
 
 **How to apply:** Establish immutable identity-owner rows/constraints, or acquire stable, consistently ordered identity-level transaction locks before the fresh ownership lookup. Test the approve/revoke/approve interleaving, not only sequential reuse. A cancelled proposal that was never approved must not become historical ownership merely because its terminal state is revoked.
 
+
+## Database clock agreement is not commit visibility
+
+A common database clock does not establish commit/visibility order. PostgreSQL now()/CURRENT_TIMESTAMP is fixed at transaction start; an advancing wall clock can also stamp data before it commits. Comparing those timestamps is not by itself proof that a concurrent reader has seen every relevant state transition.
+
+**Why:** A receipt design acknowledged by a model as race-free could assign an actor acknowledgment time10, start another session at20, and expose the actor receipt only at commit30. Its after-session-start predicate then hid an unserved row from that concurrent session. Official PostgreSQL clock docs and an executable abstract predicate check support the counterexample; no candidate implementation or actual DB race was run. Source: conversation_memories 1e59e91c-56fa-429f-ac10-cf8cffec1cde.
+
+**How to apply:** For cross-transaction delivery/visibility guarantees, establish a real serialization or visibility handoff (or explicitly conservative recovery), not merely one clock source or a different time function. Once implementation is authorized, test the real interleaving on a disposable database. Clock-skew, elapsed-time freshness and commit visibility are distinct questions.
+
+
+## Timezone-sensitive fixture parameter binding
+
+**Rule:** For same-process node-postgres fixtures targeting `timestamp without time zone`, bind `Date` values when modeling service-created instants; an ISO `Z` string is a different wall-clock representation. Do not interpret this as cross-timezone service safety.
+
+**Why:** UTC masks the distinction. Independent PostgreSQL round trips showed ISO-string fixtures shift by the local offset in Denver and Kolkata while `Date` parameters preserve the instants under the same writer/reader timezone. A historical-replay test consequently passed in UTC CI but failed a production-copy gate run on a non-UTC host.
+
+**How to apply:** Compare the column type, driver serialization and parser before diagnosing signed-digest failures. Include a non-UTC timezone in the relevant regression evidence and distinguish fixture correctness from mixed-timezone production semantics. Never repair evidence by rewriting stored hashes or weakening digest validation.
+
+
+## Consistent clocks for ordered lifecycle transitions
+
+**Rule:** Ordered lifecycle timestamps and their expiry decisions need a consistent authoritative clock. Mixing application-clock creation/promotion with database-clock acknowledgement can violate a correct timestamp-order constraint even when every process uses UTC.
+
+**Why:** A production-copy gate exposed lifecycle stamps ordered incorrectly under a small host/database clock skew. Independent actual-source probes with the app clock both ahead and behind also showed erroneous live/expired decisions until the changed transitions consistently used database time.
+
+**How to apply:** Sample the fresh database clock after acquiring the authoritative row lock; use that sample for the transition's expiry decision and stamp. Preserve the constraint and evidence. Keep clock skew, timezone serialization, transaction-start clock staleness and commit visibility distinct; one clock source alone does not establish cross-transaction ordering.
+

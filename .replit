@@ -151,7 +151,7 @@ PRIVATE_OBJECT_DIR = "/holaholar2bucket/.private"
 PUBLIC_OBJECT_SEARCH_PATHS = "/holaholar2bucket/public"
 SOURCE_PROMOTION_API_ENABLED = "false"
 SOURCE_RELEASE_HEALTH_URL = "https://getholahola.com/health/release"
-GITHUB_REPO_URL = "https://github.com/davidwmcintosh/holahola.git"
+GITHUB_REPO_URL = "https://github.com/HolaHolaOrganization/HolaHola.git"
 COORDINATION_CLI_CREDENTIAL_CACHE_DIR = "/home/runner/workspace/.local/coordination-cli-credentials"
 COORDINATION_RUNTIME_ID = "luca-replit-primary"
 

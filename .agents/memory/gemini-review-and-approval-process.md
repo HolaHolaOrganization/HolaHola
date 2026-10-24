@@ -123,3 +123,50 @@ A clean unconditional "Ship it" is the only exit. Any remaining wording ("once y
 June 17, 2026 — David's explicit instruction.
 Sharpened July 12, 2026 — conditional vs. unconditional approval distinction added after a session where "APPROVED with 3 changes" was treated as final without a confirmation pass.
 
+
+## Founder clarification — independent consultation (2026-10-21)
+
+## Founder clarification — independent consultation, not implementation endorsement
+
+The founder clarified on 2026-10-21 that consultations must examine what we are
+trying to accomplish and the approach itself, not just inspect code for defects.
+State the problem, evidence and goals before presenting our proposed solution.
+Explicitly invite alternative approaches and challenges to our logic, including
+replacing the proposed approach rather than only repairing it.
+
+Avoid relationship/authority cues such as “David, someone you know and trust”
+and instructions that make the reviewer adopt a mindset before examining the
+problem. Code is necessary evidence for implementation review, but presenting
+code already anchors the discussion and is not by itself an independent
+consultation.
+
+**Why:** The founder observed consultation scripts steering the reviewer toward
+a preferred direction through trust language, framing and implementation-first
+presentation. The purpose is independent reasoning, including ideas we did not
+propose, rather than obtaining agreement with what we built.
+
+**How to apply:** This clarification takes precedence over older code-first
+examples in this topic. Separate genuine constraints from our chosen mechanism.
+Do not frame prior human approval as a reason for the reviewer to agree. Keep
+the review open to alternatives and missing evidence. A release approval gate
+is not an instruction to produce approval; verifying a real fix must remain
+distinct from rephrasing a request to obtain a different answer.
+
+
+## Consultation informs; the team decides
+
+**Rule:** The existing 100% Gemini sign-off policy remains in force. Implement recommendations for improvement—including “you can ship it, but it would be better if…” suggestions—and re-present the actual changed work. Repeat until full sign-off. Final decision authority remains with the team, not Gemini.
+
+**Why:** The founder explicitly corrected Replit's overly broad interpretation of his earlier statement. He wants Gemini's genuine improvement recommendations implemented and reviewed again, not dismissed using the team's final authority. Exact clarification: conversation_memories `6630c83b-067d-4fbb-876d-49f48d2065dc`, extending the earlier record `f3bfaa4a-7949-4779-99f2-651be95de2bf`.
+
+**How to apply:** Do not classify suggestions as optional, limit review to correctness defects alone, or use final authority to bypass the normal loop. A genuine unresolved disagreement or difference in understanding must be surfaced with its reasoning and evidence for an explicit team/founder decision; an ordinary reviewer must not presume an override. Distinguish approved direction, final reviewed implementation and release authority. This rule does not authorize rerunning an unchanged prompt to elicit a favorable answer.
+
+
+## Consultation history replay is a new disclosure
+
+Replaying consultation history is a new disclosure of every included component. A clean newest question does not satisfy a no-further-forwarding restriction if older restricted material is still sent in the request history.
+
+**Why:** An owner reported that full-history review requests retransmitted previously disclosed out-of-scope diagnostic fingerprints and metadata twice, despite those values not being part of the new questions. The inspection and fresh sanitized replacement thread were owner-reported; the native full request JSON was not independently audited. Source: conversation_memories 5452f350-d7cb-45d6-bdea-9e6699073199.
+
+**How to apply:** Inspect the complete outgoing history, not only the last prompt. After an over-scope disclosure, start a clean review context using attributed safe prior facts or immutable references rather than blindly replaying the old exchange. Preserve original evidence; do not erase or rewrite it as cleanup. Label a safe summary/view honestly instead of calling it the complete verbatim history, and report confirmed retransmissions without copying the restricted values again.
+

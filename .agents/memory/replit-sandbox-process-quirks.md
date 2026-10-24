@@ -338,3 +338,12 @@ itself, proof that the workspace owner cannot replace or modify it. Do not
 build root-ownership checks or promise root-owned integrity from the path
 prefix alone.
 
+
+## Standalone consultation timers
+
+Standalone memory-aware consultations are not automatically side-effect-free reads. Importing and loading the shared Daniela context/tool pipeline can leave background memory-extraction and telemetry timers running after the foreground answer and canonical record save.
+
+**Why:** A completed, readback-verified consultation process remained alive after its database pool closed; background brain-health flush failures and fact-extraction activity continued in its process log. Stopping that local CLI process was separate from restarting or stopping the application.
+
+**How to apply:** Under a read-only or held-workflow boundary, inspect imported-service side effects before running an ad-hoc consultation. Use a purpose-scoped standalone runner, await the actual answer and canonical record verification, then shut down its workers/connections or explicitly terminate that CLI. Never transplant CLI process termination into a shared application service.
+
