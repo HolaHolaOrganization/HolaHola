@@ -589,7 +589,9 @@ async function runClaudeCodeRemoteCli(
   }
   const body = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new Error(`Remote endpoint rejected the exchange (${response.status}): ${body?.error ?? JSON.stringify(body)}`);
+    const message = `Remote endpoint rejected the exchange (${response.status}): ${body?.error ?? JSON.stringify(body)}`;
+    if (isChangedContentRejection(response.status, body?.error)) throw new ChangedContentRejection(message);
+    throw new Error(message);
   }
   const targetByteOffset: number | undefined = body?.receipt?.targetByteOffset;
   if (typeof targetByteOffset !== 'number') {
@@ -638,6 +640,23 @@ async function runClaudeCodeRemoteCli(
   );
 }
 
+/**
+ * The one permanent remote outcome: the canonical record already holds
+ * different text under this turn id, so retrying the same version can never
+ * succeed. The CLI exits with CHANGED_CONTENT_REJECTION_EXIT for it, so a
+ * caller (the Claude Code Stop hook) can keep the version aside instead of
+ * retrying it forever. Every other failure, including other 409s (busy,
+ * source mismatch), exits 1 and stays retryable.
+ */
+export const CHANGED_CONTENT_REJECTION_EXIT = 3;
+const CHANGED_CONTENT_ERROR = /^canonical conversation turn [A-Za-z0-9-]+ already has different (?:user|assistant) text$/;
+
+export class ChangedContentRejection extends Error {}
+
+export function isChangedContentRejection(status: number, error: unknown): boolean {
+  return status === 409 && typeof error === 'string' && CHANGED_CONTENT_ERROR.test(error);
+}
+
 // ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
@@ -655,7 +674,7 @@ if (!isMain) {
 } else {
   runCli(args).catch(error => {
     console.error(`[record-exchange] ERROR: ${error instanceof Error ? error.message : String(error)}`);
-    process.exit(1);
+    process.exit(error instanceof ChangedContentRejection ? CHANGED_CONTENT_REJECTION_EXIT : 1);
   });
 }
 
