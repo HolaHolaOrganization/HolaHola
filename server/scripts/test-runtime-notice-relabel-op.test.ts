@@ -77,6 +77,10 @@ test('P2: only the exact permitted notice label is ever written, even from a sel
     const forged = { ...entry, newLabel, postSha256: sha(newLabel + content.slice('David [Claude Code]:'.length)) };
     assert.deepEqual(relabelContent(content, forged), { status: 'drifted' }, newLabel);
   }
+  // A receipt that names another label while its hashes describe the permitted
+  // result is inconsistent and is refused too (the written label always comes
+  // from the constant, never from the receipt).
+  assert.deepEqual(relabelContent(content, { ...entry, newLabel: 'Daniela:' }), { status: 'drifted' });
 });
 
 /** A fake pool recording every statement; SELECT returns the given row. */
