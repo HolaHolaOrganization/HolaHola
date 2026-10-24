@@ -280,13 +280,15 @@ function safeList(dir) {
  * interrupted write never truncates a valid queued version. A producer never
  * deletes anything, so concurrent producers cannot remove each other's
  * versions; superseded versions are removed only by a drainer, after a newer
- * version of the same turn was sent.
+ * version of the same turn was sent. A version the canonical record already
+ * rejected (its exact copy is retained in rejectedDir) is never queued again,
+ * so a later Stop that sees the same exchange cannot retry it.
  */
-export function queueExchange(outboxDir, item, io = { writeFileSync, renameSync }) {
+export function queueExchange(outboxDir, item, io = { writeFileSync, renameSync }, rejectedDir = join(dirname(outboxDir), 'rejected')) {
   mkdirSync(outboxDir, { recursive: true });
   const name = versionName(item);
   const finalPath = join(outboxDir, name);
-  if (existsSync(finalPath)) return;
+  if (existsSync(finalPath) || existsSync(join(rejectedDir, name))) return;
   const tmpPath = join(outboxDir, `${name}.${process.pid}.${Date.now()}.tmp`);
   try {
     io.writeFileSync(tmpPath, JSON.stringify(item), 'utf8');
@@ -311,8 +313,11 @@ export function queueExchange(outboxDir, item, io = { writeFileSync, renameSync 
  * A version the server permanently rejects (send returns { rejected: reason }:
  * it already holds different text under that turn id) is written, complete,
  * to rejectedDir with its reason, and only after that write succeeds is it
- * removed from the outbox, so it is never lost and never retried. Older
- * versions of that turn stay queued. Any other failure leaves it pending.
+ * removed from the outbox, so it is never lost and never retried. An outbox
+ * copy of a version already retained there (queued concurrently, before the
+ * rejection) is removed without being sent. Older versions of that turn stay
+ * queued, and a different version is never suppressed. Any other failure
+ * leaves it pending.
  *
  * Ownership: producers only add files; only drainers remove them. Any hook
  * process may drain; there is no lock. Two drainers can send the same version,
@@ -329,6 +334,10 @@ export function deliverOutbox({ outboxDir, rejectedDir = join(dirname(outboxDir)
       mtime = statSync(join(outboxDir, name)).mtimeMs;
     } catch {
       continue; // removed by another process since the listing
+    }
+    if (existsSync(join(rejectedDir, name))) {
+      rmSync(join(outboxDir, name), { force: true }); // this exact version is already retained as rejected
+      continue;
     }
     const turnId = turnIdOf(name);
     if (!byTurn.has(turnId)) byTurn.set(turnId, []);

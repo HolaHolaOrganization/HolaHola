@@ -54,6 +54,67 @@ test('a rejected version is kept complete with its reason, leaves the outbox, an
   } finally { b.done(); }
 });
 
+// LR review 5635795040: main() queues every exchange it sees before each drain.
+test('across repeated Stops (queue, then drain), a rejected version is sent once and never requeued', () => {
+  const b = box();
+  try {
+    let calls = 0;
+    const reject = () => { calls++; return { rejected: REASON }; };
+    for (let stop = 0; stop < 3; stop++) {
+      queueExchange(b.outbox, item('cc-s-1', 'changed'));
+      deliverOutbox({ outboxDir: b.outbox, rejectedDir: b.rejected, send: reject });
+    }
+    assert.equal(calls, 1);
+    assert.deepEqual(list(b.outbox), []);
+    assert.equal(list(b.rejected).length, 1);
+  } finally { b.done(); }
+});
+
+test('an outbox copy of an already retained version, queued concurrently, is dropped without being sent', () => {
+  const b = box();
+  try {
+    queueExchange(b.outbox, item('cc-s-1', 'changed'));
+    deliverOutbox({ outboxDir: b.outbox, rejectedDir: b.rejected, send: () => ({ rejected: REASON }) });
+    // another hook process queues the same version without having seen the
+    // rejection yet (its check ran before the retained copy appeared)
+    queueExchange(b.outbox, item('cc-s-1', 'changed'), undefined, join(b.root, 'not-yet-visible'));
+    assert.equal(list(b.outbox).length, 1);
+    let calls = 0;
+    const r = deliverOutbox({ outboxDir: b.outbox, rejectedDir: b.rejected, send: () => { calls++; return true; } });
+    assert.equal(calls, 0);
+    assert.deepEqual(r, { sent: 0, left: 0, rejected: 0 });
+    assert.equal(list(b.rejected).length, 1, 'the retained copy is kept');
+  } finally { b.done(); }
+});
+
+test('a different version of a rejected turn is still queued and sent', () => {
+  const b = box();
+  try {
+    queueExchange(b.outbox, item('cc-s-1', 'changed'));
+    deliverOutbox({ outboxDir: b.outbox, rejectedDir: b.rejected, send: () => ({ rejected: REASON }) });
+    queueExchange(b.outbox, item('cc-s-1', 'changed again'));
+    const sent: string[] = [];
+    const r = deliverOutbox({ outboxDir: b.outbox, rejectedDir: b.rejected, send: (i: { assistantText: string }) => { sent.push(i.assistantText); return true; } });
+    assert.deepEqual(sent, ['changed again']);
+    assert.deepEqual(r, { sent: 1, left: 0, rejected: 0 });
+  } finally { b.done(); }
+});
+
+test('when retention failed, the next Stop still queues and retries the pending original', () => {
+  const b = box();
+  try {
+    const failingIo = { writeFileSync: () => { throw new Error('ENOSPC'); }, renameSync: () => { throw new Error('unreachable'); } };
+    queueExchange(b.outbox, item('cc-s-1', 'changed'));
+    deliverOutbox({ outboxDir: b.outbox, rejectedDir: b.rejected, send: () => ({ rejected: REASON }), io: failingIo });
+    queueExchange(b.outbox, item('cc-s-1', 'changed'));
+    let calls = 0;
+    deliverOutbox({ outboxDir: b.outbox, rejectedDir: b.rejected, send: () => { calls++; return { rejected: REASON }; } });
+    assert.equal(calls, 1);
+    assert.equal(list(b.rejected).length, 1, 'retained on the attempt that could write it');
+    assert.deepEqual(list(b.outbox), []);
+  } finally { b.done(); }
+});
+
 test('if the rejected copy cannot be written, the original stays pending', () => {
   const b = box();
   try {
