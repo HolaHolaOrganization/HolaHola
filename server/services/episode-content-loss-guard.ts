@@ -45,6 +45,7 @@
  */
 
 import { verifyEpisodeClaudeAttributionReceipt } from './episode-claude-attribution-repair';
+import { runtimeNoticeRelabelReceiptPath, verifyRuntimeNoticeRelabelReceipt } from './runtime-notice-relabel';
 
 /** Matches exactly `docs/episode-<digits>.md` — not gap-analysis docs, not
  *  prequel episodes, not the attribution taxonomy, not `docs/episodes/*`.
@@ -257,10 +258,11 @@ export interface EpisodeContentLossResult {
 }
 
 /**
- * Only the approved historical Episode 34 repair qualifies. Read evidence
- * from the resolved incoming commit, never from mutable working-tree files.
- * Missing/malformed evidence leaves ordinary loss detection intact; unknown
- * Git state must throw rather than authorize a repair.
+ * Only the approved historical label corrections qualify: the Episode 34
+ * Claude Code repair, and the runtime-notice relabel of Episodes 33 and 34.
+ * Read evidence from the resolved incoming commit, never from mutable
+ * working-tree files. Missing/malformed evidence leaves ordinary loss
+ * detection intact; unknown Git state must throw rather than authorize a repair.
  */
 async function hasVerifiedAttributionRepair(
   runGit: GitRunner,
@@ -269,6 +271,17 @@ async function hasVerifiedAttributionRepair(
   oldContent: string,
   newContent: string,
 ): Promise<boolean> {
+  const noticeReceiptPath = runtimeNoticeRelabelReceiptPath(path);
+  if (noticeReceiptPath && isRegularFileEntry(await lsTreeEntry(runGit, newSha, noticeReceiptPath))) {
+    const content = await readFileAtRef(runGit, newSha, noticeReceiptPath);
+    let receipt: unknown = null;
+    try {
+      receipt = JSON.parse(content);
+    } catch {
+      receipt = null;
+    }
+    if (verifyRuntimeNoticeRelabelReceipt(path, oldContent, newContent, receipt)) return true;
+  }
   if (path !== 'docs/episode-34.md') return false;
   const receiptPaths = [
     'docs/episode-34-attribution-repair-evidence.json',
