@@ -19,7 +19,12 @@
  * The receipt holds no dialogue: row ids, capture ids, the provenance basis,
  * the label span and hashes only.
  *
- *   npx tsx server/scripts/generate-runtime-notice-relabel-receipt.ts [--out <file>] [--transcripts <dir>]
+ * With --episode <id>, it also writes <out>.episode.json: the selection for that
+ * rolling episode (included two-sided locations, one-sided locations for
+ * founder review, exclusions) and a plan receipt for the included locations
+ * plus any review offsets passed in --include-review a,b,c.
+ *
+ *   npx tsx server/scripts/generate-runtime-notice-relabel-receipt.ts [--out <file>] [--transcripts <dir>] [--episode <id> [--include-review <offsets>]]
  */
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
@@ -29,6 +34,7 @@ import { Pool } from '@neondatabase/serverless';
 // @ts-expect-error -- plain ESM hook module without type declarations
 import { classifyUserEntry } from '../../.claude/hooks/runtime-entries.mjs';
 import { RUNTIME_NOTICE_LABEL } from '../services/runtime-notice-relabel';
+import { buildEpisodeReceipt, selectEpisodeEdits } from '../services/runtime-notice-relabel-episode';
 
 const OLD_PREFIX = 'David [Claude Code]: ';
 const CAPTURE_TAG = /^capture-id:(cc-([0-9a-f-]{36})-(\d+))$/;
@@ -98,6 +104,13 @@ export function judgeRow(
   };
 }
 
+/** Evidence for review goes only inside a .local/ directory, never into tracked source. */
+function writeEvidence(path: string, data: unknown): void {
+  if (!/[\\/]\.local[\\/]/.test(resolve(path))) throw new Error('evidence output must be inside a .local/ directory');
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, JSON.stringify(data, null, 2));
+}
+
 function arg(name: string): string | undefined {
   const i = process.argv.indexOf(`--${name}`);
   return i >= 0 ? process.argv[i + 1] : undefined;
@@ -106,8 +119,6 @@ function arg(name: string): string | undefined {
 async function main(): Promise<void> {
   const transcriptsDir = arg('transcripts') ?? join(homedir(), '.claude', 'projects', 'C--Users-David-HolaHola');
   const out = arg('out') ?? join('.local', 'runtime-notice-relabel', `receipt-${Date.now()}.json`);
-  // The receipt is evidence for review, never written into tracked source.
-  if (!/[\\/]\.local[\\/]/.test(resolve(out))) throw new Error('--out must be inside a .local/ directory');
   const sessions = new Set(existsSync(transcriptsDir) ? readdirSync(transcriptsDir).filter(n => n.endsWith('.jsonl')).map(n => n.slice(0, -6)) : []);
   const cache = new Map<string, unknown[]>();
   const entriesOf = (session: string): unknown[] => {
@@ -151,9 +162,33 @@ async function main(): Promise<void> {
       entries,
       listSha256: sha256(JSON.stringify(entries)),
     };
-    mkdirSync(dirname(out), { recursive: true });
-    writeFileSync(out, JSON.stringify(receipt, null, 2));
+    writeEvidence(out, receipt);
     console.log(JSON.stringify({ out, scanned: rows.length, toCorrect: entries.length, byBasis, founderLabelCorrect: founder, unverified, listSha256: receipt.listSha256 }, null, 2));
+
+    const episodeId = arg('episode');
+    if (episodeId) {
+      const episode = await pool.query('SELECT content, (attribution IS NOT NULL) AS has_attribution FROM conversation_memories WHERE id = $1', [episodeId]);
+      if (!episode.rows.length) throw new Error(`episode ${episodeId} not found`);
+      if (episode.rows[0].has_attribution) throw new Error('episode row has per-turn attribution; not eligible');
+      const content: string = episode.rows[0].content;
+      const contentById = new Map(rows.map(r => [r.id as string, r.content as string]));
+      const approved = entries.map(e => ({ id: e.rowId, content: contentById.get(e.rowId)!, preSha256: e.preSha256 }));
+      const canonical = (await pool.query(
+        `SELECT id::text AS id, content FROM conversation_memories WHERE arc_name = 'david-luca-chat' AND entry_type = 'conversation'`,
+      )).rows as Array<{ id: string; content: string }>;
+      const selection = selectEpisodeEdits(content, approved, canonical);
+      const reviewApproved = new Set((arg('include-review') ?? '').split(',').filter(Boolean).map(Number));
+      const unknown = [...reviewApproved].filter(o => !selection.review.some(c => c.offset === o));
+      if (unknown.length) throw new Error(`--include-review offsets are not review candidates: ${unknown.join(', ')}`);
+      const chosen = [...selection.included, ...selection.review.filter(c => reviewApproved.has(c.offset))];
+      const plan = buildEpisodeReceipt(content, episodeId, receipt.listSha256, chosen);
+      writeEvidence(`${out}.episode.json`, { generatedAt: new Date().toISOString(), contentLength: content.length, receipt: plan, review: selection.review, excluded: selection.excluded });
+      console.log(JSON.stringify({
+        episode: episodeId, contentLength: content.length, included: selection.included.length,
+        review: selection.review.map(c => c.offset), reviewApproved: [...reviewApproved], excluded: selection.excluded.length,
+        planEdits: plan.edits.length, L: plan.L, Lprime: plan.Lprime, episodeEditListSha256: plan.episodeEditListSha256,
+      }, null, 2));
+    }
   } finally {
     await pool.end();
   }

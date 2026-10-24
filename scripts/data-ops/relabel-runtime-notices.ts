@@ -25,8 +25,10 @@ import { fileURLToPath } from 'node:url';
 import type { Pool } from '@neondatabase/serverless';
 import type { DataOpResult } from '../run-data-ops';
 import { RUNTIME_NOTICE_LABEL } from '../../server/services/runtime-notice-relabel';
+import { episodeReceiptProblem, relabelEpisodeContent, type EpisodeReceipt } from '../../server/services/runtime-notice-relabel-episode';
 
 export const RECEIPT_PATH = join(dirname(fileURLToPath(import.meta.url)), 'relabel-runtime-notices.receipt.json');
+export const EPISODE_RECEIPT_PATH = join(dirname(fileURLToPath(import.meta.url)), 'relabel-runtime-notices.episode-receipt.json');
 
 const OLD_LABEL = 'David [Claude Code]:';
 const NEW_LABEL = `${RUNTIME_NOTICE_LABEL}:`;
@@ -109,8 +111,57 @@ export async function applyReceipt(pool: RelabelPool, receipt: RelabelReceipt): 
   return { applied: counts.applied > 0, detail, counts };
 }
 
+/**
+ * Apply one approved episode receipt (server/services/runtime-notice-relabel-episode.ts)
+ * to its rolling episode row, atomically, with the row locked. A row with
+ * attribution, a receipt that fails its structural checks, or a prefix that
+ * changed leaves the episode untouched and reported. Appends that land while
+ * the row is locked are applied after it, by their own atomic `content || ...`.
+ */
+export async function applyEpisodeReceipt(pool: RelabelPool, receipt: EpisodeReceipt, rowsListSha256: string): Promise<{ status: string; detail: string }> {
+  const problem = episodeReceiptProblem(receipt, receipt.episodeId);
+  if (problem) throw new Error(`episode receipt refused: ${problem}`);
+  if (receipt.sourceReceiptListSha256 !== rowsListSha256) throw new Error('episode receipt is not bound to the approved row receipt');
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const { rows } = await client.query(
+      'SELECT content, attribution FROM conversation_memories WHERE id = $1 FOR UPDATE', [receipt.episodeId],
+    );
+    let status: string;
+    let detail: string;
+    if (!rows.length) {
+      status = 'drifted'; detail = 'episode row not found';
+    } else if (rows[0].attribution !== null && rows[0].attribution !== undefined) {
+      status = 'attributed'; detail = 'episode row has per-turn attribution; left unchanged';
+    } else {
+      const outcome = relabelEpisodeContent(rows[0].content, receipt);
+      if (outcome.status === 'apply') {
+        await client.query('UPDATE conversation_memories SET content = $2 WHERE id = $1', [receipt.episodeId, outcome.next]);
+        status = 'applied'; detail = `relabelled ${receipt.edits.length} episode label(s)`;
+      } else if (outcome.status === 'already-applied') {
+        status = 'already-applied'; detail = 'already applied';
+      } else {
+        status = 'drifted'; detail = `${outcome.reason}; left unchanged`;
+      }
+    }
+    await client.query('COMMIT');
+    return { status, detail: `episode ${receipt.episodeId}: ${detail}` };
+  } catch (e) {
+    await client.query('ROLLBACK');
+    throw e;
+  } finally {
+    client.release();
+  }
+}
+
 export async function run(pool: Pool): Promise<DataOpResult> {
   if (!existsSync(RECEIPT_PATH)) return { applied: false, detail: 'no approved receipt committed; nothing to do' };
-  const { applied, detail } = await applyReceipt(pool as unknown as RelabelPool, JSON.parse(readFileSync(RECEIPT_PATH, 'utf8')) as RelabelReceipt);
-  return { applied, detail };
+  const rowsReceipt = JSON.parse(readFileSync(RECEIPT_PATH, 'utf8')) as RelabelReceipt;
+  const rowsResult = await applyReceipt(pool as unknown as RelabelPool, rowsReceipt);
+  if (!existsSync(EPISODE_RECEIPT_PATH)) return { applied: rowsResult.applied, detail: `${rowsResult.detail}; no episode receipt committed` };
+  const episodeResult = await applyEpisodeReceipt(
+    pool as unknown as RelabelPool, JSON.parse(readFileSync(EPISODE_RECEIPT_PATH, 'utf8')) as EpisodeReceipt, rowsReceipt.listSha256,
+  );
+  return { applied: rowsResult.applied || episodeResult.status === 'applied', detail: `${rowsResult.detail}; ${episodeResult.detail}` };
 }
