@@ -67,6 +67,9 @@ test('across repeated Stops (queue, then drain), a rejected version is sent once
     assert.equal(calls, 1);
     assert.deepEqual(list(b.outbox), []);
     assert.equal(list(b.rejected).length, 1);
+    // the producer itself refuses a retained version, before any drain runs
+    queueExchange(b.outbox, item('cc-s-1', 'changed'));
+    assert.deepEqual(list(b.outbox), []);
   } finally { b.done(); }
 });
 
