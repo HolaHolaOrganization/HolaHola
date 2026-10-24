@@ -39,9 +39,15 @@ test('a quoted copy inside a fence, a duplicated row, and a drifted source row a
   assert.equal(selectEpisodeEdits(episode, [drifted], canonical).excluded[0].reason, 'source row content does not match its receipt hash');
 });
 
-function planFor(content: string) {
+/** The approved canonical receipt's entries as the episode binding reads them. */
+const sourceEntries = [n1, n2, n3].map(r => ({
+  rowId: r.id, preSha256: r.preSha256, projectionFrameSha256: sha(`\n${r.content.trim()}\n`), projectionLength: r.content.trim().length,
+}));
+const rowsReceipt = { listSha256: sha(JSON.stringify(sourceEntries)), entries: sourceEntries };
+
+function planFor(content: string, target = 'ep-1') {
   const s = selectEpisodeEdits(content, [n1, n2, n3], canonical);
-  return buildEpisodeReceipt(content, 'ep-1', 'list-sha', s.included);
+  return buildEpisodeReceipt(content, target, rowsReceipt.listSha256, s.included);
 }
 
 test('apply changes only the label spans inside [0, L); the tail is untouched', () => {
@@ -96,12 +102,39 @@ function fakePool(selected: { content: string; attribution: unknown } | null) {
 test('the locked transaction applies once, refuses attribution, and refuses an unbound receipt before connecting', async () => {
   const r = planFor(episode);
   const fresh = fakePool({ content: episode, attribution: null });
-  assert.equal((await applyEpisodeReceipt(fresh.pool, r, 'list-sha')).status, 'applied');
+  assert.equal((await applyEpisodeReceipt(fresh.pool, r, rowsReceipt, 'ep-1')).status, 'applied');
   assert.deepEqual(fresh.statements, ['BEGIN', 'SELECT', 'UPDATE', 'COMMIT']);
   const attributed = fakePool({ content: episode, attribution: { turnAttribution: {} } });
-  assert.equal((await applyEpisodeReceipt(attributed.pool, r, 'list-sha')).status, 'attributed');
+  assert.equal((await applyEpisodeReceipt(attributed.pool, r, rowsReceipt, 'ep-1')).status, 'attributed');
   assert.deepEqual(attributed.statements, ['BEGIN', 'SELECT', 'COMMIT']);
   const unbound = fakePool({ content: episode, attribution: null });
-  await assert.rejects(() => applyEpisodeReceipt(unbound.pool, r, 'another-list'));
+  await assert.rejects(() => applyEpisodeReceipt(unbound.pool, r, { ...rowsReceipt, listSha256: sha('another') }, 'ep-1'));
   assert.deepEqual(unbound.statements, []);
+});
+
+// --- PR #100 review (LR 5638580338) ---
+
+test('P1: the target is the caller-supplied permitted episode; a self-consistent receipt for another row is refused before connecting', async () => {
+  const other = planFor(episode, 'not-the-authorized-episode');
+  const p = fakePool({ content: episode, attribution: null });
+  await assert.rejects(() => applyEpisodeReceipt(p.pool, other, rowsReceipt, 'ep-1'), /episode/);
+  assert.deepEqual(p.statements, []);
+});
+
+test('P1: an edit naming a row outside the approved receipt, or with a mismatched source binding, is refused before connecting', async () => {
+  const f3 = row('f3', founder(3));
+  const withFounder = '# E\n' + project([f1.content, n1.content, f3.content, f2.content]) + 'tail';
+  // A forged plan that treats a genuine founder row as if it were approved.
+  const forgedSelection = selectEpisodeEdits(withFounder, [n1, f3], [n1, f1, f2, f3]);
+  const forged = buildEpisodeReceipt(withFounder, 'ep-1', rowsReceipt.listSha256, forgedSelection.included);
+  const p = fakePool({ content: withFounder, attribution: null });
+  await assert.rejects(() => applyEpisodeReceipt(p.pool, forged, rowsReceipt, 'ep-1'), /not in the approved receipt/);
+  assert.deepEqual(p.statements, []);
+  // A listed row whose frame hash in the plan differs from its receipt entry.
+  const r = planFor(episode);
+  const tampered = { ...r, edits: r.edits.map((e, i) => (i === 0 ? { ...e, frameSha256: sha('other') } : e)) };
+  const retagged = { ...tampered, episodeEditListSha256: sha(JSON.stringify(tampered.edits)) };
+  await assert.rejects(() => applyEpisodeReceipt(fakePool(null).pool, retagged, rowsReceipt, 'ep-1'), /does not match its source row/);
+  // A row receipt whose entries were swapped under the same list hash.
+  await assert.rejects(() => applyEpisodeReceipt(fakePool(null).pool, r, { ...rowsReceipt, entries: sourceEntries.slice(1) }, 'ep-1'), /list hash/);
 });

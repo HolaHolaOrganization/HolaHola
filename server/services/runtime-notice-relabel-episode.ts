@@ -24,6 +24,14 @@ import { createHash } from 'node:crypto';
 import { RUNTIME_NOTICE_LABEL } from './runtime-notice-relabel';
 
 export const EPISODE_RECEIPT_KIND = 'runtime-notice-relabel-episode';
+
+/**
+ * The only episode this one-time correction may touch: Episode 34, the rolling
+ * episode the gap patcher projected the misattributed rows into. Episode 33 and
+ * every other row are out of scope. Production callers check a receipt against
+ * this constant, never against the receipt's own episodeId.
+ */
+export const PERMITTED_EPISODE_ID = '41200170-1c49-4660-838c-9d397aff5d27';
 export const OLD_LABEL = 'David [Claude Code]:';
 export const NEW_LABEL = `${RUNTIME_NOTICE_LABEL}:`;
 
@@ -182,6 +190,32 @@ export function episodeReceiptProblem(r: EpisodeReceipt, episodeId: string): str
   }
   if (previousEnd !== r.L) return 'L is not the end of the last edited frame';
   if (r.Lprime !== r.L + r.edits.length * (NEW_LABEL.length - OLD_LABEL.length)) return "L' does not match the edit list";
+  return null;
+}
+
+/** A canonical receipt entry, as far as episode binding needs it. */
+export interface SourceEntry {
+  rowId: string;
+  preSha256: string;
+  projectionFrameSha256: string;
+  projectionLength: number;
+}
+
+/**
+ * Every edit must name a row of the approved canonical receipt and carry that
+ * entry's own preimage hash, projection-frame hash and length. The frame proof
+ * is rooted in the source receipt (covered by its listSha256), not in hashes
+ * the episode plan supplies for itself.
+ */
+export function episodeSourceProblem(r: EpisodeReceipt, sourceEntries: SourceEntry[]): string | null {
+  const byId = new Map(sourceEntries.map(e => [e.rowId, e]));
+  for (const e of r.edits) {
+    const source = byId.get(e.sourceRowId);
+    if (!source) return `edit at ${e.offset} names a row that is not in the approved receipt`;
+    if (e.rowPreSha256 !== source.preSha256 || e.frameSha256 !== source.projectionFrameSha256 || e.rowLength !== source.projectionLength) {
+      return `edit at ${e.offset} does not match its source row's receipt entry`;
+    }
+  }
   return null;
 }
 

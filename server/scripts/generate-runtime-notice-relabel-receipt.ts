@@ -34,7 +34,7 @@ import { Pool } from '@neondatabase/serverless';
 // @ts-expect-error -- plain ESM hook module without type declarations
 import { classifyUserEntry } from '../../.claude/hooks/runtime-entries.mjs';
 import { RUNTIME_NOTICE_LABEL } from '../services/runtime-notice-relabel';
-import { buildEpisodeReceipt, selectEpisodeEdits } from '../services/runtime-notice-relabel-episode';
+import { PERMITTED_EPISODE_ID, buildEpisodeReceipt, selectEpisodeEdits } from '../services/runtime-notice-relabel-episode';
 
 const OLD_PREFIX = 'David [Claude Code]: ';
 const CAPTURE_TAG = /^capture-id:(cc-([0-9a-f-]{36})-(\d+))$/;
@@ -67,6 +67,14 @@ export interface ReceiptEntry {
   lineSha256: string;
   preSha256: string;
   postSha256: string;
+  /**
+   * The row as the gap patcher projects it into a rolling episode:
+   * sha256("\n" + content.trim() + "\n") and the trimmed length. Covered by the
+   * receipt's listSha256, so an episode edit is bound to its source row here,
+   * not by a hash the episode plan supplies for itself.
+   */
+  projectionFrameSha256: string;
+  projectionLength: number;
 }
 
 export type Verdict =
@@ -100,6 +108,7 @@ export function judgeRow(
       rowId: row.id, captureId: row.captureId, basis: author.basis, offset: 0,
       oldLabel: 'David [Claude Code]:', newLabel, lineSha256: sha256(rest),
       preSha256: sha256(row.content), postSha256: sha256(post),
+      projectionFrameSha256: sha256(`\n${row.content.trim()}\n`), projectionLength: row.content.trim().length,
     },
   };
 }
@@ -167,6 +176,7 @@ async function main(): Promise<void> {
 
     const episodeId = arg('episode');
     if (episodeId) {
+      if (episodeId !== PERMITTED_EPISODE_ID) throw new Error(`--episode must be the permitted episode ${PERMITTED_EPISODE_ID}`);
       const episode = await pool.query('SELECT content, (attribution IS NOT NULL) AS has_attribution FROM conversation_memories WHERE id = $1', [episodeId]);
       if (!episode.rows.length) throw new Error(`episode ${episodeId} not found`);
       if (episode.rows[0].has_attribution) throw new Error('episode row has per-turn attribution; not eligible');

@@ -25,7 +25,11 @@ async function fixture() {
   const content = '# Synthetic episode\n' + project(rows.map(r => r.content)) + 'tail before\n';
   const selection = selectEpisodeEdits(content, approved, rows);
   assert.equal(selection.included.length, 3);
-  return { content, selection };
+  const entries = await Promise.all(approved.map(async r => ({
+    rowId: r.id, preSha256: r.preSha256, projectionFrameSha256: await sha(`\n${r.content.trim()}\n`), projectionLength: r.content.trim().length,
+  })));
+  const rowsReceipt = { listSha256: await sha(JSON.stringify(entries)), entries };
+  return { content, selection, rowsReceipt };
 }
 
 async function insertEpisode(client: any, content: string): Promise<string> {
@@ -68,15 +72,15 @@ test('episode relabel: concurrent appends, late attribution, drift and rerun', a
   }
   const pg = (await import('pg')).default;
   pool = new pg.Pool({ connectionString: url, max: 30 });
-  const { content, selection } = await fixture();
+  const { content, selection, rowsReceipt } = await fixture();
   const read = async (id: string) => (await pool.query('select content from conversation_memories where id = $1', [id])).rows[0].content as string;
   const append = (id: string, text: string) => pool.query('update conversation_memories set content = content || $2 where id = $1', [id, text]);
 
   // 1. Appends fired while the relabel holds the row lock all land after it.
   const id = await insertEpisode(pool, content);
-  const receipt = buildEpisodeReceipt(content, id, 'rows-list', selection.included);
+  const receipt = buildEpisodeReceipt(content, id, rowsReceipt.listSha256, selection.included);
   const paused = pausingPool(pool);
-  const applying = applyEpisodeReceipt(paused.wrapped, receipt, 'rows-list');
+  const applying = applyEpisodeReceipt(paused.wrapped, receipt, rowsReceipt, id);
   await paused.locked;
   const appends = Array.from({ length: 20 }, (_, i) => append(id, `\nappend ${i}\n`));
   await new Promise(r => setTimeout(r, 200));
@@ -90,16 +94,16 @@ test('episode relabel: concurrent appends, late attribution, drift and rerun', a
   assert.ok(after1.includes('tail before'), 'original tail kept');
 
   // 2. A rerun after the shrinking labels and new appends is a no-op.
-  assert.equal((await applyEpisodeReceipt(pool, receipt, 'rows-list')).status, 'already-applied');
+  assert.equal((await applyEpisodeReceipt(pool, receipt, rowsReceipt, id)).status, 'already-applied');
   assert.equal(await read(id), after1);
 
   // 3. An append holding the lock first is preserved, then the relabel applies.
   const id2 = await insertEpisode(pool, content);
-  const receipt2 = buildEpisodeReceipt(content, id2, 'rows-list', selection.included);
+  const receipt2 = buildEpisodeReceipt(content, id2, rowsReceipt.listSha256, selection.included);
   const holder = await pool.connect();
   await holder.query('begin');
   await holder.query('update conversation_memories set content = content || $2 where id = $1', [id2, '\nfirst writer\n']);
-  const applying2 = applyEpisodeReceipt(pool, receipt2, 'rows-list');
+  const applying2 = applyEpisodeReceipt(pool, receipt2, rowsReceipt, id2);
   await new Promise(r => setTimeout(r, 200));
   await holder.query('commit');
   holder.release();
@@ -111,12 +115,12 @@ test('episode relabel: concurrent appends, late attribution, drift and rerun', a
   // 4. Late attribution and prefix drift leave the row untouched.
   const id3 = await insertEpisode(pool, content);
   await pool.query(`update conversation_memories set attribution = '{"turnAttribution":{}}'::jsonb where id = $1`, [id3]);
-  assert.equal((await applyEpisodeReceipt(pool, buildEpisodeReceipt(content, id3, 'rows-list', selection.included), 'rows-list')).status, 'attributed');
+  assert.equal((await applyEpisodeReceipt(pool, buildEpisodeReceipt(content, id3, rowsReceipt.listSha256, selection.included), rowsReceipt, id3)).status, 'attributed');
   assert.equal(await read(id3), content);
   const id4 = await insertEpisode(pool, content);
-  const receipt4 = buildEpisodeReceipt(content, id4, 'rows-list', selection.included);
+  const receipt4 = buildEpisodeReceipt(content, id4, rowsReceipt.listSha256, selection.included);
   await pool.query(`update conversation_memories set content = replace(content, '# Synthetic episode', '# Edited episode') where id = $1`, [id4]);
-  assert.equal((await applyEpisodeReceipt(pool, receipt4, 'rows-list')).status, 'drifted');
+  assert.equal((await applyEpisodeReceipt(pool, receipt4, rowsReceipt, id4)).status, 'drifted');
   assert.ok((await read(id4)).includes(`${OLD_LABEL} <task-notification>`));
 
   await pool.query(`delete from conversation_memories where 'relabel-episode-test' = any(tags)`);

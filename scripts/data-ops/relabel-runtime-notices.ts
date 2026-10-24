@@ -25,7 +25,9 @@ import { fileURLToPath } from 'node:url';
 import type { Pool } from '@neondatabase/serverless';
 import type { DataOpResult } from '../run-data-ops';
 import { RUNTIME_NOTICE_LABEL } from '../../server/services/runtime-notice-relabel';
-import { episodeReceiptProblem, relabelEpisodeContent, type EpisodeReceipt } from '../../server/services/runtime-notice-relabel-episode';
+import {
+  PERMITTED_EPISODE_ID, episodeReceiptProblem, episodeSourceProblem, relabelEpisodeContent, type EpisodeReceipt, type SourceEntry,
+} from '../../server/services/runtime-notice-relabel-episode';
 
 export const RECEIPT_PATH = join(dirname(fileURLToPath(import.meta.url)), 'relabel-runtime-notices.receipt.json');
 export const EPISODE_RECEIPT_PATH = join(dirname(fileURLToPath(import.meta.url)), 'relabel-runtime-notices.episode-receipt.json');
@@ -118,10 +120,19 @@ export async function applyReceipt(pool: RelabelPool, receipt: RelabelReceipt): 
  * changed leaves the episode untouched and reported. Appends that land while
  * the row is locked are applied after it, by their own atomic `content || ...`.
  */
-export async function applyEpisodeReceipt(pool: RelabelPool, receipt: EpisodeReceipt, rowsListSha256: string): Promise<{ status: string; detail: string }> {
-  const problem = episodeReceiptProblem(receipt, receipt.episodeId);
+export async function applyEpisodeReceipt(
+  pool: RelabelPool,
+  receipt: EpisodeReceipt,
+  rowsReceipt: { listSha256: string; entries: SourceEntry[] },
+  expectedEpisodeId: string,
+): Promise<{ status: string; detail: string }> {
+  // The target comes from the caller (production: PERMITTED_EPISODE_ID), never from the receipt itself.
+  const problem = episodeReceiptProblem(receipt, expectedEpisodeId);
   if (problem) throw new Error(`episode receipt refused: ${problem}`);
-  if (receipt.sourceReceiptListSha256 !== rowsListSha256) throw new Error('episode receipt is not bound to the approved row receipt');
+  if (sha256(JSON.stringify(rowsReceipt.entries)) !== rowsReceipt.listSha256) throw new Error('row receipt list hash does not match its entries');
+  if (receipt.sourceReceiptListSha256 !== rowsReceipt.listSha256) throw new Error('episode receipt is not bound to the approved row receipt');
+  const sourceProblem = episodeSourceProblem(receipt, rowsReceipt.entries);
+  if (sourceProblem) throw new Error(`episode receipt refused: ${sourceProblem}`);
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -161,7 +172,8 @@ export async function run(pool: Pool): Promise<DataOpResult> {
   const rowsResult = await applyReceipt(pool as unknown as RelabelPool, rowsReceipt);
   if (!existsSync(EPISODE_RECEIPT_PATH)) return { applied: rowsResult.applied, detail: `${rowsResult.detail}; no episode receipt committed` };
   const episodeResult = await applyEpisodeReceipt(
-    pool as unknown as RelabelPool, JSON.parse(readFileSync(EPISODE_RECEIPT_PATH, 'utf8')) as EpisodeReceipt, rowsReceipt.listSha256,
+    pool as unknown as RelabelPool, JSON.parse(readFileSync(EPISODE_RECEIPT_PATH, 'utf8')) as EpisodeReceipt,
+    rowsReceipt as unknown as { listSha256: string; entries: SourceEntry[] }, PERMITTED_EPISODE_ID,
   );
   return { applied: rowsResult.applied || episodeResult.status === 'applied', detail: `${rowsResult.detail}; ${episodeResult.detail}` };
 }
