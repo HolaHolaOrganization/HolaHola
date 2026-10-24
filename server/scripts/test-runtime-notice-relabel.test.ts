@@ -84,6 +84,21 @@ test('the receipt rejects anything beyond the exact label span', () => {
   }
 });
 
+test('a self-consistent receipt for any other old or new label is rejected', () => {
+  for (const [oldLabel, newLabel] of [['**David [Claude Code]:**', '**Daniela:**'], ['**David [Claude Code]:**', '**David:**'], ['**Claude Code:**', `**${RUNTIME_NOTICE_LABEL}:**`]]) {
+    const oldContent = `# Episode
+
+${oldLabel} ${NOTICE}
+`;
+    const newContent = oldContent.replace(oldLabel, newLabel);
+    const receipt = {
+      ...receiptFor(oldContent, newContent),
+      edits: [{ offset: oldContent.indexOf(oldLabel), oldLabel, newLabel, lineSha256: sha(NOTICE) }],
+    };
+    assert.equal(verifyRuntimeNoticeRelabelReceipt(EP34, oldContent, newContent, receipt), false, `${oldLabel} -> ${newLabel}`);
+  }
+});
+
 test('a label inside a code fence is never relabelled', () => {
   const fenced = `# Episode\n\n\`\`\`\n**David [Claude Code]:** ${NOTICE}\n\`\`\`\n`;
   const fencedAfter = fenced.replace('**David [Claude Code]:**', `**${RUNTIME_NOTICE_LABEL}:**`);
