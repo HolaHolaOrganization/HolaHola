@@ -17,10 +17,19 @@ export function serializeAldenToolResult(name: string, data: unknown): string {
     }
     return result;
   }
+  // The notice leads, so a cut result can't be read as complete: something not
+  // shown here (a match, a definition, a file) may still exist.
   return result.length > ALDEN_TOOL_RESULT_LIMIT
-    ? result.slice(0, ALDEN_TOOL_RESULT_LIMIT)
+    ? truncatedResultNotice(result.length)
+      + result.slice(0, ALDEN_TOOL_RESULT_LIMIT)
       + `\n... [truncated: ${result.length - ALDEN_TOOL_RESULT_LIMIT} chars omitted]`
     : result;
+}
+
+export function truncatedResultNotice(totalChars: number): string {
+  return `[truncated result: showing the first ${ALDEN_TOOL_RESULT_LIMIT} of ${totalChars} characters. `
+    + 'Anything not shown may still exist, so do not conclude from this result that something is absent; '
+    + 'narrow the query or read the specific file or lines instead.]\n';
 }
 
 export function isCompleteAldenResultTool(name: string): boolean {
