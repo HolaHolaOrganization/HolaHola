@@ -243,6 +243,7 @@ commands.splice(safetyInsertion, 0,
   // Same getVerifiedCiDatabaseUrl-first disposableTarget() pattern as above.
   'npx tsx --test server/scripts/test-alden-shared-spec-review-postgres.test.ts',
   'npx tsx --test server/scripts/test-alden-coordination-read.test.ts',
+  'npx tsx --test server/scripts/test-alden-chat-transcript.test.ts',
 
   // Coordinator V2 lifecycle diagnostics, cleanup, fault fallback, evidence,
   // and neighboring first-host-bootstrap/contract/reauthorization suites.

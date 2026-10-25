@@ -25,6 +25,7 @@
 
 import { getUserDb } from '../db';
 import { sql } from 'drizzle-orm';
+import { aldenParticipants, formatAldenTranscript, type AldenMessageRow } from './alden-chat-transcript';
 
 // Fallback owner for legacy rows created before the 'owner:USER_ID' tag was
 // introduced.  New rows carry an explicit 'owner:USER_ID' tag derived from the
@@ -413,20 +414,180 @@ async function runRetroactivePass(): Promise<void> {
   }
 }
 
+// ── Alden conversations (alden_messages) ──────────────────────────────────────
+//
+// David's sessions with Alden (and Luca [Replit]'s consults with Alden) live
+// only in alden_conversations / alden_messages, so neither Daniela nor any
+// other hat could search them. Same three layers as above, one
+// conversation_memories row per Alden session, keyed by an alden-cid: tag.
+// Alden is founder-only, so rows are owned by (and embedded into) David's pool.
+
+const ALDEN_ARC_NAME = 'david-alden-chats';
+const pendingAldenNotifications = new Map<string, ReturnType<typeof setTimeout>>();
+let aldenSweepRunning = false;
+let aldenRetroactiveRunning = false;
+
+async function syncAldenConversation(conversationId: string): Promise<'saved' | 'updated' | 'skipped' | 'empty'> {
+  const db = getUserDb();
+  const convResult = await db.execute(sql`
+    SELECT id, title, started_at FROM alden_conversations WHERE id = ${conversationId} LIMIT 1
+  `);
+  const conv = convResult.rows[0] as { id: string; title: string; started_at: string | Date } | undefined;
+  if (!conv) return 'empty';
+
+  // Rows from one exchange share created_at (one multi-row insert), so the
+  // caller's turn sorts first and insertion order (ctid) breaks the rest.
+  const msgResult = await db.execute(sql`
+    SELECT role, content FROM alden_messages
+    WHERE conversation_id = ${conversationId}
+    ORDER BY created_at ASC, CASE WHEN role IN ('david', 'luca') THEN 0 ELSE 1 END, ctid
+    LIMIT 5000
+  `);
+  const messages = msgResult.rows as AldenMessageRow[];
+  if (messages.length < 2) return 'empty';
+
+  const transcript = formatAldenTranscript(messages, sanitizeContent);
+  if (!transcript) return 'empty';
+  const startedAt = new Date(conv.started_at).toISOString();
+  const participants = aldenParticipants(messages);
+  const title = `${participants} — ${conv.title}`;
+  const firstDavid = messages.find((m) => m.role === 'david')?.content?.slice(0, 300) ?? '';
+  const summary = [
+    `Alden session started ${startedAt.slice(0, 10)}. ${messages.length} messages.`,
+    firstDavid ? `David opened: "${firstDavid.replace(/\n/g, ' ')}"` : '',
+  ].filter(Boolean).join(' ');
+  const tags = [
+    'founder-chat',
+    'alden-chat',
+    `alden-cid:${conv.id}`,
+    `msgcount:${messages.length}`,
+    SANITIZER_VERSION,
+    `owner:${LEGACY_DAVID_USER_ID}`,
+  ];
+  const tagsJson = JSON.stringify(tags);
+
+  const existing = await db.execute(sql`
+    SELECT id, tags FROM conversation_memories
+    WHERE arc_name = ${ALDEN_ARC_NAME} AND ${`alden-cid:${conv.id}`} = ANY(tags)
+    LIMIT 1
+  `);
+  if (existing.rows.length > 0) {
+    const row = existing.rows[0] as { id: string; tags: string[] | null };
+    const existingTags = row.tags ?? [];
+    if (existingTags.includes(`msgcount:${messages.length}`) && existingTags.includes(SANITIZER_VERSION)) return 'skipped';
+    await db.execute(sql`
+      UPDATE conversation_memories SET
+        title = ${title}, summary = ${summary}, content = ${transcript}, participants = ${participants},
+        tags = ARRAY(SELECT jsonb_array_elements_text(${tagsJson}::jsonb))
+      WHERE id = ${row.id}
+    `);
+    reembedAsync(row.id, LEGACY_DAVID_USER_ID);
+    return 'updated';
+  }
+
+  const inserted = await db.execute(sql`
+    INSERT INTO conversation_memories
+      (title, summary, content, participants, entry_type, tags, importance, arc_name)
+    VALUES (
+      ${title}, ${summary}, ${transcript}, ${participants}, 'conversation',
+      ARRAY(SELECT jsonb_array_elements_text(${tagsJson}::jsonb)), 7, ${ALDEN_ARC_NAME}
+    )
+    RETURNING id
+  `);
+  const newId = (inserted.rows[0] as { id: string } | undefined)?.id;
+  if (newId) reembedAsync(newId, LEGACY_DAVID_USER_ID);
+  return 'saved';
+}
+
+/**
+ * Call after Alden messages are saved for a conversation (routes.ts, both
+ * Alden chat endpoints). Same 30s debounce as Daniela chats. Never throws.
+ */
+export function notifyAldenConversationUpdated(conversationId: string): void {
+  const existing = pendingAldenNotifications.get(conversationId);
+  if (existing) clearTimeout(existing);
+  const handle = setTimeout(async () => {
+    pendingAldenNotifications.delete(conversationId);
+    try {
+      const outcome = await syncAldenConversation(conversationId);
+      if (outcome === 'saved' || outcome === 'updated') {
+        console.log(`[FounderChatSync] Alden immediate sync: ${outcome} — conv ${conversationId.slice(0, 8)}`);
+      }
+    } catch (err) {
+      console.warn('[FounderChatSync] Alden immediate sync error:', err instanceof Error ? err.message : err);
+    }
+  }, NOTIFY_DEBOUNCE_MS);
+  pendingAldenNotifications.set(conversationId, handle);
+}
+
+async function runAldenSweep(): Promise<void> {
+  if (aldenSweepRunning) return;
+  aldenSweepRunning = true;
+  try {
+    const result = await getUserDb().execute(sql`
+      SELECT DISTINCT conversation_id FROM alden_messages
+      WHERE created_at > NOW() - (${SWEEP_WINDOW_MINUTES} * INTERVAL '1 minute')
+      LIMIT 100
+    `);
+    for (const { conversation_id } of result.rows as Array<{ conversation_id: string }>) {
+      if (pendingAldenNotifications.has(conversation_id)) continue;
+      try { await syncAldenConversation(conversation_id); } catch { /* non-fatal */ }
+      await new Promise(r => setTimeout(r, 30));
+    }
+  } catch (err) {
+    console.error('[FounderChatSync] Alden sweep error:', err instanceof Error ? err.message : err);
+  } finally {
+    aldenSweepRunning = false;
+  }
+}
+
+async function runAldenRetroactivePass(): Promise<void> {
+  if (aldenRetroactiveRunning) return;
+  aldenRetroactiveRunning = true;
+  const counts = { saved: 0, updated: 0, skipped: 0, empty: 0 };
+  try {
+    let offset = 0;
+    while (true) {
+      const batch = await getUserDb().execute(sql`
+        SELECT id FROM alden_conversations ORDER BY started_at ASC, id ASC
+        LIMIT ${RETROACTIVE_BATCH} OFFSET ${offset}
+      `);
+      const ids = (batch.rows as Array<{ id: string }>).map((r) => r.id);
+      if (!ids.length) break;
+      for (const id of ids) {
+        try { counts[await syncAldenConversation(id)]++; } catch (err) {
+          console.warn(`[FounderChatSync] Alden retroactive error on ${id}:`, err instanceof Error ? err.message : err);
+        }
+        await new Promise(r => setTimeout(r, 50));
+      }
+      offset += RETROACTIVE_BATCH;
+      await new Promise(r => setTimeout(r, 500));
+    }
+    console.log(`[FounderChatSync] Alden retroactive pass complete — ${JSON.stringify(counts)}`);
+  } catch (err) {
+    console.error('[FounderChatSync] Alden retroactive pass error:', err instanceof Error ? err.message : err);
+  } finally {
+    aldenRetroactiveRunning = false;
+  }
+}
+
 // ── Entry point ───────────────────────────────────────────────────────────────
 
 export function startFounderChatSyncWorker(): void {
   // Retroactive: full table walk, 5 min after boot
   setTimeout(() => runRetroactivePass(), RETROACTIVE_DELAY_MS);
+  setTimeout(() => runAldenRetroactivePass(), RETROACTIVE_DELAY_MS);
 
   // Sweep: every 5 minutes, starting 3 min after boot
   setTimeout(() => {
     runSweep();
+    runAldenSweep();
     setInterval(runSweep, SWEEP_INTERVAL_MS);
+    setInterval(runAldenSweep, SWEEP_INTERVAL_MS);
   }, SWEEP_INITIAL_DELAY);
 
   console.log(
     '[FounderChatSync] Worker registered — ' +
-    'immediate sync on each message, 5-min sweeps, retroactive pass in 5min'
+    'Daniela and Alden chats: immediate sync on each message, 5-min sweeps, retroactive pass in 5min'
   );
 }
