@@ -13,7 +13,14 @@ import { aldenConfig, aldenEngineSwitches } from "@shared/schema";
 import { desc, eq } from "drizzle-orm";
 
 const GEMINI_MODEL = 'gemini-2.5-flash';
-const ANTHROPIC_MODEL = 'claude-sonnet-4-5';
+const ANTHROPIC_MODEL = 'claude-opus-5-5';
+// Claude Opus 5.5 always thinks; effort is the only depth control and defaults to
+// medium. Alden reviews code and reports on system state, so it runs at high.
+// The installed SDK (0.71) predates output_config's types; the field is sent as-is.
+const ANTHROPIC_EFFORT = { output_config: { effort: 'high' } } as Record<string, unknown>;
+// Thinking counts toward max_tokens, so these leave room for it as well as the reply.
+const ANTHROPIC_MAX_TOKENS = 16000;
+const ANTHROPIC_WRAP_MAX_TOKENS = 8000;
 
 export type AldenEngine = 'anthropic' | 'gemini';
 
@@ -219,10 +226,11 @@ async function generateAldenResponseAnthropic(params: AldenChatParams): Promise<
     for (let round = 0; round < MAX_AGENT_ROUNDS; round++) {
       const resp = await claude.messages.create({
         model: ANTHROPIC_MODEL,
-        max_tokens: 4096,
+        max_tokens: ANTHROPIC_MAX_TOKENS,
         system: systemPrompt,
         tools: anthropicTools,
         messages,
+        ...ANTHROPIC_EFFORT,
       });
       reviewReadSession.acknowledgeDelivery();
 
@@ -231,6 +239,15 @@ async function generateAldenResponseAnthropic(params: AldenChatParams): Promise<
 
       const toolUseBlocks = resp.content.filter((b): b is Anthropic.ToolUseBlock => b.type === 'tool_use');
       const textBlocks = resp.content.filter((b): b is Anthropic.TextBlock => b.type === 'text');
+
+      if ((resp.stop_reason as string) === 'refusal') {
+        // A declined turn must read as declined, never as an empty answer or a
+        // round-limit wrap-up that could fill the gap with invented content.
+        const category = (resp as unknown as { stop_details?: { category?: string | null } }).stop_details?.category ?? 'unknown';
+        console.warn(`[Alden Chat/Claude] Turn declined by the model (category: ${category})`);
+        aldenResponse = `I couldn't complete that turn: the model declined it (category: ${category}). Nothing was done.`;
+        break;
+      }
 
       if (toolUseBlocks.length === 0) {
         aldenResponse = textBlocks.map(b => b.text).join('\n') || null;
@@ -272,10 +289,11 @@ async function generateAldenResponseAnthropic(params: AldenChatParams): Promise<
       if (pendingContinuation) {
         const wrapResp = await claude.messages.create({
           model: ANTHROPIC_MODEL,
-          max_tokens: 2048,
+          max_tokens: ANTHROPIC_WRAP_MAX_TOKENS,
           system: systemPrompt,
           tools: anthropicTools,
           messages,
+          ...ANTHROPIC_EFFORT,
         });
         reviewReadSession.acknowledgeDelivery();
         totalInputTokens += wrapResp.usage?.input_tokens ?? 0;
@@ -291,9 +309,10 @@ async function generateAldenResponseAnthropic(params: AldenChatParams): Promise<
         messages.push({ role: 'user', content: '[SYSTEM] You have reached the tool-use limit for this turn. Summarise what you have found and discovered so far, and clearly state what you still intend to do next turn.' });
         const wrapUp = await claude.messages.create({
           model: ANTHROPIC_MODEL,
-          max_tokens: 2048,
+          max_tokens: ANTHROPIC_WRAP_MAX_TOKENS,
           system: systemPrompt,
           messages,
+          ...ANTHROPIC_EFFORT,
         });
         reviewReadSession.acknowledgeDelivery();
         totalInputTokens += wrapUp.usage?.input_tokens ?? 0;
