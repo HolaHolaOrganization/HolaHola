@@ -33,8 +33,8 @@ test('a refusal after a write tool ran says so, and never claims nothing was don
   });
   assert.deepEqual(writes, ['start_next_episode']);
   assert.equal(result.refused, true);
-  assert.match(result.response, /after 1 tool call had already run \(start_next_episode\)/);
-  assert.match(result.response, /effects stand/);
+  assert.match(result.response, /after 1 tool call was attempted \(start_next_episode\)/);
+  assert.match(result.response, /Whatever those calls did stands/);
   assert.doesNotMatch(result.response, /nothing was changed|Nothing was done\./);
   assert.match(result.response, /category: bio/);
 });
@@ -44,7 +44,7 @@ test('a refusal before any tool ran says nothing was changed', async () => {
   const result = await runAldenAnthropicTurn({ ...base, messages: [{ role: 'user', content: 'go' }], call,
     runTool: async () => { throw new Error('no tool should run'); } });
   assert.equal(result.refused, true);
-  assert.match(result.response, /No tool had run in this turn, so nothing was changed\./);
+  assert.match(result.response, /No tool had been called in this turn, so nothing was changed\./);
 });
 
 test('a refusal on the continuation wrap is handled the same way', async () => {
@@ -53,6 +53,7 @@ test('a refusal on the continuation wrap is handled the same way', async () => {
     runTool: async () => ({ content: 'queued', isError: false, continuation: { phaseTitle: 'p' } }) });
   assert.equal(result.refused, true);
   assert.match(result.response, /queue_build_proposal/);
+  assert.equal(result.continuation, undefined, 'a refused turn must not hand routes.ts a phase to run');
   assert.equal(calls[1].maxTokens, 8000, 'the second call is the continuation wrap');
 });
 
@@ -61,12 +62,14 @@ test('a refusal on the round-limit wrap-up is handled the same way, without tool
   const result = await runAldenAnthropicTurn({ ...base, maxRounds: 2, messages: [{ role: 'user', content: 'go' }], call,
     runTool: async () => ({ content: 'x', isError: false }) });
   assert.equal(result.refused, true);
-  assert.match(result.response, /after 2 tool calls had already run \(read_file\)/);
+  assert.match(result.response, /after 2 tool calls were attempted \(read_file\)/);
   assert.deepEqual(calls.map((c) => c.withTools), [true, true, false]);
 });
 
-test('failed tool calls do not count as effects; a normal answer is returned unchanged', async () => {
-  assert.match(aldenRefusalReply('cyber', [{ name: 'write_file', succeeded: false }]), /nothing was changed/);
+test('an errored tool call is reported as uncertain, never as nothing changed; a normal answer is returned unchanged', async () => {
+  const reply = aldenRefusalReply('cyber', [{ name: 'write_file', succeeded: false }]);
+  assert.match(reply, /1 of them reported an error, so whether it changed anything is uncertain/);
+  assert.doesNotMatch(reply, /nothing was changed/);
   const { call } = scripted([toolUse('get_current_episode'), text('Episode 35 is live.')]);
   const result = await runAldenAnthropicTurn({ ...base, messages: [{ role: 'user', content: 'go' }], call,
     runTool: async () => ({ content: '{}', isError: false }) });

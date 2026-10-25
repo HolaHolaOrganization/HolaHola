@@ -6,7 +6,8 @@
  * Refusals are effect-aware: a model can decline after earlier rounds already
  * ran tools, so the reply must never claim "nothing was done" when something
  * was. Every model call in the turn (rounds, the continuation wrap and the
- * round-limit wrap) goes through the same reading.
+ * round-limit wrap) goes through the same reading, and a refused turn never
+ * returns a continuation (routes.ts would run it as another phase).
  */
 import type Anthropic from "@anthropic-ai/sdk";
 
@@ -29,15 +30,21 @@ export function refusalCategory(resp: Anthropic.Message): string | null {
   return (resp as unknown as { stop_details?: { category?: string | null } }).stop_details?.category ?? 'unknown';
 }
 
-/** What to tell the founder when the model declines, accounting for what already ran. */
+/**
+ * What to tell the founder when the model declines, accounting for every tool
+ * call already attempted. A call that reported an error may still have
+ * committed something before failing, so an error is "uncertain", never
+ * "nothing happened"; only a turn with no attempted call changed nothing.
+ */
 export function aldenRefusalReply(category: string, toolsRun: readonly ToolRun[]): string {
-  const ran = toolsRun.filter((t) => t.succeeded);
-  if (ran.length === 0) {
-    return `I couldn't complete that turn: the model declined it (category: ${category}). No tool had run in this turn, so nothing was changed.`;
+  if (toolsRun.length === 0) {
+    return `I couldn't complete that turn: the model declined it (category: ${category}). No tool had been called in this turn, so nothing was changed.`;
   }
-  const names = [...new Set(ran.map((t) => t.name))].join(', ');
-  return `I couldn't finish that turn: the model declined to continue (category: ${category}) after ${ran.length} tool call${ran.length === 1 ? '' : 's'} had already run (${names}). `
-    + 'Those calls happened and their effects stand; nothing after the decline was done. Check their results before retrying.';
+  const names = [...new Set(toolsRun.map((t) => t.name))].join(', ');
+  const failed = toolsRun.filter((t) => !t.succeeded).length;
+  const uncertain = failed === 0 ? '' : ` ${failed} of them reported an error, so whether ${failed === 1 ? 'it' : 'they'} changed anything is uncertain.`;
+  return `I couldn't finish that turn: the model declined to continue (category: ${category}) after ${toolsRun.length} tool call${toolsRun.length === 1 ? ' was' : 's were'} attempted (${names}).${uncertain} `
+    + 'Whatever those calls did stands, and nothing after the decline was done. Check their results before retrying.';
 }
 
 const textOf = (resp: Anthropic.Message) =>
@@ -71,7 +78,7 @@ export async function runAldenAnthropicTurn(deps: {
   for (let round = 0; round < deps.maxRounds; round++) {
     const resp = await call({ messages, maxTokens: deps.maxTokens, withTools: true });
     const { text, refusal } = read(resp);
-    if (refusal) return { response: refusal, toolsRun, continuation, refused: true };
+    if (refusal) return { response: refusal, toolsRun, continuation: undefined, refused: true };
 
     const toolUses = resp.content.filter((b): b is Anthropic.ToolUseBlock => b.type === 'tool_use');
     if (toolUses.length === 0) {
@@ -92,7 +99,7 @@ export async function runAldenAnthropicTurn(deps: {
 
     if (continuation) {
       const wrap = read(await call({ messages, maxTokens: deps.wrapMaxTokens, withTools: true }));
-      if (wrap.refusal) return { response: wrap.refusal, toolsRun, continuation, refused: true };
+      if (wrap.refusal) return { response: wrap.refusal, toolsRun, continuation: undefined, refused: true };
       if (wrap.text) return { response: wrap.text, toolsRun, continuation, refused: false };
       break;
     }
@@ -102,7 +109,7 @@ export async function runAldenAnthropicTurn(deps: {
   try {
     messages.push({ role: 'user', content: '[SYSTEM] You have reached the tool-use limit for this turn. Summarise what you have found and discovered so far, and clearly state what you still intend to do next turn.' });
     const wrap = read(await call({ messages, maxTokens: deps.wrapMaxTokens, withTools: false }));
-    if (wrap.refusal) return { response: wrap.refusal, toolsRun, continuation, refused: true };
+    if (wrap.refusal) return { response: wrap.refusal, toolsRun, continuation: undefined, refused: true };
     return { response: wrap.text ?? ROUND_LIMIT_FALLBACK, toolsRun, continuation, refused: false };
   } catch {
     return { response: ROUND_LIMIT_FALLBACK, toolsRun, continuation, refused: false };
