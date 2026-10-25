@@ -8,6 +8,7 @@ import { aldenCoordinationReadReceipt, serializeAldenToolResult } from "./alden-
 import { AldenReviewReadSession, type AldenReviewSourceReference } from "./alden-review-source";
 import { loadAldenReviewSourceReferences } from "./alden-review-source-context";
 import { costTracker } from "./cost-tracker";
+import { runAldenAnthropicTurn } from "./alden-anthropic-turn";
 import { getUserDb } from "../db";
 import { aldenConfig, aldenEngineSwitches } from "@shared/schema";
 import { desc, eq } from "drizzle-orm";
@@ -218,110 +219,46 @@ async function generateAldenResponseAnthropic(params: AldenChatParams): Promise<
 
     messages.push({ role: 'user', content: [reviewReadSession.rereadContext, userMessage].filter(Boolean).join("\n\n") });
 
-    let aldenResponse: string | null = null;
-    let pendingContinuation: ContinuationInfo | undefined;
     let totalInputTokens = 0;
     let totalOutputTokens = 0;
-
-    for (let round = 0; round < MAX_AGENT_ROUNDS; round++) {
-      const resp = await claude.messages.create({
+    const turn = await runAldenAnthropicTurn({
+      messages,
+      maxRounds: MAX_AGENT_ROUNDS,
+      maxTokens: ANTHROPIC_MAX_TOKENS,
+      wrapMaxTokens: ANTHROPIC_WRAP_MAX_TOKENS,
+      call: async ({ messages: turnMessages, maxTokens, withTools }) => claude.messages.create({
         model: ANTHROPIC_MODEL,
-        max_tokens: ANTHROPIC_MAX_TOKENS,
+        max_tokens: maxTokens,
         system: systemPrompt,
-        tools: anthropicTools,
-        messages,
+        ...(withTools ? { tools: anthropicTools } : {}),
+        messages: turnMessages,
         ...ANTHROPIC_EFFORT,
-      });
-      reviewReadSession.acknowledgeDelivery();
-
-      totalInputTokens += resp.usage?.input_tokens ?? 0;
-      totalOutputTokens += resp.usage?.output_tokens ?? 0;
-
-      const toolUseBlocks = resp.content.filter((b): b is Anthropic.ToolUseBlock => b.type === 'tool_use');
-      const textBlocks = resp.content.filter((b): b is Anthropic.TextBlock => b.type === 'text');
-
-      if ((resp.stop_reason as string) === 'refusal') {
-        // A declined turn must read as declined, never as an empty answer or a
-        // round-limit wrap-up that could fill the gap with invented content.
-        const category = (resp as unknown as { stop_details?: { category?: string | null } }).stop_details?.category ?? 'unknown';
-        console.warn(`[Alden Chat/Claude] Turn declined by the model (category: ${category})`);
-        aldenResponse = `I couldn't complete that turn: the model declined it (category: ${category}). Nothing was done.`;
-        break;
-      }
-
-      if (toolUseBlocks.length === 0) {
-        aldenResponse = textBlocks.map(b => b.text).join('\n') || null;
-        break;
-      }
-
-      console.log(`[Alden Chat/Claude] Round ${round + 1}: ${toolUseBlocks.length} tool call(s) — ${toolUseBlocks.map(b => b.name).join(', ')}`);
-
-      messages.push({ role: 'assistant', content: resp.content });
-
-      const toolResults: Anthropic.ToolResultBlockParam[] = [];
-      for (const tu of toolUseBlocks) {
+      }),
+      onModelResponse: (resp) => {
+        reviewReadSession.acknowledgeDelivery();
+        totalInputTokens += resp.usage?.input_tokens ?? 0;
+        totalOutputTokens += resp.usage?.output_tokens ?? 0;
+      },
+      runTool: async (tu) => {
         toolsUsed.push(tu.name);
         aldenActivity.push({ type: 'tool_start', name: tu.name, timestamp: new Date().toISOString() });
-
         try {
           const toolResult = await executeAldenTool(tu.name, (tu.input as Record<string, any>) || {}, { conversationId, engine: 'anthropic', reviewReadSession });
           aldenActivity.push({ type: 'tool_result', name: tu.name, success: true, timestamp: new Date().toISOString() });
-
           const truncatedResult = serializeAldenToolResult(tu.name, toolResult.data);
           reviewReadSession.stageDelivery(tu.name, truncatedResult);
           const receipt = aldenCoordinationReadReceipt(tu.name, toolResult.data, (tu.input as Record<string, unknown>) || {});
           if (receipt) coordinationReadReceipts.push(receipt);
-
-          toolResults.push({ type: 'tool_result', tool_use_id: tu.id, content: truncatedResult });
-
-          if (toolResult.sideEffects?.continuation) {
-            pendingContinuation = toolResult.sideEffects.continuation as ContinuationInfo;
-          }
+          return { content: truncatedResult, isError: false, continuation: toolResult.sideEffects?.continuation };
         } catch (err: any) {
           console.warn(`[Alden Chat/Claude] Tool ${tu.name} failed:`, err.message);
           aldenActivity.push({ type: 'tool_result', name: tu.name, success: false, error: err.message, timestamp: new Date().toISOString() });
-          toolResults.push({ type: 'tool_result', tool_use_id: tu.id, content: `Error: ${err.message}`, is_error: true });
+          return { content: `Error: ${err.message}`, isError: true };
         }
-      }
-
-      messages.push({ role: 'user', content: toolResults });
-
-      if (pendingContinuation) {
-        const wrapResp = await claude.messages.create({
-          model: ANTHROPIC_MODEL,
-          max_tokens: ANTHROPIC_WRAP_MAX_TOKENS,
-          system: systemPrompt,
-          tools: anthropicTools,
-          messages,
-          ...ANTHROPIC_EFFORT,
-        });
-        reviewReadSession.acknowledgeDelivery();
-        totalInputTokens += wrapResp.usage?.input_tokens ?? 0;
-        totalOutputTokens += wrapResp.usage?.output_tokens ?? 0;
-        aldenResponse = wrapResp.content.filter((b): b is Anthropic.TextBlock => b.type === 'text').map(b => b.text).join('\n') || null;
-        break;
-      }
-    }
-
-    if (!aldenResponse) {
-      console.log(`[Alden Chat/Claude] Round limit hit — requesting wrap-up summary`);
-      try {
-        messages.push({ role: 'user', content: '[SYSTEM] You have reached the tool-use limit for this turn. Summarise what you have found and discovered so far, and clearly state what you still intend to do next turn.' });
-        const wrapUp = await claude.messages.create({
-          model: ANTHROPIC_MODEL,
-          max_tokens: ANTHROPIC_WRAP_MAX_TOKENS,
-          system: systemPrompt,
-          messages,
-          ...ANTHROPIC_EFFORT,
-        });
-        reviewReadSession.acknowledgeDelivery();
-        totalInputTokens += wrapUp.usage?.input_tokens ?? 0;
-        totalOutputTokens += wrapUp.usage?.output_tokens ?? 0;
-        aldenResponse = wrapUp.content.filter((b): b is Anthropic.TextBlock => b.type === 'text').map(b => b.text).join('\n') || "I've been researching but ran into my context limit. Ask me again to continue.";
-      } catch {
-        aldenResponse = "I've been researching but ran into my context limit. Ask me again to continue.";
-      }
-    }
+      },
+    });
+    const aldenResponse = turn.response;
+    const pendingContinuation = turn.continuation as ContinuationInfo | undefined;
 
     const callCostUsd = costTracker.track(ANTHROPIC_MODEL, totalInputTokens, totalOutputTokens, 'alden-chat');
     console.log(`[Alden Chat/Claude] Response generated (${aldenResponse.length} chars, ${toolsUsed.length} tools used, ~$${callCostUsd.toFixed(4)} | ${(totalInputTokens/1000).toFixed(0)}k in / ${(totalOutputTokens/1000).toFixed(0)}k out)`);
