@@ -1695,11 +1695,26 @@ export type RuntimeDisableFailureReason =
   | 'runtime_not_found'
   | 'runtime_already_disabled'
   | 'runtime_has_active_rotation'
-  | 'runtime_has_live_or_used_credential';
+  | 'runtime_has_live_or_used_credential'
+  | 'runtime_used_within_dormancy_window'
+  | 'invalid_dormant_days';
 
 export type RuntimeDisableResult =
   | { ok: true; actor: CoordinationActorId }
   | { ok: false; reason: RuntimeDisableFailureReason };
+
+/** The shortest dormancy an operator may assert when retiring a once-used registration. */
+export const MIN_RUNTIME_DORMANT_DAYS = 30;
+
+export type RuntimeDisableOptions = {
+  /**
+   * Opt-in: also retire a registration whose credentials were used in the
+   * past, provided none is live and the most recent use is at least this many
+   * days old (integer, >= MIN_RUNTIME_DORMANT_DAYS). Omitted, the original
+   * never-used rule applies unchanged.
+   */
+  dormantDays?: number;
+};
 
 /**
  * Closes out a STANDALONE registration that was abandoned before it was ever
@@ -1733,11 +1748,26 @@ export type RuntimeDisableResult =
  * `enabled = false` and `revokedAt`, and revoke any remaining unrevoked
  * credential row for hygiene (the guard above already proved every such row
  * is expired and was never used, so this discards nothing live).
+ *
+ * `options.dormantDays` is the one explicit exception to the never-used rule:
+ * a registration that DID authenticate in the past, but whose credentials are
+ * all expired or revoked and whose most recent use is at least that many days
+ * old (minimum MIN_RUNTIME_DORMANT_DAYS), is dormant rather than in service,
+ * and the never-used rule would otherwise leave it enabled forever (rotation
+ * would mint a new registration instead of retiring it). A live credential
+ * still refuses, the same advisory lock still orders this against first use,
+ * and the audit event records the dormancy window and the last use.
  */
 export async function disableCoordinationRuntimeRegistration(
   runtimeId: string,
   sourceIp?: string,
+  options: RuntimeDisableOptions = {},
 ): Promise<RuntimeDisableResult> {
+  const { dormantDays } = options;
+  if (dormantDays !== undefined
+    && (!Number.isInteger(dormantDays) || dormantDays < MIN_RUNTIME_DORMANT_DAYS)) {
+    return { ok: false, reason: 'invalid_dormant_days' };
+  }
   return getSharedDb().transaction(async (tx) => {
     const executor = tx as unknown as ReturnType<typeof getSharedDb>;
     // Serialize against a concurrent resolveBrokerCredential() call for this
@@ -1810,19 +1840,43 @@ export async function disableCoordinationRuntimeRegistration(
       return { ok: false, reason: 'runtime_has_active_rotation' };
     }
 
+    const checkedAt = new Date();
+    const liveCredential = and(
+      isNull(coordinationRuntimeCredentials.revokedAt),
+      gt(coordinationRuntimeCredentials.expiresAt, checkedAt),
+    );
     const [blockingCredential] = await tx.select({ id: coordinationRuntimeCredentials.id })
       .from(coordinationRuntimeCredentials)
       .where(and(
         eq(coordinationRuntimeCredentials.runtimeId, runtimeId),
-        or(
-          isNotNull(coordinationRuntimeCredentials.lastUsedAt),
-          and(
-            isNull(coordinationRuntimeCredentials.revokedAt),
-            gt(coordinationRuntimeCredentials.expiresAt, new Date()),
-          ),
-        ),
+        // Dormant mode tolerates past use but never a live credential.
+        dormantDays === undefined
+          ? or(isNotNull(coordinationRuntimeCredentials.lastUsedAt), liveCredential)
+          : liveCredential,
       ))
       .limit(1);
+    let lastUsedAt: Date | null = null;
+    if (!blockingCredential && dormantDays !== undefined) {
+      const [usage] = await tx.select({
+        lastUsedAt: sql<Date | null>`max(${coordinationRuntimeCredentials.lastUsedAt})`
+          .mapWith(coordinationRuntimeCredentials.lastUsedAt),
+      }).from(coordinationRuntimeCredentials)
+        .where(eq(coordinationRuntimeCredentials.runtimeId, runtimeId));
+      lastUsedAt = usage?.lastUsedAt ?? null;
+      const cutoff = new Date(checkedAt.getTime() - dormantDays * 24 * 60 * 60 * 1000);
+      if (lastUsedAt && lastUsedAt > cutoff) {
+        await audit({
+          eventType: 'runtime_disable_failed',
+          success: false,
+          runtimeId,
+          actor: registration.actor,
+          reason: 'runtime_used_within_dormancy_window',
+          sourceIp,
+          metadata: { dormantDays, lastUsedAt: lastUsedAt.toISOString() },
+        }, executor);
+        return { ok: false, reason: 'runtime_used_within_dormancy_window' };
+      }
+    }
     if (blockingCredential) {
       await audit({
         eventType: 'runtime_disable_failed',
@@ -1852,6 +1906,9 @@ export async function disableCoordinationRuntimeRegistration(
       runtimeId,
       actor: registration.actor,
       sourceIp,
+      ...(dormantDays === undefined ? {} : {
+        metadata: { dormantDays, lastUsedAt: lastUsedAt ? lastUsedAt.toISOString() : null },
+      }),
     }, executor);
     return { ok: true, actor: registration.actor as CoordinationActorId };
   });
