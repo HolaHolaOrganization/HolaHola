@@ -120,10 +120,16 @@ export function prefilterExchange(exchange: AldenExchange, alters: (raw: string)
   return { decision: 'classify', density };
 }
 
-/** Everything that defines a label. Any change gives a new key, and so a fresh label. */
+/**
+ * Everything that defines a label, including both speakers (a reply relabelled
+ * from `alden` to `alden-gemini` renders differently, so it must not reuse the
+ * label). Any change gives a new key, and so a fresh label.
+ */
 export function exchangeLabelKey(exchange: AldenExchange, classifierModel: string, promptSha256: string): string {
   return sha256(JSON.stringify([
     exchange.caller.id,
+    exchange.caller.role,
+    exchange.reply?.role ?? null,
     sha256(exchange.caller.content),
     exchange.reply?.messageIds ?? [],
     exchange.reply ? sha256(exchange.reply.content) : null,
@@ -161,7 +167,8 @@ export function buildAldenClusters(labelled: ReadonlyArray<{ exchange: AldenExch
     }
     clusters.push({
       anchorCallerId: run[0].exchange.caller.id,
-      clusterSha256: sha256(JSON.stringify(run.map((r) => r.labelKey))),
+      // Binds the labels AND the exact rendered text, so a change in either is an update.
+      clusterSha256: sha256(JSON.stringify([run.map((r) => r.labelKey), sha256(lines.join('\n\n'))])),
       exchangeCount: run.length,
       content: lines.join('\n\n'),
     });
@@ -204,4 +211,21 @@ export function reconcileAldenClusters(existing: readonly ExistingClusterRow[], 
   }
   for (const rows of byAnchor.values()) retire.push(...rows.map((r) => r.id));
   return { insert, update, unchanged, retire };
+}
+
+/** The founder-chat memory arm's input, as reembed-memory.ts builds it: title, summary, content. */
+export const fullArmInput = (row: { title: string; summary: string; content: string }) =>
+  [row.title, row.summary, row.content].filter(Boolean).join('\n\n');
+
+/**
+ * Is a derived row's recall current? Its full-content embedding must exist and
+ * carry the hash of the row exactly as stored now, and its chunk arm must
+ * exist. Otherwise the row is (re-)embedded: this covers failed refreshes,
+ * retries on unchanged rows, and a late write from an older embedding run.
+ */
+export function aldenEmbeddingCurrent(
+  row: { title: string; summary: string; content: string },
+  stored: { fullArmHash: string | null; chunkCount: number },
+): boolean {
+  return stored.fullArmHash === sha256(fullArmInput(row)) && stored.chunkCount > 0;
 }

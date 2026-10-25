@@ -102,3 +102,12 @@ test('classifier output is parsed strictly; anything else is unlabelled (retried
   assert.equal(parseClassifierLabel('{"label": "personal"}'), null);
   assert.equal(parseClassifierLabel('not json'), null);
 });
+
+test('a reply speaker change (alden -> alden-gemini) changes the label key and the cluster hash', () => {
+  const as = (role: string) => groupAldenExchanges([{ id: 'c1', role: 'david', content: 'hi' }, { id: 'r1', role, content: 'hello' }])[0];
+  const plain = as('alden'), engine = as('alden-gemini');
+  assert.notEqual(exchangeLabelKey(plain, 'm', 'p'), exchangeLabelKey(engine, 'm', 'p'));
+  const cluster = (ex: typeof plain) => buildAldenClusters([{ exchange: ex, labelKey: exchangeLabelKey(ex, 'm', 'p'), label: 'conversational' }])[0];
+  assert.notEqual(cluster(plain).clusterSha256, cluster(engine).clusterSha256);
+  assert.match(cluster(engine).content, /Alden \[gemini\]: hello$/);
+});

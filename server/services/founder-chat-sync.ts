@@ -27,9 +27,9 @@ import { getUserDb } from '../db';
 import { sql } from 'drizzle-orm';
 import {
   ALDEN_NARRATIVE_POLICY_VERSION, buildAldenClusters, exchangeLabelKey, groupAldenExchanges, prefilterExchange,
-  reconcileAldenClusters, sha256Utf8, type AldenCluster, type AldenExchange, type AldenMessageRow,
+  aldenEmbeddingCurrent, reconcileAldenClusters, sha256Utf8, type AldenCluster, type AldenExchange, type AldenMessageRow,
 } from './alden-chat-transcript';
-import { ALDEN_CLASSIFIER_MODEL, ALDEN_CLASSIFIER_PROMPT_SHA256, classifyAldenExchange } from './alden-exchange-classifier';
+import { ALDEN_CLASSIFIER_MODEL, ALDEN_CLASSIFIER_PROMPT_SHA256, classifyAldenExchange, type AldenClassifierLabel } from './alden-exchange-classifier';
 
 // Fallback owner for legacy rows created before the 'owner:USER_ID' tag was
 // introduced.  New rows carry an explicit 'owner:USER_ID' tag derived from the
@@ -425,11 +425,16 @@ async function runRetroactivePass(): Promise<void> {
 // exchanges, kept whole and verbatim, form one conversation_memories row each
 // ("cluster"), opening with the Gemini-approved framing line. The technical
 // record stays where it is. Labels are derived, stored once per exact source
-// and policy (alden_exchange_labels), and every sync reconciles the session's
-// derived rows deterministically. Alden is founder-only, so rows are owned by
-// (and embedded into) David's pool. Rules: alden-chat-transcript.ts.
+// and policy (alden_exchange_labels). Every sync then re-reads the source
+// under a per-session lock and reconciles the session's derived rows from it,
+// so an older snapshot can never overwrite a newer projection. Recall is kept
+// current by hash: a row whose embedding doesn't match it exactly is
+// re-embedded, whatever left it stale. Alden is founder-only, so rows are owned
+// by (and embedded into) David's pool. Rules: alden-chat-transcript.ts.
 
 const ALDEN_ARC_NAME = 'david-alden-chats';
+/** A session larger than this is skipped (never read partially and treated as complete). */
+const ALDEN_MAX_SOURCE_MESSAGES = 5000;
 const pendingAldenNotifications = new Map<string, ReturnType<typeof setTimeout>>();
 let aldenSweepRunning = false;
 let aldenRetroactiveRunning = false;
@@ -437,74 +442,102 @@ let aldenRetroactiveRunning = false;
 /** The founder-chat sanitizer would change this text, so it can't be stored as verbatim. */
 const sanitizerAlters = (raw: string) => (sanitizeContent(raw) ?? '') !== (raw ?? '').trim();
 
-type AldenSyncOutcome = { inserted: number; updated: number; retired: number; unchanged: number; pendingLabels: number };
+export type AldenSyncDeps = {
+  classify: (caller: string, reply: string) => Promise<AldenClassifierLabel | null>;
+  /** Builds every recall arm for one derived row from its current content. */
+  embed: (memoryId: string) => Promise<void>;
+};
 
-async function syncAldenConversation(conversationId: string): Promise<AldenSyncOutcome | 'empty'> {
-  const db = getUserDb();
-  const convResult = await db.execute(sql`
+const defaultAldenSyncDeps: AldenSyncDeps = {
+  classify: classifyAldenExchange,
+  embed: (memoryId) => import('../scripts/reembed-memory').then((mod) => mod.reembedConversationMemory(memoryId, LEGACY_DAVID_USER_ID)),
+};
+
+export type AldenSyncOutcome =
+  | { status: 'synced'; inserted: number; updated: number; retired: number; unchanged: number; pendingLabels: number; embedded: number; embedFailures: number }
+  | { status: 'too-large'; messageCount: number };
+
+type DbLike = { execute: (query: any) => Promise<{ rows: unknown[] }> };
+
+async function readAldenSource(db: DbLike, conversationId: string) {
+  const conv = (await db.execute(sql`
     SELECT id, title, started_at FROM alden_conversations WHERE id = ${conversationId} LIMIT 1
-  `);
-  const conv = convResult.rows[0] as { id: string; title: string; started_at: string | Date } | undefined;
-  if (!conv) return 'empty';
-
+  `)).rows[0] as { id: string; title: string; started_at: string | Date } | undefined;
+  const count = Number(((await db.execute(sql`
+    SELECT count(*)::int AS n FROM alden_messages WHERE conversation_id = ${conversationId}
+  `)).rows[0] as { n: number } | undefined)?.n ?? 0);
+  if (count > ALDEN_MAX_SOURCE_MESSAGES) return { conv, tooLarge: count, exchanges: [] as AldenExchange[] };
   // Rows from one exchange share created_at (one multi-row insert), so the
   // caller's turn sorts first and insertion order (ctid) breaks the rest.
-  const msgResult = await db.execute(sql`
+  const messages = (await db.execute(sql`
     SELECT id, role, content FROM alden_messages
     WHERE conversation_id = ${conversationId}
     ORDER BY created_at ASC, CASE WHEN role IN ('david', 'luca') THEN 0 ELSE 1 END, ctid
-    LIMIT 5000
-  `);
-  const exchanges = groupAldenExchanges(msgResult.rows as AldenMessageRow[]);
-  if (exchanges.length === 0) return 'empty';
+  `)).rows as AldenMessageRow[];
+  return { conv, tooLarge: 0, exchanges: conv ? groupAldenExchanges(messages) : [] };
+}
 
-  // 1. Labels: stored once per exact source and policy; new ones computed here,
-  //    outside any transaction (classifier calls are slow).
-  const stored = await db.execute(sql`
-    SELECT label_key, label FROM alden_exchange_labels WHERE conversation_id = ${conversationId}
-  `);
-  const labels = new Map((stored.rows as Array<{ label_key: string; label: string }>).map((r) => [r.label_key, r.label]));
-  let pendingLabels = 0;
-  const labelled: Array<{ exchange: AldenExchange; labelKey: string; label: string }> = [];
-  for (const exchange of exchanges) {
-    const labelKey = exchangeLabelKey(exchange, ALDEN_CLASSIFIER_MODEL, ALDEN_CLASSIFIER_PROMPT_SHA256);
-    let label = labels.get(labelKey);
-    if (!label) {
-      const pre = prefilterExchange(exchange, sanitizerAlters);
-      let reason: string;
-      let density: number | null;
-      if (pre.decision === 'label') {
-        label = pre.label; reason = pre.reason; density = pre.density;
-      } else {
-        const classified = await classifyAldenExchange(exchange.caller.content, exchange.reply!.content).catch(() => null);
-        if (!classified) { pendingLabels++; labelled.push({ exchange, labelKey, label: 'pending' }); continue; }
-        label = classified; reason = `classifier: ${classified}`; density = pre.density;
-      }
-      await db.execute(sql`
-        INSERT INTO alden_exchange_labels
-          (label_key, conversation_id, caller_message_id, caller_sha256, reply_message_id, reply_sha256,
-           policy_version, label, reason, prefilter_density, classifier_model, prompt_sha256)
-        VALUES (
-          ${labelKey}, ${conversationId}, ${exchange.caller.id}, ${sha256Utf8(exchange.caller.content)},
-          ${exchange.reply?.messageIds[0] ?? null}, ${exchange.reply ? sha256Utf8(exchange.reply.content) : null},
-          ${ALDEN_NARRATIVE_POLICY_VERSION}, ${label}, ${reason.slice(0, 200)}, ${density},
-          ${pre.decision === 'classify' ? ALDEN_CLASSIFIER_MODEL : null},
-          ${pre.decision === 'classify' ? ALDEN_CLASSIFIER_PROMPT_SHA256 : null}
-        )
-        ON CONFLICT (label_key) DO NOTHING
-      `);
-      labels.set(labelKey, label);
+export async function syncAldenConversation(conversationId: string, deps: AldenSyncDeps = defaultAldenSyncDeps): Promise<AldenSyncOutcome> {
+  const db = getUserDb();
+  const keyOf = (exchange: AldenExchange) => exchangeLabelKey(exchange, ALDEN_CLASSIFIER_MODEL, ALDEN_CLASSIFIER_PROMPT_SHA256);
+
+  // 1. Labels for any exchange not yet labelled, computed outside the lock
+  //    (classifier calls are slow). Labels are keyed by exact source, so a
+  //    label computed here from an older read can only ever describe that text.
+  const first = await readAldenSource(db, conversationId);
+  if (first.tooLarge) {
+    console.warn(`[FounderChatSync] Alden session ${conversationId.slice(0, 8)} has ${first.tooLarge} messages (> ${ALDEN_MAX_SOURCE_MESSAGES}); skipped, nothing changed`);
+    return { status: 'too-large', messageCount: first.tooLarge };
+  }
+  const known = new Set(((await db.execute(sql`
+    SELECT label_key FROM alden_exchange_labels WHERE conversation_id = ${conversationId}
+  `)).rows as Array<{ label_key: string }>).map((r) => r.label_key));
+  for (const exchange of first.exchanges) {
+    const labelKey = keyOf(exchange);
+    if (known.has(labelKey)) continue;
+    const pre = prefilterExchange(exchange, sanitizerAlters);
+    let label: string; let reason: string;
+    if (pre.decision === 'label') { label = pre.label; reason = pre.reason; }
+    else {
+      const classified = await deps.classify(exchange.caller.content, exchange.reply!.content).catch(() => null);
+      if (!classified) continue; // stays unlabelled; a later pass retries it
+      label = classified; reason = `classifier: ${classified}`;
     }
-    labelled.push({ exchange, labelKey, label });
+    await db.execute(sql`
+      INSERT INTO alden_exchange_labels
+        (label_key, conversation_id, caller_message_id, caller_sha256, reply_message_id, reply_sha256,
+         policy_version, label, reason, prefilter_density, classifier_model, prompt_sha256)
+      VALUES (
+        ${labelKey}, ${conversationId}, ${exchange.caller.id}, ${sha256Utf8(exchange.caller.content)},
+        ${exchange.reply?.messageIds[0] ?? null}, ${exchange.reply ? sha256Utf8(exchange.reply.content) : null},
+        ${ALDEN_NARRATIVE_POLICY_VERSION}, ${label}, ${reason.slice(0, 200)}, ${pre.density},
+        ${pre.decision === 'classify' ? ALDEN_CLASSIFIER_MODEL : null},
+        ${pre.decision === 'classify' ? ALDEN_CLASSIFIER_PROMPT_SHA256 : null}
+      )
+      ON CONFLICT (label_key) DO NOTHING
+    `);
+    known.add(labelKey);
   }
 
-  // 2. Clusters, reconciled under a per-session lock so the immediate hook and
-  //    the sweep can't both insert the same cluster. Derived rows only.
-  const desired = buildAldenClusters(labelled);
-  const startedAt = new Date(conv.started_at).toISOString().slice(0, 10);
-  const toEmbed: string[] = [];
+  // 2. Under a per-session lock: re-read the source, rebuild the clusters from
+  //    stored labels only, and reconcile. Derived rows only; source untouched.
   const outcome = await db.transaction(async (tx) => {
     await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${'alden-sync:' + conversationId}, 0))`);
+    const current = await readAldenSource(tx, conversationId);
+    if (current.tooLarge) return { tooLarge: current.tooLarge };
+    const labelRows = (await tx.execute(sql`
+      SELECT label_key, label FROM alden_exchange_labels WHERE conversation_id = ${conversationId}
+    `)).rows as Array<{ label_key: string; label: string }>;
+    const labels = new Map(labelRows.map((r) => [r.label_key, r.label]));
+    let pendingLabels = 0;
+    const labelled = current.exchanges.map((exchange) => {
+      const labelKey = keyOf(exchange);
+      const label = labels.get(labelKey);
+      if (!label) pendingLabels++;
+      return { exchange, labelKey, label: label ?? 'pending' };
+    });
+    // A session that no longer exists, or has nothing kept, has no clusters: its rows retire.
+    const desired = current.conv ? buildAldenClusters(labelled) : [];
     const existingRows = await tx.execute(sql`
       SELECT id, tags FROM conversation_memories
       WHERE arc_name = ${ALDEN_ARC_NAME} AND ${`alden-cid:${conversationId}`} = ANY(tags)
@@ -515,10 +548,11 @@ async function syncAldenConversation(conversationId: string): Promise<AldenSyncO
       clusterSha256: row.tags?.find((t) => t.startsWith('alden-cluster:'))?.slice('alden-cluster:'.length) ?? null,
     }));
     const plan = reconcileAldenClusters(existing, desired);
+    const startedAt = current.conv ? new Date(current.conv.started_at).toISOString().slice(0, 10) : '';
     const fields = (cluster: AldenCluster) => {
       const index = desired.indexOf(cluster);
       return {
-        title: `David + Alden — ${conv.title}${desired.length > 1 ? ` (${index + 1} of ${desired.length})` : ''}`,
+        title: `David + Alden — ${current.conv!.title}${desired.length > 1 ? ` (${index + 1} of ${desired.length})` : ''}`,
         summary: `Conversation with Alden, ${startedAt}. ${cluster.exchangeCount} exchange${cluster.exchangeCount === 1 ? '' : 's'}.`,
         tags: JSON.stringify([
           'founder-chat', 'alden-chat', `alden-cid:${conversationId}`, `alden-anchor:${cluster.anchorCallerId}`,
@@ -526,35 +560,49 @@ async function syncAldenConversation(conversationId: string): Promise<AldenSyncO
         ]),
       };
     };
+    const dropEmbeddings = (id: string) =>
+      tx.execute(sql`DELETE FROM memory_embeddings WHERE memory_id = ${id} OR memory_id LIKE ${id + ':chunk:%'}`);
     for (const cluster of plan.insert) {
       const f = fields(cluster);
-      const inserted = await tx.execute(sql`
+      await tx.execute(sql`
         INSERT INTO conversation_memories (title, summary, content, participants, entry_type, tags, importance, arc_name)
         VALUES (${f.title}, ${f.summary}, ${cluster.content}, 'David + Alden', 'conversation',
           ARRAY(SELECT jsonb_array_elements_text(${f.tags}::jsonb)), 7, ${ALDEN_ARC_NAME})
-        RETURNING id
       `);
-      const id = (inserted.rows[0] as { id: string } | undefined)?.id;
-      if (id) toEmbed.push(id);
     }
     for (const { id, cluster } of plan.update) {
       const f = fields(cluster);
+      // Old recall arms go in the same transaction as the new text: stale text never serves.
+      await dropEmbeddings(id);
       await tx.execute(sql`
         UPDATE conversation_memories SET title = ${f.title}, summary = ${f.summary}, content = ${cluster.content},
           tags = ARRAY(SELECT jsonb_array_elements_text(${f.tags}::jsonb))
         WHERE id = ${id}
       `);
-      toEmbed.push(id);
     }
     for (const id of plan.retire) {
-      // A retired cluster takes its embeddings with it, so recall never serves stale text.
-      await tx.execute(sql`DELETE FROM memory_embeddings WHERE memory_id = ${id} OR memory_id LIKE ${id + ':chunk:%'}`);
+      await dropEmbeddings(id);
       await tx.execute(sql`DELETE FROM conversation_memories WHERE id = ${id} AND arc_name = ${ALDEN_ARC_NAME}`);
     }
     return { inserted: plan.insert.length, updated: plan.update.length, retired: plan.retire.length, unchanged: plan.unchanged.length, pendingLabels };
   });
-  for (const id of toEmbed) reembedAsync(id, LEGACY_DAVID_USER_ID);
-  return outcome;
+  if ('tooLarge' in outcome) return { status: 'too-large', messageCount: outcome.tooLarge as number };
+
+  // 3. Recall freshness, after commit, for every derived row of the session,
+  //    changed or not: a failed or overtaken embedding run is retried here.
+  const rows = (await db.execute(sql`
+    SELECT m.id, m.title, m.summary, m.content,
+      (SELECT e.content_hash FROM memory_embeddings e WHERE e.memory_id = m.id AND e.memory_type = 'conversation_memory' LIMIT 1) AS full_arm_hash,
+      (SELECT count(*)::int FROM memory_embeddings e WHERE e.memory_type = 'conversation_chunk' AND e.memory_id LIKE m.id || ':chunk:%') AS chunk_count
+    FROM conversation_memories m
+    WHERE m.arc_name = ${ALDEN_ARC_NAME} AND ${`alden-cid:${conversationId}`} = ANY(m.tags)
+  `)).rows as Array<{ id: string; title: string; summary: string; content: string; full_arm_hash: string | null; chunk_count: number }>;
+  let embedded = 0, embedFailures = 0;
+  for (const row of rows) {
+    if (aldenEmbeddingCurrent(row, { fullArmHash: row.full_arm_hash, chunkCount: Number(row.chunk_count) })) continue;
+    try { await deps.embed(row.id); embedded++; } catch { embedFailures++; }
+  }
+  return { status: 'synced', ...outcome, embedded, embedFailures };
 }
 
 /**
@@ -568,7 +616,7 @@ export function notifyAldenConversationUpdated(conversationId: string): void {
     pendingAldenNotifications.delete(conversationId);
     try {
       const outcome = await syncAldenConversation(conversationId);
-      if (outcome !== 'empty' && outcome.inserted + outcome.updated + outcome.retired > 0) {
+      if (outcome.status === 'synced' && outcome.inserted + outcome.updated + outcome.retired + outcome.embedded > 0) {
         console.log(`[FounderChatSync] Alden immediate sync — conv ${conversationId.slice(0, 8)}: ${JSON.stringify(outcome)}`);
       }
     } catch (err) {
@@ -602,7 +650,7 @@ async function runAldenSweep(): Promise<void> {
 async function runAldenRetroactivePass(): Promise<void> {
   if (aldenRetroactiveRunning) return;
   aldenRetroactiveRunning = true;
-  const counts = { sessions: 0, empty: 0, inserted: 0, updated: 0, retired: 0, pendingLabels: 0 };
+  const counts = { sessions: 0, tooLarge: 0, inserted: 0, updated: 0, retired: 0, pendingLabels: 0, embedded: 0, embedFailures: 0 };
   try {
     let offset = 0;
     while (true) {
@@ -616,10 +664,11 @@ async function runAldenRetroactivePass(): Promise<void> {
         try {
           const outcome = await syncAldenConversation(id);
           counts.sessions++;
-          if (outcome === 'empty') counts.empty++;
+          if (outcome.status === 'too-large') counts.tooLarge++;
           else {
             counts.inserted += outcome.inserted; counts.updated += outcome.updated;
             counts.retired += outcome.retired; counts.pendingLabels += outcome.pendingLabels;
+            counts.embedded += outcome.embedded; counts.embedFailures += outcome.embedFailures;
           }
         } catch (err) {
           console.warn(`[FounderChatSync] Alden retroactive error on ${id}:`, err instanceof Error ? err.message : err);
