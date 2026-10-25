@@ -10326,6 +10326,29 @@ export const aldenMessages = pgTable("alden_messages", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
+// Derived, auditable labels for syncing the conversational part of David's
+// Alden sessions into conversation_memories (founder-chat-sync.ts). One row
+// per exact (caller text, selected reply text, policy) combination: any change
+// to the source text or to the prefilter/classifier policy yields a new
+// label_key and a fresh label. Never written to alden_messages itself.
+export const aldenExchangeLabels = pgTable("alden_exchange_labels", {
+  labelKey: varchar("label_key", { length: 64 }).primaryKey(), // sha256 over every field that defines the label
+  conversationId: varchar("conversation_id").notNull(),
+  callerMessageId: varchar("caller_message_id").notNull(),
+  callerSha256: varchar("caller_sha256", { length: 64 }).notNull(),
+  replyMessageId: varchar("reply_message_id"), // null when no reply was selectable
+  replySha256: varchar("reply_sha256", { length: 64 }),
+  policyVersion: varchar("policy_version", { length: 40 }).notNull(),
+  label: varchar("label", { length: 20 }).notNull(), // conversational | mixed | technical | excluded
+  reason: varchar("reason", { length: 200 }).notNull(), // why: classifier label, prefilter density, code fence, multi-engine, …
+  prefilterDensity: real("prefilter_density"),
+  classifierModel: varchar("classifier_model", { length: 80 }),
+  promptSha256: varchar("prompt_sha256", { length: 64 }),
+  labelledAt: timestamp("labelled_at").notNull().defaultNow(),
+}, (table) => [
+  index("alden_exchange_labels_conversation_idx").on(table.conversationId),
+]);
+
 export const insertAldenConversationSchema = createInsertSchema(aldenConversations).omit({
   id: true,
   createdAt: true,
