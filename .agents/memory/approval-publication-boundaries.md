@@ -48,3 +48,82 @@ On 2026-10-17, Luca [Claude Code] forwarded founder-confirmed scope for later on
 
 **How to apply:** Preserve the current authorized proof/onboarding sequence. Keep generic automation proposal-only until separately authorized; do not use this target scope to create new infrastructure, broaden current grants, or bypass recovery. This is an attributed founder forward, also retained in the shared onboarding roadmap.
 
+
+## Reviewer custody is an execution boundary, not a storage label
+
+Moving a reviewer App key into an agent project secret store or a same-user OS vault does not establish isolation from application/test/dependency code executed by that project or user. Separate key storage alone also does not protect a remote broker if routine app code can impersonate both callers or rewrite its trusted actor bindings/grants through shared database authority.
+
+**Why:** Independent authority-model review found that the proposed local-key arrangement merely moved the exposure. Official Replit Secrets documentation confirms project secrets become app-visible environment variables; LCC also confirmed same-user DPAPI access. Source review: shared-spec 8b20bdc3-2956-4623-ae3c-d6f05c907759 revision 0d7b3576-b0b1-4e9a-b72b-d1c5e0f32ea9, rejected for these boundary gaps.
+
+**How to apply:** Trace the entire execution and impersonation path before claiming reviewer separation: key and token custody, client authentication, inherited environments, trusted policy/data writes, and deployment authority. Distinguish proven technical controls from same-host policy and semantic review. A proposed isolated broker is not itself permission to provision it or change ownership.
+
+
+## Accepted authority direction versus implementation authority
+
+The founder accepted the isolated operation-gateway model as the authority direction, with installation tokens retained inside the broker rather than exported to agent clients. Direction acceptance authorizes costed planning only; build/provisioning/spending, credential or DB-authority changes, ownership narrowing and final routine activation remain separate explicit decisions.
+
+**Why:** On 2026-10-17 (America/Denver), the founder selected approval of the direction and a costed implementation plan after independent review distinguished real execution/impersonation isolation from app-visible secret storage and raw bearer-token vending. This preserves the goal of routine cross-host agent review without pretending a design endorsement is a rollout grant.
+
+**How to apply:** Continue from the accepted model rather than reopening local-key custody as an equivalent solution. Reuse existing contracts and one live database; price ongoing service and maintenance before build approval. Preserve founder-default ownership until a separately approved, bounded qualification and activation sequence. Source: shared-spec recommendation 8b20bdc3-2956-4623-ae3c-d6f05c907759 revision a120976c-0b7e-46cf-a61d-d5f2a1703376; founder decision was firsthand in Replit chat.
+
+
+## Read-only usage versus granted credential capability
+
+Describe a connector used only for GET as read-only usage, not as a technically read-only credential. Before claiming isolation, verify authenticated principal, effective provider permissions and infrastructure-administration paths separately from the operations the agent has chosen to perform.
+
+**Why:** A read-only authority inventory found an agent-accessible GitHub connection authenticated as the founder with broad repository scope and admin/push permission metadata. It also confirmed infrastructure credential names were present without inspecting their secret values. Procedural restraint did not establish least privilege or reviewer isolation.
+
+**How to apply:** Keep actual usage, provider-granted capability and application/process reachability as distinct facts. Names-only secret inventory establishes existence, not scope or validity. Never perform a write probe, revoke a credential, disconnect an integration or disrupt source promotion without the separately required authority. Reuse the canonical costed-plan review for exact evidence rather than duplicating live credential inventory here.
+
+
+## Existing Render Pro subscription and incremental cost
+
+The founder confirmed on 2026-10-17 (America/Denver; 2026-10-18 UTC) that the Render workspace is already on Pro. Broker planning must not count the existing Pro subscription as a new incremental workspace upgrade.
+
+**Why:** The planning estimate previously included a possible workspace upgrade because the account plan was unknown. The founder supplied the missing account fact.
+
+**How to apply:** Distinguish the existing workspace subscription from added service compute and variable usage. The candidate broker compute estimate remains sizing-dependent; this account fact grants no authority to build, spend, provision or modify credentials.
+
+
+## Per-hat Neon access and GitHub integration boundary
+
+Preserve the founder-authorized Neon access model: separate, independently revocable project-scoped credentials for each Luca hat, with the same authorized project permissions. Do not substitute a shared credential, broaden scope, or equate matching permissions with matching secret identity.
+
+**Why:** On 2026-10-18, Luca [Claude Code] forwarded the founder asking whether all hats should have the same access and reporting separate project-scoped replacements. Separate credentials retain attribution and per-hat revocation without reducing the approved capabilities. This is an attributed founder forward, not firsthand inspection of provider grants.
+
+**How to apply:** During future Neon onboarding or rotation, preserve separate custody and verify permissions independently when authorized. Secret-name existence does not prove freshness, identity or validity. The founder also declined the Neon GitHub integration because storing its credential in Actions would expose it to branch workflows; do not enable it for CI without a new explicit decision. The shared credential-cleanup status note carries the evidence and remaining verification limits.
+
+## Per-hat Cloudflare DNS custody and zone scope
+
+Preserve the founder-reported Cloudflare DNS custody model: separate credentials for each Luca hat, limited to Edit zone DNS for getholahola.com. A replacement DNS token is not authorization for an all-zone or broad account-management credential.
+
+**Why:** On 2026-10-18, Luca [Claude Code] forwarded founder-led creation of separate zone-specific DNS tokens and revocation of the prior DNS token. Separate custody permits independent revocation and attribution while avoiding unnecessary authority beyond the project zone. Provider changes and grants were attributed reports, not independently authenticated by Replit.
+
+**How to apply:** Future DNS onboarding and rotations should retain separate per-hat custody and the stated zone scope unless the founder approves a change. Independently verify actual grants when authorized; secret-name existence and a matching service input are not proof of credential identity, freshness or effective permissions.
+
+## Content refresh does not authorize index-topology expansion
+
+An authorization to refresh existing search content does not authorize adding new indexing arms or changing retrieval density. Verify the repair helper's complete write set against the normal indexer before a bulk refresh; similarly named operations need not preserve the same topology.
+
+**Why:** During the 2026-10-24 restoration follow-up, LCC reported that a refresh created redundant short-row chunks because its helper differed from the periodic indexer. Founder-approved cleanup was required. Replit independently verified the corrected final layout and content hashes, but did not observe the earlier transaction or its rollback.
+
+**How to apply:** Separate content correctness, index layout and visibility scope in both the preflight and readback. Unexpected extra arms are a scope deviation, not harmless evidence of success; obtain separate authority before deleting them. A correct final snapshot proves current state, not the execution history or prior-scope invariance.
+
+
+## Approval coverage must bind mutation semantics
+
+Approval digests for content repairs must cover every semantic field that can change the mutation, not merely the selected edit list. Independently validate derived coordinates and prefix containment even for a digest-approved plan.
+
+**Why:** A synthetic review probe preserved an approved insert list and its original frame hash but shortened the unhashed prefix boundary. JavaScript slice clamped the insertion offset to that boundary, so unchanged approved coordinates produced an insertion elsewhere. Matching list hashes did not establish the actual write location.
+
+**How to apply:** Pin target, source references, edits, lengths and pre/post hashes through an externally supplied full-plan approval digest. Reject invalid or out-of-prefix frame ranges before mutation; keep legitimate append-only tails outside the pinned prefix.
+
+
+## Preserve historical copies when restored dialogue is already appended
+
+When restored founder dialogue is already present in an episode's appended section, preserve both that genuine dialogue and an older incomplete historical copy rather than deleting or rewriting episode content solely to correct ordering. Close an unnecessary insertion repair instead of creating a second complete copy.
+
+**Why:** On 2026-10-24 (America/Denver), the founder explicitly agreed to this preservation approach after being told that canonical restoration had been followed by appended complete exchanges and one older unworded copy remained. A read-only exact-content census and prior-prefix parity check supported closing the proposed repair without applying it.
+
+**How to apply:** Verify complete frames and the preserved baseline independently before deciding a repair is unnecessary. This decision does not authorize later content cleanup, embedding refresh or replica publication. Treat current-state evidence separately from claims about which writer or restart caused the appends.
+

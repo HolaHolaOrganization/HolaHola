@@ -89,3 +89,12 @@ Treat remote absence as ambiguous unless there is proof that the original
 executor cannot still cause the effect. Terminal/fencing evidence must hold
 across the observation-to-outcome-write interval.
 
+
+## Aggregate counters can include expected child failures
+
+Aggregate failure counters can include intentionally failing child tests and printed negative fixtures even when the parent checks pass. Do not infer either a real regression or harmlessness from the aggregate number alone.
+
+**Why:** A migration rehearsal reported success alongside three failed tests. Independently recounting same-candidate public guard output with the trusted summarizer reproduced the exact failure count and failure-line count: a mutation probe deliberately failed child tests, restored the code and passed its parent check. Other negative fixture snippets contributed failure-shaped lines.
+
+**How to apply:** Inspect the trusted aggregation rule and the enclosing parent command. Corroborate expected child failures, restoration and parent success with exact-candidate evidence. Keep private production-copy output private; use public synthetic test logs where they establish the explanation. Distinguish process success, diagnostic counters and actual data-operation postconditions.
+
