@@ -184,10 +184,161 @@ async function apply(pool: Pool): Promise<void> {
   console.log(JSON.stringify({ counts, untouched }, null, 2));
 }
 
+// ── Episode 34 copies (founder: "yes, restore the Episode 34 copies too") ──────
+//
+// The gap patcher projected a canonical row into Episode 34 as
+// "\n" + row.trim() + "\n". For a restored row whose projection is there, the
+// same founder block is inserted at the start of that frame, so the episode
+// copy reads exactly like the restored row. Only the permitted episode is
+// touched; each frame must be the unique projection of the row's pre-restoration
+// content and sit at its approved relabel location (mapped to corrected
+// coordinates). The prefix up to the end of the last frame is hash-checked and
+// everything after it is kept; a rerun is detected by the corrected prefix.
+
+export const EPISODE_KIND = 'restore-image-founder-text-episode';
+export const PERMITTED_EPISODE_ID = '41200170-1c49-4660-838c-9d397aff5d27';
+
+export interface EpisodeInsert {
+  rowId: string;
+  /** Offset of the frame's leading "\n" in the current (relabelled) episode. */
+  frameOffset: number;
+  frameLength: number;
+  frameSha256: string;
+  founderTextSha256: string;
+}
+
+export interface EpisodeInsertPlan {
+  kind: typeof EPISODE_KIND;
+  episodeId: string;
+  restoreListSha256: string;
+  inserts: EpisodeInsert[];
+  L: number;
+  Lprime: number;
+  prefixSha256: string;
+  correctedPrefixSha256: string;
+  insertListSha256: string;
+}
+
+function insertBlocks(prefix: string, inserts: EpisodeInsert[], texts: Map<string, string>): string {
+  let out = prefix;
+  for (const e of [...inserts].sort((a, b) => b.frameOffset - a.frameOffset)) {
+    out = out.slice(0, e.frameOffset + 1) + `${LABEL}${texts.get(e.rowId)}\n\n` + out.slice(e.frameOffset + 1);
+  }
+  return out;
+}
+
+/** Build the plan for the given inserts and texts. Pure. */
+export function buildEpisodePlan(content: string, restoreListSha256: string, inserts: EpisodeInsert[], texts: Map<string, string>): EpisodeInsertPlan {
+  const sorted = [...inserts].sort((a, b) => a.frameOffset - b.frameOffset);
+  const L = sorted[sorted.length - 1].frameOffset + sorted[sorted.length - 1].frameLength;
+  const corrected = insertBlocks(content.slice(0, L), sorted, texts);
+  return {
+    kind: EPISODE_KIND, episodeId: PERMITTED_EPISODE_ID, restoreListSha256, inserts: sorted, L, Lprime: corrected.length,
+    prefixSha256: sha256(content.slice(0, L)), correctedPrefixSha256: sha256(corrected), insertListSha256: sha256(JSON.stringify(sorted)),
+  };
+}
+
+/** Decide the episode from its current content and the transcript texts. Pure. */
+export function decideEpisodeInsert(content: string, plan: EpisodeInsertPlan, texts: Map<string, string>): RestoreOutcome {
+  if (plan.kind !== EPISODE_KIND || plan.episodeId !== PERMITTED_EPISODE_ID || sha256(JSON.stringify(plan.inserts)) !== plan.insertListSha256) {
+    return { status: 'drifted', reason: 'plan is not a valid episode insert plan' };
+  }
+  for (const e of plan.inserts) {
+    if (!texts.has(e.rowId) || sha256(texts.get(e.rowId)!) !== e.founderTextSha256) return { status: 'drifted', reason: 'transcript text does not match the plan' };
+  }
+  if (content.length >= plan.L && sha256(content.slice(0, plan.L)) === plan.prefixSha256) {
+    for (const e of plan.inserts) {
+      if (sha256(content.slice(e.frameOffset, e.frameOffset + e.frameLength)) !== e.frameSha256) return { status: 'drifted', reason: `frame at ${e.frameOffset} changed` };
+    }
+    const corrected = insertBlocks(content.slice(0, plan.L), plan.inserts, texts);
+    if (corrected.length !== plan.Lprime || sha256(corrected) !== plan.correctedPrefixSha256) return { status: 'drifted', reason: 'corrected prefix does not match the plan' };
+    return { status: 'apply', next: corrected + content.slice(plan.L) };
+  }
+  if (content.length >= plan.Lprime && sha256(content.slice(0, plan.Lprime)) === plan.correctedPrefixSha256) return { status: 'already-applied' };
+  return { status: 'drifted', reason: 'episode prefix changed since the plan' };
+}
+
+async function readTexts(entries: RestoreEntry[], load: (s: string) => any[] | null): Promise<Map<string, string>> {
+  const texts = new Map<string, string>();
+  for (const entry of entries) {
+    const m = CAPTURE.exec(entry.captureId);
+    const transcript = m ? load(m[1]) : null;
+    const found = transcript ? founderMessageFor(transcript, Number(m![2])) : { reason: 'transcript missing' };
+    if ('text' in found && found.index === entry.founderIndex && sha256(found.text) === entry.founderTextSha256) texts.set(entry.rowId, found.text);
+  }
+  return texts;
+}
+
+async function generateEpisode(pool: Pool): Promise<void> {
+  const out = arg('out');
+  if (!out) throw new Error('--out is required');
+  const restore = JSON.parse(readFileSync(arg('restore-receipt') ?? 'server/scripts/receipts/restore-image-founder-text.json', 'utf8'));
+  const relabel = JSON.parse(readFileSync(arg('relabel-episode-receipt') ?? 'scripts/data-ops/relabel-runtime-notices.episode-receipt.json', 'utf8'));
+  const editIndex = new Map<string, { offset: number; i: number }>(relabel.edits.map((e: any, i: number) => [e.sourceRowId, { offset: e.offset, i }]));
+  const episode: string = (await pool.query('SELECT content FROM conversation_memories WHERE id = $1', [PERMITTED_EPISODE_ID])).rows[0].content;
+  const { rows } = await pool.query(`SELECT id::text AS id, content FROM conversation_memories WHERE id::text IN (SELECT jsonb_array_elements_text($1::jsonb))`,
+    [JSON.stringify(restore.entries.map((e: RestoreEntry) => e.rowId))]);
+  const byId = new Map(rows.map((r: any) => [r.id, r.content as string]));
+  const texts = await readTexts(restore.entries, transcriptLoader(arg('transcripts') ?? TRANSCRIPTS));
+  const inserts: EpisodeInsert[] = [];
+  const skipped: Record<string, number> = {};
+  const skip = (reason: string) => { skipped[reason] = (skipped[reason] ?? 0) + 1; };
+  for (const entry of restore.entries as RestoreEntry[]) {
+    const relabelEdit = editIndex.get(entry.rowId);
+    if (!relabelEdit) { skip('row has no Episode 34 projection'); continue; }
+    const current = byId.get(entry.rowId);
+    const text = texts.get(entry.rowId);
+    if (!current || !text || sha256(current) !== entry.postSha256) { skip('row is not in its restored state'); continue; }
+    const pre = current.slice(`${LABEL}${text}\n\n`.length);
+    if (sha256(pre) !== entry.preSha256) { skip('restored row does not split cleanly'); continue; }
+    const frame = `\n${pre.trim()}\n`;
+    const at = episode.indexOf(frame);
+    const mapped = relabelEdit.offset - 10 * relabelEdit.i - 1; // relabel shrank each earlier label by 10
+    if (at < 0 || episode.indexOf(frame, at + 1) !== -1 || at !== mapped) { skip('projection not found uniquely at its approved location'); continue; }
+    inserts.push({ rowId: entry.rowId, frameOffset: at, frameLength: frame.length, frameSha256: sha256(frame), founderTextSha256: entry.founderTextSha256 });
+  }
+  if (!inserts.length) { console.log(JSON.stringify({ inserts: 0, skipped }, null, 2)); return; }
+  const plan = buildEpisodePlan(episode, restore.listSha256, inserts, texts);
+  writeLocal(out, JSON.stringify(plan, null, 2) + '\n');
+  console.log(JSON.stringify({ out, inserts: inserts.length, skipped, L: plan.L, Lprime: plan.Lprime, insertListSha256: plan.insertListSha256 }, null, 2));
+}
+
+async function applyEpisode(pool: Pool): Promise<void> {
+  const planPath = arg('plan');
+  const approved = arg('insert-list-sha');
+  if (!planPath || !approved) throw new Error('--plan and --insert-list-sha are required');
+  const plan: EpisodeInsertPlan = JSON.parse(readFileSync(planPath, 'utf8'));
+  if (plan.insertListSha256 !== approved) throw new Error('plan is not the approved insert list');
+  const restore = JSON.parse(readFileSync(arg('restore-receipt') ?? 'server/scripts/receipts/restore-image-founder-text.json', 'utf8'));
+  if (plan.restoreListSha256 !== restore.listSha256) throw new Error('plan is not bound to the restoration receipt');
+  const texts = await readTexts(restore.entries.filter((e: RestoreEntry) => plan.inserts.some(i => i.rowId === e.rowId)), transcriptLoader(arg('transcripts') ?? TRANSCRIPTS));
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const { rows } = await client.query('SELECT content, attribution FROM conversation_memories WHERE id = $1 FOR UPDATE', [PERMITTED_EPISODE_ID]);
+    let status: string;
+    if (!rows.length) status = 'drifted';
+    else if (rows[0].attribution !== null && rows[0].attribution !== undefined) status = 'attributed';
+    else {
+      const outcome = decideEpisodeInsert(rows[0].content, plan, texts);
+      status = outcome.status === 'drifted' ? `drifted: ${outcome.reason}` : outcome.status;
+      if (outcome.status === 'apply') await client.query('UPDATE conversation_memories SET content = $2 WHERE id = $1', [PERMITTED_EPISODE_ID, outcome.next]);
+    }
+    await client.query('COMMIT');
+    console.log(JSON.stringify({ episode: PERMITTED_EPISODE_ID, status, inserts: plan.inserts.length }, null, 2));
+  } catch (e) {
+    await client.query('ROLLBACK');
+    throw e;
+  } finally {
+    client.release();
+  }
+}
+
 if (process.argv[1] && /restore-image-row-founder-text\.ts$/.test(process.argv[1].replace(/\\/g, '/'))) {
   const command = process.argv[2];
   const pool = new Pool({ connectionString: process.env.NEON_SHARED_DATABASE_URL });
-  (command === 'generate' ? generate(pool) : command === 'apply' ? apply(pool) : Promise.reject(new Error('usage: generate|apply')))
+  const commands: Record<string, (p: Pool) => Promise<void>> = { generate, apply, 'generate-episode': generateEpisode, 'apply-episode': applyEpisode };
+  (commands[command] ? commands[command](pool) : Promise.reject(new Error('usage: generate|apply|generate-episode|apply-episode')))
     .catch(err => { console.error(err instanceof Error ? err.message : String(err)); process.exitCode = 1; })
     .finally(() => pool.end());
 }

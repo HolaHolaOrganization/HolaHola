@@ -1,0 +1,19 @@
+{
+  "kind": "restore-image-founder-text-episode",
+  "episodeId": "41200170-1c49-4660-838c-9d397aff5d27",
+  "restoreListSha256": "0bcffa76b892025af810a1233a82e10cad608f3a36c35d9d04df3d0723eb4ef5",
+  "inserts": [
+    {
+      "rowId": "946660ee-826e-4685-9f6f-3814a59d16ad",
+      "frameOffset": 470437,
+      "frameLength": 1163,
+      "frameSha256": "d74a5e3c3827746d0ca5da203b6d8d924770f0d3b3cc669050b1415f69127846",
+      "founderTextSha256": "52a00c72de34526cd306927f80d9a3db7b40b032b7e18591ca60f721a9bf8ffc"
+    }
+  ],
+  "L": 471600,
+  "Lprime": 471712,
+  "prefixSha256": "69038865096803dd93719d8da5ff670cf969f70c45f061922cb746efaa732b52",
+  "correctedPrefixSha256": "537e2ae3f280430b665a131075b7388651f4e1ee2547878c841470002ce157e6",
+  "insertListSha256": "46644672b04fac4ee99d2359ea992eff9eb4f38e199777673a9eede85107d2b0"
+}

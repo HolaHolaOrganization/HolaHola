@@ -2,7 +2,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { IMAGE_PREFIX, LABEL, decideRestore, founderMessageFor, restoredContent } from './restore-image-row-founder-text';
+import {
+  IMAGE_PREFIX, LABEL, PERMITTED_EPISODE_ID, buildEpisodePlan, decideEpisodeInsert, decideRestore, founderMessageFor, restoredContent,
+} from './restore-image-row-founder-text';
 
 const sha = (t: string) => createHash('sha256').update(t, 'utf8').digest('hex');
 const human = (content: unknown) => ({ type: 'user', origin: { kind: 'human' }, promptSource: 'sdk', message: { content } });
@@ -40,4 +42,34 @@ test('changed transcript text, a changed row, or a non-image row is refused', ()
   assert.equal(decideRestore(current + ' edited', text, entry).status, 'drifted');
   const other = `David [Claude Code]: something\n\nClaude Code: ok`;
   assert.equal(decideRestore(other, text, { ...entry, preSha256: sha(other) }).status, 'drifted');
+});
+
+// --- Episode 34 copy of a restored exchange ---
+const pre = `${IMAGE_PREFIX} /tmp/1.png]\n\nClaude Code: I see it.`;
+const frame = `\n${pre}\n`;
+const episode = `# Ep\n\nDavid [Claude Code]: earlier\n\nClaude Code: ok\n${frame}\nDavid [Claude Code]: later\n\nClaude Code: fine\ntail`;
+const insert = { rowId: 'r1', frameOffset: episode.indexOf(frame), frameLength: frame.length, frameSha256: sha(frame), founderTextSha256: sha(text) };
+const texts = new Map([['r1', text]]);
+const plan = buildEpisodePlan(episode, 'restore-list', [insert], texts);
+
+test('episode: the founder block is inserted at the start of the frame; prefix before and tail after are unchanged', () => {
+  assert.equal(plan.episodeId, PERMITTED_EPISODE_ID);
+  const out = decideEpisodeInsert(episode, plan, texts);
+  assert.equal(out.status, 'apply');
+  if (out.status !== 'apply') return;
+  assert.ok(out.next.includes(`\n${LABEL}${text}\n\n${pre}\n`), 'the copy now reads like the restored row');
+  assert.ok(out.next.startsWith(episode.slice(0, insert.frameOffset + 1)));
+  assert.ok(out.next.endsWith(episode.slice(plan.L)));
+  assert.equal(out.next.length, episode.length + `${LABEL}${text}\n\n`.length);
+});
+
+test('episode: rerun after later appends is a no-op; a changed prefix, wrong text or forged plan is refused', () => {
+  const out = decideEpisodeInsert(episode, plan, texts);
+  if (out.status !== 'apply') throw new Error('expected apply');
+  assert.deepEqual(decideEpisodeInsert(out.next + '\nappended later\n', plan, texts), { status: 'already-applied' });
+  assert.equal(decideEpisodeInsert(episode.replace('# Ep', '# Edited'), plan, texts).status, 'drifted');
+  assert.equal(decideEpisodeInsert(episode, plan, new Map([['r1', 'other words']])).status, 'drifted');
+  assert.equal(decideEpisodeInsert(episode, { ...plan, episodeId: 'another-episode' }, texts).status, 'drifted');
+  const shifted = { ...plan, inserts: [{ ...insert, frameOffset: insert.frameOffset + 1 }] };
+  assert.equal(decideEpisodeInsert(episode, shifted, texts).status, 'drifted');
 });
