@@ -42,3 +42,27 @@ test('the briefing carries no registration secrets or bootstrap material', () =>
   const text = buildActorBriefing(operations, activeRegistrationsFor('luca-antigravity', [withExtras]));
   assert.doesNotMatch(text, /deadbeef|bootstrap/i);
 });
+
+test('every capability the broker can grant has a recorded definition', async () => {
+  const { COORDINATION_CREDENTIAL_CAPABILITIES } = await import('@shared/schema');
+  const { COORDINATION_CAPABILITY_DEFINITIONS } = await import('../services/alden-actor-briefing');
+  for (const capability of COORDINATION_CREDENTIAL_CAPABILITIES) {
+    assert.ok(COORDINATION_CAPABILITY_DEFINITIONS[capability], `missing definition for ${capability}`);
+  }
+});
+
+test('granted capabilities are explained once each; observation:read is the live Daniela view, not monitoring', () => {
+  const text = buildActorBriefing(operations, [
+    registration('rt-1', { capabilities: ['observation:read', 'coordination:read'] }),
+    registration('rt-2', { capabilities: ['coordination:read'] }),
+  ]);
+  const explained = text.slice(text.indexOf('What each of those capabilities lets you do:'));
+  assert.equal((explained.match(/^- coordination:read:/gm) ?? []).length, 1);
+  assert.match(explained, /- observation:read: read a live Daniela session/);
+  assert.doesNotMatch(explained, /monitoring|health check/i);
+});
+
+test('an unknown capability says so instead of guessing', () => {
+  const text = buildActorBriefing(operations, [registration('rt-1', { capabilities: ['future:thing'] })]);
+  assert.match(text, /- future:thing: no definition recorded yet; ask before relying on it\./);
+});
