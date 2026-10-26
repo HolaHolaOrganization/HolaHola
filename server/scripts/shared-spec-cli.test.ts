@@ -1,6 +1,34 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import test from "node:test";
 import { runSharedSpecCli } from "./shared-spec-cli";
+
+// The CLI's own file, as a platform-native absolute path (backslashes on
+// Windows): exactly what argv[1] holds when someone runs it directly.
+const cliPath = join(process.cwd(), "server", "scripts", "shared-spec-cli.ts");
+const runNode = (args: string[]) => spawnSync(process.execPath, ["--import", "tsx", ...args], { encoding: "utf8", env: { ...process.env } });
+
+test("a direct run reaches the CLI on this platform: no arguments is a usage error, never a silent exit 0", () => {
+  const result = runNode([cliPath]);
+  assert.equal(result.status, 64, `stdout=${result.stdout} stderr=${result.stderr}`);
+  assert.match(result.stderr, /^Usage: shared-spec-cli /);
+});
+
+test("importing the CLI module does not run it", () => {
+  const result = runNode(["--input-type=module", "-e", `await import(${JSON.stringify(pathToFileURL(cliPath).href)});`]);
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout, "");
+  assert.equal(result.stderr, "");
+});
+
+test("the entrypoint uses the shared guard, not a separator-specific suffix check", () => {
+  const source = readFileSync(cliPath, "utf8");
+  assert.match(source, /if \(isDirectCliInvocation\("shared-spec-cli\.ts"\)\) \{/);
+  assert.doesNotMatch(source, /process\.argv\[1\]\?\.endsWith\(/);
+});
 
 test("list uses the authenticated shared-spec collection contract", async () => {
   let request: { url: string; init?: RequestInit } | undefined;
