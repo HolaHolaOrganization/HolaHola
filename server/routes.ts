@@ -176,7 +176,7 @@ import { generateAldenResponse } from "./services/alden-persona-service";
 import { serializeAldenReviewContext, type AldenReviewSourceReference } from "./services/alden-review-source";
 import { founderCollabService } from "./services/founder-collaboration-service";
 import { founderCollabWSBroker } from "./services/founder-collab-ws-broker";
-import { notifyConversationUpdated } from "./services/founder-chat-sync";
+import { notifyAldenConversationUpdated, notifyConversationUpdated } from "./services/founder-chat-sync";
 import { memoryConsolidationService } from "./services/memory-consolidation-service";
 import { learnerMemoryExtractionService } from "./services/learner-memory-extraction-service";
 import { 
@@ -17697,6 +17697,7 @@ Return ONLY valid JSON, no markdown, no explanation.`;
             context: p.reviewSourceEngine ? serializeAldenReviewContext(p.reviewSourceEngine, p.reviewSourceReferences) : null })),
         ];
         await _db.insert(aldenMessages).values(messagesToLog);
+        notifyAldenConversationUpdated(convId);
         console.log(`[Alden Log] Saved ${phases.length} phase(s) to conversation ${convId}`);
       } catch (logErr: any) {
         console.error('[Alden Log] Failed to save conversation:', logErr.message);
@@ -17792,6 +17793,7 @@ Return ONLY valid JSON, no markdown, no explanation.`;
           })),
         ];
         await _db.insert(aldenMessages).values(rows);
+        notifyAldenConversationUpdated(convId);
       } catch (logErr: any) {
         console.warn('[Alden Priority] Failed to persist:', logErr.message);
       }

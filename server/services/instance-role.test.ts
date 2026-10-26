@@ -327,6 +327,7 @@ const BOOT_TIMER_INVENTORY: Record<string, TimerClass> = {
   'server/services/editor-realtime-dispatcher.ts::startRealtimeDispatcher::setInterval': 'unused',
   'server/services/fact-confidence-decay-worker.ts::startFactConfidenceDecayWorker::setInterval': 'gated-starter',
   'server/services/founder-chat-sync.ts::notifyConversationUpdated::setTimeout': 'on-demand', // message-save debounce (request path)
+  'server/services/founder-chat-sync.ts::notifyAldenConversationUpdated::setTimeout': 'on-demand', // Alden message-save debounce (request path)
   'server/services/founder-chat-sync.ts::startFounderChatSyncWorker::setTimeout': 'gated-starter',
   'server/services/history-backfill-service.ts::startConversationCurator::setTimeout': 'gated-starter',
   'server/services/history-backfill-service.ts::startConversationCurator::setInterval': 'gated-starter',
