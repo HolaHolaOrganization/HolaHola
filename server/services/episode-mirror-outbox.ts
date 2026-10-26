@@ -27,7 +27,7 @@ import {
   saveChatCaptureCursor,
   type ChatCaptureCursor,
 } from './transcript-parser';
-import { CHAT_CAPTURE_ACK_DIR } from './transcript-parser';
+import { CHAT_CAPTURE_ACK_DIR, CHAT_CAPTURE_SOURCES, type ChatCaptureSource } from './transcript-parser';
 
 export const EPISODE_MIRROR_OUTBOX_PATH = join(WORKSPACE, '.local/episode-mirror-outbox');
 export const EPISODE_MIRROR_QUARANTINE_PATH = join(WORKSPACE, '.local/episode-mirror-outbox-quarantine');
@@ -337,7 +337,7 @@ export async function resolveEpisodeMirrorDestinationInvalid(
       const receipt = JSON.parse(receiptBytes) as { turnId?: unknown; targetByteOffset?: unknown; source?: unknown };
       if (
         receipt.turnId !== captureId ||
-        receipt.source !== 'replit' && receipt.source !== 'claude-code' ||
+        !CHAT_CAPTURE_SOURCES.includes(receipt.source as ChatCaptureSource) ||
         typeof receipt.targetByteOffset !== 'number' ||
         receipt.targetByteOffset > entry.item.endOffset
       ) {
