@@ -27,9 +27,12 @@ import { getUserDb } from '../db';
 import { sql } from 'drizzle-orm';
 import {
   ALDEN_NARRATIVE_POLICY_VERSION, buildAldenClusters, exchangeLabelKey, groupAldenExchanges, prefilterExchange,
-  aldenEmbeddingCurrent, reconcileAldenClusters, sha256Utf8, type AldenCluster, type AldenExchange, type AldenMessageRow,
+  aldenEmbeddingCurrent, aldenRecallArms, fullArmInput, reconcileAldenClusters, sha256Utf8,
+  type AldenCluster, type AldenExchange, type AldenMessageRow, type RecallArm,
 } from './alden-chat-transcript';
 import { ALDEN_CLASSIFIER_MODEL, ALDEN_CLASSIFIER_PROMPT_SHA256, classifyAldenExchange, type AldenClassifierLabel } from './alden-exchange-classifier';
+import { embedText, hashContent } from './semantic-memory-service';
+import { reformatSpeakerHeaders, splitIntoChunks } from './memory-embedding-indexer';
 
 // Fallback owner for legacy rows created before the 'owner:USER_ID' tag was
 // introduced.  New rows carry an explicit 'owner:USER_ID' tag derived from the
@@ -444,17 +447,56 @@ const sanitizerAlters = (raw: string) => (sanitizeContent(raw) ?? '') !== (raw ?
 
 export type AldenSyncDeps = {
   classify: (caller: string, reply: string) => Promise<AldenClassifierLabel | null>;
-  /** Builds every recall arm for one derived row from its current content. */
-  embed: (memoryId: string) => Promise<void>;
+  /** One embedding vector for one arm input; never writes anything itself. */
+  embedVector: (text: string) => Promise<number[]>;
+  /** Whose recall pool the arms belong to (founder-scoped in production). */
+  ownerUserId: string | null;
 };
 
 const defaultAldenSyncDeps: AldenSyncDeps = {
   classify: classifyAldenExchange,
-  embed: (memoryId) => import('../scripts/reembed-memory').then((mod) => mod.reembedConversationMemory(memoryId, LEGACY_DAVID_USER_ID)),
+  embedVector: embedText,
+  ownerUserId: LEGACY_DAVID_USER_ID,
 };
 
+const aldenChunker = { split: (text: string) => splitIntoChunks(text), reformat: reformatSpeakerHeaders };
+
+/**
+ * Version-checked embedding commit. Every arm's vector is computed first,
+ * from a snapshot of the row, with no write. Then, in one transaction holding
+ * the row lock (the same lock the sync's UPDATE and DELETE take), the arms are
+ * replaced only if the row still exists with exactly the snapshot's text. An
+ * embedding computed from an older version, or for a retired row, is discarded,
+ * never written.
+ */
+async function commitAldenRecall(
+  snapshot: { id: string; title: string; summary: string; content: string },
+  arms: RecallArm[],
+  deps: AldenSyncDeps,
+): Promise<'written' | 'superseded' | 'retired'> {
+  const vectors: number[][] = [];
+  for (const arm of arms) vectors.push(await deps.embedVector(arm.input));
+  const expectedFull = hashContent(arms[0].input);
+  return getUserDb().transaction(async (tx) => {
+    const current = (await tx.execute(sql`
+      SELECT title, summary, content FROM conversation_memories WHERE id = ${snapshot.id} FOR UPDATE
+    `)).rows[0] as { title: string; summary: string; content: string } | undefined;
+    if (!current) return 'retired';
+    if (hashContent(fullArmInput(current)) !== expectedFull) return 'superseded';
+    await tx.execute(sql`DELETE FROM memory_embeddings WHERE memory_id = ${snapshot.id} OR memory_id LIKE ${snapshot.id + ':chunk:%'}`);
+    for (let i = 0; i < arms.length; i++) {
+      await tx.execute(sql`
+        INSERT INTO memory_embeddings (memory_type, memory_id, user_id, embedding, content_hash, strength, importance)
+        VALUES (${arms[i].memoryType}, ${arms[i].memoryId}, ${deps.ownerUserId}, ${JSON.stringify(vectors[i])}::jsonb,
+          ${hashContent(arms[i].input)}, 0.7, 7)
+      `);
+    }
+    return 'written';
+  });
+}
+
 export type AldenSyncOutcome =
-  | { status: 'synced'; inserted: number; updated: number; retired: number; unchanged: number; pendingLabels: number; embedded: number; embedFailures: number }
+  | { status: 'synced'; inserted: number; updated: number; retired: number; unchanged: number; pendingLabels: number; embedded: number; superseded: number; embedFailures: number }
   | { status: 'too-large'; messageCount: number };
 
 type DbLike = { execute: (query: any) => Promise<{ rows: unknown[] }> };
@@ -588,21 +630,28 @@ export async function syncAldenConversation(conversationId: string, deps: AldenS
   });
   if ('tooLarge' in outcome) return { status: 'too-large', messageCount: outcome.tooLarge as number };
 
-  // 3. Recall freshness, after commit, for every derived row of the session,
-  //    changed or not: a failed or overtaken embedding run is retried here.
+  // 3. Recall, after commit, for every derived row of the session, changed or
+  //    not: each row's arms must match it exactly (every arm, every hash, no
+  //    extras), or they are rebuilt through the version-checked commit.
   const rows = (await db.execute(sql`
-    SELECT m.id, m.title, m.summary, m.content,
-      (SELECT e.content_hash FROM memory_embeddings e WHERE e.memory_id = m.id AND e.memory_type = 'conversation_memory' LIMIT 1) AS full_arm_hash,
-      (SELECT count(*)::int FROM memory_embeddings e WHERE e.memory_type = 'conversation_chunk' AND e.memory_id LIKE m.id || ':chunk:%') AS chunk_count
-    FROM conversation_memories m
-    WHERE m.arc_name = ${ALDEN_ARC_NAME} AND ${`alden-cid:${conversationId}`} = ANY(m.tags)
-  `)).rows as Array<{ id: string; title: string; summary: string; content: string; full_arm_hash: string | null; chunk_count: number }>;
-  let embedded = 0, embedFailures = 0;
+    SELECT id, title, summary, content FROM conversation_memories
+    WHERE arc_name = ${ALDEN_ARC_NAME} AND ${`alden-cid:${conversationId}`} = ANY(tags)
+  `)).rows as Array<{ id: string; title: string; summary: string; content: string }>;
+  let embedded = 0, superseded = 0, embedFailures = 0;
   for (const row of rows) {
-    if (aldenEmbeddingCurrent(row, { fullArmHash: row.full_arm_hash, chunkCount: Number(row.chunk_count) })) continue;
-    try { await deps.embed(row.id); embedded++; } catch { embedFailures++; }
+    const expected = aldenRecallArms(row, aldenChunker);
+    const stored = ((await db.execute(sql`
+      SELECT memory_type, memory_id, content_hash FROM memory_embeddings
+      WHERE memory_id = ${row.id} OR memory_id LIKE ${row.id + ':chunk:%'}
+    `)).rows as Array<{ memory_type: string; memory_id: string; content_hash: string }>)
+      .map((arm) => ({ memoryType: arm.memory_type, memoryId: arm.memory_id, contentHash: arm.content_hash }));
+    if (aldenEmbeddingCurrent(expected, stored, hashContent)) continue;
+    try {
+      const result = await commitAldenRecall(row, expected, deps);
+      if (result === 'written') embedded++; else superseded++;
+    } catch { embedFailures++; }
   }
-  return { status: 'synced', ...outcome, embedded, embedFailures };
+  return { status: 'synced', ...outcome, embedded, superseded, embedFailures };
 }
 
 /**

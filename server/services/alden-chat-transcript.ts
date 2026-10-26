@@ -213,19 +213,44 @@ export function reconcileAldenClusters(existing: readonly ExistingClusterRow[], 
   return { insert, update, unchanged, retire };
 }
 
-/** The founder-chat memory arm's input, as reembed-memory.ts builds it: title, summary, content. */
-export const fullArmInput = (row: { title: string; summary: string; content: string }) =>
-  [row.title, row.summary, row.content].filter(Boolean).join('\n\n');
+/** The memory-arm inputs reembed-memory.ts builds for a conversation_memories row, reproduced exactly. */
+export type RecallArm = { memoryType: 'conversation_memory' | 'conversation_summary' | 'conversation_chunk'; memoryId: string; input: string };
+
+export function aldenRecallArms(
+  row: { id: string; title: string; summary: string; content: string },
+  chunker: { split: (text: string) => string[]; reformat: (chunk: string) => string },
+): RecallArm[] {
+  const arms: RecallArm[] = [
+    { memoryType: 'conversation_memory', memoryId: row.id, input: [row.title, row.summary, row.content].filter(Boolean).join('\n\n') },
+  ];
+  if (row.summary && row.summary.length > 10) {
+    arms.push({ memoryType: 'conversation_summary', memoryId: row.id, input: [row.title, row.summary].filter(Boolean).join('\n\n') });
+  }
+  const chunks = chunker.split(row.content);
+  chunks.forEach((chunk, i) => arms.push({
+    memoryType: 'conversation_chunk',
+    memoryId: `${row.id}:chunk:${i}`,
+    input: `[Memory: ${row.title ?? 'Untitled'} | Part ${i + 1} of ${chunks.length}]\n\n${chunker.reformat(chunk)}`,
+  }));
+  return arms;
+}
 
 /**
- * Is a derived row's recall current? Its full-content embedding must exist and
- * carry the hash of the row exactly as stored now, and its chunk arm must
- * exist. Otherwise the row is (re-)embedded: this covers failed refreshes,
- * retries on unchanged rows, and a late write from an older embedding run.
+ * Is a derived row's recall exactly current? Every expected arm (full,
+ * summary, each chunk) must exist with the hash of its input as the row
+ * stands now, and no other arm may exist for the row. Anything else (a
+ * missing, stale or extra arm) means the row is re-embedded.
  */
 export function aldenEmbeddingCurrent(
-  row: { title: string; summary: string; content: string },
-  stored: { fullArmHash: string | null; chunkCount: number },
+  expected: readonly RecallArm[],
+  stored: ReadonlyArray<{ memoryType: string; memoryId: string; contentHash: string }>,
+  hash: (text: string) => string,
 ): boolean {
-  return stored.fullArmHash === sha256(fullArmInput(row)) && stored.chunkCount > 0;
+  if (stored.length !== expected.length) return false;
+  const have = new Map(stored.map((arm) => [`${arm.memoryType}|${arm.memoryId}`, arm.contentHash]));
+  return expected.every((arm) => have.get(`${arm.memoryType}|${arm.memoryId}`) === hash(arm.input));
 }
+
+/** The full-content arm's input, as reembed-memory.ts builds it: title, summary, content. */
+export const fullArmInput = (row: { title: string; summary: string; content: string }) =>
+  [row.title, row.summary, row.content].filter(Boolean).join('\n\n');

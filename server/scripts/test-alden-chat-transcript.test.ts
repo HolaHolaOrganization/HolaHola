@@ -111,3 +111,22 @@ test('a reply speaker change (alden -> alden-gemini) changes the label key and t
   assert.notEqual(cluster(plain).clusterSha256, cluster(engine).clusterSha256);
   assert.match(cluster(engine).content, /Alden \[gemini\]: hello$/);
 });
+
+test('recall arms mirror reembed-memory exactly, and completeness needs every arm, exact hashes and no extras', async () => {
+  const { aldenRecallArms, aldenEmbeddingCurrent, fullArmInput } = await import('../services/alden-chat-transcript');
+  const { createHash } = await import('node:crypto');
+  const hash = (t: string) => createHash('sha256').update(t).digest('hex');
+  const row = { id: 'r1', title: 'T', summary: 'A summary long enough', content: 'David: hi\n\nAlden: hello' };
+  const arms = aldenRecallArms(row, { split: (t) => [t], reformat: (c) => c });
+  assert.deepEqual(arms.map((a) => [a.memoryType, a.memoryId]), [
+    ['conversation_memory', 'r1'], ['conversation_summary', 'r1'], ['conversation_chunk', 'r1:chunk:0'],
+  ]);
+  assert.equal(arms[0].input, fullArmInput(row));
+  assert.equal(arms[2].input, '[Memory: T | Part 1 of 1]\n\nDavid: hi\n\nAlden: hello');
+  const stored = arms.map((a) => ({ memoryType: a.memoryType, memoryId: a.memoryId, contentHash: hash(a.input) }));
+  assert.equal(aldenEmbeddingCurrent(arms, stored, hash), true);
+  assert.equal(aldenEmbeddingCurrent(arms, stored.slice(0, 2), hash), false, 'missing chunk');
+  assert.equal(aldenEmbeddingCurrent(arms, [stored[0], stored[2]], hash), false, 'missing summary');
+  assert.equal(aldenEmbeddingCurrent(arms, [...stored.slice(0, 2), { ...stored[2], contentHash: 'stale' }], hash), false, 'stale chunk');
+  assert.equal(aldenEmbeddingCurrent(arms, [...stored, { memoryType: 'conversation_chunk', memoryId: 'r1:chunk:1', contentHash: 'x' }], hash), false, 'extra arm');
+});
