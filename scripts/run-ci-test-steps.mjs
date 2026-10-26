@@ -243,6 +243,8 @@ commands.splice(safetyInsertion, 0,
   // Same getVerifiedCiDatabaseUrl-first disposableTarget() pattern as above.
   'npx tsx --test server/scripts/test-alden-shared-spec-review-postgres.test.ts',
   'npx tsx --test server/scripts/test-alden-coordination-read.test.ts',
+  'npx tsx --test server/scripts/test-alden-chat-transcript.test.ts',
+  'npx tsx --test server/scripts/test-alden-anthropic-turn.test.ts',
   'npx tsx --test server/scripts/test-alden-verbatim.test.ts',
   'npx tsx --test server/scripts/test-alden-actor-briefing.test.ts',
   'npx tsx --test server/scripts/test-onboarding-tool-names.test.ts',

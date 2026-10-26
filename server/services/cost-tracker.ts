@@ -41,6 +41,7 @@ const PRICING: Record<string, ModelPricing> = {
   'claude-3-5-sonnet-20241022':   { inputPerMillion: 3.00,  outputPerMillion: 15.00, label: 'Claude Sonnet 3.5'  },
   'claude-3-sonnet-20240229':     { inputPerMillion: 3.00,  outputPerMillion: 15.00, label: 'Claude Sonnet 3'    },
   // Claude Opus
+  'claude-opus-5-5':              { inputPerMillion: 4.00,  outputPerMillion: 20.00, label: 'Claude Opus 5.5'    },
   'claude-opus-4-6':              { inputPerMillion: 15.00, outputPerMillion: 75.00, label: 'Claude Opus 4.6'    },
   'claude-3-opus-20240229':       { inputPerMillion: 15.00, outputPerMillion: 75.00, label: 'Claude Opus 3'      },
   // OpenAI

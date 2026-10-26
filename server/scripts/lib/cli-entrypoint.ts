@@ -35,7 +35,7 @@
  * contains the script's name as a substring). Only a direct
  * `npx tsx server/scripts/<name>.ts` invocation makes it match.
  */
-import { basename } from 'node:path';
+import { win32 } from 'node:path';
 
 /**
  * @param scriptBasename The exact filename of the calling script, e.g.
@@ -43,5 +43,8 @@ import { basename } from 'node:path';
  *   this is intentionally a plain string, not derived from `import.meta.url`.
  */
 export function isDirectCliInvocation(scriptBasename: string): boolean {
-  return process.argv[1] !== undefined && basename(process.argv[1]) === scriptBasename;
+  // win32.basename splits on both `/` and `\`, so a Windows argv[1] matches
+  // the same way on every platform, and Linux CI can test it. (A `/`-only
+  // suffix check made shared-spec-cli.ts exit 0 silently on Windows.)
+  return process.argv[1] !== undefined && win32.basename(process.argv[1]) === scriptBasename;
 }
