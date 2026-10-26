@@ -20,7 +20,7 @@ function usage(): never {
     '  complete --from-runtime-id <current-id> --runtime-id <new-id>',
     '  rollback --from-runtime-id <current-id> --runtime-id <new-id>',
     '  reissue --runtime-id <existing-id>',
-    '  disable --runtime-id <existing-id>',
+    '  disable --runtime-id <existing-id> [--dormant-days <n>]',
     '',
     'stage/complete/rollback move a live runtime to a new immutable ID without',
     'interrupting its current credential (zero-downtime rotation).',
@@ -36,6 +36,10 @@ function usage(): never {
     'new runtime ID from scratch. It refuses to run while the registration',
     'still has a live, unexpired, or ever-used credential, or is part of an',
     'active staged/ready rotation -- use revoke or rotation for those instead.',
+    '',
+    '--dormant-days <n> (integer, at least 30) also retires a registration whose',
+    'credentials were used in the past but are all expired or revoked, with the',
+    'most recent use at least n days ago. A live credential still refuses.',
   ].join('\n'));
 }
 
@@ -79,7 +83,11 @@ async function main(): Promise<void> {
   if (action === 'disable') {
     const runtimeId = option('runtime-id');
     if (!runtimeId) usage();
-    const result = await disableCoordinationRuntimeRegistration(runtimeId);
+    const dormantDaysText = option('dormant-days');
+    if (dormantDaysText !== undefined && !/^\d+$/.test(dormantDaysText)) usage();
+    const result = await disableCoordinationRuntimeRegistration(runtimeId, undefined, {
+      dormantDays: dormantDaysText === undefined ? undefined : Number(dormantDaysText),
+    });
     if (!result.ok) throw new Error(`Registration could not be disabled: ${result.reason}`);
     process.stdout.write(
       `Registration ${runtimeId} (${result.actor}) is now disabled and revoked. It can no longer exchange its bootstrap or authenticate any credential.\n`,
