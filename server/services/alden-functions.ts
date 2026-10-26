@@ -50,6 +50,9 @@ import {
 import { listCoordinationInbox } from "./coordination-inbox-service";
 import { listAldenCoordinationInbox, readAldenCoordinationMessage } from "./alden-coordination-read";
 import { OPERATIONS_CATALOG, toPublicOperationManifest } from "./operations-catalog";
+import { checkExpectedContent } from "./alden-verbatim";
+import { activeRegistrationsFor, buildActorBriefing } from "./alden-actor-briefing";
+import { coordinationMcpToolNames } from "./mcp-coordination-tools";
 import { applyHandoffSection, shareAldenHandoffNote } from "./alden-handoff-shared-spec";
 import { listAldenSharedSpecReviews, readAldenSharedSpecReview, claimAldenSharedSpecReview, decideAldenSharedSpecReview } from "./alden-shared-spec-review";
 import { buildAldenReviewSourcePage, type AldenReviewReadSession } from "./alden-review-source";
@@ -208,6 +211,7 @@ export const ALDEN_TOOLS: AldenTool[] = [
         content: { type: "string" as const, description: "The initial content for the episode record — an opening note, seed narrative, or context for how it begins. This grows over time as the live capture pipeline appends to it; it does not need to be the complete episode." },
         importance: { type: "number" as const, description: "1-10, defaults to 10 (episodes are high-importance by convention)." },
         tags: { type: "array" as const, items: { type: "string" as const }, description: "Optional extra tags. A slug tag (e.g. 'episode-35') is always added automatically." },
+        expected_content_sha256: { type: "string" as const, description: "Optional. When someone hands you exact text to pass through, they also give its SHA-256; supply it here. The tool computes the hash of the content exactly as it would be stored (leading and trailing whitespace removed) and refuses to write anything on a mismatch, so a copying slip can never be saved. On refusal, copy the text again exactly; never edit it to make it fit." },
       },
       required: ["title", "summary", "content"],
     },
@@ -1503,6 +1507,10 @@ export async function executeAldenTool(
         if (!title || !summary || !content) {
           return { data: { error: 'title, summary, and content are required' } };
         }
+        const verbatim = checkExpectedContent(content, args.expected_content_sha256);
+        if (!verbatim.ok) {
+          return { data: { error: verbatim.error, contentSha256: verbatim.contentSha256 } };
+        }
 
         try {
           const result = await startNextEpisode({ title, summary, content, importance, tags });
@@ -1518,6 +1526,9 @@ export async function executeAldenTool(
               episodeCreated: result.episodeCreated,
               alreadyRolling: result.alreadyRolling,
               retiredEpisodes: result.previousRolling,
+              // Hash of the content passed in, for the caller to check. An existing
+              // episode with this title is reused as-is, so its content is not replaced.
+              contentSha256: verbatim.contentSha256,
               note: result.alreadyRolling
                 ? `"${result.episode.title}" was already the rolling episode — no change made.`
                 : `"${result.episode.title}" is now the rolling episode.` +
@@ -3030,17 +3041,9 @@ export async function executeAldenTool(
           };
         }
 
-        const description = [
-          'You already have access to the following, verified against the shared operations catalog:',
-          '',
-          ...scoped.map((operation) => `- ${operation.title} (${operation.id}): ${operation.purpose}`),
-          '',
-          'Canonical references:',
-          '- docs/coordination-clients.md — coordination runtime placement, scope, and the full-feed/inbox split.',
-          '- docs/coordination-new-actor-onboarding.md — how new capabilities and actors get added to this system.',
-        ].join('\n');
-
         try {
+          const registrations = activeRegistrationsFor(recipient, await listCoordinationRuntimeRegistrations());
+          const description = buildActorBriefing(scoped, registrations, coordinationMcpToolNames());
           const result = await createCoordinationThread({
             actor: 'alden',
             intendedRecipient: recipient,
@@ -3050,12 +3053,21 @@ export async function executeAldenTool(
             idempotencyKey: randomUUID(),
           });
           console.log(`[Alden Tool] brief_new_actor: ${recipient} (${scoped.length} operations, thread ${result.thread.id})`);
+          // Return exactly what was posted, so any summary can quote the artifact
+          // rather than reconstruct it, and the event id read_coordination_message needs.
           return {
             data: {
               threadId: result.thread.id,
+              eventId: result.event.id,
               recipient: result.thread.intendedRecipient,
               operationCount: scoped.length,
+              operationIds: scoped.map((operation) => operation.id),
+              registrations: registrations.map((registration) => ({
+                runtimeId: registration.runtimeId,
+                capabilities: registration.capabilities,
+              })),
               deliveryState: result.deliveryState,
+              postedContent: result.event.content,
             },
           };
         } catch (e: any) {
