@@ -44,11 +44,21 @@ const personaSource = readFileSync(
   resolve(process.cwd(), 'server/services/alden-persona-service.ts'),
   'utf8',
 );
+// Every Anthropic call in a turn goes through one injected callback
+// (alden-anthropic-turn.ts). Rounds and the continuation wrap ask for tools,
+// and the callback attaches the projected declarations, never any other set.
+assert.match(personaSource, /const anthropicTools = toAnthropicAldenTools\(\);/,
+  'persona service must build the provider projection');
 assert.equal(
   (personaSource.match(/tools: anthropicTools/g) ?? []).length,
-  2,
-  'initial and continuation Anthropic calls must use the projected declarations',
+  1,
+  'the single Anthropic call callback must attach the projected declarations',
 );
+assert.match(personaSource, /\.\.\.\(withTools \? \{ tools: anthropicTools \} : \{\}\)/,
+  'tools are attached exactly when the turn loop asks for them');
+const turnSource = readFileSync(resolve(process.cwd(), 'server/services/alden-anthropic-turn.ts'), 'utf8');
+assert.equal((turnSource.match(/withTools: true/g) ?? []).length, 2,
+  'initial rounds and the continuation wrap must request the projected tools');
 assert.doesNotMatch(
   personaSource,
   /tools:\s*ALDEN_TOOLS/,
