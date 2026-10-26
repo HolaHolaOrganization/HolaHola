@@ -102,3 +102,101 @@ export class FileCoordinationCliCredentialCache implements CoordinationCredentia
     });
   }
 }
+
+/**
+ * Native platform credential cache bridging Windows DPAPI, macOS Keychain,
+ * or Linux Secret Service directly into the CoordinationCredentialCache interface.
+ * Selected explicitly via --transport native-onboarding.
+ * Zero plaintext token files, zero shell arguments, automatic renewal on expiry.
+ */
+export class NativeStoreCoordinationCredentialCache implements CoordinationCredentialCache {
+  private readonly endpoint: string;
+
+  constructor(endpoint?: string) {
+    this.endpoint = (endpoint || process.env.COORDINATION_API_URL || 'https://getholahola.com').replace(/\/+$/, '');
+  }
+
+  async load(actor: string, runtimeId: string): Promise<CoordinationCredentialCacheEntry | null> {
+    try {
+      const { createNativeRuntimeOnboardingStore } = await import('./runtime-onboarding-store');
+      const store = createNativeRuntimeOnboardingStore();
+      const { RuntimeOnboardingClient } = await import('./runtime-onboarding-client');
+      const client = new RuntimeOnboardingClient({
+        endpoint: this.endpoint,
+        actor,
+        runtimeId,
+        store,
+      });
+      const cred = await client.getValidCredential();
+      if (
+        cred
+        && cred.actor === actor
+        && cred.runtimeId === runtimeId
+        && typeof cred.accessToken === 'string'
+        && typeof cred.expiresAt === 'string'
+      ) {
+        return {
+          actor: cred.actor as any,
+          runtimeId: cred.runtimeId,
+          accessToken: cred.accessToken,
+          expiresAt: cred.expiresAt,
+        };
+      }
+      return null;
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      if (msg === 'onboarding_credential_unavailable_run_setup') {
+        return null;
+      }
+      const safeDiagnostic = sanitizeNativeStoreDiagnostic(error);
+      throw new Error(`native_store_credential_unavailable: ${safeDiagnostic}`);
+    }
+  }
+
+  async save(entry: CoordinationCredentialCacheEntry): Promise<void> {
+    try {
+      const { createNativeRuntimeOnboardingStore } = await import('./runtime-onboarding-store');
+      const store = createNativeRuntimeOnboardingStore();
+      const scope = { endpoint: this.endpoint, actor: entry.actor, runtimeId: entry.runtimeId };
+      const raw = await store.get(scope, 'access-credential');
+      if (raw) {
+        const existing = JSON.parse(raw);
+        existing.accessToken = entry.accessToken;
+        existing.expiresAt = entry.expiresAt;
+        await store.set(scope, 'access-credential', JSON.stringify(existing));
+      }
+    } catch (error) {
+      const safeDiagnostic = sanitizeNativeStoreDiagnostic(error);
+      throw new Error(`native_store_save_failed: ${safeDiagnostic}`);
+    }
+  }
+
+  async clear(actor: string, runtimeId: string): Promise<void> {
+    try {
+      const { createNativeRuntimeOnboardingStore } = await import('./runtime-onboarding-store');
+      const store = createNativeRuntimeOnboardingStore();
+      const scope = { endpoint: this.endpoint, actor, runtimeId };
+      await store.delete(scope, 'access-credential');
+    } catch (error) {
+      const safeDiagnostic = sanitizeNativeStoreDiagnostic(error);
+      throw new Error(`native_store_clear_failed: ${safeDiagnostic}`);
+    }
+  }
+}
+
+export const SAFE_NATIVE_STORE_ERROR_CODES = new Set([
+  'keystore_unavailable',
+  'keyring_locked',
+  'storage_corrupted',
+  'storage_unavailable',
+  'access_denied',
+]);
+
+export function sanitizeNativeStoreDiagnostic(error: unknown): string {
+  const msg = error instanceof Error ? error.message : String(error);
+  if (SAFE_NATIVE_STORE_ERROR_CODES.has(msg)) {
+    return msg;
+  }
+  return 'secure_storage_operation_failed';
+}
+

@@ -320,3 +320,107 @@ test('concurrent recovery refuses active recoverer and cannot delete newly acqui
   release(); await first;
   await store.acquire(1); await store.release();
 });
+
+test('normalizeScope rejects unsupported transport', () => {
+  assert.throws(() => normalizeScope({ ...scope, transport: 'unsupported-transport' }), /invalid_transport/);
+});
+
+test('normalizeScope resolves ambient environment defaults and respects explicit precedence', () => {
+  const envWithNative = {
+    COORDINATION_TRANSPORT: 'native-onboarding',
+    COORDINATION_RUNTIME_ID: 'ambient-runtime-x',
+  };
+  const normalized = normalizeScope(scope, envWithNative);
+  assert.equal(normalized.transport, 'native-onboarding');
+  assert.equal(normalized.runtimeId, 'ambient-runtime-x');
+
+  // Explicit scope overrides ambient env
+  const overridden = normalizeScope({ ...scope, transport: 'file', runtimeId: 'explicit-runtime-y' }, envWithNative);
+  assert.equal(overridden.transport, 'file');
+  assert.equal(overridden.runtimeId, 'explicit-runtime-y');
+
+  // Explicit transport overrides contradictory ambient transport
+  const explicitNative = normalizeScope({ ...scope, transport: 'native-onboarding' }, { COORDINATION_TRANSPORT: 'file' });
+  assert.equal(explicitNative.transport, 'native-onboarding');
+
+  // Explicit runtimeId overrides contradictory ambient runtimeId
+  const explicitRuntime = normalizeScope({ ...scope, runtimeId: 'explicit-a' }, { COORDINATION_RUNTIME_ID: 'ambient-b' });
+  assert.equal(explicitRuntime.runtimeId, 'explicit-a');
+
+  // When ambient is empty and scope has no transport, transport and runtimeId are undefined
+  const def = normalizeScope(scope, {});
+  assert.equal(def.transport, undefined);
+  assert.equal(def.runtimeId, undefined);
+});
+
+test('ambient runtime change a->b on restart is strictly rejected by assertScope', async t => {
+  const baseStore = await fixture(t);
+  const envA = { COORDINATION_RUNTIME_ID: 'runtime-ambient-a', COORDINATION_TRANSPORT: 'native-onboarding' };
+  const scopeA = normalizeScope(scope, envA);
+  const storeA = new ListenerStore(baseStore.directory, scopeA);
+  await storeA.acquire(1);
+  await storeA.release();
+
+  // Restarting when ambient runtime changed to b
+  const envB = { COORDINATION_RUNTIME_ID: 'runtime-ambient-b', COORDINATION_TRANSPORT: 'native-onboarding' };
+  const scopeB = normalizeScope(scope, envB);
+  const storeB = new ListenerStore(baseStore.directory, scopeB);
+  await assert.rejects(storeB.acquire(1, true), /scope_mismatch/);
+
+  // Restarting when ambient runtime was removed
+  const envNone = { COORDINATION_TRANSPORT: 'native-onboarding' };
+  const scopeNone = normalizeScope(scope, envNone);
+  const storeNone = new ListenerStore(baseStore.directory, scopeNone);
+  await assert.rejects(storeNone.acquire(1, true), /scope_mismatch/);
+
+  // Restarting with same ambient runtime a succeeds
+  const storeAResume = new ListenerStore(baseStore.directory, normalizeScope(scope, envA));
+  await assert.doesNotReject(storeAResume.acquire(1, true));
+  await storeAResume.release();
+});
+
+
+test('assertScope rejects asymmetric bound/unbound runtime and transport cross-resume', async t => {
+  const baseStore = await fixture(t);
+  const boundStore = new ListenerStore(baseStore.directory, {
+    ...scope,
+    runtimeId: 'runtime-alpha',
+    transport: 'native-onboarding',
+  });
+  await boundStore.acquire(1);
+  await boundStore.release();
+
+  // 1. Removing runtime/transport fields from a bound store (asymmetric bound -> unbound) must reject
+  const unboundStore = new ListenerStore(boundStore.directory, scope);
+  await assert.rejects(unboundStore.acquire(1, true), /scope_mismatch/);
+
+  // 2. Switching transport only (native-onboarding -> file) must reject
+  const fileStore = new ListenerStore(boundStore.directory, { ...scope, runtimeId: 'runtime-alpha', transport: 'file' });
+  await assert.rejects(fileStore.acquire(1, true), /scope_mismatch/);
+
+  // 3. Different runtime must reject
+  const otherRuntimeStore = new ListenerStore(boundStore.directory, { ...scope, runtimeId: 'runtime-beta', transport: 'native-onboarding' });
+  await assert.rejects(otherRuntimeStore.acquire(1, true), /scope_mismatch/);
+
+  // 4. Starting fresh unbound store and attempting to resume with bound scope (asymmetric unbound -> bound) must reject
+  const freshUnbound = await fixture(t);
+  await freshUnbound.acquire(1);
+  await freshUnbound.release();
+
+  const attemptingBoundResume = new ListenerStore(freshUnbound.directory, {
+    ...scope,
+    runtimeId: 'runtime-alpha',
+    transport: 'native-onboarding',
+  });
+  await assert.rejects(attemptingBoundResume.acquire(1, true), /scope_mismatch/);
+
+  // 5. Matching runtime and transport resumes cleanly
+  const matchingStore = new ListenerStore(boundStore.directory, {
+    ...scope,
+    runtimeId: 'runtime-alpha',
+    transport: 'native-onboarding',
+  });
+  await assert.doesNotReject(matchingStore.acquire(1, true));
+  await matchingStore.release();
+});
+
