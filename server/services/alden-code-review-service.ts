@@ -9,6 +9,7 @@
 
 import * as fs from 'fs';
 import Anthropic from '@anthropic-ai/sdk';
+import { ALDEN_WORKER_MODEL, ALDEN_WORKER_MEDIUM_EFFORT, aldenWorkerText } from './alden-worker-model';
 import { getSharedDb } from '../db';
 import { costTracker } from './cost-tracker';
 import { proposedCodeChanges, editorInsights, founderSessions } from '@shared/schema';
@@ -120,14 +121,15 @@ Review this proposed change. Check:
 Be direct and specific. If revising, explain exactly what should be different. If escalating, explain what makes it beyond autonomous approval.`;
 
   const response = await client.messages.create({
-    model: 'claude-sonnet-4-5',
-    max_tokens: 1024,
+    model: ALDEN_WORKER_MODEL,
+    max_tokens: 8000,
+    ...ALDEN_WORKER_MEDIUM_EFFORT,
     system: `You are Alden, HolaHola's platform architect. You review code changes from the AI team with architectural judgment. Respond ONLY with a JSON object: { "decision": "approve"|"revise"|"escalate", "reason": "...", "revisionGuidance": "..." (if revise), "escalationSummary": "..." (if escalate) }`,
     messages: [{ role: 'user', content: prompt }],
   });
-  costTracker.track('claude-sonnet-4-5', response.usage?.input_tokens ?? 0, response.usage?.output_tokens ?? 0, 'alden-code-review');
+  costTracker.track(ALDEN_WORKER_MODEL, response.usage?.input_tokens ?? 0, response.usage?.output_tokens ?? 0, 'alden-code-review');
 
-  const raw = response.content[0].type === 'text' ? response.content[0].text : '';
+  const raw = aldenWorkerText(response.content as any);
   const jsonMatch = raw.match(/\{[\s\S]*\}/);
   if (!jsonMatch) throw new Error(`Claude returned unparseable response: ${raw.substring(0, 200)}`);
 

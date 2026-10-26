@@ -12,6 +12,7 @@
  */
 
 import Anthropic from '@anthropic-ai/sdk';
+import { ALDEN_WORKER_MODEL, ALDEN_WORKER_LOW_EFFORT, aldenWorkerText } from './alden-worker-model';
 import { postToActiveTeamRoom } from './team-room-proactive-poster';
 import { costTracker } from './cost-tracker';
 import { getSecurityAuditStats } from './wren-security-audit-worker';
@@ -208,12 +209,13 @@ async function generateDigestContent(snap: TeamSnapshot, digestNumber: number): 
   try {
     const claude = getClaude();
     const message = await claude.messages.create({
-      model: 'claude-sonnet-4-5',
-      max_tokens: 400,
+      model: ALDEN_WORKER_MODEL,
+      max_tokens: 4000,
       messages: [{ role: 'user', content: prompt }],
+      ...ALDEN_WORKER_LOW_EFFORT,
     });
-    costTracker.track('claude-sonnet-4-5', message.usage?.input_tokens ?? 0, message.usage?.output_tokens ?? 0, 'alden-digest');
-    const text = (message.content[0] as any).text?.trim() || '';
+    costTracker.track(ALDEN_WORKER_MODEL, message.usage?.input_tokens ?? 0, message.usage?.output_tokens ?? 0, 'alden-digest');
+    const text = aldenWorkerText(message.content as any);
     return text || buildFallbackDigest(snap);
   } catch {
     return buildFallbackDigest(snap);

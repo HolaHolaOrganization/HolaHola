@@ -10,6 +10,7 @@
  */
 
 import Anthropic from "@anthropic-ai/sdk";
+import { ALDEN_WORKER_MODEL, ALDEN_WORKER_LOW_EFFORT, ALDEN_WORKER_MEDIUM_EFFORT, aldenWorkerText } from './alden-worker-model';
 import fs from "fs";
 import path from "path";
 import { getUserDb } from "../db";
@@ -480,10 +481,11 @@ Respond with NOTHING or a single line in SEVERITY:FINGERPRINT:Message format:`,
 
     for (let iteration = 0; iteration < MAX_TOOL_ITERATIONS; iteration++) {
       const response = await client.messages.create({
-        model: 'claude-sonnet-4-5',
-        max_tokens: 600,
+        model: ALDEN_WORKER_MODEL,
+        max_tokens: 8000,
         tools: anthropicTools,
         messages: loopMessages,
+        ...ALDEN_WORKER_MEDIUM_EFFORT,
       });
 
       if (response.usage) {
@@ -553,7 +555,7 @@ Respond with NOTHING or a single line in SEVERITY:FINGERPRINT:Message format:`,
     }
 
     // Track combined token cost for the entire loop
-    costTracker.track('claude-sonnet-4-5', totalInputTokens, totalOutputTokens, 'alden-watch');
+    costTracker.track(ALDEN_WORKER_MODEL, totalInputTokens, totalOutputTokens, 'alden-watch');
 
     // Save this cycle to rolling history (capped at MAX_CYCLE_HISTORY)
     cycleHistory.push(currentMetric);
@@ -868,8 +870,9 @@ Respond with NOTHING or a single line in SEVERITY:FINGERPRINT:Message format:`,
  */
 async function checkAndPostRepairProposal(client: Anthropic, messages: string[]): Promise<void> {
   const response = await client.messages.create({
-    model: 'claude-sonnet-4-5',
-    max_tokens: 400,
+    model: ALDEN_WORKER_MODEL,
+    max_tokens: 4000,
+    ...ALDEN_WORKER_LOW_EFFORT,
     messages: [{
       role: 'user',
       content: `These are the last ${messages.length} watch-cycle alerts from the HoloHola system monitor:\n\n${messages.map((m, i) => `Alert ${i + 1}: ${m}`).join('\n\n')}\n\nDo these alerts share a recurring root cause? If yes, write a concise diagnosis (2-4 sentences) for the Replit Agent that:\n1. Identifies the root cause pattern\n2. Explains why it cannot be auto-repaired\n3. Recommends a concrete action the Agent should take\nDo NOT address it to Wren. Write it as a clear briefing the Agent will read at session start.\nIf they are unrelated one-off events, respond with exactly: UNRELATED`,
@@ -877,10 +880,10 @@ async function checkAndPostRepairProposal(client: Anthropic, messages: string[])
   });
 
   if (response.usage) {
-    costTracker.track('claude-sonnet-4-5', response.usage.input_tokens, response.usage.output_tokens, 'alden-repair-proposal');
+    costTracker.track(ALDEN_WORKER_MODEL, response.usage.input_tokens, response.usage.output_tokens, 'alden-repair-proposal');
   }
 
-  const proposal = (response.content[0] as any)?.text?.trim() || 'UNRELATED';
+  const proposal = aldenWorkerText(response.content as any) || 'UNRELATED';
   if (proposal === 'UNRELATED' || proposal.startsWith('UNRELATED')) {
     console.log('[AldenWatch] Repair proposal check: alerts are unrelated — no proposal needed');
     return;
