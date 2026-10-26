@@ -51,6 +51,7 @@ import { listCoordinationInbox } from "./coordination-inbox-service";
 import { listAldenCoordinationInbox, readAldenCoordinationMessage } from "./alden-coordination-read";
 import { OPERATIONS_CATALOG, toPublicOperationManifest } from "./operations-catalog";
 import { checkExpectedContent } from "./alden-verbatim";
+import { activeRegistrationsFor, buildActorBriefing } from "./alden-actor-briefing";
 import { applyHandoffSection, shareAldenHandoffNote } from "./alden-handoff-shared-spec";
 import { listAldenSharedSpecReviews, readAldenSharedSpecReview, claimAldenSharedSpecReview, decideAldenSharedSpecReview } from "./alden-shared-spec-review";
 import { buildAldenReviewSourcePage, type AldenReviewReadSession } from "./alden-review-source";
@@ -3039,17 +3040,9 @@ export async function executeAldenTool(
           };
         }
 
-        const description = [
-          'You already have access to the following, verified against the shared operations catalog:',
-          '',
-          ...scoped.map((operation) => `- ${operation.title} (${operation.id}): ${operation.purpose}`),
-          '',
-          'Canonical references:',
-          '- docs/coordination-clients.md — coordination runtime placement, scope, and the full-feed/inbox split.',
-          '- docs/coordination-new-actor-onboarding.md — how new capabilities and actors get added to this system.',
-        ].join('\n');
-
         try {
+          const registrations = activeRegistrationsFor(recipient, await listCoordinationRuntimeRegistrations());
+          const description = buildActorBriefing(scoped, registrations);
           const result = await createCoordinationThread({
             actor: 'alden',
             intendedRecipient: recipient,
@@ -3059,12 +3052,21 @@ export async function executeAldenTool(
             idempotencyKey: randomUUID(),
           });
           console.log(`[Alden Tool] brief_new_actor: ${recipient} (${scoped.length} operations, thread ${result.thread.id})`);
+          // Return exactly what was posted, so any summary can quote the artifact
+          // rather than reconstruct it, and the event id read_coordination_message needs.
           return {
             data: {
               threadId: result.thread.id,
+              eventId: result.event.id,
               recipient: result.thread.intendedRecipient,
               operationCount: scoped.length,
+              operationIds: scoped.map((operation) => operation.id),
+              registrations: registrations.map((registration) => ({
+                runtimeId: registration.runtimeId,
+                capabilities: registration.capabilities,
+              })),
               deliveryState: result.deliveryState,
+              postedContent: result.event.content,
             },
           };
         } catch (e: any) {

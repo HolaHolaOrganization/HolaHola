@@ -244,6 +244,7 @@ commands.splice(safetyInsertion, 0,
   'npx tsx --test server/scripts/test-alden-shared-spec-review-postgres.test.ts',
   'npx tsx --test server/scripts/test-alden-coordination-read.test.ts',
   'npx tsx --test server/scripts/test-alden-verbatim.test.ts',
+  'npx tsx --test server/scripts/test-alden-actor-briefing.test.ts',
 
   // Coordinator V2 lifecycle diagnostics, cleanup, fault fallback, evidence,
   // and neighboring first-host-bootstrap/contract/reauthorization suites.

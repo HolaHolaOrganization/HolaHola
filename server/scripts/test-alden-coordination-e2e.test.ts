@@ -258,6 +258,15 @@ databaseTest('brief_new_actor assembles a scoped briefing from the real operatio
   assert.equal(thread.intendedRecipient, 'luca-replit');
   assert.match(events[0].content, /operations catalog/);
   assert.match(events[0].content, /coordination-new-actor-onboarding\.md/);
+  assert.match(events[0].content, /Registered runtime capabilities/);
+  // The tool result is the posted artifact itself, so Alden can quote it and read it back.
+  assert.equal(briefing.data.eventId, events[0].id);
+  assert.equal(briefing.data.postedContent, events[0].content);
+  assert.equal(briefing.data.operationIds.length, briefing.data.operationCount);
+  const readBack = await executeAldenTool('read_coordination_message', {
+    thread_id: briefing.data.threadId, event_id: briefing.data.eventId,
+  });
+  assert.equal(readBack.data.error, undefined, `read_coordination_message failed: ${readBack.data.error}`);
 });
 
 databaseTest('brief_new_actor fails closed instead of posting an empty or fabricated briefing when the recipient has no catalog entries', async () => {
