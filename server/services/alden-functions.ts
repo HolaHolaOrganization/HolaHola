@@ -50,6 +50,7 @@ import {
 import { listCoordinationInbox } from "./coordination-inbox-service";
 import { listAldenCoordinationInbox, readAldenCoordinationMessage } from "./alden-coordination-read";
 import { OPERATIONS_CATALOG, toPublicOperationManifest } from "./operations-catalog";
+import { checkExpectedContent } from "./alden-verbatim";
 import { activeRegistrationsFor, buildActorBriefing } from "./alden-actor-briefing";
 import { applyHandoffSection, shareAldenHandoffNote } from "./alden-handoff-shared-spec";
 import { listAldenSharedSpecReviews, readAldenSharedSpecReview, claimAldenSharedSpecReview, decideAldenSharedSpecReview } from "./alden-shared-spec-review";
@@ -209,6 +210,7 @@ export const ALDEN_TOOLS: AldenTool[] = [
         content: { type: "string" as const, description: "The initial content for the episode record — an opening note, seed narrative, or context for how it begins. This grows over time as the live capture pipeline appends to it; it does not need to be the complete episode." },
         importance: { type: "number" as const, description: "1-10, defaults to 10 (episodes are high-importance by convention)." },
         tags: { type: "array" as const, items: { type: "string" as const }, description: "Optional extra tags. A slug tag (e.g. 'episode-35') is always added automatically." },
+        expected_content_sha256: { type: "string" as const, description: "Optional. When someone hands you exact text to pass through, they also give its SHA-256; supply it here. The tool computes the hash of the content exactly as it would be stored (leading and trailing whitespace removed) and refuses to write anything on a mismatch, so a copying slip can never be saved. On refusal, copy the text again exactly; never edit it to make it fit." },
       },
       required: ["title", "summary", "content"],
     },
@@ -1504,6 +1506,10 @@ export async function executeAldenTool(
         if (!title || !summary || !content) {
           return { data: { error: 'title, summary, and content are required' } };
         }
+        const verbatim = checkExpectedContent(content, args.expected_content_sha256);
+        if (!verbatim.ok) {
+          return { data: { error: verbatim.error, contentSha256: verbatim.contentSha256 } };
+        }
 
         try {
           const result = await startNextEpisode({ title, summary, content, importance, tags });
@@ -1519,6 +1525,9 @@ export async function executeAldenTool(
               episodeCreated: result.episodeCreated,
               alreadyRolling: result.alreadyRolling,
               retiredEpisodes: result.previousRolling,
+              // Hash of the content passed in, for the caller to check. An existing
+              // episode with this title is reused as-is, so its content is not replaced.
+              contentSha256: verbatim.contentSha256,
               note: result.alreadyRolling
                 ? `"${result.episode.title}" was already the rolling episode — no change made.`
                 : `"${result.episode.title}" is now the rolling episode.` +
