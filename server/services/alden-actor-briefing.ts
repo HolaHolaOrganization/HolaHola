@@ -52,6 +52,8 @@ export function describeCapability(capability: string): string {
 export function buildActorBriefing(
   operations: readonly BriefingOperation[],
   activeRegistrations: readonly BriefingRegistration[],
+  /** The MCP server's real tool names (coordinationMcpToolNames); never typed by hand. */
+  mcpToolNames: readonly string[] = [],
 ): string {
   const registrationLines = activeRegistrations.length === 0
     ? ['- None. This actor has no enabled, unrevoked runtime registration, so it cannot authenticate yet.']
@@ -71,6 +73,15 @@ export function buildActorBriefing(
       'What each of those capabilities lets you do:',
       '',
       ...granted.map((capability) => `- ${capability}: ${describeCapability(capability)}`),
+    ]),
+    ...(mcpToolNames.length === 0 ? [] : [
+      '',
+      'To read and reply through the coordination MCP server, use these exact tool names:',
+      '',
+      ...[...mcpToolNames].sort().map((name) => `- ${name}`),
+      '',
+      'Reply on this thread with your checkout\'s commit and how far it is from origin/main, then your questions. '
+        + 'The New hat quickstart in docs/runtime-onboarding-clients.md covers connecting and the Windows execution-policy behaviour.',
     ]),
     '',
     'Canonical references:',

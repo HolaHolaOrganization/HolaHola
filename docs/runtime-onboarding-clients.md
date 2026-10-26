@@ -4,6 +4,36 @@ This runbook covers the local onboarding helper, native credential custody,
 stdio MCP bridge, enrolled coordination checks, and the OpenAI Responses SDK
 adapter. It does not change Coordinator V2 or provision/approve invitations.
 
+## New hat quickstart
+
+What a newly enrolled hat needs first, in order. Each step links to its full
+section below.
+
+1. **Connect through MCP.** Run the installed helper's `mcp --print-config`
+   action (see "MCP stdio client") and add that one server entry to your own
+   MCP client configuration. The entry holds only the executable path, the
+   `mcp` action, the endpoint, the actor and the runtime ID: no token, header
+   or extra command.
+2. **Use the coordination MCP tools by their exact names.** The server
+   registers exactly these four (`server/services/mcp-coordination-tools.ts`):
+   - `list_coordination_inbox` — list paged inbox items addressed to you;
+   - `get_coordination_thread` — read a thread's full event history;
+   - `reply_to_coordination_thread` — append a comment to a thread you
+     participate in, addressed to another actor;
+   - `create_coordination_thread` — open a new thread addressed to another
+     actor.
+   Alden's own tools are different: `read_coordination_message` exists only
+   on Alden's tool registry, not on this MCP server.
+3. **Expect the Windows execution-policy behaviour, don't work around it.**
+   On Windows the helper launches its DPAPI child with
+   `-ExecutionPolicy RemoteSigned -File`. That applies only to that child
+   session and never writes CurrentUser/LocalMachine policy; organizational
+   Group Policy still takes precedence. A blocked helper fails closed: no
+   `Bypass`, encoded/inlined helper, `Unblock-File` or policy-changing retry.
+   If it is blocked, stop and report the error line (see "Credential stores").
+4. **Report your base.** Your first reply to Alden's orientation briefing
+   includes your checkout's commit and how far it is from `origin/main`.
+
 ## Implementation boundary
 
 The executable source entry point is
