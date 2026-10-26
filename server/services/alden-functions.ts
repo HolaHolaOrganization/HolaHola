@@ -52,6 +52,7 @@ import { listAldenCoordinationInbox, readAldenCoordinationMessage } from "./alde
 import { OPERATIONS_CATALOG, toPublicOperationManifest } from "./operations-catalog";
 import { checkExpectedContent } from "./alden-verbatim";
 import { activeRegistrationsFor, buildActorBriefing } from "./alden-actor-briefing";
+import { coordinationMcpToolNames } from "./mcp-coordination-tools";
 import { applyHandoffSection, shareAldenHandoffNote } from "./alden-handoff-shared-spec";
 import { listAldenSharedSpecReviews, readAldenSharedSpecReview, claimAldenSharedSpecReview, decideAldenSharedSpecReview } from "./alden-shared-spec-review";
 import { buildAldenReviewSourcePage, type AldenReviewReadSession } from "./alden-review-source";
@@ -3042,7 +3043,7 @@ export async function executeAldenTool(
 
         try {
           const registrations = activeRegistrationsFor(recipient, await listCoordinationRuntimeRegistrations());
-          const description = buildActorBriefing(scoped, registrations);
+          const description = buildActorBriefing(scoped, registrations, coordinationMcpToolNames());
           const result = await createCoordinationThread({
             actor: 'alden',
             intendedRecipient: recipient,
