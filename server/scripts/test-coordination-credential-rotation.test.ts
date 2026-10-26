@@ -72,6 +72,9 @@ const runtimeIds = [
   `credential-disable-rotation-source-${Date.now()}`,
   `credential-disable-rotation-replacement-${Date.now()}`,
   `credential-disable-first-use-race-${Date.now()}`,
+  `credential-disable-dormant-${Date.now()}`,
+  `credential-disable-dormant-recent-${Date.now()}`,
+  `credential-disable-dormant-live-${Date.now()}`,
 ];
 
 function deferred(): { promise: Promise<void>; resolve: () => void } {
@@ -820,6 +823,92 @@ databaseTest('disabling a registration whose credential was ever used is refused
   const [registrationRow] = await getSharedDb().select().from(coordinationRuntimeRegistrations)
     .where(eq(coordinationRuntimeRegistrations.id, runtimeId));
   assert.equal(registrationRow.enabled, true);
+});
+
+async function usedThenExpired(runtimeId: string, lastUsedDaysAgo: number) {
+  const registered = await registerCoordinationRuntime({
+    runtimeId,
+    actor: 'luca-claude-code',
+    displayName: 'Disable dormant runtime',
+    capabilities: ['coordination:read'],
+    tokenTtlSeconds: 60,
+  });
+  const credential = await exchangeBootstrapCredential(runtimeId, registered.bootstrapToken);
+  assert.equal(credential.ok, true);
+  if (!credential.ok) throw new Error('exchange failed');
+  assert.equal((await resolveBrokerCredential(credential.accessToken))?.runtimeId, runtimeId);
+  const usedAt = new Date(Date.now() - lastUsedDaysAgo * 24 * 60 * 60 * 1000);
+  await getSharedDb().update(coordinationRuntimeCredentials)
+    .set({ lastUsedAt: usedAt, expiresAt: new Date(usedAt.getTime() + 60_000) })
+    .where(eq(coordinationRuntimeCredentials.id, credential.credential.credentialId));
+  return { credentialId: credential.credential.credentialId, usedAt };
+}
+
+databaseTest('dormant mode retires a once-used registration whose last use is older than the window, and audits it', async () => {
+  const runtimeId = runtimeIds[25];
+  const { credentialId, usedAt } = await usedThenExpired(runtimeId, 40);
+
+  // The default rule is unchanged: ever-used still refuses without the opt-in.
+  assert.deepEqual(
+    await disableCoordinationRuntimeRegistration(runtimeId),
+    { ok: false, reason: 'runtime_has_live_or_used_credential' },
+  );
+
+  assert.deepEqual(
+    await disableCoordinationRuntimeRegistration(runtimeId, undefined, { dormantDays: 30 }),
+    { ok: true, actor: 'luca-claude-code' },
+  );
+  const [registrationRow] = await getSharedDb().select().from(coordinationRuntimeRegistrations)
+    .where(eq(coordinationRuntimeRegistrations.id, runtimeId));
+  assert.equal(registrationRow.enabled, false);
+  assert.ok(registrationRow.revokedAt);
+  const [credentialRow] = await getSharedDb().select().from(coordinationRuntimeCredentials)
+    .where(eq(coordinationRuntimeCredentials.id, credentialId));
+  assert.ok(credentialRow.revokedAt, 'the expired leftover credential is revoked for hygiene');
+
+  const auditEvents = await getSharedDb().select().from(coordinationCredentialAuditEvents)
+    .where(eq(coordinationCredentialAuditEvents.runtimeId, runtimeId));
+  const disabled = auditEvents.find((event) => event.eventType === 'runtime_disabled' && event.success);
+  assert.ok(disabled);
+  assert.deepEqual(disabled.metadata, { dormantDays: 30, lastUsedAt: usedAt.toISOString() });
+});
+
+databaseTest('dormant mode refuses a registration used inside the window, and one with a live credential', async () => {
+  const recentId = runtimeIds[26];
+  await usedThenExpired(recentId, 5);
+  assert.deepEqual(
+    await disableCoordinationRuntimeRegistration(recentId, undefined, { dormantDays: 30 }),
+    { ok: false, reason: 'runtime_used_within_dormancy_window' },
+  );
+  const [recentRow] = await getSharedDb().select().from(coordinationRuntimeRegistrations)
+    .where(eq(coordinationRuntimeRegistrations.id, recentId));
+  assert.equal(recentRow.enabled, true);
+
+  const liveId = runtimeIds[27];
+  const registered = await registerCoordinationRuntime({
+    runtimeId: liveId,
+    actor: 'luca-claude-code',
+    displayName: 'Disable dormant live runtime',
+    capabilities: ['coordination:read'],
+    tokenTtlSeconds: 60,
+  });
+  const credential = await exchangeBootstrapCredential(liveId, registered.bootstrapToken);
+  assert.equal(credential.ok, true);
+  if (!credential.ok) return;
+  assert.deepEqual(
+    await disableCoordinationRuntimeRegistration(liveId, undefined, { dormantDays: 3650 }),
+    { ok: false, reason: 'runtime_has_live_or_used_credential' },
+  );
+  assert.equal((await resolveBrokerCredential(credential.accessToken))?.runtimeId, liveId);
+});
+
+test('dormant mode rejects a window below the minimum or a non-integer before touching the database', async () => {
+  for (const dormantDays of [29, 30.5, -1, Number.NaN]) {
+    assert.deepEqual(
+      await disableCoordinationRuntimeRegistration('never-looked-up', undefined, { dormantDays }),
+      { ok: false, reason: 'invalid_dormant_days' },
+    );
+  }
 });
 
 databaseTest('disabling an already-disabled registration is refused, and an unknown runtime ID is refused', async () => {
