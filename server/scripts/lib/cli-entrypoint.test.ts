@@ -44,6 +44,16 @@ describe('isDirectCliInvocation', () => {
     assert.equal(isDirectCliInvocation('populate-principle-embeddings.ts'), false);
   });
 
+  it('matches a Windows argv[1] (backslash separators) on every platform', () => {
+    process.argv[1] = 'C:\\Users\\someone\\HolaHola\\server\\scripts\\shared-spec-cli.ts';
+    assert.equal(isDirectCliInvocation('shared-spec-cli.ts'), true);
+  });
+
+  it('is false for a Windows argv[1] that only contains the script name as a substring', () => {
+    process.argv[1] = 'C:\\Users\\someone\\HolaHola\\server\\scripts\\shared-spec-cli.test.ts';
+    assert.equal(isDirectCliInvocation('shared-spec-cli.ts'), false);
+  });
+
   it('is false when process.argv[1] is undefined', () => {
     delete process.argv[1];
     assert.equal(isDirectCliInvocation('populate-principle-embeddings.ts'), false);
