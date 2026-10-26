@@ -12,7 +12,12 @@ import { getUserDb } from "../db";
 import { aldenConfig, aldenEngineSwitches } from "@shared/schema";
 import { desc, eq } from "drizzle-orm";
 
-const GEMINI_MODEL = 'gemini-2.5-flash';
+// Same Gemini 3 family as Daniela (gemini-3.1-flash-live-preview), so text Alden
+// drafts or checks for her is reasoned about by the family that will read it.
+// When Daniela moves model, this moves with her. (gemini-2.5-flash 404s here.)
+const GEMINI_MODEL = 'gemini-3-flash-preview';
+// Gemini 3 bills thinking as output: count thought tokens with the reply tokens.
+const geminiOutputTokens = (usage: any): number => (usage?.candidatesTokenCount ?? 0) + (usage?.thoughtsTokenCount ?? 0);
 const ANTHROPIC_MODEL = 'claude-sonnet-4-5';
 
 export type AldenEngine = 'anthropic' | 'gemini';
@@ -392,8 +397,9 @@ async function generateAldenResponseGemini(params: AldenChatParams): Promise<Ald
       config: {
         systemInstruction: systemPrompt,
         tools: [{ functionDeclarations: toGeminiFunctions(ALDEN_TOOLS) }],
-        temperature: 0.7,
-        thinkingConfig: { thinkingBudget: 0 },
+        // Gemini 3 takes a thinking level, not a token budget, and is tuned for its
+        // default temperature. Alden reviews and reports, so it thinks at HIGH.
+        thinkingConfig: { thinkingLevel: 'HIGH' as any },
       },
       history,
     });
@@ -407,7 +413,7 @@ async function generateAldenResponseGemini(params: AldenChatParams): Promise<Ald
 
     // Accumulate token counts from first response
     totalInputTokens += (response as any).usageMetadata?.promptTokenCount ?? 0;
-    totalOutputTokens += (response as any).usageMetadata?.candidatesTokenCount ?? 0;
+    totalOutputTokens += geminiOutputTokens((response as any).usageMetadata);
 
     // ── Agentic tool-use loop ─────────────────────────────────────────────────
     for (let round = 0; round < MAX_AGENT_ROUNDS; round++) {
@@ -465,7 +471,7 @@ async function generateAldenResponseGemini(params: AldenChatParams): Promise<Ald
       // Send function responses back to Gemini
       response = await chat.sendMessage({ message: functionResponses });
       totalInputTokens += (response as any).usageMetadata?.promptTokenCount ?? 0;
-      totalOutputTokens += (response as any).usageMetadata?.candidatesTokenCount ?? 0;
+      totalOutputTokens += geminiOutputTokens((response as any).usageMetadata);
 
       // If continuation was requested, let Gemini write its phase-completion text and exit
       if (pendingContinuation) {
@@ -483,7 +489,7 @@ async function generateAldenResponseGemini(params: AldenChatParams): Promise<Ald
           message: '[SYSTEM] You have reached the tool-use limit for this turn. Summarise what you have found and discovered so far, and clearly state what you still intend to do next turn.',
         });
         totalInputTokens += (wrapUp as any).usageMetadata?.promptTokenCount ?? 0;
-        totalOutputTokens += (wrapUp as any).usageMetadata?.candidatesTokenCount ?? 0;
+        totalOutputTokens += geminiOutputTokens((wrapUp as any).usageMetadata);
         aldenResponse = wrapUp.text ?? "I've been researching but ran into my context limit. Ask me again to continue.";
       } catch {
         aldenResponse = "I've been researching but ran into my context limit. Ask me again to continue.";
