@@ -4,7 +4,7 @@ import { join, resolve } from 'node:path';
 import { parentState, readProcessIdentity, type ParentIdentity, type ProcessIdentity } from './coordination-listener-identity';
 import { ownershipStatus, recoverOwnershipGuard, withOwnershipGuard } from './coordination-listener-ownership';
 
-export interface ListenerScope { actor: string; apiUrl: string }
+export interface ListenerScope { actor: string; apiUrl: string; runtimeId?: string; transport?: string }
 export interface Receipt { eventId: string; sequence: number; threadId: string; sender: string; state?: 'pending' | 'observed' }
 export const LISTENER_EXIT = { available: 0, invalid: 64, failure: 70, parentGone: 71, stopped: 72, locked: 73, guardBlocked: 74 } as const;
 export interface InboxPage {
@@ -21,12 +21,37 @@ const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
 const validSequence = (n: unknown): n is number => Number.isSafeInteger(n) && Number(n) >= 0;
 const missing = (e: unknown) => (e as NodeJS.ErrnoException)?.code === 'ENOENT';
 
-export function normalizeScope(scope: ListenerScope): ListenerScope {
+export const VALID_LISTENER_TRANSPORTS = new Set(['file', 'default', 'native-onboarding']);
+
+export function normalizeScope(scope: ListenerScope, env: NodeJS.ProcessEnv = process.env): ListenerScope {
+  if (!scope || typeof scope !== 'object') throw new Error('invalid_scope');
   if (!/^[a-z][a-z0-9-]*$/.test(scope.actor)) throw new Error('invalid_actor');
   const url = new URL(scope.apiUrl);
   if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password ||
       url.search || url.hash || (url.pathname !== '/' && url.pathname !== '')) throw new Error('invalid_api_origin');
-  return { actor: scope.actor, apiUrl: url.origin };
+
+  const rawTransport = (
+    typeof scope.transport === 'string' && scope.transport.trim()
+      ? scope.transport
+      : (env.COORDINATION_TRANSPORT ?? '')
+  ).trim();
+  if (rawTransport && !VALID_LISTENER_TRANSPORTS.has(rawTransport)) {
+    throw new Error('invalid_transport');
+  }
+  const transport = rawTransport === 'native-onboarding' ? 'native-onboarding' : (rawTransport ? 'file' : undefined);
+
+  const rawRuntimeId = (
+    typeof scope.runtimeId === 'string' && scope.runtimeId.trim()
+      ? scope.runtimeId
+      : (env.COORDINATION_RUNTIME_ID ?? '')
+  ).trim();
+
+  return {
+    actor: scope.actor,
+    apiUrl: url.origin,
+    ...(rawRuntimeId ? { runtimeId: rawRuntimeId } : {}),
+    ...(transport ? { transport } : {}),
+  };
 }
 
 export function pageReceipts(page: InboxPage, actor: string, after: number): Receipt[] {
@@ -76,8 +101,14 @@ export class ListenerStore {
     return withOwnershipGuard(this.directory, this.scope, action);
   }
   async assertScope() {
-    const scope = await this.json('scope.json');
-    if (scope.actor !== this.scope.actor || scope.apiUrl !== this.scope.apiUrl) throw new Error('scope_mismatch');
+    const rawStored = await this.json('scope.json');
+    if (rawStored.actor !== this.scope.actor || rawStored.apiUrl !== this.scope.apiUrl) throw new Error('scope_mismatch');
+    const storedTransport = (rawStored.transport === 'native-onboarding') ? 'native-onboarding' : 'file';
+    const currentTransport = (this.scope.transport === 'native-onboarding') ? 'native-onboarding' : 'file';
+    if (storedTransport !== currentTransport) throw new Error('scope_mismatch');
+    const storedRuntime = (typeof rawStored.runtimeId === 'string' ? rawStored.runtimeId.trim() : '');
+    const currentRuntime = (typeof this.scope.runtimeId === 'string' ? this.scope.runtimeId.trim() : '');
+    if (storedRuntime !== currentRuntime) throw new Error('scope_mismatch');
   }
   async acquire(initialAfter?: number, resume = false, ownerIdentity?: string, parent?: ParentIdentity) {
     await mkdir(this.file('pending'), { recursive: true, mode: 0o700 });

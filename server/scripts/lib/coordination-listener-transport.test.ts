@@ -68,3 +68,49 @@ test('already aborted signal does not spawn anything', async () => {
   await assert.rejects(fetchListenerInbox(scope, 5, undefined, controller.signal, { spawnImpl }), /inbox_aborted/);
   assert.equal(calls.length, 0);
 });
+
+test('child env binds strictly to scope and purges contradictory ambient values', async () => {
+  const { calls, spawnImpl } = fakeChild(c => {
+    c.stdout.write('{"actor":"luca-replit","items":[]}');
+    c.emit('close', 0);
+  });
+  const ambientEnv = {
+    COORDINATION_RUNTIME_ID: 'ambient-rt-leaked',
+    COORDINATION_TRANSPORT: 'file',
+  };
+  const nativeScope = {
+    actor: 'luca-antigravity',
+    apiUrl: 'https://example.com',
+    transport: 'native-onboarding',
+    runtimeId: 'bound-rt-explicit',
+  };
+  await fetchListenerInbox(nativeScope, 1, undefined, new AbortController().signal, {
+    spawnImpl,
+    env: ambientEnv as any,
+  });
+  const [, args, opts] = calls[0];
+  assert.equal(opts.env.COORDINATION_RUNTIME_ID, 'bound-rt-explicit');
+  assert.equal(opts.env.COORDINATION_TRANSPORT, 'native-onboarding');
+  assert.equal(args.includes('--transport'), true);
+  assert.equal(args[args.indexOf('--transport') + 1], 'native-onboarding');
+
+  // When scope has no runtimeId, ambient is deleted
+  const unboundScope = {
+    actor: 'luca-antigravity',
+    apiUrl: 'https://example.com',
+    transport: 'file',
+  };
+  const second = fakeChild(c => {
+    c.stdout.write('{"actor":"luca-antigravity","items":[]}');
+    c.emit('close', 0);
+  });
+  await fetchListenerInbox(unboundScope, 1, undefined, new AbortController().signal, {
+    spawnImpl: second.spawnImpl,
+    env: ambientEnv as any,
+  });
+  const [, secondArgs, secondOpts] = second.calls[0];
+  assert.equal(secondOpts.env.COORDINATION_RUNTIME_ID, undefined);
+  assert.equal(secondOpts.env.COORDINATION_TRANSPORT, 'file');
+  assert.equal(secondArgs[secondArgs.indexOf('--transport') + 1], 'file');
+});
+

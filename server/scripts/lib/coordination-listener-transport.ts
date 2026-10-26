@@ -4,13 +4,25 @@ import type { InboxPage, ListenerScope } from './coordination-listener';
 
 /** Runs only the existing trusted inbox CLI; no shell, message execution, or model launch. */
 export function fetchListenerInbox(scope: ListenerScope, after: number, token: string | undefined,
-  signal: AbortSignal, options: { spawnImpl?: typeof spawn; timeoutMs?: number; maxOutputBytes?: number } = {}): Promise<InboxPage> {
+  signal: AbortSignal, options: { spawnImpl?: typeof spawn; timeoutMs?: number; maxOutputBytes?: number; env?: NodeJS.ProcessEnv } = {}): Promise<InboxPage> {
   return new Promise((resolvePage, reject) => {
     if (signal.aborted) return reject(new Error('inbox_aborted'));
+    const childEnv: NodeJS.ProcessEnv = { ...(options.env ?? process.env), COORDINATION_ACTOR: scope.actor };
+    if (scope.runtimeId) {
+      childEnv.COORDINATION_RUNTIME_ID = scope.runtimeId;
+    } else {
+      delete childEnv.COORDINATION_RUNTIME_ID;
+    }
+    if (scope.transport) {
+      childEnv.COORDINATION_TRANSPORT = scope.transport;
+    } else {
+      delete childEnv.COORDINATION_TRANSPORT;
+    }
     const child = (options.spawnImpl ?? spawn)(process.execPath, ['--import', 'tsx',
       resolve('server/scripts/coordination-cli.ts'), 'inbox', '--url', scope.apiUrl, '--limit', '50',
-      ...(token ? ['--token', token] : ['--after', String(after)])],
-    { cwd: process.cwd(), env: { ...process.env, COORDINATION_ACTOR: scope.actor },
+      ...(token ? ['--token', token] : ['--after', String(after)]),
+      ...(scope.transport ? ['--transport', scope.transport] : [])],
+    { cwd: process.cwd(), env: childEnv,
       stdio: ['ignore', 'pipe', 'ignore'], shell: false, windowsHide: true });
     let output = '';
     let bytes = 0;

@@ -9,7 +9,7 @@ export async function listenerCli(argv = process.argv.slice(2)) {
   const command = argv.shift();
   if (!['listen', 'status', 'stop', 'observed', 'processed', 'arming', 'recover-lock', 'recover-guard'].includes(command ?? '')) throw new Error('invalid_command');
   const options: Record<string, string | boolean> = {};
-  const allowed = new Set(['actor', 'url', 'state-dir', 'mode', 'after', 'resume', 'event-id', 'parent-pid', 'state', 'task-id']);
+  const allowed = new Set(['actor', 'url', 'state-dir', 'mode', 'after', 'resume', 'event-id', 'parent-pid', 'state', 'task-id', 'runtime-id', 'transport']);
   while (argv.length) {
     const key = argv.shift()!;
     if (!key.startsWith('--') || !allowed.has(key.slice(2)) || key.slice(2) in options) throw new Error('invalid_option');
@@ -20,7 +20,12 @@ export async function listenerCli(argv = process.argv.slice(2)) {
     if (typeof value !== 'string' || !value || value.startsWith('--')) throw new Error(`required_${key}`);
     return value;
   };
-  const scope = normalizeScope({ actor: required('actor'), apiUrl: required('url') });
+  const scope = normalizeScope({
+    actor: required('actor'),
+    apiUrl: required('url'),
+    ...(typeof options['runtime-id'] === 'string' ? { runtimeId: options['runtime-id'] } : {}),
+    ...(typeof options.transport === 'string' ? { transport: options.transport } : {}),
+  });
   if (!isSupportedCoordinationActor(scope.actor)) throw new Error('unsupported_actor');
   const store = new ListenerStore(resolve(required('state-dir')), scope);
   if (command === 'status') return console.log(JSON.stringify(await store.status(), null, 2));

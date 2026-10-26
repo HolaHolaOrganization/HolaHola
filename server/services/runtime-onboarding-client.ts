@@ -533,15 +533,7 @@ export class RuntimeOnboardingClient {
       throw new Error('onboarding_openai_allowed_tools_invalid');
     }
 
-    let credential = await this.loadCredential();
-    if (!credential) credential = await this.recoverCredential();
-    const expiresIn = Date.parse(credential.expiresAt) - Date.now();
-    if (expiresIn <= 0) {
-      credential = await this.recoverCredential();
-    } else if (expiresIn < this.credentialRenewalSkewMs
-      && credential.capabilities.includes('coordination:credential:renew')) {
-      credential = await this.renewCredential(credential);
-    }
+    const credential = await this.getValidCredential();
     if (!/^[A-Za-z0-9._~+/=-]+$/.test(credential.accessToken)) {
       throw new Error('onboarding_local_credential_invalid');
     }
@@ -561,6 +553,23 @@ export class RuntimeOnboardingClient {
     return response;
   }
 
+  /**
+   * Returns a valid credential, automatically renewing near expiry or
+   * recovering via cryptographic proof if expired or missing from local store.
+   */
+  async getValidCredential(): Promise<StoredCredential> {
+    let credential = await this.loadCredential();
+    if (!credential) credential = await this.recoverCredential();
+    const expiresIn = Date.parse(credential.expiresAt) - Date.now();
+    if (expiresIn <= 0) {
+      credential = await this.recoverCredential();
+    } else if (expiresIn < this.credentialRenewalSkewMs
+      && credential.capabilities.includes('coordination:credential:renew')) {
+      credential = await this.renewCredential(credential);
+    }
+    return credential;
+  }
+
   /** Credential stays inside the adapter and is never returned to CLI output. */
   async authenticatedFetch(input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> {
     const baseRequest = input instanceof Request ? new Request(input, init) : new Request(input.toString(), init);
@@ -576,15 +585,7 @@ export class RuntimeOnboardingClient {
     if (target.origin !== new URL(this.scope.endpoint).origin || !allowedPath || credentialPath) {
       throw new Error('onboarding_auth_header_target_not_allowed');
     }
-    let credential = await this.loadCredential();
-    if (!credential) credential = await this.recoverCredential();
-    const expiresIn = Date.parse(credential.expiresAt) - Date.now();
-    if (expiresIn <= 0) {
-      credential = await this.recoverCredential();
-    } else if (expiresIn < this.credentialRenewalSkewMs
-      && credential.capabilities.includes('coordination:credential:renew')) {
-      credential = await this.renewCredential(credential);
-    }
+    const credential = await this.getValidCredential();
     const headers = new Headers(baseRequest.headers);
     headers.delete('authorization');
     headers.delete('x-coordination-token');

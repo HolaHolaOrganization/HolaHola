@@ -5,7 +5,10 @@ import {
   type CoordinationClientActor,
   type CoordinationEventInput,
 } from '../services/coordination-actor-client';
-import { FileCoordinationCliCredentialCache } from '../services/coordination-cli-credential-cache';
+import {
+  FileCoordinationCliCredentialCache,
+  NativeStoreCoordinationCredentialCache,
+} from '../services/coordination-cli-credential-cache';
 import { isDirectCliInvocation } from './lib/cli-entrypoint';
 import {
   COORDINATION_ACTOR_IDS,
@@ -95,7 +98,7 @@ export function unsupportedCoordinationCliOptions(
   options: Options,
 ): string[] {
   const allowed = OPTIONS_BY_COMMAND[command] ?? new Set<string>();
-  return Object.keys(options).filter((name) => !allowed.has(name));
+  return Object.keys(options).filter((name) => name !== 'transport' && !allowed.has(name));
 }
 
 export function assertExplicitCoordinationCommentIntent(
@@ -221,28 +224,44 @@ function optionalJson(options: Options, name: string): unknown {
   }
 }
 
+export const VALID_COORDINATION_TRANSPORTS = new Set(['file', 'default', 'native-onboarding']);
+
+export function resolveCoordinationTransport(optionValue?: string | boolean): { transport: 'file' | 'native-onboarding'; isNative: boolean } {
+  const raw = (typeof optionValue === 'string' ? optionValue : process.env.COORDINATION_TRANSPORT)?.trim();
+  if (!raw) return { transport: 'file', isNative: false };
+  if (!VALID_COORDINATION_TRANSPORTS.has(raw)) {
+    throw new Error(`unsupported_transport: ${raw}`);
+  }
+  const isNative = raw === 'native-onboarding';
+  return { transport: isNative ? 'native-onboarding' : 'file', isNative };
+}
+
 /**
- * `github-exec [--url <api>] -- <command> [args...]`: mint this actor's own
+ * `github-exec [--url <api>] [--transport <transport>] -- <command> [args...]`: mint this actor's own
  * GitHub App token once (broker credential only) and run exactly that command
  * with the token in its environment. See docs/github-token-broker.md.
  */
-export function parseGithubExecArgs(args: readonly string[]): { url?: string; childArgv: string[] } {
+export function parseGithubExecArgs(args: readonly string[]): { url?: string; transport?: string; childArgv: string[] } {
   const separator = args.indexOf('--');
   if (separator < 0) throw new Error('github-exec requires -- followed by the command to run');
   const before = args.slice(0, separator);
   const childArgv = args.slice(separator + 1);
   if (childArgv.length === 0 || !childArgv[0]) throw new Error('github-exec requires a command after --');
   let url: string | undefined;
+  let transport: string | undefined;
   for (let index = 0; index < before.length; index += 1) {
     const value = before[index + 1];
     if (before[index] === '--url' && url === undefined && value && !value.startsWith('--')) {
       url = value;
       index += 1;
+    } else if (before[index] === '--transport' && transport === undefined && value && !value.startsWith('--')) {
+      transport = value;
+      index += 1;
     } else {
       throw new Error(`Unsupported github-exec argument: ${before[index]}`);
     }
   }
-  return { ...(url ? { url } : {}), childArgv };
+  return { ...(url ? { url } : {}), ...(transport ? { transport } : {}), childArgv };
 }
 
 /** Coordination credentials the child never needs; only the GitHub token is added. */
@@ -305,9 +324,19 @@ async function githubExecMain(args: string[]): Promise<void> {
   }
   const apiUrl = parsed.url ?? process.env.COORDINATION_API_URL;
   if (!apiUrl) fail('COORDINATION_API_URL is required (or provide --url)');
+  let transportInfo: ReturnType<typeof resolveCoordinationTransport>;
+  try {
+    transportInfo = resolveCoordinationTransport(parsed.transport);
+  } catch (error) {
+    fail(error instanceof Error ? error.message : String(error));
+  }
+  const credentialCache = transportInfo.isNative
+    ? new NativeStoreCoordinationCredentialCache(apiUrl)
+    : new FileCoordinationCliCredentialCache();
   const client = createCoordinationActorClient(configuredActor(), {
     apiUrl,
-    credentialCache: new FileCoordinationCliCredentialCache(),
+    credentialCache,
+    exclusiveCredentialCache: transportInfo.isNative,
   });
   process.exitCode = await runGithubExec(parsed.childArgv, { mint: () => client.mintGithubToken() });
 }
@@ -333,9 +362,20 @@ async function main(): Promise<void> {
   }
   const actor = actorValue;
 
+  let transportInfo: ReturnType<typeof resolveCoordinationTransport>;
+  try {
+    transportInfo = resolveCoordinationTransport(options.transport);
+  } catch (error) {
+    fail(error instanceof Error ? error.message : String(error));
+  }
+  const credentialCache = transportInfo.isNative
+    ? new NativeStoreCoordinationCredentialCache(apiUrl)
+    : new FileCoordinationCliCredentialCache();
+
   const client = createCoordinationActorClient(actor, {
     apiUrl,
-    credentialCache: new FileCoordinationCliCredentialCache(),
+    credentialCache,
+    exclusiveCredentialCache: transportInfo.isNative,
   });
   let result: unknown;
 
