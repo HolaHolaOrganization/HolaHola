@@ -239,3 +239,14 @@ export function registerCoordinationMcpTools(server: McpServer, authorization: C
     },
   );
 }
+
+/**
+ * The exact tool names this MCP server registers, recorded from the real
+ * registration (never a hand-kept list), for orientation text and its tests.
+ */
+export function coordinationMcpToolNames(): string[] {
+  const names: string[] = [];
+  const recorder = { registerTool: (name: string) => { names.push(name); } };
+  registerCoordinationMcpTools(recorder as unknown as McpServer, { actor: 'alden', canWrite: true } as CoordinationMcpAuthorization);
+  return names;
+}
