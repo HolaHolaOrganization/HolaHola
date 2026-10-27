@@ -52,11 +52,20 @@ export function centralEpisodeRead(row: CentralEpisodeRow) {
   };
 }
 
-export async function createCentralEpisodeRepository(): Promise<CentralEpisodeRepository> {
+type CentralEpisodeQuery = (text: string, params: unknown[]) => Promise<Record<string, any>[]>;
+
+async function createReadQuery(): Promise<CentralEpisodeQuery> {
   const { neon } = await import("@neondatabase/serverless");
   const url = process.env.NEON_SHARED_DATABASE_URL;
   if (!url) throw new Error("Central record database is not configured");
   const query = neon(url);
+  return (text, params) => query(text, params);
+}
+
+export async function createCentralEpisodeRepository(
+  options: { query?: CentralEpisodeQuery } = {},
+): Promise<CentralEpisodeRepository> {
+  const query = options.query ?? await createReadQuery();
   // Stories are only exposed as stories when linked to an actual episode.
   // An episode's extends_memory_id is history, NOT a story-parent relation.
   const from = `
@@ -68,12 +77,15 @@ export async function createCentralEpisodeRepository(): Promise<CentralEpisodeRe
       OR ('episode-story' = ANY(COALESCE(m.tags, '{}'))
         AND p.entry_type = 'episode' AND p.arc_name = 'HolaHola Episodes')
     )`;
-  const columns = `m.id, m.title, m.tags, m.entry_type, m.recorded_at,
+  // recorded_at is timestamp WITHOUT time zone, with UTC wall-clock values.
+  // Format it in Postgres so driver/host TZ cannot shift it or drop microseconds.
+  const columns = `m.id, m.title, m.tags, m.entry_type,
+    to_char(m.recorded_at, 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS recorded_at_iso,
     m.extends_memory_id, p.title AS parent_title, octet_length(m.content) AS bytes`;
   function map(row: Record<string, any>): CentralEpisodeRow {
     return {
       id: row.id, title: row.title, content: row.content ?? "",
-      recordedAt: new Date(row.recorded_at).toISOString(),
+      recordedAt: row.recorded_at_iso,
       tags: row.tags ?? [], entryType: row.entry_type,
       parentId: row.extends_memory_id ?? null, parentTitle: row.parent_title ?? null,
       bytes: Number(row.bytes),

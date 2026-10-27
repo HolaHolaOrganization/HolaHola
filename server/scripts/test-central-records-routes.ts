@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import { execFileSync } from "node:child_process";
 import { after, before, test } from "node:test";
 import express from "express";
 import type { AddressInfo } from "node:net";
@@ -134,3 +135,28 @@ test("database failures are explicit and redacted for all surfaces", async () =>
 test("unrecognized titles use canonical ID filenames rather than guessing episode numbers", () => {
   assert.equal(centralEpisodeMetadata({ ...episode, title: "Untitled" }).filename, "record-episode-fixture.md");
 });
+
+for (const timezone of ["UTC", "America/Denver", "Asia/Tokyo"]) {
+  test(`repository preserves UTC provenance and microseconds under host TZ=${timezone}`, () => {
+    const moduleUrl = new URL("../services/central-episode-records.ts", import.meta.url).href;
+    const program = `
+      import assert from "node:assert/strict";
+      import { createCentralEpisodeRepository } from ${JSON.stringify(moduleUrl)};
+      const expected = "2026-09-09T00:18:18.765180Z";
+      const repo = await createCentralEpisodeRepository({query: async (sql, params) => {
+        assert.ok(sql.includes(\`to_char(m.recorded_at, 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS recorded_at_iso\`));
+        return [{
+          id: "episode-fixture", title: "Episode 34", content: "exact source",
+          entry_type: "episode", tags: [], bytes: 12,
+          recorded_at: "2026-09-09T00:18:18.76518",
+          recorded_at_iso: expected,
+        }];
+      }});
+      assert.equal((await repo.list(1, 0))[0].recordedAt, expected);
+      assert.equal((await repo.find("episode-fixture")).recordedAt, expected);
+    `;
+    execFileSync(process.execPath, ["--import", "tsx", "--input-type=module", "-e", program], {
+      env: { ...process.env, TZ: timezone }, timeout: 20_000, stdio: "pipe",
+    });
+  });
+}
