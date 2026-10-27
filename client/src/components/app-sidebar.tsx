@@ -54,6 +54,7 @@ const teacherMenuItems = [
 
 const adminMenuItems = [
   { title: "Command Center", url: "/admin", icon: Shield },
+  { title: "Episode Archive", url: "/admin/records", icon: Library },
   { title: "Call Quality", url: "/admin/calls", icon: Phone },
 ];
 

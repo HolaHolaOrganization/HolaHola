@@ -12,6 +12,7 @@ import { stripeService } from "./stripeService";
 import { aiLimiter, voiceLimiter, authLimiter, mutationLimiter, hiveExternalLimiter, generalLimiter } from "./middleware/rate-limiter";
 import { requireRole, allowRoles, loadAuthenticatedUser, requireFounder, requireAgentToken, requireFounderOrAgent, logAgentAction, getAgentAuditLog, isAgentTokenConfigured, isReplitAgentRequest } from "./middleware/rbac";
 import { registerCoordinationRoutes } from "./routes/coordination-routes";
+import { registerCentralRecordsRoutes } from "./routes/central-records-routes";
 import { lucaChatPostHandler } from "./routes/luca-chat-post-route";
 import { registerMcpCoordinationRoutes } from "./routes/mcp-coordination-route";
 import { registerCoordinationCredentialRoutes } from "./routes/coordination-credential-routes";
@@ -693,6 +694,9 @@ export async function registerRoutes(app: Application): Promise<void> {
     loadAuthenticatedUser(storage),
     requireFounder,
   ]);
+  registerCentralRecordsRoutes(app, {
+    authorize: [isAuthenticated, loadAuthenticatedUser(storage), requireFounder],
+  });
 
   const sourcePromotionError = sourcePromotionConfigurationError();
   if (sourcePromotionError) {
