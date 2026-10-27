@@ -48,3 +48,40 @@ Each broker instance acts on exactly **one** repository, fixed by its own enviro
   - it reads `broker/policy.sandbox.json`, always from **main of HolaHola**, never from the sandbox, so sandbox writers cannot edit their own policy.
 
 **Binding to the target:** a policy whose `repositoryId` is not the instance's target fails closed. So does a request or status original that names another repository. Nothing is multiplexed.
+
+## Stage 1: source publication (design dc6f8927, section 4)
+
+Source reaches a branch only through four signed steps, each its own operation under `executeOnce`. The steps live in `src/publication.ts` (pure validation) and `src/gateway.ts` (live checks, dispatch and reconciliation).
+
+1. **`blob.put`:** the content must be canonical base64 that decodes to exactly `rawSize` bytes with the named git blob SHA. A metadata-only GraphQL existence check runs first, and an unknown result refuses the upload. A blob that already exists is reported as `already_present`, never as uploaded.
+2. **`tree.create`:**
+   - the base tree must be the parent commit's tree, and every referenced blob must exist;
+   - paths must be normalized and unique, with no path that is both a file and a directory prefix of another;
+   - entries are regular files only (`100644` or `100755`), at most 100, and never `.github`, `.github/workflows` or anything under it (an entry at an ancestor would replace or delete every workflow), compared case-insensitively;
+   - an uncertain tree is **never reconciled**: an object at the caller-named `expectedTreeSha` does not prove it is the tree of the signed base and entries. Recovery is a fresh `tree.create`, and only an executed success (GitHub returned exactly `expectedTreeSha`) can be committed;
+   - a result other than `expectedTreeSha` is a recorded failure.
+3. **`commit.create`:**
+   - the tree must be this actor's **recorded** `tree.create` success for this repository and parent;
+   - every commit is self-origin (decision F2: trailer-only), so the author and committer are left to GitHub, which uses the App bot, and both are then verified;
+   - the commit must match the request in tree, single parent, message and identity, or it is recorded as failed;
+   - the broker trailer joins any existing trailer block in the message;
+   - the effective origin actor is stored explicitly;
+   - **an uncertain commit is never reconciled**, so it can never be published.
+4. **`ref.update`:**
+   - the new head must be this actor's **recorded** `commit.create` success, for this branch, with `beforeOid` as its parent;
+   - it is applied by a single unforced `updateRefs` call that compares against `beforeOid`;
+   - zero OIDs are refused;
+   - the commit's tree, origin and PR carry through to the outcome.
+
+**`ref.create`** starts a new branch only at the **live head of `main`**, only if the branch is absent, and only if no ruleset matches its name. It never points a branch at new work: all publication goes through `ref.update`.
+
+**Branches:** every branch is under the actor's own prefix (`lcc/`, `lr/`), derived from the authenticated actor and never from the request. The default branch is never written.
+
+**Retired operations:** `branch.create` and `commit.write`. They were a second publication path that bypassed the recorded-success gate.
+
+**Not yet included:**
+- large-body admission: requests keep the 64 KiB cap, so a blob over about 47 KiB raw is not yet publishable;
+- relay origin attestations;
+- origin-aware `pr.review` exclusion.
+
+Each of those is a later stage-1 PR. The behaviour of GraphQL object existence, `updateRefs`, and App-created commit identity are sandbox acceptance proofs, not yet run.

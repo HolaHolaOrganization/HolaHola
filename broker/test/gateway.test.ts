@@ -47,7 +47,6 @@ class FakeRepo {
   comments: Array<{ id: number; issue: number; user: { login: string }; body: string }> = [];
   reviews: Array<{ id: number; pr: number; user: { login: string }; body: string; commit_id: string; event: string }> = [];
   refs = new Map<string, string>();
-  commitLog: Array<{ sha: string; branch: string; commit: { message: string }; parents: Array<{ sha: string }>; author: { login: string } }> = [];
   onMint: () => void = () => {};
   onPullRead: () => void = () => {};
   /** Applies the mutation, then fails with this status (an "unknown result"). */
@@ -101,17 +100,6 @@ class FakeRepo {
     if (pathname === `${base}/pulls` && method === 'GET') return this.json(200, [...this.pulls.values()].filter((p) => `${REPO.owner}:${p.head.ref}` === searchParams.get('head')));
     const refMatch = pathname.match(new RegExp(`^${base}/git/ref/heads/(.+)$`));
     if (refMatch) { const sha = this.refs.get(decodeURIComponent(refMatch[1])); return sha ? this.json(200, { object: { sha } }) : this.json(404, {}); }
-    if (pathname === `${base}/git/refs` && method === 'POST') { this.refs.set(body.ref.replace('refs/heads/', ''), body.sha); return this.mutate(201, { ref: body.ref }); }
-    if (pathname === `${base}/commits` && method === 'GET') return this.json(200, this.commitLog.filter((c) => c.branch === searchParams.get('sha')).reverse());
-    if (pathname === '/graphql') {
-      const { input } = body.variables;
-      const branch = input.branch.branchName;
-      if (this.refs.get(branch) !== input.expectedHeadOid) return this.json(200, { data: null, errors: [{ type: 'STALE_DATA', message: 'Expected branch to point to x' }] });
-      const sha = String(this.commitLog.length + 1).padStart(40, 'd');
-      this.commitLog.push({ sha, branch, commit: { message: `${input.message.headline}\n\n${input.message.body}` }, parents: [{ sha: input.expectedHeadOid }], author: { login: BOT } });
-      this.refs.set(branch, sha);
-      return this.mutate(200, { data: { createCommitOnBranch: { commit: { oid: sha } } } });
-    }
     return this.json(500, { message: `unhandled ${method} ${pathname}` });
   };
 
@@ -314,46 +302,27 @@ describe('gateway: unknown results are never resent; evidence is positive-only a
   });
 });
 
-describe('gateway: commits, branches and PRs', () => {
-  const commitPayload = { branch: 'lcc/feature', message: 'Add file', additions: [{ path: 'docs/x.md', contentBase64: Buffer.from('x').toString('base64') }], deletions: [] };
-
-  test('commit.write uses the real expectedHeadOid and a broker trailer', async () => {
-    const h = harness();
-    const result = await run(h, { operation: 'commit.write' }, commitPayload);
-    assert.equal(result.body.decision, 'executed');
-    const gql = h.repo.calls.find((c) => c.path === '/graphql')?.body as { variables: { input: { expectedHeadOid: string; message: { body: string } } } };
-    assert.equal(gql.variables.input.expectedHeadOid, HEAD);
-    assert.match(gql.variables.input.message.body, /^Holahola-Broker-Op: op-gateway-000000001:/);
-  });
-
-  test('commit.write to a moved branch aborts before dispatch', async () => {
-    const h = harness();
-    h.repo.refs.set('lcc/feature', OTHER);
-    h.repo.pulls.get(48)!.head.sha = OTHER;
-    const result = await run(h, { operation: 'commit.write', pr: null }, commitPayload);
-    assert.deepEqual(result.body.result, { reason: 'head_moved' });
-    assert.equal(h.repo.calls.filter((c) => c.path === '/graphql').length, 0);
-  });
-
+describe('gateway: branches and PRs', () => {
   test('protected, traversal and ref-prefixed branches are rejected as malformed', () => {
     for (const branch of ['main', '../x', 'refs/heads/x', 'a/../b', '/x', 'x/']) {
-      assert.equal(validatePayload({ operation: 'commit.write', pr: null, headSha: HEAD } as Envelope, { ...commitPayload, branch }), null, branch);
+      assert.equal(validatePayload({ operation: 'pr.open', pr: null, headSha: HEAD } as Envelope, { branch, title: 'T', body: 'B' }), null, branch);
     }
   });
 
-  test('branch.create requires an absent branch; pr.open binds the live branch head', async () => {
+  test('pr.open binds the live branch head', async () => {
     const h = harness();
-    const created = await run(h, { operation: 'branch.create', pr: null, operationId: 'op-gateway-000000002' }, { branch: 'lcc/new' });
-    assert.equal(created.body.decision, 'executed');
-    assert.equal(h.repo.refs.get('lcc/new'), HEAD);
-    const again = await run(h, { operation: 'branch.create', pr: null, operationId: 'op-gateway-000000003' }, { branch: 'lcc/new' });
-    assert.deepEqual(again.body.result, { reason: 'branch_exists' });
-    const opened = await run(h, { operation: 'pr.open', pr: null, operationId: 'op-gateway-000000004' }, { branch: 'lcc/new', title: 'T', body: 'B' });
+    const opened = await run(h, { operation: 'pr.open', pr: null, operationId: 'op-gateway-000000004' }, { branch: 'lcc/feature', title: 'T', body: 'B' });
     assert.equal(opened.body.decision, 'executed');
+    h.repo.refs.set('lcc/feature', OTHER);
+    const moved = await run(h, { operation: 'pr.open', pr: null, operationId: 'op-gateway-000000005' }, { branch: 'lcc/feature', title: 'T', body: 'B' });
+    assert.deepEqual(moved.body.result, { reason: 'head_moved' });
   });
 
-  test('branch.delete has no adapter', () => {
+  test('branch.delete has no adapter; the retired branch.create and commit.write are not operations', () => {
     assert.equal(validatePayload({ operation: 'branch.delete', pr: null, headSha: HEAD } as Envelope, { branch: 'lcc/x' }), null);
+    for (const operation of ['branch.create', 'commit.write']) {
+      assert.equal(validatePayload({ operation, pr: null, headSha: HEAD } as unknown as Envelope, { branch: 'lcc/x' }), null, operation);
+    }
   });
 });
 
@@ -393,15 +362,6 @@ describe('through the HTTP server (review findings 1-3)', () => {
     statusCounter += 1;
     return request(h, { operation: 'status', pr: null, headSha: null, operationId: `op-status-${String(statusCounter).padStart(10, '0')}`, ...overrides }, { original });
   }
-
-  function gatewayWith(h: Harness, fetchImpl: Fetch): Gateway {
-    return new Gateway({
-      repo: REPO, actors: new Map([['luca-claude-code', { appId: 5350010, installationId: 172194780, privateKey: rsa.privateKey, botLogin: BOT }]]),
-      api: new GitHubApi(fetchImpl), ledger: h.ledger, loaderFor: () => h.loader, now: () => h.clock.now,
-    });
-  }
-
-  const commitPayload = { branch: 'lcc/feature', message: 'm', additions: [{ path: 'a.md', contentBase64: 'YQ==' }], deletions: [] };
 
   test('finding 1: an uncertain operation is resolved by an authenticated status request; the expired original is refused; exactly one effect', async () => {
     const h = harness();
@@ -449,39 +409,7 @@ describe('through the HTTP server (review findings 1-3)', () => {
     });
   });
 
-  test('finding 2: a GraphQL response carrying a commit oid plus errors is success, never failure', async () => {
-    const h = harness();
-    const gql = { data: { createCommitOnBranch: { commit: { oid: 'e'.repeat(40) } } }, errors: [{ type: 'INTERNAL', message: 'partial' }] };
-    const gateway = gatewayWith(h, async (url, init) => (new URL(url).pathname === '/graphql' ? new Response(JSON.stringify(gql), { status: 200 }) : h.repo.fetch(url, init)));
-    const body = request(h, { operation: 'commit.write' }, commitPayload);
-    const d = await decide(body, () => h.loader, () => h.clock.now);
-    if (d.decision !== 'allow') throw new Error('expected allow');
-    const result = await gateway.execute(body, d.authorized.envelope, d.authorized.digest, d.authorized.payload, d.authorized.policy.epoch) as Result;
-    assert.equal(result.body.status, 'succeeded');
-    assert.deepEqual(result.body.result, { commitSha: 'e'.repeat(40) });
-  });
-
-  const unknown: Array<[string, unknown]> = [
-    ['null data with an INTERNAL error', { data: null, errors: [{ type: 'INTERNAL', message: 'boom' }] }],
-    ['STALE_DATA, not yet qualified as definite', { data: null, errors: [{ type: 'STALE_DATA', message: 'Expected branch to point to x' }] }],
-  ];
-  for (const [name, gql] of unknown) {
-    test(`finding 2: ${name} stays uncertain and is not resent`, async () => {
-      const h = harness();
-      let graphqlCalls = 0;
-      const gateway = gatewayWith(h, async (url, init) => {
-        if (new URL(url).pathname === '/graphql') { graphqlCalls += 1; return new Response(JSON.stringify(gql), { status: 200 }); }
-        return h.repo.fetch(url, init);
-      });
-      const body = request(h, { operation: 'commit.write' }, commitPayload);
-      const d = await decide(body, () => h.loader, () => h.clock.now);
-      if (d.decision !== 'allow') throw new Error('expected allow');
-      const result = await gateway.execute(body, d.authorized.envelope, d.authorized.digest, d.authorized.payload, d.authorized.policy.epoch) as Result;
-      assert.equal(result.body.decision, 'uncertain');
-      assert.equal(graphqlCalls, 1);
-      assert.equal(h.ledger.file(outcomePath('luca-claude-code', 'op-gateway-000000001')), null);
-    });
-  }
+  // Finding 2 (GraphQL errors never mean "not applied") now runs against ref.update in publication.test.ts.
 
   test('finding 3: read is re-authorized, identity- and head-bound, and uses only a read-only token', async () => {
     const mismatched = harness({ configAppId: 999 });
