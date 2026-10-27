@@ -363,6 +363,52 @@ describe('through the HTTP server (review findings 1-3)', () => {
     return request(h, { operation: 'status', pr: null, headSha: null, operationId: `op-status-${String(statusCounter).padStart(10, '0')}`, ...overrides }, { original });
   }
 
+  test('finding 1: an uncertain operation is resolved by an authenticated status request; the expired original is refused; exactly one effect', async () => {
+    const h = harness();
+    h.repo.failAfterApply = 502;
+    await serve(h, async (post) => {
+      const original = request(h, {}, { body: 'hello' });
+      assert.equal((await post(original)).body.decision, 'uncertain');
+      h.repo.failAfterApply = null;
+      assert.equal((await post(statusRequest(h, original))).body.decision, 'pending', 'before the deadline the winner may still be running');
+      h.clock.now += EXECUTION_DEADLINE_MS;
+      assert.equal((await post(original)).body.reason, 'expired', 'an expired execution envelope is never accepted');
+      const status = await post(statusRequest(h, original));
+      assert.equal(status.body.decision, 'recorded');
+      assert.equal(status.body.status, 'applied');
+      assert.equal((await post(statusRequest(h, original))).body.status, 'applied');
+      assert.equal(h.repo.count('POST', '/comments'), 1);
+    });
+  });
+
+  test('finding 1: with no evidence the status stays uncertain and nothing is executed', async () => {
+    const h = harness();
+    h.repo.failAfterApply = 502;
+    await serve(h, async (post) => {
+      const original = request(h, {}, { body: 'hello' });
+      await post(original);
+      h.repo.comments.length = 0;
+      h.repo.failAfterApply = null;
+      h.clock.now += EXECUTION_DEADLINE_MS;
+      assert.equal((await post(statusRequest(h, original))).body.decision, 'uncertain');
+      assert.equal(h.repo.count('POST', '/comments'), 1);
+    });
+  });
+
+  test('finding 1: status never creates a claim, is bound to actor and digest, and is refused when closed', async () => {
+    const h = harness();
+    await serve(h, async (post) => {
+      const neverSent = request(h, { operationId: 'op-never-sent-00001' }, { body: 'hello' });
+      assert.equal((await post(statusRequest(h, neverSent))).body.decision, 'not_found');
+      assert.equal(h.repo.count('POST', '/comments'), 0);
+      assert.equal((await post(statusRequest(h, { ...neverSent, payload: { body: 'other' } }))).body.reason, 'original_payload_mismatch');
+      assert.equal((await post(statusRequest(h, statusRequest(h, neverSent)))).body.reason, 'not_a_claim');
+      h.policy.bytes = policyBytes('closed');
+      h.clock.now += 2;
+      assert.equal((await post(statusRequest(h, neverSent))).body.reason, 'policy_closed');
+    });
+  });
+
   // Finding 2 (GraphQL errors never mean "not applied") now runs against ref.update in publication.test.ts.
 
   test('finding 3: read is re-authorized, identity- and head-bound, and uses only a read-only token', async () => {
