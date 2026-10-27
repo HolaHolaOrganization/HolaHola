@@ -12,6 +12,7 @@ import { closeSync, existsSync, statSync, mkdirSync, renameSync, writeFileSync, 
 import { join } from 'path';
 import {
   appendChatCaptureTurnsAtomic,
+  appendChatCaptureEntriesAtomic,
   CHAT_CAPTURE_ACK_DIR,
   CHAT_CAPTURE_ACK_PATH,
   CHAT_CAPTURE_ACK_CURSOR_PATH,
@@ -22,6 +23,8 @@ import {
   parseChatCaptureFromOffset,
   type ChatCaptureSource,
   type DialogueTurn,
+  type ExchangeDecisionRecord,
+  type ExchangePart,
 } from './transcript-parser';
 
 export type CanonicalConversationSource = ChatCaptureSource;
@@ -345,6 +348,9 @@ export function appendCanonicalConversationExchange(
   try {
     const parsed = parseChatCaptureFromOffset(capturePath, 0);
     const matchingTurns = parsed.turns.filter(turn => turn.captureId === turnId);
+    if (matchingTurns.some(turn => turn.exchangePart) || parsed.records.some(record => record.captureId === turnId)) {
+      throw new Error(`canonical conversation turn ${turnId} belongs to a two-part exchange; an atomic pair cannot reuse it`);
+    }
     const expectedAssistant = assistantSpeakerFor(input.source);
     for (const turn of matchingTurns) {
       if (turn.source !== input.source) {
@@ -387,6 +393,299 @@ export function appendCanonicalConversationExchange(
       targetByteOffset: existsSync(capturePath) ? statSync(capturePath).size : 0,
       appendedSpeakers,
     };
+  } finally {
+    releaseIngressLock(lockFd, ingressLockPath);
+  }
+}
+
+
+// ---------------------------------------------------------------------------
+// Declared two-part exchanges (approved A2 design, shared-spec 97df12be).
+//
+// A user part is written the moment it arrives, so the user's words are
+// durable even if the reply never finishes. The assistant part follows later
+// under the same id. Every outcome is fixed by a decision record appended to
+// the capture log BEFORE any DB or episode effect; the autosave projector
+// applies effects only when its cursor reaches that record.
+// ---------------------------------------------------------------------------
+
+/** Accept two-part intake only when explicitly enabled (off by default). */
+export function twoPartExchangesEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env.CANONICAL_TWO_PART_EXCHANGES === 'on';
+}
+
+/** Live episode mode sentinel; the autosave worker reads the same path. */
+export const EPISODE_LIVE_SENTINEL_PATH = join(WORKSPACE, '.local/.episode_live');
+
+/**
+ * Why two-part intake must be refused right now, or null if it may proceed.
+ * Live mode is refused because the live episode integration (A2 revision 4)
+ * is not built: two-part intake is DB-only.
+ */
+export function twoPartIntakeRefusal(
+  env: NodeJS.ProcessEnv = process.env,
+  liveSentinelPath: string = EPISODE_LIVE_SENTINEL_PATH,
+): 'disabled' | 'live-mode' | null {
+  if (!twoPartExchangesEnabled(env)) return 'disabled';
+  if (existsSync(liveSentinelPath)) return 'live-mode';
+  return null;
+}
+
+/** How long a user part waits for its reply before a reply-absent decision. */
+export function twoPartReplyTimeoutMs(env: NodeJS.ProcessEnv = process.env): number {
+  const raw = Number(env.CANONICAL_TWO_PART_REPLY_TIMEOUT_MS);
+  // Conservative default: user durability never depends on this value; it only
+  // decides when a reply-absent row is projected.
+  return Number.isSafeInteger(raw) && raw >= 60_000 ? raw : 6 * 60 * 60 * 1000;
+}
+
+export interface TwoPartIndexEntry {
+  source: ChatCaptureSource;
+  user?: DialogueTurn;
+  /** Byte offset just after the user part. */
+  userOffset?: number;
+  assistant?: DialogueTurn;
+  /** Byte offset just after the assistant part, if present. */
+  assistantOffset?: number;
+  decision?: ExchangeDecisionRecord;
+}
+
+/**
+ * An assistant part with no decision record cannot be produced by a complete
+ * write (the part and its pair decision are one append), so it is a torn
+ * write. It is never projected; it is repaired by recording the only outcome
+ * its presence allows, `pair`, once the log tail is complete.
+ */
+export function isTornTwoPartAssistant(entry: TwoPartIndexEntry): boolean {
+  return Boolean(entry.assistant && !entry.decision);
+}
+
+/**
+ * Refuse to append after an incomplete trailing block: bytes written after a
+ * torn block would merge into it. A concurrent writer mid-append looks the
+ * same, so the caller retries; a crash leftover needs repair.
+ */
+function assertCompleteCaptureTail(capturePath: string, consumedOffset: number): void {
+  const size = existsSync(capturePath) ? statSync(capturePath).size : 0;
+  if (consumedOffset !== size) {
+    throw new Error('canonical conversation capture log has an incomplete trailing block; ingress is busy or needs repair; retry the same turnId');
+  }
+}
+
+/**
+ * Index every declared two-part exchange in the capture log. The log is the
+ * recovery truth: the awaiting-reply set is rebuilt from it on every call.
+ * Any state the rules make impossible fails loudly instead of being guessed.
+ */
+export function indexTwoPartExchanges(capturePath: string = CHAT_CAPTURE_PATH): Map<string, TwoPartIndexEntry> {
+  const parsed = parseChatCaptureFromOffset(capturePath, 0);
+  const index = new Map<string, TwoPartIndexEntry>();
+  const atomicIds = new Set<string>();
+  parsed.turns.forEach((turn, i) => {
+    if (!turn.captureId) return;
+    if (!turn.exchangePart) { atomicIds.add(turn.captureId); return; }
+    if (!turn.source) throw new Error(`two-part exchange ${turn.captureId} has no source`);
+    const entry = index.get(turn.captureId) ?? { source: turn.source };
+    if (entry.source !== turn.source) throw new Error(`two-part exchange ${turn.captureId} mixes sources`);
+    if (turn.exchangePart === 'user') {
+      if (entry.user) throw new Error(`two-part exchange ${turn.captureId} has two user parts`);
+      if (entry.assistant) throw new Error(`two-part exchange ${turn.captureId} has its assistant part before its user part`);
+      entry.user = turn;
+      entry.userOffset = parsed.turnByteOffsets[i];
+    } else {
+      if (entry.assistant) throw new Error(`two-part exchange ${turn.captureId} has two assistant parts`);
+      entry.assistant = turn;
+      entry.assistantOffset = parsed.turnByteOffsets[i];
+    }
+    index.set(turn.captureId, entry);
+  });
+  for (const record of parsed.records) {
+    const entry = index.get(record.captureId);
+    if (!entry?.user) throw new Error(`decision for ${record.captureId} has no user part`);
+    if (entry.decision) throw new Error(`two-part exchange ${record.captureId} has more than one decision`);
+    if (record.source !== entry.source) throw new Error(`decision for ${record.captureId} has a different source`);
+    if (entry.userOffset === undefined || record.byteOffsetAfter <= entry.userOffset) {
+      throw new Error(`decision for ${record.captureId} precedes its user part`);
+    }
+    if (record.outcome === 'pair' &&
+        (entry.assistantOffset === undefined || entry.assistantOffset >= record.byteOffsetAfter)) {
+      throw new Error(`pair decision for ${record.captureId} is not preceded by its assistant part`);
+    }
+    if (record.outcome === 'reply-absent' &&
+        entry.assistantOffset !== undefined && entry.assistantOffset < record.byteOffsetAfter) {
+      throw new Error(`reply-absent decision for ${record.captureId} follows its reply`);
+    }
+    entry.decision = record;
+  }
+  for (const id of atomicIds) {
+    if (index.has(id)) throw new Error(`capture id ${id} is used by both an atomic pair and a two-part exchange`);
+  }
+  return index;
+}
+
+const MIN_OCCURRED_AT = Date.parse('2024-01-01T00:00:00Z');
+const MAX_CLOCK_SKEW_MS = 5 * 60 * 1000;
+
+/** Validate a source-reported occurrence time; never inferred from ingestion. */
+export function validateOccurredAt(value: unknown, nowMs: number): string {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})$/.test(value)) {
+    throw new Error('occurredAt must be an ISO-8601 timestamp with a time zone');
+  }
+  const ms = Date.parse(value);
+  if (!Number.isFinite(ms) || ms < MIN_OCCURRED_AT || ms > nowMs + MAX_CLOCK_SKEW_MS) {
+    throw new Error('occurredAt is outside the accepted range');
+  }
+  return value;
+}
+
+export interface CanonicalTwoPartInput {
+  source: CanonicalConversationSource;
+  part: ExchangePart;
+  turnId: string;
+  text: string;
+  /** Required for the user part; optional for the assistant part. */
+  occurredAt?: string;
+  capturePath?: string;
+  ingressLockPath?: string;
+  nowMs?: number;
+}
+
+export interface CanonicalTwoPartResult {
+  turnId: string;
+  part: ExchangePart;
+  /** False for an identical retry: nothing new was written. */
+  appended: boolean;
+  /** The outcome fixed for this exchange so far, if any. */
+  decision: ExchangeDecisionRecord['outcome'] | null;
+  /** True when this assistant part arrived after a reply-absent decision. */
+  late: boolean;
+  targetByteOffset: number;
+}
+
+/**
+ * Append one part of a declared two-part exchange under the ingress lock.
+ * Identical retries are no-ops; changed bytes and mode reuse are refused.
+ */
+export function appendCanonicalTwoPartExchange(input: CanonicalTwoPartInput): CanonicalTwoPartResult {
+  const text = assertText(input.part === 'user' ? 'userText' : 'assistantText', input.text);
+  const turnId = input.turnId?.trim();
+  if (!turnId || !/^[A-Za-z0-9-]+$/.test(turnId)) {
+    throw new Error('canonical conversation turnId must contain only letters, digits, and hyphens');
+  }
+  const nowMs = input.nowMs ?? Date.now();
+  const occurredAt = input.part === 'user' || input.occurredAt !== undefined
+    ? validateOccurredAt(input.occurredAt, nowMs)
+    : undefined;
+  const capturePath = input.capturePath ?? CHAT_CAPTURE_PATH;
+  const ingressLockPath = input.ingressLockPath ?? CANONICAL_CAPTURE_INGRESS_LOCK;
+  const lockFd = acquireIngressLock(ingressLockPath);
+  if (lockFd === -1) throw new Error('canonical conversation ingress is busy; retry the same turnId');
+  try {
+    const parsed = parseChatCaptureFromOffset(capturePath, 0);
+    assertCompleteCaptureTail(capturePath, parsed.newByteOffset);
+    if (parsed.turns.some(turn => turn.captureId === turnId && !turn.exchangePart)) {
+      throw new Error(`canonical conversation turn ${turnId} belongs to an atomic pair; a two-part exchange cannot reuse it`);
+    }
+    const entry = indexTwoPartExchanges(capturePath).get(turnId);
+    const size = () => existsSync(capturePath) ? statSync(capturePath).size : 0;
+    if (entry && entry.source !== input.source) {
+      throw new Error(`canonical conversation turn ${turnId} already belongs to a different source`);
+    }
+
+    if (input.part === 'user') {
+      if (entry?.user) {
+        if (entry.user.text !== text || entry.user.occurredAt !== occurredAt) {
+          throw new Error(`canonical conversation turn ${turnId} already has a different user part`);
+        }
+        return { turnId, part: 'user', appended: false, decision: entry.decision?.outcome ?? null, late: false, targetByteOffset: size() };
+      }
+      appendChatCaptureEntriesAtomic([{ turn: {
+        speaker: 'David', text, captureId: turnId, source: input.source, exchangePart: 'user', occurredAt,
+      } }], capturePath);
+      return { turnId, part: 'user', appended: true, decision: null, late: false, targetByteOffset: size() };
+    }
+
+    if (!entry?.user) {
+      throw new Error(`canonical conversation turn ${turnId} has no user part; an assistant part cannot come first`);
+    }
+    if (entry.assistant) {
+      if (entry.assistant.text !== text) {
+        throw new Error(`canonical conversation turn ${turnId} already has a different assistant part`);
+      }
+      if (isTornTwoPartAssistant(entry)) {
+        // The identical retry completes the torn write with its pair decision.
+        appendChatCaptureEntriesAtomic([{ decision: {
+          captureId: turnId, outcome: 'pair', source: input.source, decidedAt: new Date(nowMs).toISOString(),
+        } }], capturePath);
+        return { turnId, part: 'assistant', appended: true, decision: 'pair', late: false, targetByteOffset: size() };
+      }
+      return {
+        turnId, part: 'assistant', appended: false, decision: entry.decision?.outcome ?? null,
+        late: entry.decision?.outcome === 'reply-absent', targetByteOffset: size(),
+      };
+    }
+    const assistantTurn = {
+      speaker: assistantLabel(input.source), text, captureId: turnId, source: input.source,
+      exchangePart: 'assistant' as const, ...(occurredAt ? { occurredAt } : {}),
+    };
+    if (entry.decision) {
+      // Only reply-absent can precede an assistant part: this is a late reply.
+      appendChatCaptureEntriesAtomic([{ turn: assistantTurn }], capturePath);
+      return { turnId, part: 'assistant', appended: true, decision: entry.decision.outcome, late: true, targetByteOffset: size() };
+    }
+    // Decide and record in the same write: the assistant part never exists
+    // without its pair decision, so no recovery can later choose otherwise.
+    appendChatCaptureEntriesAtomic([
+      { turn: assistantTurn },
+      { decision: { captureId: turnId, outcome: 'pair', source: input.source, decidedAt: new Date(nowMs).toISOString() } },
+    ], capturePath);
+    return { turnId, part: 'assistant', appended: true, decision: 'pair', late: false, targetByteOffset: size() };
+  } finally {
+    releaseIngressLock(lockFd, ingressLockPath);
+  }
+}
+
+/**
+ * Record reply-absent decisions for user parts whose reply never arrived
+ * within the timeout. Caller must hold the ingress lock (see the locking
+ * wrapper below). Returns the ids decided.
+ */
+export function decideTimedOutTwoPartExchangesLocked(capturePath: string, nowMs: number, timeoutMs: number): string[] {
+  if (!existsSync(capturePath)) return [];
+  assertCompleteCaptureTail(capturePath, parseChatCaptureFromOffset(capturePath, 0).newByteOffset);
+  const due: Array<{ captureId: string; source: ChatCaptureSource }> = [];
+  const torn: Array<{ captureId: string; source: ChatCaptureSource }> = [];
+  for (const [captureId, entry] of indexTwoPartExchanges(capturePath)) {
+    if (isTornTwoPartAssistant(entry)) { torn.push({ captureId, source: entry.source }); continue; }
+    if (!entry.user || entry.assistant || entry.decision) continue;
+    const receivedMs = Date.parse(entry.user.receivedAt ?? '');
+    if (!Number.isFinite(receivedMs)) throw new Error(`two-part user part ${captureId} has no valid receipt time`);
+    if (nowMs - receivedMs >= timeoutMs) due.push({ captureId, source: entry.source });
+  }
+  if (due.length > 0 || torn.length > 0) {
+    const decidedAt = new Date(nowMs).toISOString();
+    appendChatCaptureEntriesAtomic([
+      // A torn assistant part can only be completed as a pair.
+      ...torn.map(d => ({ decision: { ...d, outcome: 'pair' as const, decidedAt } })),
+      ...due.map(d => ({ decision: { ...d, outcome: 'reply-absent' as const, decidedAt } })),
+    ], capturePath);
+  }
+  return due.map(d => d.captureId);
+}
+
+/** Locking wrapper for the timeout sweep. Returns null if the lock is busy. */
+export function decideTimedOutTwoPartExchanges(options: {
+  capturePath?: string; ingressLockPath?: string; nowMs?: number; timeoutMs?: number;
+} = {}): string[] | null {
+  const ingressLockPath = options.ingressLockPath ?? CANONICAL_CAPTURE_INGRESS_LOCK;
+  const lockFd = acquireIngressLock(ingressLockPath);
+  if (lockFd === -1) return null;
+  try {
+    return decideTimedOutTwoPartExchangesLocked(
+      options.capturePath ?? CHAT_CAPTURE_PATH,
+      options.nowMs ?? Date.now(),
+      options.timeoutMs ?? twoPartReplyTimeoutMs(),
+    );
   } finally {
     releaseIngressLock(lockFd, ingressLockPath);
   }

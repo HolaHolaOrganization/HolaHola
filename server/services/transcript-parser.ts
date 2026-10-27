@@ -106,6 +106,29 @@ export interface DialogueTurn {
   captureId?: string;
   /** Interface that produced this turn. Old blocks intentionally have no source. */
   source?: ChatCaptureSource;
+  /** Declared two-part exchange part (A2). Absent for atomic pairs and legacy turns. */
+  exchangePart?: ExchangePart;
+  /** Native time the user's message happened, as reported by the source (A2 user parts). */
+  occurredAt?: string;
+  /** Server receipt time (the block's TIME header), recorded for two-part parts only. */
+  receivedAt?: string;
+}
+
+/** The two halves of a declared two-part exchange (approved A2 design 97df12be). */
+export type ExchangePart = 'user' | 'assistant';
+
+/**
+ * A decision record for a two-part exchange: it fixes the outcome before any
+ * DB or episode effect is applied. Written as a capture block with no
+ * SPEAKER, so parsers that predate A2 skip it.
+ */
+export interface ExchangeDecisionRecord {
+  captureId: string;
+  outcome: 'pair' | 'reply-absent';
+  source: ChatCaptureSource;
+  decidedAt: string;
+  /** Byte offset (from file start) just after this block. */
+  byteOffsetAfter: number;
 }
 
 /**
@@ -683,6 +706,8 @@ export interface ChatCaptureTurnInput {
   text: string;
   captureId?: string;
   source?: ChatCaptureSource;
+  exchangePart?: ExchangePart;
+  occurredAt?: string;
 }
 
 function serializeChatCaptureTurn(
@@ -690,6 +715,8 @@ function serializeChatCaptureTurn(
   text: string,
   captureId?: string,
   source?: ChatCaptureSource,
+  exchangePart?: ExchangePart,
+  occurredAt?: string,
 ): string {
   // Normalize common variants → canonical form
   const normalized = speaker.trim();
@@ -713,6 +740,8 @@ function serializeChatCaptureTurn(
     ...(source ? [`SOURCE: ${source}`] : []),
     `TIME: ${timestamp}`,
     ...(captureId ? [`CAPTURE-ID: ${captureId}`] : []),
+    ...(exchangePart ? [`EXCHANGE-PART: ${exchangePart}`] : []),
+    ...(occurredAt ? [`OCCURRED-AT: ${occurredAt}`] : []),
     `CHARLEN: ${charLen}`,  // character count of the body
     CHAT_BODY_SEP,
     text,                    // verbatim — no escaping needed with length-delimited framing
@@ -736,8 +765,41 @@ export function appendChatCaptureTurnsAtomic(
   // are appended.
   if (!_pathOverride) ensureCaptureWorkspaceWritable();
   const blocks = turns.map(turn =>
-    serializeChatCaptureTurn(turn.speaker, turn.text, turn.captureId, turn.source),
+    serializeChatCaptureTurn(turn.speaker, turn.text, turn.captureId, turn.source, turn.exchangePart, turn.occurredAt),
   );
+  appendFileSync(_pathOverride ?? CHAT_CAPTURE_PATH, blocks.join(''), 'utf-8');
+}
+
+/** Serialize a two-part exchange decision record (no SPEAKER, empty body). */
+function serializeExchangeDecision(record: Omit<ExchangeDecisionRecord, 'byteOffsetAfter'>): string {
+  return [
+    CHAT_TURN_START,
+    'RECORD: exchange-resolved',
+    `SOURCE: ${record.source}`,
+    `TIME: ${record.decidedAt}`,
+    `CAPTURE-ID: ${record.captureId}`,
+    `OUTCOME: ${record.outcome}`,
+    'CHARLEN: 0',
+    CHAT_BODY_SEP,
+    '',
+    CHAT_TURN_END,
+    '',
+  ].join('\n');
+}
+
+/**
+ * Append turns and/or decision records in ONE filesystem write, so a reader
+ * never observes an assistant part without the decision written with it.
+ */
+export function appendChatCaptureEntriesAtomic(
+  entries: Array<{ turn: ChatCaptureTurnInput } | { decision: Omit<ExchangeDecisionRecord, 'byteOffsetAfter'> }>,
+  _pathOverride?: string,
+): void {
+  if (entries.length === 0) return;
+  if (!_pathOverride) ensureCaptureWorkspaceWritable();
+  const blocks = entries.map(entry => 'turn' in entry
+    ? serializeChatCaptureTurn(entry.turn.speaker, entry.turn.text, entry.turn.captureId, entry.turn.source, entry.turn.exchangePart, entry.turn.occurredAt)
+    : serializeExchangeDecision(entry.decision));
   appendFileSync(_pathOverride ?? CHAT_CAPTURE_PATH, blocks.join(''), 'utf-8');
 }
 
@@ -769,23 +831,25 @@ export interface ChatCaptureFromOffset {
    *  Used by callers to advance the cursor only through turns they actually
    *  persisted — not through all parsed turns when a chunk cap is hit. */
   turnByteOffsets: number[];
+  /** Two-part decision records (A2) in file order. Readers that predate A2 ignore this. */
+  records: ExchangeDecisionRecord[];
 }
 
 export function parseChatCaptureFromOffset(
   filePath: string,
   byteOffset: number,
 ): ChatCaptureFromOffset {
-  if (!existsSync(filePath)) return { turns: [], newByteOffset: byteOffset, turnByteOffsets: [] };
+  if (!existsSync(filePath)) return { turns: [], newByteOffset: byteOffset, turnByteOffsets: [], records: [] };
 
   let fullBuffer: Buffer;
   try {
     fullBuffer = readFileSync(filePath);
   } catch {
-    return { turns: [], newByteOffset: byteOffset, turnByteOffsets: [] };
+    return { turns: [], newByteOffset: byteOffset, turnByteOffsets: [], records: [] };
   }
 
   // Nothing new past the cursor
-  if (fullBuffer.length <= byteOffset) return { turns: [], newByteOffset: byteOffset, turnByteOffsets: [] };
+  if (fullBuffer.length <= byteOffset) return { turns: [], newByteOffset: byteOffset, turnByteOffsets: [], records: [] };
 
   const slice   = fullBuffer.slice(byteOffset);
   const content = slice.toString('utf-8');
@@ -795,6 +859,7 @@ export function parseChatCaptureFromOffset(
   // Used by callers to advance the cursor only through the turns they actually
   // persisted (not through all parsed turns when buildDialogueChunk hits its cap).
   const turnByteOffsets: number[] = [];
+  const records: ExchangeDecisionRecord[] = [];
 
   let lastCompleteCharPos = 0; // character position (in `content`) past last complete turn
 
@@ -870,6 +935,25 @@ export function parseChatCaptureFromOffset(
     const speakerMatch = /^SPEAKER:\s*(David|Luca Replit|Luca|Claude Code)\s*$/im.exec(headers);
     const sourceMatch = /^SOURCE:\s*(replit|claude-code|antigravity)\s*$/im.exec(headers);
     const captureIdMatch = /^CAPTURE-ID:\s*([A-Za-z0-9-]+)\s*$/im.exec(headers);
+    const partMatch = /^EXCHANGE-PART:\s*(user|assistant)\s*$/im.exec(headers);
+    const occurredMatch = /^OCCURRED-AT:\s*(\S+)\s*$/im.exec(headers);
+    const timeMatch = /^TIME:\s*(\S+)\s*$/im.exec(headers);
+    if (!speakerMatch && /^RECORD:\s*exchange-resolved\s*$/im.test(headers)) {
+      const outcomeMatch = /^OUTCOME:\s*(pair|reply-absent)\s*$/im.exec(headers);
+      if (captureIdMatch && outcomeMatch && sourceMatch && timeMatch) {
+        records.push({
+          captureId: captureIdMatch[1],
+          outcome: outcomeMatch[1] as ExchangeDecisionRecord['outcome'],
+          source: sourceMatch[1] as ChatCaptureSource,
+          decidedAt: timeMatch[1],
+          byteOffsetAfter: byteOffset + Buffer.byteLength(content.slice(0, pos), 'utf-8'),
+        });
+      } else {
+        // A malformed decision record must not be silently ignored.
+        throw new Error('malformed exchange-resolved record in chat capture');
+      }
+      continue;
+    }
     if (speakerMatch && body.length >= 1) {
       const raw = speakerMatch[1];
       const speaker = (
@@ -883,6 +967,11 @@ export function parseChatCaptureFromOffset(
         memoryId: 0,
         ...(captureIdMatch ? { captureId: captureIdMatch[1] } : {}),
         ...(sourceMatch ? { source: sourceMatch[1] as ChatCaptureSource } : {}),
+        ...(partMatch ? {
+          exchangePart: partMatch[1] as ExchangePart,
+          ...(occurredMatch ? { occurredAt: occurredMatch[1] } : {}),
+          ...(timeMatch ? { receivedAt: timeMatch[1] } : {}),
+        } : {}),
       });
       // Record the byte offset from file start after this complete turn.
       const charPosAfterTurn = pos;
@@ -892,7 +981,7 @@ export function parseChatCaptureFromOffset(
   }
 
   const consumedBytes = Buffer.byteLength(content.slice(0, lastCompleteCharPos), 'utf-8');
-  return { turns, newByteOffset: byteOffset + consumedBytes, turnByteOffsets };
+  return { turns, newByteOffset: byteOffset + consumedBytes, turnByteOffsets, records };
 }
 
 // ---------------------------------------------------------------------------

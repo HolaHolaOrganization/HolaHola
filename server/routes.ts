@@ -37875,10 +37875,80 @@ Under 250 words. Write as yourself.`;
       if (!actorSource) {
         return res.status(403).json({ error: 'This endpoint requires the luca-replit, luca-claude-code or luca-antigravity coordination actor' });
       }
-      const { source, userText, assistantText, turnId } = req.body ?? {};
+      const { source, userText, assistantText, turnId, part, text, occurredAt } = req.body ?? {};
       // Each actor records only its own interface's dialogue.
       if (source !== actorSource) {
         return res.status(403).json({ error: `${req.coordinationActor} may only submit source "${actorSource}"` });
+      }
+      if (part !== undefined) {
+        // Declared two-part exchange (A2): off by default and DB-only.
+        const {
+          appendCanonicalTwoPartExchange,
+          twoPartIntakeRefusal,
+          writeSynchronizedCanonicalCaptureReceipt,
+        } = await import('./services/canonical-conversation-capture');
+        const refusal = twoPartIntakeRefusal();
+        if (refusal === 'disabled') {
+          return res.status(404).json({ error: 'Two-part exchange intake is not enabled' });
+        }
+        if (refusal === 'live-mode') {
+          return res.status(409).json({ error: 'Two-part exchange intake is DB-only and is refused while live episode mode is on' });
+        }
+        if (part !== 'user' && part !== 'assistant') {
+          return res.status(400).json({ error: 'part must be "user" or "assistant"' });
+        }
+        if (userText !== undefined || assistantText !== undefined) {
+          return res.status(400).json({ error: 'A two-part call carries text, not userText/assistantText' });
+        }
+        if (typeof text !== 'string' || !text.trim()) {
+          return res.status(400).json({ error: 'text must be a non-empty string' });
+        }
+        if (typeof turnId !== 'string' || !/^[A-Za-z0-9-]+$/.test(turnId)) {
+          return res.status(400).json({ error: 'turnId is required and must contain only letters, digits, and hyphens' });
+        }
+        let result;
+        try {
+          result = appendCanonicalTwoPartExchange({ source, part, turnId, text, occurredAt });
+        } catch (e: any) {
+          const message: string = e.message ?? '';
+          const status = message.includes('busy') || message.includes('incomplete trailing block') ? 409
+            : /already|belongs to|cannot come first|no user part/.test(message) ? 409
+            : /occurredAt|must contain|non-empty/.test(message) ? 400 : 500;
+          console.error('[CanonicalConversation] Two-part intake refused:', message);
+          return res.status(status).json({ error: message });
+        }
+        if (part === 'user') {
+          // Source persistence only: nothing about the reply or any projection.
+          console.log(`[CanonicalConversation] ${source} two-part user part ${turnId} ${result.appended ? 'persisted' : 'already persisted'}.`);
+          return res.status(202).json({
+            ok: true,
+            acknowledgement: 'source-persisted',
+            turnId,
+            part,
+            appended: result.appended,
+            decision: result.decision,
+            message: 'The user part is durable in the capture log. It is not projected until a reply or reply-absent decision is recorded.',
+          });
+        }
+        const receipt = {
+          turnId,
+          targetByteOffset: result.targetByteOffset,
+          createdAtMs: Date.now(),
+          source,
+          status: 'pending' as const,
+        };
+        writeSynchronizedCanonicalCaptureReceipt(receipt);
+        console.log(`[CanonicalConversation] ${source} two-part assistant part ${turnId} ${result.appended ? 'persisted' : 'already persisted'} (decision ${result.decision}${result.late ? ', late' : ''}).`);
+        return res.status(202).json({
+          ok: true,
+          acknowledgement: 'pending',
+          receipt,
+          part,
+          appended: result.appended,
+          decision: result.decision,
+          late: result.late,
+          message: 'The exchange is not canonical until the cursor reaches targetByteOffset.',
+        });
       }
       if (typeof userText !== 'string' || !userText.trim() || typeof assistantText !== 'string' || !assistantText.trim()) {
         return res.status(400).json({ error: 'userText and assistantText must both be non-empty strings' });

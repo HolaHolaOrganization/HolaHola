@@ -73,14 +73,20 @@ import {
 } from './transcript-parser';
 import {
   acquireCanonicalConversationIngressLock,
+  decideTimedOutTwoPartExchangesLocked,
+  EPISODE_LIVE_SENTINEL_PATH,
+  indexTwoPartExchanges,
   isCompleteCanonicalCaptureBatch,
   releaseCanonicalConversationIngressLock,
   selectCanonicalCaptureBatch,
   settleCanonicalCaptureReceipts,
   settleCanonicalCaptureReceiptsByTurnId,
   settleCanonicalCaptureReceiptsForInvalidDestination,
+  twoPartExchangesEnabled,
+  twoPartReplyTimeoutMs,
   writeCanonicalCaptureReceipt,
 } from './canonical-conversation-capture';
+import { applyTwoPartEffect, planNextTwoPartStep, type TwoPartEffectStore } from './two-part-projection';
 import {
   advanceEpisodeMirrorAcknowledgement,
   enqueueEpisodeMirror,
@@ -221,7 +227,7 @@ let _dbWriteWarningPathOverrideForTest: string | null = null;
 // Format: JSON { exchange: string, episode?: string } or plain text (appended verbatim).
 // When "episode" is omitted the watcher auto-detects the current rolling episode from DB.
 const EPISODE_APPEND_PATH  = join(WORKSPACE, '.local/.episode_append');
-const EPISODE_LIVE_PATH    = join(WORKSPACE, '.local/.episode_live');    // sentinel: live on/off
+const EPISODE_LIVE_PATH    = EPISODE_LIVE_SENTINEL_PATH;                 // sentinel: live on/off
 
 /**
  * Test-only override for the single-consumer episode append queue.
@@ -2475,6 +2481,41 @@ export async function checkEpisodeAppend(): Promise<void> {
 
 // Mutex: only one save-in-progress at a time (watch + poll can both fire)
 let chatCaptureSaveInProgress = false;
+/** Last reply-timeout sweep for two-part exchanges (A2). */
+let lastTwoPartSweepMs = 0;
+const TWO_PART_SWEEP_INTERVAL_MS = 60_000;
+
+/** conversation_memories access for two-part effects, keyed by capture identity tag. */
+const twoPartEffectStore: TwoPartEffectStore = {
+  hasRow: async identityTag => {
+    const found = await getUserDb().execute(sql`
+      SELECT id FROM conversation_memories
+      WHERE arc_name = 'david-luca-chat'
+        AND tags @> ARRAY[${identityTag}]::text[]
+      LIMIT 1
+    `);
+    return Boolean(((found as any).rows?.[0] ?? (found as any)[0])?.id);
+  },
+  insertRow: async row => {
+    const participantsArray = `{${row.participants.map(label => `"${label.replace(/"/g, '\\"')}"`).join(',')}}`;
+    const tagsArray = `{${row.tags.join(',')}}`;
+    await getUserDb().execute(sql`
+      INSERT INTO conversation_memories (id, title, summary, content, participants, tags, importance, created_at, entry_type, arc_name)
+      VALUES (
+        gen_random_uuid(),
+        ${row.title},
+        ${row.summary},
+        ${row.content},
+        ${participantsArray}::text[],
+        ${tagsArray}::text[],
+        8,
+        NOW(),
+        'conversation',
+        'david-luca-chat'
+      )
+    `);
+  },
+};
 let episodeMirrorOutboxInProgress = false;
 
 async function processPendingEpisodeMirrors(
@@ -2556,10 +2597,14 @@ async function checkChatCapture(): Promise<void> {
   // mtime must not advance if the DB insert fails, or future polls will skip the
   // bytes forever and the turns are permanently lost).
   let snapshotMtime: number;
+  // A reply-timeout decision can be due with no new bytes, so a due sweep
+  // must not be skipped by the mtime check (A2, only while intake is on).
+  const twoPartSweepDue = twoPartExchangesEnabled() &&
+    Date.now() - lastTwoPartSweepMs >= TWO_PART_SWEEP_INTERVAL_MS;
   try {
     const stat  = statSync(CHAT_CAPTURE_PATH);
     snapshotMtime = stat.mtimeMs;
-    if (snapshotMtime <= chatCaptureLastMtime) return; // mtime unchanged — no new bytes
+    if (snapshotMtime <= chatCaptureLastMtime && !twoPartSweepDue) return; // mtime unchanged — no new bytes
     // NOTE: do NOT advance chatCaptureLastMtime here. It is advanced only after a
     // successful cursor save below. If the insert fails, the mtime stays at the old
     // value so the next poll retries the same bytes.
@@ -2585,6 +2630,23 @@ async function checkChatCapture(): Promise<void> {
       return;
     }
 
+    if (twoPartSweepDue) {
+      // The decision is recorded in the log before any effect. The ingress
+      // lock is held, so no part can be appended while the sweep decides.
+      lastTwoPartSweepMs = Date.now();
+      try {
+        const decided = decideTimedOutTwoPartExchangesLocked(CHAT_CAPTURE_PATH, Date.now(), twoPartReplyTimeoutMs());
+        if (decided.length > 0) {
+          console.log(`[AgentAutosave] Two-part exchanges recorded as reply-absent: ${decided.length}`);
+        }
+      } catch (err: any) {
+        // An incomplete tail may be a writer mid-append: decide nothing this
+        // round. Projection below still stops at the last complete block.
+        if (!String(err?.message).includes('incomplete trailing block')) throw err;
+        console.warn('[AgentAutosave] Two-part sweep skipped: capture log tail is incomplete');
+      }
+    }
+
     const storedCursor = loadChatCaptureCursor();
     const recovery = recoverChatCaptureCursor(CHAT_CAPTURE_PATH, storedCursor);
     if (recovery.recovered) {
@@ -2596,9 +2658,10 @@ async function checkChatCapture(): Promise<void> {
       );
     }
     const cursor = recovery.cursor;
-    const { turns, newByteOffset, turnByteOffsets } = parseChatCaptureFromOffset(CHAT_CAPTURE_PATH, cursor.byteOffset);
+    const { turns, turnByteOffsets, records } = parseChatCaptureFromOffset(CHAT_CAPTURE_PATH, cursor.byteOffset);
 
-    if (turns.length === 0) return; // new bytes but no complete turns yet (mid-write)
+    // new bytes but no complete turns or decision records yet (mid-write)
+    if (turns.length === 0 && records.length === 0) return;
 
     // A new Luca turn must carry the complete canonical envelope. Do this before
     // any DB insert or episode append, and deliberately leave the cursor at its
@@ -2620,9 +2683,19 @@ async function checkChatCapture(): Promise<void> {
     // turn silently skipped or permanently lost.
     let remaining = turns;
     let remainingOffsets = turnByteOffsets;
+    let remainingRecords = records;
     let startCursor = cursor.byteOffset;
+    let lastFingerprint = cursor.lastSavedTurnFingerprint;
     let liveEpisode: string | null = null;
     const liveMode = existsSync(EPISODE_LIVE_PATH) && _autoCaptureEpisodeEnabled;
+    const hasTwoPart = records.length > 0 || turns.some(turn => turn.exchangePart);
+    if (liveMode && hasTwoPart) {
+      // The live episode integration contract (A2 revision 4: accounted cursor,
+      // deferred store, per-exchange receipts) is not built. Fail closed.
+      throw new Error('Two-part exchanges are DB-only until the live episode integration is built; leaving chat cursor pending');
+    }
+    // The log is the recovery truth for every two-part exchange.
+    const twoPartIndex = hasTwoPart ? indexTwoPartExchanges(CHAT_CAPTURE_PATH) : null;
     if (liveMode) {
       liveEpisode = await getCurrentRollingEpisodeFilename();
       if (!liveEpisode) {
@@ -2630,10 +2703,41 @@ async function checkChatCapture(): Promise<void> {
       }
     }
 
-    while (remaining.length > 0) {
+    while (remaining.length > 0 || remainingRecords.length > 0) {
+      const step = planNextTwoPartStep(remaining, remainingOffsets, remainingRecords, twoPartIndex);
+      if (!step) break;
+      if (step.kind !== 'legacy') {
+        // DB-only (live mode is refused above): any effect is applied before
+        // the cursor passes its block, then both cursors advance together.
+        let offset: number;
+        if (step.kind === 'effect') {
+          const inserted = await applyTwoPartEffect(step.effect, twoPartEffectStore);
+          offset = step.effect.offset;
+          console.log(`[AgentAutosave] Two-part ${step.effect.outcome} ${inserted ? 'saved' : 'already present'} (${step.effect.identity}, cursor ${startCursor}→${offset})`);
+        } else {
+          offset = step.offset;
+        }
+        if (step.kind === 'part' || step.effect.outcome === 'late-reply') {
+          const turn = step.kind === 'part' ? step.turn : step.effect.turns[0];
+          lastFingerprint = chatCaptureTurnFingerprint(turn);
+          remaining = remaining.slice(1);
+          remainingOffsets = remainingOffsets.slice(1);
+        } else {
+          remainingRecords = remainingRecords.slice(1);
+        }
+        const next = { byteOffset: offset, ...(lastFingerprint ? { lastSavedTurnFingerprint: lastFingerprint } : {}) };
+        saveChatCaptureCursor(next);
+        saveChatCaptureCursor(next, CHAT_CAPTURE_ACK_CURSOR_PATH);
+        settleCanonicalCaptureReceipts(offset);
+        startCursor = offset;
+        continue;
+      }
+      // Atomic and legacy turns before the next two-part item keep the
+      // existing path unchanged.
+      const legacyTurns = remaining.slice(0, step.count);
       // Project one stable capture identity at a time. A cursor replay can
       // change chunk boundaries, but it cannot change this per-exchange DB key.
-      const projectionCandidates = selectCanonicalCaptureBatch(remaining);
+      const projectionCandidates = selectCanonicalCaptureBatch(legacyTurns);
       if (!isCompleteCanonicalCaptureBatch(projectionCandidates)) {
         const incomplete = projectionCandidates[0];
         const quarantineOffset = remainingOffsets[projectionCandidates.length - 1];
@@ -2785,6 +2889,7 @@ async function checkChatCapture(): Promise<void> {
       console.log(`[AgentAutosave] Chat capture +${includedCount} turn(s) saved (${davidCount}D + ${includedCount - davidCount}L, cursor ${startCursor}→${effectiveCursor})`);
 
       startCursor = effectiveCursor;
+      lastFingerprint = chatCaptureTurnFingerprint(remaining[includedCount - 1]);
       clearHistoricalAttributionPause('canonical-capture', captureIds);
       remaining = remaining.slice(includedCount);
       remainingOffsets = remainingOffsets.slice(includedCount);
