@@ -49,6 +49,7 @@ import {
 } from "./coordination-ledger-service";
 import { listCoordinationInbox } from "./coordination-inbox-service";
 import { listAldenCoordinationInbox, readAldenCoordinationMessage } from "./alden-coordination-read";
+import { assertMemoryId, buildMemoryDiscovery, readMemoryContentChunk } from "./alden-memory-read";
 import { OPERATIONS_CATALOG, toPublicOperationManifest } from "./operations-catalog";
 import { checkExpectedContent } from "./alden-verbatim";
 import { activeRegistrationsFor, buildActorBriefing } from "./alden-actor-briefing";
@@ -166,8 +167,9 @@ export const ALDEN_TOOLS: AldenTool[] = [
   },
   {
     name: "read_conversation_memories",
-    description: "Search the shared conversation_memories archive — curated records of significant conversations between David, Daniela, and the Agent. Returns full content, tags, arc membership, and chaining (extends_memory_id). Use to understand a topic in depth, read what was said in a key session, or follow a conversation thread across sessions. Filter by arc to read a complete narrative thread. Use speaker to find what a specific person said. Use related_to to follow a memory chain across sessions.",
-    gemini_description: "Retrieve full transcripts and context from past, significant conversations between David, Daniela, and the Agent. Use this to review what was actually said in a specific session, understand a topic or decision in depth, or follow a conversation thread across sessions. Can filter by topic, keyword, arc (narrative thread), speaker, or chain from a known memory ID.",
+    // DRAFT tool text: pending the Alden -> Gemini rephrase loop (replit.md). Not approved.
+    description: "Search the shared conversation_memories archive — curated records of significant conversations between David, Daniela, and the Agent. Returns each match's id, tags, arc membership, chaining (extends_memory_id), length and content digest, with its full content when it is short and a leading excerpt when it is long (contentComplete says which). Read a long entry's full words with read_conversation_memory_content. Filter by arc to read a narrative thread. Use speaker to find what a specific person said. Use related_to to follow a memory chain across sessions.",
+    gemini_description: "Find past, significant conversations between David, Daniela, and the Agent. Each match shows its id, arc, tags and length, with the full text when it is short and the opening of the text when it is long; read the full words of a long one with read_conversation_memory_content. Can filter by topic, keyword, arc (narrative thread), speaker, or chain from a known memory ID.",
     input_schema: {
       type: "object" as const,
       properties: {
@@ -178,6 +180,21 @@ export const ALDEN_TOOLS: AldenTool[] = [
         related_to: { type: "string" as const, description: "A conversation_memories ID. Follows the extends_memory_id chain in both directions — finds the sessions this memory grew from, and any sessions that grew from it. Use to read a full multi-session thread." },
       },
       required: [],
+    },
+  },
+  {
+    name: "read_conversation_memory_content",
+    // DRAFT tool text: pending the Alden -> Gemini rephrase loop (replit.md). Not approved.
+    description: "Read the exact, complete text of one conversation memory in bounded chunks, verbatim. Start at offset=0, then pass the returned nextOffset as offset and the first chunk's contentSha256 as expected_content_sha256 until complete=true; join chunks in offset order. If the memory changed while you were reading, the read is refused with snapshot_changed: start again at offset 0.",
+    gemini_description: "Read the exact, complete words of one conversation memory in bounded chunks. Start at offset 0, then pass nextOffset as offset and the first chunk's contentSha256 as expected_content_sha256 until complete is true; join the chunks in offset order. If the memory changed meanwhile, the read is refused with snapshot_changed and I start again at offset 0.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        id: { type: "string" as const, description: "The conversation memory id, from read_conversation_memories." },
+        offset: { type: "number" as const, description: "Zero-based UTF-16 offset; default 0. Continue with the previous nextOffset." },
+        expected_content_sha256: { type: "string" as const, description: "Required when offset > 0: the contentSha256 returned with the first chunk." },
+      },
+      required: ["id"],
     },
   },
   {
@@ -1374,23 +1391,18 @@ export async function executeAldenTool(
             LIMIT 10
           `);
 
-          const toMemory = (r: any) => ({
-            id: r.id, title: r.title, importance: r.importance, entryType: r.entry_type,
-            tags: r.tags, arcName: r.arc_name, extendsMemoryId: r.extends_memory_id,
-            recordedAt: r.created_at, summary: r.summary, content: r.content,
-          });
-
           return {
-            data: {
+            data: buildMemoryDiscovery({
+              anchor: anchorRow,
+              ancestors: [...ancestors].reverse(), // oldest first
+              descendants: descendants.rows as any[],
+            }, {
               related_to,
-              anchor: toMemory(anchorRow),
-              ancestors: ancestors.map(toMemory).reverse(), // oldest first
-              descendants: (descendants.rows as any[]).map(toMemory),
               totalInChain: 1 + ancestors.length + descendants.rows.length,
               note: ancestors.length === 0 && descendants.rows.length === 0
                 ? 'This memory has no chain — it stands alone.'
                 : `Chain: ${ancestors.length} ancestor(s) → this session → ${descendants.rows.length} descendant(s). Read ancestors first to understand how this conversation evolved.`,
-            },
+            }),
           };
         }
 
@@ -1440,26 +1452,25 @@ export async function executeAldenTool(
         };
 
         return {
-          data: {
-            query,
-            arc: arc ?? null,
-            speaker: speaker ?? null,
+          data: buildMemoryDiscovery({ memories: rows }, {
+            query: typeof query === 'string' ? query.slice(0, 500) : query,
+            arc: typeof arc === 'string' ? arc.slice(0, 200) : arc ?? null,
+            speaker: typeof speaker === 'string' ? speaker.slice(0, 100) : speaker ?? null,
             matchCount: rows.length,
-            memories: rows.map(r => ({
-              id: r.id,
-              title: r.title,
-              importance: r.importance,
-              entryType: r.entry_type,
-              tags: r.tags,
-              arcName: r.arc_name,
-              extendsMemoryId: r.extends_memory_id,
-              recordedAt: r.created_at,
-              summary: r.summary,
-              content: r.content,
-              ...(hasSpeaker && { speakerExcerpt: extractSpeakerLines(r.content, speaker as string) }),
-            })),
-          },
+          }, hasSpeaker ? (r: any) => extractSpeakerLines(String(r.content ?? ''), speaker as string) : undefined),
         };
+      }
+
+      case "read_conversation_memory_content": {
+        try {
+          const id = assertMemoryId(args.id);
+          const found = await getMonitoringDb().execute(sql`
+            SELECT id, content FROM conversation_memories WHERE id = ${id} LIMIT 1
+          `);
+          return { data: readMemoryContentChunk((found.rows[0] as any) ?? null, args) };
+        } catch (e: any) {
+          return { data: { error: e.message } };
+        }
       }
 
       case "list_conversation_arcs": {

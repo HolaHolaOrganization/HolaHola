@@ -246,6 +246,7 @@ commands.splice(safetyInsertion, 0,
   'npx tsx --test server/scripts/test-alden-chat-transcript.test.ts',
   'npx tsx --test server/scripts/test-alden-anthropic-turn.test.ts',
   'npx tsx --test server/scripts/test-alden-verbatim.test.ts',
+  'npx tsx --test server/services/alden-memory-read.test.ts',
   'npx tsx --test server/scripts/test-alden-actor-briefing.test.ts',
   'npx tsx --test server/scripts/test-onboarding-tool-names.test.ts',
 
