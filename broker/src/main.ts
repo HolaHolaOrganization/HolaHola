@@ -10,7 +10,7 @@ import { createPrivateKey, type KeyObject } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 import { type LoaderFor } from './authorize.ts';
 import { Gateway, type ActorBinding } from './gateway.ts';
-import { GitHubApi, GitHubLedger, GitHubPolicySource, InstallationToken } from './github.ts';
+import { GitHubApi, GitHubLedger, GitHubPolicySource, InstallationToken, type PolicyPath } from './github.ts';
 import { PolicyLoader, REPOSITORY_ID } from './policy.ts';
 import { createBrokerServer } from './server.ts';
 
@@ -61,7 +61,15 @@ function appKey(env: Env, name: string): KeyObject {
 
 export type BrokerConfig = {
   actors: Map<string, ActorBinding>;
+  /** Control repository: where the founder-owned policy file is read from (always HolaHola main). */
   mainRepository: { owner: string; name: string; id: number };
+  /**
+   * The ONE repository this instance acts on. Production: the main repository.
+   * The F4-a sandbox instance: its immutable configured sandbox repository.
+   * Fixed for the life of the process; never taken from a request.
+   */
+  target: { owner: string; name: string; id: number };
+  policyPath: PolicyPath;
   audit: { repo: { owner: string; name: string }; repositoryId: number; appId: number; installationId: number; privateKey: KeyObject };
   port: number;
 };
@@ -72,6 +80,9 @@ export type BrokerConfig = {
  * BROKER_AUDIT_REPO (owner/name), BROKER_AUDIT_REPO_ID, BROKER_AUDIT_APP_ID,
  * BROKER_AUDIT_INSTALLATION_ID, BROKER_AUDIT_APP_PRIVATE_KEY: the audit App.
  * BROKER_MAIN_REPO_OWNER (optional): one of MAIN_REPOSITORY_OWNERS.
+ * BROKER_TARGET (optional): 'main' (default) or 'sandbox'. A sandbox instance
+ *   also needs BROKER_TARGET_REPO (owner/name) and BROKER_TARGET_REPO_ID, and
+ *   reads broker/policy.sandbox.json from main instead of broker/policy.json.
  * PORT: listen port (default 10000).
  */
 export function loadConfig(env: Env): BrokerConfig {
@@ -119,13 +130,39 @@ export function loadConfig(env: Env): BrokerConfig {
   if (installations.has(auditInstallation)) throw new ConfigError('invalid BROKER_AUDIT_INSTALLATION_ID');
   const auditAppId = positiveInt(env, 'BROKER_AUDIT_APP_ID');
   if (appIds.has(auditAppId)) throw new ConfigError('invalid BROKER_AUDIT_APP_ID');
+  const auditRepositoryId = positiveInt(env, 'BROKER_AUDIT_REPO_ID');
+  const targetKind = env.BROKER_TARGET?.trim() || 'main';
+  let target: { owner: string; name: string; id: number } = mainRepository;
+  let policyPath: PolicyPath = 'broker/policy.json';
+  if (targetKind === 'sandbox') {
+    const targetRepo = required(env, 'BROKER_TARGET_REPO');
+    const targetId = positiveInt(env, 'BROKER_TARGET_REPO_ID');
+    const lower = targetRepo.toLowerCase();
+    // A sandbox target is never HolaHola (under any owner, or by id) and never the audit repository.
+    if (!REPO_NAME.test(targetRepo)
+      || [...MAIN_REPOSITORY_OWNERS, ...FORMER_MAIN_REPOSITORY_OWNERS].some((o) => lower === `${o}/${MAIN_REPOSITORY.name}`.toLowerCase())
+      || lower === auditRepo.toLowerCase()) {
+      throw new ConfigError('invalid BROKER_TARGET_REPO');
+    }
+    if (targetId === MAIN_REPOSITORY.id || targetId === auditRepositoryId) throw new ConfigError('invalid BROKER_TARGET_REPO_ID');
+    const [targetOwner, targetName] = targetRepo.split('/');
+    target = { owner: targetOwner, name: targetName, id: targetId };
+    policyPath = 'broker/policy.sandbox.json';
+  } else if (targetKind !== 'main') {
+    throw new ConfigError('invalid BROKER_TARGET');
+  } else if (env.BROKER_TARGET_REPO !== undefined || env.BROKER_TARGET_REPO_ID !== undefined) {
+    // A sandbox setting without the sandbox target is a misconfiguration, never silently ignored.
+    throw new ConfigError('invalid BROKER_TARGET');
+  }
   const port = env.PORT === undefined ? 10_000 : Number(env.PORT);
   if (!Number.isSafeInteger(port) || port <= 0 || port > 65_535) throw new ConfigError('invalid PORT');
   return {
     actors,
     mainRepository,
+    target,
+    policyPath,
     audit: {
-      repo: { owner, name }, repositoryId: positiveInt(env, 'BROKER_AUDIT_REPO_ID'),
+      repo: { owner, name }, repositoryId: auditRepositoryId,
       appId: auditAppId, installationId: auditInstallation, privateKey: appKey(env, 'BROKER_AUDIT_APP_PRIVATE_KEY'),
     },
     port,
@@ -136,12 +173,15 @@ export function loadConfig(env: Env): BrokerConfig {
 export function assemble(config: BrokerConfig, api: GitHubApi, now: () => number = Date.now) {
   const loaders = new Map<string, PolicyLoader>();
   for (const [actor, binding] of config.actors) {
-    // Each actor's own App reads policy, downscoped to contents:read on HolaHola only.
+    // Each actor's own App reads policy, downscoped to contents:read on HolaHola
+    // (the control repository) only, even for a sandbox instance. The parsed
+    // policy must name this instance's target repository.
     const read = new InstallationToken(api, {
       appId: binding.appId, installationId: binding.installationId, privateKey: binding.privateKey,
       repositoryId: config.mainRepository.id, permissions: { contents: 'read' },
     }, now);
-    loaders.set(actor, new PolicyLoader(new GitHubPolicySource(api, config.mainRepository, () => read.get()), now));
+    const source = new GitHubPolicySource(api, config.mainRepository, () => read.get(), config.policyPath);
+    loaders.set(actor, new PolicyLoader(source, now, undefined, undefined, config.target.id));
   }
   const auditToken = new InstallationToken(api, {
     appId: config.audit.appId, installationId: config.audit.installationId, privateKey: config.audit.privateKey,
@@ -149,7 +189,7 @@ export function assemble(config: BrokerConfig, api: GitHubApi, now: () => number
   }, now);
   const ledger = new GitHubLedger(api, config.audit.repo, () => auditToken.get());
   const loaderFor: LoaderFor = (actor) => loaders.get(actor);
-  const gateway = new Gateway({ repo: config.mainRepository, actors: config.actors, api, ledger, loaderFor, now });
+  const gateway = new Gateway({ repo: config.target, actors: config.actors, api, ledger, loaderFor, now });
   return { loaderFor, healthLoader: loaders.values().next().value as PolicyLoader, gateway };
 }
 

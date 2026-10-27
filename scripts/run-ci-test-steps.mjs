@@ -77,7 +77,7 @@ commands.splice(safetyInsertion, 0,
   'npx tsx --test server/scripts/test-coordination-github-exec.test.ts',
   'npx tsx --test server/scripts/agent-feed-client.test.ts',
   // Isolated broker (costed plan ff04f70e): own tree, no web-app imports.
-  'npx tsx --test broker/test/broker.test.ts broker/test/claims.test.ts broker/test/github.test.ts broker/test/gateway.test.ts broker/test/main.test.ts broker/test/client.test.ts',
+  'npx tsx --test broker/test/broker.test.ts broker/test/claims.test.ts broker/test/github.test.ts broker/test/gateway.test.ts broker/test/main.test.ts broker/test/client.test.ts broker/test/target.test.ts',
   'npx tsx --test broker/test/policy-file.test.ts',
   'npx tsc -p broker/tsconfig.json',
   'node --test scripts/post-merge.test.mjs',

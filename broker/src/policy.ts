@@ -77,7 +77,12 @@ function parseSigningKey(value: unknown, where: string): SigningKey {
   return { id: record.id, publicKey };
 }
 
-export function parsePolicy(bytes: Uint8Array): Policy {
+/**
+ * `repositoryId` is the instance's configured target: the production broker's
+ * fixed main repository by default, or a sandbox instance's immutable target
+ * (stage 1, decision F4-a). A policy naming any other repository is invalid.
+ */
+export function parsePolicy(bytes: Uint8Array, repositoryId: number = REPOSITORY_ID): Policy {
   let raw: unknown;
   try {
     raw = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
@@ -87,7 +92,7 @@ export function parsePolicy(bytes: Uint8Array): Policy {
   const root = exactKeys(raw, 'policy', ['version', 'state', 'repositoryId', 'actors', 'qualification']);
   if (root.version !== 1) fail('policy.version must be 1');
   if (!POLICY_STATES.includes(root.state as PolicyState)) fail('policy.state is not a known state');
-  if (root.repositoryId !== REPOSITORY_ID) fail('policy.repositoryId does not name this repository');
+  if (root.repositoryId !== repositoryId) fail('policy.repositoryId does not name this repository');
 
   if (typeof root.actors !== 'object' || root.actors === null || Array.isArray(root.actors)) fail('policy.actors must be an object');
   const actors = new Map<string, ActorPolicy>();
@@ -122,7 +127,7 @@ export function parsePolicy(bytes: Uint8Array): Policy {
   return {
     version: 1,
     state: root.state as PolicyState,
-    repositoryId: REPOSITORY_ID,
+    repositoryId,
     actors,
     qualification,
     epoch: gitBlobSha(bytes),
@@ -170,9 +175,12 @@ export class PolicyLoader {
   private generation = 0;
   private readonly log: (line: string) => void;
   private lastFailure: string | null = null;
+  private readonly repositoryId: number;
 
-  constructor(source: PolicySource, now: () => number = Date.now, ttlMs: number = MAX_POLICY_TTL_MS, log: (line: string) => void = (line) => console.error(line)) {
+  constructor(source: PolicySource, now: () => number = Date.now, ttlMs: number = MAX_POLICY_TTL_MS, log: (line: string) => void = (line) => console.error(line), repositoryId: number = REPOSITORY_ID) {
     if (!(ttlMs > 0 && ttlMs <= MAX_POLICY_TTL_MS)) throw new RangeError('policy TTL must be in (0, 60000] ms');
+    if (!Number.isSafeInteger(repositoryId) || repositoryId <= 0) throw new RangeError('policy repository id must be a positive integer');
+    this.repositoryId = repositoryId;
     this.source = source;
     this.now = now;
     this.ttlMs = ttlMs;
@@ -196,7 +204,7 @@ export class PolicyLoader {
     let failure: string | null = null;
     try {
       const snapshot = await this.source.fetch();
-      if (gitBlobSha(snapshot.bytes) === snapshot.blobSha) policy = parsePolicy(snapshot.bytes);
+      if (gitBlobSha(snapshot.bytes) === snapshot.blobSha) policy = parsePolicy(snapshot.bytes, this.repositoryId);
       else failure = 'policy blob hash mismatch';
     } catch (error) {
       policy = null;

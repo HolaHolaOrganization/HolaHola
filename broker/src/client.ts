@@ -48,13 +48,13 @@ export function newOperationId(): string {
 
 export function signRequest(
   signer: Signer,
-  request: { operation: Operation; pr: number | null; headSha: string | null; payload: unknown; policyEpoch: string; operationId?: string },
+  request: { operation: Operation; pr: number | null; headSha: string | null; payload: unknown; policyEpoch: string; operationId?: string; repositoryId?: number },
   now: number,
 ): SignedRequest {
   if (signer.privateKey.asymmetricKeyType !== 'ed25519') throw new TypeError('signing key must be Ed25519');
   const payload = snapshot(request.payload);
   const envelope: Envelope = Object.freeze({
-    audience: AUDIENCE, protocol: PROTOCOL, repositoryId: REPOSITORY_ID,
+    audience: AUDIENCE, protocol: PROTOCOL, repositoryId: request.repositoryId ?? REPOSITORY_ID,
     actor: signer.actor, keyId: signer.keyId, operation: request.operation,
     pr: request.pr, headSha: request.headSha, payloadSha256: payloadDigest(payload),
     policyEpoch: request.policyEpoch, issuedAt: now, expiresAt: now + VALIDITY_MS,
@@ -66,7 +66,8 @@ export function signRequest(
 
 /** A status request for an earlier signed request: fresh envelope, the original carried verbatim. */
 export function signStatus(signer: Signer, original: SignedRequest, policyEpoch: string, now: number): SignedRequest {
-  return signRequest(signer, { operation: 'status', pr: null, headSha: null, payload: { original: snapshot(original) }, policyEpoch }, now);
+  // A status check names the same target repository as the request it settles.
+  return signRequest(signer, { operation: 'status', pr: null, headSha: null, payload: { original: snapshot(original) }, policyEpoch, repositoryId: original.envelope.repositoryId }, now);
 }
 
 /**
@@ -123,8 +124,10 @@ export class BrokerClient {
   private readonly journal: Journal;
   private readonly fetch: typeof fetch;
   private readonly now: () => number;
+  private readonly repositoryId: number;
 
-  constructor(options: { baseUrl: string; signer: Signer; journal: Journal; fetchImpl?: typeof fetch; now?: () => number }) {
+  /** `repositoryId`: the broker instance's target; the production main repository unless a sandbox instance is named. */
+  constructor(options: { baseUrl: string; signer: Signer; journal: Journal; fetchImpl?: typeof fetch; now?: () => number; repositoryId?: number }) {
     const url = new URL(options.baseUrl);
     // Plan P3: callers pin the broker's own onrender.com host over TLS; no custom domain, no plain HTTP.
     if (url.protocol !== 'https:' && url.hostname !== '127.0.0.1') throw new TypeError('broker URL must be https');
@@ -133,6 +136,7 @@ export class BrokerClient {
     this.journal = options.journal;
     this.fetch = options.fetchImpl ?? fetch;
     this.now = options.now ?? Date.now;
+    this.repositoryId = options.repositoryId ?? REPOSITORY_ID;
   }
 
   async policyEpoch(): Promise<string> {
@@ -158,7 +162,7 @@ export class BrokerClient {
    */
   async execute(operation: Operation, pr: number | null, headSha: string | null, payload: unknown): Promise<BrokerResponse & { operationId: string }> {
     if (operation === 'status') throw new TypeError('use status()');
-    const request = signRequest(this.signer, { operation, pr, headSha, payload, policyEpoch: await this.policyEpoch() }, this.now());
+    const request = signRequest(this.signer, { operation, pr, headSha, payload, policyEpoch: await this.policyEpoch(), repositoryId: this.repositoryId }, this.now());
     const operationId = request.envelope.operationId;
     if (operation === 'read') return { ...(await this.post(request)), operationId };
     await this.journal.record(request);
