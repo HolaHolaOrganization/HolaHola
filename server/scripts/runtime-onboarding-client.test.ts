@@ -23,6 +23,7 @@ import {
   createRuntimeOpenAITransport,
   generateRuntimeMcpClientConfig,
   runRuntimeMcpStdioBridge,
+  runRuntimeOnboardingListener,
 } from '../services/runtime-onboarding-transports';
 
 class MemoryStore implements RuntimeOnboardingStore {
@@ -714,6 +715,112 @@ test('CLI help succeeds before any secure-store access and raw exception text is
   }
   assert.match(help, /setup/);
   assert.match(help, /--wait/);
+  assert.match(help, /listen/);
+  assert.match(help, /--parent-pid/);
   assert.equal(safeFailureCode(new Error('accessToken=private-secret')), 'runtime_onboarding_operation_failed');
   assert.equal(safeFailureCode(new Error('onboarding_endpoint_invalid')), 'onboarding_endpoint_invalid');
+});
+
+test('runRuntimeOnboardingListener requires stored credentials and fails closed if setup was not run', async () => {
+  const store = new MemoryStore();
+  const scope = { endpoint, actor, runtimeId };
+  await assert.rejects(
+    runRuntimeOnboardingListener({
+      ...scope,
+      store,
+      allowInsecureHttpForTests: true,
+    }),
+    /onboarding_credential_unavailable_run_setup/,
+  );
+});
+
+test('runRuntimeOnboardingListener executes in once mode using authenticatedFetch and saves receipts', async () => {
+  const store = new MemoryStore();
+  const scope = { endpoint, actor, runtimeId };
+  await store.set(scope, 'access-credential', JSON.stringify({
+    endpoint, actor, runtimeId, accessToken: 'listener-fake-token',
+    expiresAt: future(), capabilities: ['coordination:read'],
+  }));
+  const stateDir = mkdtempSync(join(tmpdir(), 'listener-test-state-'));
+  const lines: string[] = [];
+  try {
+    const exitCode = await runRuntimeOnboardingListener({
+      ...scope,
+      store,
+      stateDir,
+      mode: 'once',
+      initialAfter: 0,
+      resume: false,
+      allowInsecureHttpForTests: true,
+      emit: (line) => { lines.push(line); },
+      fetchImpl: async (input, init) => {
+        const url = new URL(input instanceof Request ? input.url : String(input));
+        assert.equal(url.pathname, '/api/coordination/inbox');
+        const headers = new Headers(input instanceof Request ? input.headers : init?.headers);
+        assert.equal(headers.get('x-coordination-token'), 'listener-fake-token');
+        return response({
+          actor,
+          items: [
+            {
+              inboxItem: {
+                id: '11111111-1111-4111-8111-111111111111',
+                recipientActor: actor,
+                coordinationEventId: '22222222-2222-4222-8222-222222222222',
+                coordinationThreadId: '33333333-3333-4333-8333-333333333333',
+                eventGlobalSequence: 1,
+                senderActor: 'luca-replit',
+              },
+              event: { id: '22222222-2222-4222-8222-222222222222' },
+              thread: { id: '33333333-3333-4333-8333-333333333333' },
+            },
+          ],
+          window: { through: 1, complete: true, nextToken: null },
+        });
+      },
+    });
+    assert.equal(exitCode, 0);
+    assert.ok(lines.some((l) => l.startsWith('LUCAMSG_READY')));
+    assert.ok(lines.some((l) => l.startsWith('LUCAMSG_ALERT')));
+    assert.ok(lines.some((l) => l.startsWith('LUCAMSG_STOP')));
+  } finally {
+    rmSync(stateDir, { recursive: true, force: true });
+  }
+});
+
+test('usableCredential respects minRemainingMs and auto-renews when below threshold', async () => {
+  const store = new MemoryStore();
+  const scope = { endpoint, actor, runtimeId };
+  // Expiring in 2 minutes (120,000 ms)
+  const expiringSoon = new Date(Date.now() + 120_000).toISOString();
+  await store.set(scope, 'access-credential', JSON.stringify({
+    endpoint, actor, runtimeId, accessToken: 'old-token',
+    expiresAt: expiringSoon, capabilities: ['coordination:read', 'coordination:credential:renew'],
+  }));
+  let renewed = false;
+  const client = new RuntimeOnboardingClient({
+    ...scope,
+    store,
+    allowInsecureHttpForTests: true,
+    fetchImpl: async (input) => {
+      const url = new URL(input instanceof Request ? input.url : String(input));
+      if (url.pathname === '/api/coordination/credentials/renew') {
+        renewed = true;
+        return response({
+          endpoint, actor, runtimeId, accessToken: 'renewed-token',
+          expiresAt: future(), capabilities: ['coordination:read'],
+        });
+      }
+      throw new Error(`unexpected_url:${url.pathname}`);
+    },
+  });
+
+  // Default skew is 60s: 120s remaining > 60s, so it should NOT renew yet
+  const cred1 = await client.usableCredential();
+  assert.equal(cred1.accessToken, 'old-token');
+  assert.equal(renewed, false);
+
+  // Proactive threshold of 3 minutes (180,000 ms): 120s remaining < 180s, so it SHOULD renew
+  const cred2 = await client.usableCredential(180_000);
+  assert.equal(cred2.accessToken, 'renewed-token');
+  assert.equal(renewed, true);
 });

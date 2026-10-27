@@ -505,6 +505,27 @@ export class RuntimeOnboardingClient {
   }
 
   /**
+   * Resolve an unexpired, capability-checked credential from native storage,
+   * renewing or recovering against the broker when needed.
+   */
+  async usableCredential(minRemainingMs: number = this.credentialRenewalSkewMs): Promise<StoredCredential> {
+    let credential = await this.loadCredential();
+    if (!credential) credential = await this.recoverCredential();
+    const expiresIn = Date.parse(credential.expiresAt) - Date.now();
+    const threshold = Math.max(minRemainingMs, this.credentialRenewalSkewMs);
+    if (expiresIn <= 0) {
+      credential = await this.recoverCredential();
+    } else if (expiresIn < threshold
+      && credential.capabilities.includes('coordination:credential:renew')) {
+      credential = await this.renewCredential(credential);
+    }
+    if (!/^[A-Za-z0-9._~+/=-]+$/.test(credential.accessToken)) {
+      throw new Error('onboarding_local_credential_invalid');
+    }
+    return credential;
+  }
+
+  /**
    * Call the already-authorized OpenAI Responses SDK with this runtime's
    * coordination MCP tool. The coordination credential never leaves this
    * method except as the fixed remote MCP Authorization header.
@@ -533,18 +554,7 @@ export class RuntimeOnboardingClient {
       throw new Error('onboarding_openai_allowed_tools_invalid');
     }
 
-    let credential = await this.loadCredential();
-    if (!credential) credential = await this.recoverCredential();
-    const expiresIn = Date.parse(credential.expiresAt) - Date.now();
-    if (expiresIn <= 0) {
-      credential = await this.recoverCredential();
-    } else if (expiresIn < this.credentialRenewalSkewMs
-      && credential.capabilities.includes('coordination:credential:renew')) {
-      credential = await this.renewCredential(credential);
-    }
-    if (!/^[A-Za-z0-9._~+/=-]+$/.test(credential.accessToken)) {
-      throw new Error('onboarding_local_credential_invalid');
-    }
+    const credential = await this.usableCredential();
 
     const tool: OpenAIResponsesTool.Mcp = {
       type: 'mcp',
@@ -576,15 +586,7 @@ export class RuntimeOnboardingClient {
     if (target.origin !== new URL(this.scope.endpoint).origin || !allowedPath || credentialPath) {
       throw new Error('onboarding_auth_header_target_not_allowed');
     }
-    let credential = await this.loadCredential();
-    if (!credential) credential = await this.recoverCredential();
-    const expiresIn = Date.parse(credential.expiresAt) - Date.now();
-    if (expiresIn <= 0) {
-      credential = await this.recoverCredential();
-    } else if (expiresIn < this.credentialRenewalSkewMs
-      && credential.capabilities.includes('coordination:credential:renew')) {
-      credential = await this.renewCredential(credential);
-    }
+    const credential = await this.usableCredential();
     const headers = new Headers(baseRequest.headers);
     headers.delete('authorization');
     headers.delete('x-coordination-token');

@@ -12,9 +12,10 @@ import {
   createRuntimeOpenAITransport,
   generateRuntimeMcpClientConfig,
   runRuntimeMcpStdioBridge,
+  runRuntimeOnboardingListener,
 } from '../services/runtime-onboarding-transports';
 
-type CliAction = 'setup' | 'status' | 'mcp' | 'sdk';
+type CliAction = 'setup' | 'status' | 'mcp' | 'sdk' | 'listen';
 type ParsedArguments = {
   action: CliAction;
   endpoint: string;
@@ -23,6 +24,11 @@ type ParsedArguments = {
   invitationId?: string;
   printConfig: boolean;
   waitForApproval: boolean;
+  parentPid?: number;
+  stateDir?: string;
+  mode?: 'continuous' | 'once';
+  after?: number;
+  resume?: boolean;
 };
 
 const CLI_HELP = [
@@ -32,19 +38,22 @@ const CLI_HELP = [
   '  node holahola-onboarding.mjs mcp --endpoint https://host --actor <actor> --runtime-id <id>',
   '  node holahola-onboarding.mjs mcp --print-config --endpoint https://host --actor <actor> --runtime-id <id>',
   '  node holahola-onboarding.mjs sdk --endpoint https://host --actor <actor> --runtime-id <id>',
+  '  node holahola-onboarding.mjs listen --endpoint https://host --actor <actor> --runtime-id <id> [--parent-pid <pid>] [--mode continuous|once] [--state-dir <dir>]',
   '',
   'setup prints the approval reference and can be rerun with the same scope after approval.',
   '--wait opens the founder approval page and polls for up to ten minutes.',
+  'listen runs an enrolled, authenticated coordination message listener using the native secure store.',
 ].join('\n');
 
 function parseArguments(argv: string[]): ParsedArguments {
   const action = argv[0];
-  if (action !== 'setup' && action !== 'status' && action !== 'mcp' && action !== 'sdk') {
+  if (action !== 'setup' && action !== 'status' && action !== 'mcp' && action !== 'sdk' && action !== 'listen') {
     throw new Error('usage');
   }
   const values = new Map<string, string>();
   let printConfig = false;
   let waitForApproval = false;
+  let resume = false;
   for (let index = 1; index < argv.length; index += 1) {
     const flag = argv[index];
     if (flag === '--print-config' && action === 'mcp') {
@@ -55,7 +64,15 @@ function parseArguments(argv: string[]): ParsedArguments {
       waitForApproval = true;
       continue;
     }
-    if (flag !== '--endpoint' && flag !== '--actor' && flag !== '--runtime-id' && flag !== '--invitation-id') {
+    if (flag === '--resume' && action === 'listen' && !resume) {
+      resume = true;
+      continue;
+    }
+    const allowedFlags = ['--endpoint', '--actor', '--runtime-id', '--invitation-id'];
+    if (action === 'listen') {
+      allowedFlags.push('--parent-pid', '--state-dir', '--mode', '--after');
+    }
+    if (!allowedFlags.includes(flag)) {
       throw new Error('usage');
     }
     const value = argv[index + 1];
@@ -69,10 +86,41 @@ function parseArguments(argv: string[]): ParsedArguments {
   if (!endpoint || !actor || !runtimeId) throw new Error('usage');
   const invitationId = values.get('--invitation-id');
   if ((action === 'setup') !== Boolean(invitationId)) throw new Error('usage');
+
+  let parentPid: number | undefined;
+  if (values.has('--parent-pid')) {
+    const raw = values.get('--parent-pid')!;
+    if (!/^\d+$/.test(raw)) throw new Error('usage');
+    parentPid = Number(raw);
+    if (!Number.isSafeInteger(parentPid) || parentPid <= 0) throw new Error('usage');
+  }
+
+  let mode: 'continuous' | 'once' | undefined;
+  if (values.has('--mode')) {
+    const raw = values.get('--mode')!;
+    if (raw !== 'continuous' && raw !== 'once') throw new Error('usage');
+    mode = raw;
+  }
+
+  let after: number | undefined;
+  if (values.has('--after')) {
+    const raw = values.get('--after')!;
+    if (!/^\d+$/.test(raw)) throw new Error('usage');
+    after = Number(raw);
+    if (!Number.isSafeInteger(after) || after < 0) throw new Error('usage');
+  }
+
+  const stateDir = values.get('--state-dir');
+
   return {
     action, endpoint, actor, runtimeId,
     ...(invitationId ? { invitationId } : {}),
     printConfig, waitForApproval,
+    ...(parentPid !== undefined ? { parentPid } : {}),
+    ...(stateDir ? { stateDir } : {}),
+    ...(mode ? { mode } : {}),
+    ...(after !== undefined ? { after } : {}),
+    ...(resume ? { resume } : {}),
   };
 }
 
@@ -149,6 +197,8 @@ const SAFE_FAILURE_CODES = new Set([
   'onboarding_sdk_ledger_read_failed',
   'onboarding_sdk_mcp_failed',
   'onboarding_recovery_not_available',
+  'onboarding_listener_parent_invalid',
+  'onboarding_listener_failed',
   'secure_store_unsupported_platform',
 ]);
 
@@ -282,6 +332,19 @@ export async function runRuntimeOnboardingCli(argv = process.argv.slice(2)): Pro
       output: process.stdout,
       diagnostics: process.stderr,
     });
+    return;
+  }
+
+  if (parsed.action === 'listen') {
+    const exitCode = await runRuntimeOnboardingListener({
+      ...common,
+      ...(parsed.parentPid !== undefined ? { parentPid: parsed.parentPid } : {}),
+      ...(parsed.stateDir ? { stateDir: parsed.stateDir } : {}),
+      ...(parsed.mode ? { mode: parsed.mode } : {}),
+      ...(parsed.after !== undefined ? { initialAfter: parsed.after } : {}),
+      ...(parsed.resume !== undefined ? { resume: parsed.resume } : {}),
+    });
+    process.exitCode = exitCode;
     return;
   }
 
