@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, appendFileSync, readFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, appendFileSync, readFileSync, truncateSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import {
@@ -13,7 +13,7 @@ import {
   twoPartReplyTimeoutMs,
   validateOccurredAt,
 } from './canonical-conversation-capture';
-import { parseChatCaptureFromOffset } from './transcript-parser';
+import { appendChatCaptureEntriesAtomic, parseChatCaptureFromOffset } from './transcript-parser';
 import {
   applyTwoPartEffect,
   buildTwoPartRow,
@@ -223,7 +223,7 @@ test('planner: parts have no effect at their own position; effects sit at decisi
       ['part:user', 'legacy:2', 'part:assistant', 'effect:pair']);
     const pair = steps[3] as Extract<TwoPartStep, { kind: 'effect' }>;
     assert.deepEqual(pair.effect.turns.map(t => t.text), ['first question', 'first answer']);
-    assert.equal(pair.effect.identity, 'ag-8');
+    assert.equal(pair.effect.identity, 'two-part:ag-8');
     // Offsets are strictly increasing, so the cursor only moves forward.
     const offsets = steps.filter(s => s.kind !== 'legacy').map(s => s.kind === 'effect' ? s.effect.offset : (s as any).offset);
     assert.deepEqual([...offsets].sort((a, b) => a - b), offsets);
@@ -237,14 +237,14 @@ test('planner: reply-absent and late reply each get one effect with distinct ide
     decideTimedOutTwoPartExchanges({ capturePath: f.capturePath, ingressLockPath: f.ingressLockPath, nowMs: T0 + 7 * HOUR, timeoutMs: HOUR });
     part(f, 'assistant', 'ag-9', 'here now', T0 + 8 * HOUR);
     const effects = planAll(f.capturePath).filter((s): s is Extract<TwoPartStep, { kind: 'effect' }> => s.kind === 'effect');
-    assert.deepEqual(effects.map(e => [e.effect.outcome, e.effect.identity]), [['reply-absent', 'ag-9'], ['late-reply', 'ag-9-late']]);
+    assert.deepEqual(effects.map(e => [e.effect.outcome, e.effect.identity]), [['reply-absent', 'two-part:ag-9'], ['late-reply', 'two-part-late:ag-9']]);
     const absent = buildTwoPartRow(effects[0].effect);
     assert.ok(absent.tags.includes('reply-absent'));
     assert.match(absent.content, /hello\?/);
     assert.doesNotMatch(absent.content, /here now/);
     const late = buildTwoPartRow(effects[1].effect);
     assert.ok(late.tags.includes('late-reply') && late.tags.includes('reply-to:ag-9'));
-    assert.equal(late.identityTag, 'capture-id:ag-9-late');
+    assert.equal(late.identityTag, 'two-part-late:ag-9');
   } finally { f.cleanup(); }
 });
 
@@ -285,7 +285,7 @@ test('fault windows: replay after a crash at any point inserts each row exactly 
         await applyTwoPartEffect(effect, store);
       }
       assert.deepEqual(rows.map(r => r.identityTag).sort(),
-        ['capture-id:ag-11', 'capture-id:ag-12', 'capture-id:ag-12-late']);
+        ['two-part-late:ag-12', 'two-part:ag-11', 'two-part:ag-12']);
     }
     // A full second replay from zero inserts nothing.
     const { rows, store } = memoryStore();
@@ -341,4 +341,129 @@ test('intake refuses while disabled and while live episode mode is on', () => {
     assert.equal(twoPartIntakeRefusal({ CANONICAL_TWO_PART_EXCHANGES: 'on' }, sentinel), 'live-mode');
     assert.equal(twoPartIntakeRefusal({}, sentinel), 'disabled');
   } finally { f.cleanup(); }
+});
+
+function rawDecision(id: string, outcome: 'pair' | 'reply-absent'): string {
+  return [
+    '---TURN-START---', 'RECORD: exchange-resolved', 'SOURCE: antigravity', `TIME: ${new Date(T0).toISOString()}`,
+    `CAPTURE-ID: ${id}`, `OUTCOME: ${outcome}`, 'CHARLEN: 0', '---', '', '---TURN-END---', '',
+  ].join('\n');
+}
+
+async function projectAll(capturePath: string) {
+  const effects = planAll(capturePath).filter((s): s is Extract<TwoPartStep, { kind: 'effect' }> => s.kind === 'effect').map(s => s.effect);
+  const { rows, store } = memoryStore();
+  const inserted: boolean[] = [];
+  for (const e of effects) inserted.push(await applyTwoPartEffect(e, store));
+  return { effects, rows, inserted };
+}
+
+test('A2-ID: a late reply and an exchange whose id ends in -late never share a row identity, in either order', async () => {
+  for (const order of ['late-first', 'late-second'] as const) {
+    const f = fixture();
+    try {
+      const probeLate = () => { part(f, 'user', 'probe-late', 'question 2'); part(f, 'assistant', 'probe-late', 'reply 2', T0 + 1000); };
+      if (order === 'late-first') probeLate();
+      part(f, 'user', 'probe', 'question 1');
+      decideTimedOutTwoPartExchanges({ capturePath: f.capturePath, ingressLockPath: f.ingressLockPath, nowMs: T0 + 7 * HOUR, timeoutMs: HOUR });
+      part(f, 'assistant', 'probe', 'late reply 1', T0 + 8 * HOUR);
+      if (order === 'late-second') probeLate();
+      const { rows, inserted } = await projectAll(f.capturePath);
+      assert.deepEqual(inserted, [true, true, true], order);
+      assert.equal(new Set(rows.map(r => r.identityTag)).size, 3);
+      const all = rows.map(r => r.content).join('\n');
+      for (const text of ['question 1', 'late reply 1', 'question 2', 'reply 2']) assert.ok(all.includes(text), `${order}: ${text}`);
+    } finally { f.cleanup(); }
+  }
+});
+
+test('A2-ID: two-part identities live outside the atomic capture-id namespace', async () => {
+  const f = fixture();
+  try {
+    // An atomic neighbour whose id equals what the old scheme derived for a late reply.
+    appendCanonicalConversationExchange({
+      source: 'claude-code', turnId: 'probe-late', userText: 'atomic u', assistantText: 'atomic a',
+      capturePath: f.capturePath, ingressLockPath: f.ingressLockPath,
+    });
+    part(f, 'user', 'probe', 'q');
+    decideTimedOutTwoPartExchanges({ capturePath: f.capturePath, ingressLockPath: f.ingressLockPath, nowMs: T0 + 7 * HOUR, timeoutMs: HOUR });
+    part(f, 'assistant', 'probe', 'late', T0 + 8 * HOUR);
+    const { rows } = await projectAll(f.capturePath);
+    assert.equal(rows.length, 2);
+    for (const row of rows) {
+      assert.ok(!row.identityTag.startsWith('capture-id:'), row.identityTag);
+      assert.ok(!row.tags.some(tag => tag.startsWith('capture-id:')), row.tags.join(','));
+      assert.ok(row.tags.includes('exchange-id:probe'));
+    }
+  } finally { f.cleanup(); }
+});
+
+/** A real pair append, then the file cut at `cut(assistantOffset, fullSize)`. */
+function tornFixture(cut: (assistantOffset: number, full: number) => number) {
+  const f = fixture();
+  part(f, 'user', 'torn', 'question');
+  part(f, 'assistant', 'torn', 'answer', T0 + 1000);
+  const assistantOffset = indexTwoPartExchanges(f.capturePath).get('torn')!.assistantOffset!;
+  truncateSync(f.capturePath, cut(assistantOffset, statSync(f.capturePath).size));
+  return f;
+}
+
+test('A2-REC: an assistant part cut off from its decision fails closed, then an identical retry repairs it', async () => {
+  const f = tornFixture(a => a);
+  try {
+    const entry = indexTwoPartExchanges(f.capturePath).get('torn')!;
+    assert.ok(entry.assistant && !entry.decision);
+    assert.throws(() => planAll(f.capturePath), /torn write/);
+    assert.throws(() => part(f, 'assistant', 'torn', 'different'), /different assistant part/);
+    const repaired = part(f, 'assistant', 'torn', 'answer', T0 + 2000);
+    assert.deepEqual([repaired.appended, repaired.decision, repaired.late], [true, 'pair', false]);
+    const { rows } = await projectAll(f.capturePath);
+    assert.equal(rows.length, 1);
+    assert.match(rows[0].content, /question[\s\S]*answer/);
+    // The repair happened once; a further retry is a no-op.
+    assert.equal(part(f, 'assistant', 'torn', 'answer', T0 + 3000).appended, false);
+    assert.equal(parseChatCaptureFromOffset(f.capturePath, 0).records.length, 1);
+  } finally { f.cleanup(); }
+});
+
+test('A2-REC: the sweep repairs a torn assistant as pair, never as reply-absent', () => {
+  const f = tornFixture(a => a);
+  try {
+    assert.deepEqual(decideTimedOutTwoPartExchanges({ capturePath: f.capturePath, ingressLockPath: f.ingressLockPath, nowMs: T0 + 9 * HOUR, timeoutMs: HOUR }), []);
+    const records = parseChatCaptureFromOffset(f.capturePath, 0).records;
+    assert.deepEqual(records.map(r => [r.captureId, r.outcome]), [['torn', 'pair']]);
+    assert.equal(planAll(f.capturePath).filter(s => s.kind === 'effect').length, 1);
+  } finally { f.cleanup(); }
+});
+
+test('A2-REC: a cut inside the decision block refuses every append and blocks projection', () => {
+  const f = tornFixture((a, full) => a + Math.floor((full - a) / 2));
+  try {
+    const bytes = readFileSync(f.capturePath);
+    assert.throws(() => part(f, 'user', 'other', 'q'), /incomplete trailing block/);
+    assert.throws(() => part(f, 'assistant', 'torn', 'answer'), /incomplete trailing block/);
+    assert.throws(() => decideTimedOutTwoPartExchanges({ capturePath: f.capturePath, ingressLockPath: f.ingressLockPath, nowMs: T0 + 9 * HOUR, timeoutMs: HOUR }), /incomplete trailing block/);
+    assert.deepEqual(readFileSync(f.capturePath), bytes);
+    assert.throws(() => planAll(f.capturePath), /torn write/);
+  } finally { f.cleanup(); }
+});
+
+test('A2-REC: decision records out of order are refused by the index', () => {
+  const f = tornFixture(a => a);
+  try {
+    // reply-absent recorded after the reply already exists.
+    appendFileSync(f.capturePath, rawDecision('torn', 'reply-absent'));
+    assert.throws(() => indexTwoPartExchanges(f.capturePath), /follows its reply/);
+  } finally { f.cleanup(); }
+  const g = fixture();
+  try {
+    appendFileSync(g.capturePath, rawDecision('early', 'reply-absent'));
+    // The user part it decides, written after it, directly: intake itself
+    // refuses to append to a log in this state.
+    appendChatCaptureEntriesAtomic([{ turn: {
+      speaker: 'David', text: 'q', captureId: 'early', source: 'antigravity', exchangePart: 'user', occurredAt: OCCURRED,
+    } }], g.capturePath);
+    assert.throws(() => indexTwoPartExchanges(g.capturePath), /precedes its user part/);
+    assert.throws(() => part(g, 'user', 'other', 'q'), /precedes its user part/);
+  } finally { g.cleanup(); }
 });

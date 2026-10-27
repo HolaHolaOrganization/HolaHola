@@ -2634,9 +2634,16 @@ async function checkChatCapture(): Promise<void> {
       // The decision is recorded in the log before any effect. The ingress
       // lock is held, so no part can be appended while the sweep decides.
       lastTwoPartSweepMs = Date.now();
-      const decided = decideTimedOutTwoPartExchangesLocked(CHAT_CAPTURE_PATH, Date.now(), twoPartReplyTimeoutMs());
-      if (decided.length > 0) {
-        console.log(`[AgentAutosave] Two-part exchanges recorded as reply-absent: ${decided.length}`);
+      try {
+        const decided = decideTimedOutTwoPartExchangesLocked(CHAT_CAPTURE_PATH, Date.now(), twoPartReplyTimeoutMs());
+        if (decided.length > 0) {
+          console.log(`[AgentAutosave] Two-part exchanges recorded as reply-absent: ${decided.length}`);
+        }
+      } catch (err: any) {
+        // An incomplete tail may be a writer mid-append: decide nothing this
+        // round. Projection below still stops at the last complete block.
+        if (!String(err?.message).includes('incomplete trailing block')) throw err;
+        console.warn('[AgentAutosave] Two-part sweep skipped: capture log tail is incomplete');
       }
     }
 

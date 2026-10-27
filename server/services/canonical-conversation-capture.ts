@@ -442,10 +442,34 @@ export function twoPartReplyTimeoutMs(env: NodeJS.ProcessEnv = process.env): num
 export interface TwoPartIndexEntry {
   source: ChatCaptureSource;
   user?: DialogueTurn;
+  /** Byte offset just after the user part. */
+  userOffset?: number;
   assistant?: DialogueTurn;
   /** Byte offset just after the assistant part, if present. */
   assistantOffset?: number;
   decision?: ExchangeDecisionRecord;
+}
+
+/**
+ * An assistant part with no decision record cannot be produced by a complete
+ * write (the part and its pair decision are one append), so it is a torn
+ * write. It is never projected; it is repaired by recording the only outcome
+ * its presence allows, `pair`, once the log tail is complete.
+ */
+export function isTornTwoPartAssistant(entry: TwoPartIndexEntry): boolean {
+  return Boolean(entry.assistant && !entry.decision);
+}
+
+/**
+ * Refuse to append after an incomplete trailing block: bytes written after a
+ * torn block would merge into it. A concurrent writer mid-append looks the
+ * same, so the caller retries; a crash leftover needs repair.
+ */
+function assertCompleteCaptureTail(capturePath: string, consumedOffset: number): void {
+  const size = existsSync(capturePath) ? statSync(capturePath).size : 0;
+  if (consumedOffset !== size) {
+    throw new Error('canonical conversation capture log has an incomplete trailing block; ingress is busy or needs repair; retry the same turnId');
+  }
 }
 
 /**
@@ -465,7 +489,9 @@ export function indexTwoPartExchanges(capturePath: string = CHAT_CAPTURE_PATH): 
     if (entry.source !== turn.source) throw new Error(`two-part exchange ${turn.captureId} mixes sources`);
     if (turn.exchangePart === 'user') {
       if (entry.user) throw new Error(`two-part exchange ${turn.captureId} has two user parts`);
+      if (entry.assistant) throw new Error(`two-part exchange ${turn.captureId} has its assistant part before its user part`);
       entry.user = turn;
+      entry.userOffset = parsed.turnByteOffsets[i];
     } else {
       if (entry.assistant) throw new Error(`two-part exchange ${turn.captureId} has two assistant parts`);
       entry.assistant = turn;
@@ -478,6 +504,17 @@ export function indexTwoPartExchanges(capturePath: string = CHAT_CAPTURE_PATH): 
     if (!entry?.user) throw new Error(`decision for ${record.captureId} has no user part`);
     if (entry.decision) throw new Error(`two-part exchange ${record.captureId} has more than one decision`);
     if (record.source !== entry.source) throw new Error(`decision for ${record.captureId} has a different source`);
+    if (entry.userOffset === undefined || record.byteOffsetAfter <= entry.userOffset) {
+      throw new Error(`decision for ${record.captureId} precedes its user part`);
+    }
+    if (record.outcome === 'pair' &&
+        (entry.assistantOffset === undefined || entry.assistantOffset >= record.byteOffsetAfter)) {
+      throw new Error(`pair decision for ${record.captureId} is not preceded by its assistant part`);
+    }
+    if (record.outcome === 'reply-absent' &&
+        entry.assistantOffset !== undefined && entry.assistantOffset < record.byteOffsetAfter) {
+      throw new Error(`reply-absent decision for ${record.captureId} follows its reply`);
+    }
     entry.decision = record;
   }
   for (const id of atomicIds) {
@@ -545,6 +582,7 @@ export function appendCanonicalTwoPartExchange(input: CanonicalTwoPartInput): Ca
   if (lockFd === -1) throw new Error('canonical conversation ingress is busy; retry the same turnId');
   try {
     const parsed = parseChatCaptureFromOffset(capturePath, 0);
+    assertCompleteCaptureTail(capturePath, parsed.newByteOffset);
     if (parsed.turns.some(turn => turn.captureId === turnId && !turn.exchangePart)) {
       throw new Error(`canonical conversation turn ${turnId} belongs to an atomic pair; a two-part exchange cannot reuse it`);
     }
@@ -573,6 +611,13 @@ export function appendCanonicalTwoPartExchange(input: CanonicalTwoPartInput): Ca
     if (entry.assistant) {
       if (entry.assistant.text !== text) {
         throw new Error(`canonical conversation turn ${turnId} already has a different assistant part`);
+      }
+      if (isTornTwoPartAssistant(entry)) {
+        // The identical retry completes the torn write with its pair decision.
+        appendChatCaptureEntriesAtomic([{ decision: {
+          captureId: turnId, outcome: 'pair', source: input.source, decidedAt: new Date(nowMs).toISOString(),
+        } }], capturePath);
+        return { turnId, part: 'assistant', appended: true, decision: 'pair', late: false, targetByteOffset: size() };
       }
       return {
         turnId, part: 'assistant', appended: false, decision: entry.decision?.outcome ?? null,
@@ -606,16 +651,24 @@ export function appendCanonicalTwoPartExchange(input: CanonicalTwoPartInput): Ca
  * wrapper below). Returns the ids decided.
  */
 export function decideTimedOutTwoPartExchangesLocked(capturePath: string, nowMs: number, timeoutMs: number): string[] {
+  if (!existsSync(capturePath)) return [];
+  assertCompleteCaptureTail(capturePath, parseChatCaptureFromOffset(capturePath, 0).newByteOffset);
   const due: Array<{ captureId: string; source: ChatCaptureSource }> = [];
+  const torn: Array<{ captureId: string; source: ChatCaptureSource }> = [];
   for (const [captureId, entry] of indexTwoPartExchanges(capturePath)) {
+    if (isTornTwoPartAssistant(entry)) { torn.push({ captureId, source: entry.source }); continue; }
     if (!entry.user || entry.assistant || entry.decision) continue;
     const receivedMs = Date.parse(entry.user.receivedAt ?? '');
     if (!Number.isFinite(receivedMs)) throw new Error(`two-part user part ${captureId} has no valid receipt time`);
     if (nowMs - receivedMs >= timeoutMs) due.push({ captureId, source: entry.source });
   }
-  if (due.length > 0) {
+  if (due.length > 0 || torn.length > 0) {
     const decidedAt = new Date(nowMs).toISOString();
-    appendChatCaptureEntriesAtomic(due.map(d => ({ decision: { ...d, outcome: 'reply-absent' as const, decidedAt } })), capturePath);
+    appendChatCaptureEntriesAtomic([
+      // A torn assistant part can only be completed as a pair.
+      ...torn.map(d => ({ decision: { ...d, outcome: 'pair' as const, decidedAt } })),
+      ...due.map(d => ({ decision: { ...d, outcome: 'reply-absent' as const, decidedAt } })),
+    ], capturePath);
   }
   return due.map(d => d.captureId);
 }

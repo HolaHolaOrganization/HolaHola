@@ -37911,7 +37911,7 @@ Under 250 words. Write as yourself.`;
           result = appendCanonicalTwoPartExchange({ source, part, turnId, text, occurredAt });
         } catch (e: any) {
           const message: string = e.message ?? '';
-          const status = message.includes('busy') ? 409
+          const status = message.includes('busy') || message.includes('incomplete trailing block') ? 409
             : /already|belongs to|cannot come first|no user part/.test(message) ? 409
             : /occurredAt|must contain|non-empty/.test(message) ? 400 : 500;
           console.error('[CanonicalConversation] Two-part intake refused:', message);

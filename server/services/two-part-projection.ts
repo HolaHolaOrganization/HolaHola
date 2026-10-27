@@ -26,7 +26,12 @@ export type TwoPartOutcome = 'pair' | 'reply-absent' | 'late-reply';
 export interface TwoPartEffect {
   outcome: TwoPartOutcome;
   captureId: string;
-  /** DB identity: the exchange id, or `<id>-late` for a late reply. */
+  /**
+   * DB identity tag, in namespaces of their own: `two-part:<id>` for the
+   * exchange and `two-part-late:<id>` for a late reply. Ids contain no colon,
+   * so neither can collide with each other, with another exchange's id, or
+   * with an atomic row's `capture-id:<id>`.
+   */
   identity: string;
   turns: DialogueTurn[];
   /** Byte offset just after the block that triggers this effect. */
@@ -64,12 +69,12 @@ export function planNextTwoPartStep(
         throw new Error(`two-part pair decision ${record.captureId} is not preceded by its assistant part`);
       }
       return { kind: 'effect', effect: {
-        outcome: 'pair', captureId: record.captureId, identity: record.captureId,
+        outcome: 'pair', captureId: record.captureId, identity: `two-part:${record.captureId}`,
         turns: [entry.user, entry.assistant], offset: record.byteOffsetAfter,
       } };
     }
     return { kind: 'effect', effect: {
-      outcome: 'reply-absent', captureId: record.captureId, identity: record.captureId,
+      outcome: 'reply-absent', captureId: record.captureId, identity: `two-part:${record.captureId}`,
       turns: [entry.user], offset: record.byteOffsetAfter,
     } };
   }
@@ -79,10 +84,14 @@ export function planNextTwoPartStep(
     if (!head.captureId) throw new Error('two-part exchange part has no capture id');
     const entry = requireEntry(index, head.captureId);
     const decision = entry.decision;
+    if (head.exchangePart === 'assistant' && !decision) {
+      // Fail closed before any effect or cursor progress: see isTornTwoPartAssistant.
+      throw new Error(`two-part assistant part ${head.captureId} has no decision record (torn write); it must be repaired before projection continues`);
+    }
     if (head.exchangePart === 'assistant' && decision?.outcome === 'reply-absent' &&
         decision.byteOffsetAfter < offsets[0]) {
       return { kind: 'effect', effect: {
-        outcome: 'late-reply', captureId: head.captureId, identity: `${head.captureId}-late`,
+        outcome: 'late-reply', captureId: head.captureId, identity: `two-part-late:${head.captureId}`,
         turns: [head], offset: offsets[0],
       } };
     }
@@ -112,10 +121,10 @@ export interface TwoPartRow {
 /** Build the conversation_memories row for an effect. Never truncates. */
 export function buildTwoPartRow(effect: TwoPartEffect, now: Date = new Date()): TwoPartRow {
   const source = effect.turns[0].source ?? 'legacy';
-  const identityTag = `capture-id:${effect.identity}`;
+  const identityTag = effect.identity;
   const tags = [
     'david-luca-chat', 'canonical-conversation', 'verbatim', 'per-turn', 'chat-capture',
-    `source-${source}`, identityTag, 'two-part-exchange',
+    `source-${source}`, identityTag, `exchange-id:${effect.captureId}`, 'two-part-exchange',
     ...(effect.outcome === 'reply-absent' ? ['reply-absent'] : []),
     ...(effect.outcome === 'late-reply' ? ['late-reply', `reply-to:${effect.captureId}`] : []),
   ];
