@@ -7,13 +7,23 @@ const COORDINATION_RESULT_TOOLS = new Set([
   "list_coordination_inbox",
   "read_coordination_message",
 ]);
-const COMPLETE_RESULT_TOOLS = new Set([...COORDINATION_RESULT_TOOLS, "read_shared_spec_review"]);
+// Conversation memory discovery and content chunks are bounded by their
+// builders (alden-memory-read.ts), so they are delivered whole, never cut.
+const MEMORY_RESULT_TOOLS = new Set([
+  "read_conversation_memories",
+  "read_conversation_memory_content",
+]);
+const COMPLETE_RESULT_TOOLS = new Set([
+  ...COORDINATION_RESULT_TOOLS, ...MEMORY_RESULT_TOOLS, "read_shared_spec_review",
+]);
 
 export function serializeAldenToolResult(name: string, data: unknown): string {
   const result = JSON.stringify(data);
   if (COMPLETE_RESULT_TOOLS.has(name)) {
     if (result.length > ALDEN_TOOL_RESULT_LIMIT) {
-      throw new Error(`${COORDINATION_RESULT_TOOLS.has(name) ? "coordination" : "review_source"}_tool_result_too_large: no content or paging token was delivered`);
+      const kind = COORDINATION_RESULT_TOOLS.has(name) ? "coordination"
+        : MEMORY_RESULT_TOOLS.has(name) ? "memory" : "review_source";
+      throw new Error(`${kind}_tool_result_too_large: no content or paging token was delivered`);
     }
     return result;
   }
@@ -34,6 +44,13 @@ export function truncatedResultNotice(totalChars: number): string {
 
 export function isCompleteAldenResultTool(name: string): boolean {
   return COMPLETE_RESULT_TOOLS.has(name);
+}
+
+/** The watch worker's tool_result content: whole for bounded tools, else a 3000-char cut. */
+export function aldenWatchToolResultContent(name: string, toolOutput: any): string {
+  return isCompleteAldenResultTool(name)
+    ? serializeAldenToolResult(name, toolOutput?.data ?? toolOutput)
+    : JSON.stringify(toolOutput).substring(0, 3000);
 }
 
 // Evidence for the authenticated priority-task caller, not model-authored

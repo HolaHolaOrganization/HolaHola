@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { listAldenCoordinationInbox, readAldenCoordinationMessage } from "../services/alden-coordination-read";
-import { aldenCoordinationReadReceipt, serializeAldenToolResult, ALDEN_TOOL_RESULT_LIMIT } from "../services/alden-tool-result";
+import { aldenCoordinationReadReceipt, aldenWatchToolResultContent, serializeAldenToolResult, ALDEN_TOOL_RESULT_LIMIT } from "../services/alden-tool-result";
 import type { listCoordinationInbox } from "../services/coordination-inbox-service";
 import type { getCoordinationThread } from "../services/coordination-ledger-service";
 
@@ -208,8 +208,13 @@ test("both provider loops and the background worker use the non-slicing coordina
   assert.match(persona, /aldenCoordinationReadReceipt\(tu.name, toolResult.data,/);
   assert.match(persona, /aldenCoordinationReadReceipt\(toolName, toolResult.data, toolArgs\)/);
   const worker = readFileSync("server/services/alden-watch-worker.ts", "utf8");
-  assert.match(worker, /isCompleteAldenResultTool\(block.name\)/);
-  assert.match(worker, /serializeAldenToolResult\(block.name, toolOutput.data \?\? toolOutput\)/);
+  assert.match(worker, /aldenWatchToolResultContent\(block.name, toolOutput\)/);
+  // The worker's helper delivers coordination results whole, never sliced.
+  const message = { content: "x".repeat(5_000) };
+  for (const name of ["read_coordination_message", "list_coordination_inbox"]) {
+    assert.equal(aldenWatchToolResultContent(name, { data: message }), JSON.stringify(message));
+  }
+  assert.equal(aldenWatchToolResultContent("some_other_tool", { data: message }).length, 3000);
   const dispatch = readFileSync("server/services/alden-functions.ts", "utf8");
   assert.match(dispatch, /name: "read_coordination_message"/);
   assert.match(dispatch, /readAldenCoordinationMessage\(args, getCoordinationThread\)/);

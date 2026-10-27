@@ -16,7 +16,7 @@ import { getUserDb } from "../db";
 import { aldenNotifications, aiCostLogs, aldenWatchConfig, voiceSessions } from "@shared/schema";
 import { sql as drizzleSql, eq, desc, and, gte, isNotNull } from "drizzle-orm";
 import { executeAldenTool, toAnthropicAldenTools } from "./alden-functions";
-import { isCompleteAldenResultTool, serializeAldenToolResult } from "./alden-tool-result";
+import { aldenWatchToolResultContent } from "./alden-tool-result";
 import {
   captureSnapshot,
   detectAnomalies,
@@ -528,9 +528,7 @@ Respond with NOTHING or a single line in SEVERITY:FINGERPRINT:Message format:`,
           toolResults.push({
             type: 'tool_result',
             tool_use_id: block.id,
-            content: isCompleteAldenResultTool(block.name)
-              ? serializeAldenToolResult(block.name, toolOutput.data ?? toolOutput)
-              : JSON.stringify(toolOutput).substring(0, 3000),
+            content: aldenWatchToolResultContent(block.name, toolOutput),
           });
         } catch (e: any) {
           toolResults.push({
