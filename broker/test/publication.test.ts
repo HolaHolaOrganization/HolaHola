@@ -61,6 +61,8 @@ class FakeGit {
   pulls = new Map<number, { number: number; state: string; head: { sha: string; ref: string; repo: { id: number } }; base: { ref: string; repo: { id: number } }; user: { login: string } }>();
   /** Applies the next mutation, then answers 502 (an unknown result). */
   failAfterApply = false;
+  /** Answers the next tree POST with 502 WITHOUT creating anything. */
+  failTreeBeforeApply = false;
   graphqlErrors = false;
   /** Rewrites a commit response before it is returned (postcondition tests). */
   commitResponse: (r: Record<string, unknown>) => Record<string, unknown> = (r) => r;
@@ -95,6 +97,7 @@ class FakeGit {
       return this.applied(201, { sha });
     }
     if (pathname === `${base}/git/trees` && method === 'POST') {
+      if (this.failTreeBeforeApply) { this.failTreeBeforeApply = false; return this.json(502, { message: 'upstream' }); }
       const sha = fakeTreeSha(body.base_tree, body.tree);
       this.objects.set(sha, { type: 'Tree', byteSize: null });
       return this.applied(201, { sha });
@@ -168,14 +171,17 @@ function request(h: Harness, operation: Envelope['operation'], payload: unknown,
 type Result = { status: number; body: Record<string, any> };
 
 /** Signs, authorizes and executes; returns the result plus the exact signed body for a later replay. */
-async function run(h: Harness, operation: Envelope['operation'], payload: unknown, operationId = nextId()): Promise<Result & { operationId: string; replay: () => Promise<Result> }> {
-  const body = request(h, operation, payload, operationId);
-  const decision = await decide(body, (actor) => (actor === 'luca-claude-code' ? h.loader : undefined), () => h.clock.now);
-  if (decision.decision !== 'allow') return { status: 403, body: decision as unknown as Record<string, unknown>, operationId, replay: async () => { throw new Error('denied'); } };
+async function run(h: Harness, operation: Envelope['operation'], payload: unknown, operationId = nextId()): Promise<Result & { operationId: string; signed: unknown; replay: () => Promise<Result> }> {
+  const signed = request(h, operation, payload, operationId);
+  const decision = await decide(signed, (actor) => (actor === 'luca-claude-code' ? h.loader : undefined), () => h.clock.now);
+  if (decision.decision !== 'allow') return { status: 403, body: decision as unknown as Record<string, unknown>, operationId, signed, replay: async () => { throw new Error('denied'); } };
   const { envelope, digest, payload: p, policy } = decision.authorized;
-  const replay = async () => await h.gateway.execute(body, envelope, digest, p, policy.epoch) as Result;
-  return { ...(await replay()), operationId, replay };
+  const replay = async () => await h.gateway.execute(signed, envelope, digest, p, policy.epoch) as Result;
+  return { ...(await replay()), operationId, signed, replay };
 }
+
+/** A fresh, separately signed status request carrying the exact original. */
+const status = (h: Harness, original: unknown) => run(h, 'status', { original });
 
 function blob(text: string) {
   const bytes = Buffer.from(text, 'utf8');
@@ -322,6 +328,48 @@ describe('publication: tree.create', () => {
     assert.equal(deletion.body.status, 'succeeded', 'a deletion references no blob');
   });
 
+  // luca-replit PR #124 review, B-TREE: existence of the caller-named tree is not proof.
+  test('an uncertain tree.create is never settled by an unrelated tree at expectedTreeSha, through a real status request', async () => {
+    const h = harness();
+    h.git.refs.set('lcc/feature', BASE);
+    const unrelated = '9'.repeat(40);
+    h.git.objects.set(unrelated, { type: 'Tree', byteSize: null });
+    const b = blob('a different documentation patch\n');
+    await run(h, 'blob.put', b);
+    h.git.failTreeBeforeApply = true;
+    const tree = await run(h, 'tree.create', { parentCommitSha: BASE, baseTreeSha: BASE_TREE, entries: [{ path: 'docs/patch.md', mode: '100644', blobSha: b.blobSha }], expectedTreeSha: unrelated });
+    assert.equal(tree.body.decision, 'uncertain');
+    h.clock.now += EXECUTION_DEADLINE_MS;
+    const settled = await status(h, tree.signed);
+    assert.equal(settled.body.decision, 'uncertain', 'the unrelated tree is not evidence');
+    assert.equal(h.ledger.file(outcomePath('luca-claude-code', tree.operationId)), null);
+    const commit = await run(h, 'commit.create', { treeOperationId: tree.operationId, treeSha: unrelated, parentCommitSha: BASE, message: 'm', target: { pr: null, branch: 'lcc/feature' }, origin: null });
+    assert.deepEqual(commit.body.result, { reason: 'tree_not_recorded' });
+    assert.equal(h.git.count('POST', '/git/commits'), 0);
+    assert.equal(h.git.refs.get('lcc/feature'), BASE, 'nothing was published');
+  });
+
+  test('control: a tree that WAS created behind an unknown result also stays uncertain; a fresh attempt proves it and publishes', async () => {
+    const h = harness();
+    h.git.refs.set('lcc/feature', BASE);
+    const b = blob('real patch\n');
+    await run(h, 'blob.put', b);
+    const entries: Entry[] = [{ path: 'docs/patch.md', mode: '100644', blobSha: b.blobSha }];
+    const treeSha = fakeTreeSha(BASE_TREE, asTree(entries));
+    h.git.failAfterApply = true;
+    const lost = await run(h, 'tree.create', { parentCommitSha: BASE, baseTreeSha: BASE_TREE, entries, expectedTreeSha: treeSha });
+    assert.equal(lost.body.decision, 'uncertain');
+    h.clock.now += EXECUTION_DEADLINE_MS;
+    assert.equal((await status(h, lost.signed)).body.decision, 'uncertain', 'never settled, even when the tree exists');
+    const fresh = await run(h, 'tree.create', { parentCommitSha: BASE, baseTreeSha: BASE_TREE, entries, expectedTreeSha: treeSha });
+    assert.equal(fresh.body.status, 'succeeded', 'GitHub returns the same content-addressed sha');
+    const commit = await run(h, 'commit.create', { treeOperationId: fresh.operationId, treeSha, parentCommitSha: BASE, message: 'm', target: { pr: null, branch: 'lcc/feature' }, origin: null });
+    assert.equal(commit.body.status, 'succeeded');
+    const published = await run(h, 'ref.update', { branch: 'lcc/feature', beforeOid: BASE, afterOid: commit.body.result.commitSha, commitOperationId: commit.operationId });
+    assert.equal(published.body.status, 'succeeded');
+    assert.equal(h.git.commits.get(h.git.refs.get('lcc/feature')!)!.tree, treeSha);
+  });
+
   test('a different resulting tree is a definite failure', async () => {
     const h = harness();
     const b = blob('a');
@@ -338,7 +386,16 @@ describe('publication: tree.create', () => {
     for (const path of ['', '/a', 'a/', 'a//b', './a', 'a/./b', '../a', 'a/../b', 'a\0b', '.github/workflows/ci.yml', '.GitHub/Workflows/x.yml']) {
       assert.equal(tree([{ ...ok, path }]), null, JSON.stringify(path));
     }
-    assert.equal(treePath('.github/dependabot.yml'), true, 'only the workflows directory is excluded');
+    // B-WORKFLOW: an entry AT an ancestor replaces (file) or removes (null) every workflow beneath it.
+    for (const path of ['.github', '.GitHub', '.github/workflows', '.github/Workflows', '.GITHUB/WORKFLOWS']) {
+      assert.equal(tree([{ ...ok, path }]), null, `replace ${path}`);
+      assert.equal(tree([{ ...ok, path, blobSha: null }]), null, `delete ${path}`);
+    }
+    for (const path of ['.github/dependabot.yml', '.github/CODEOWNERS', '.githubx', '.github-old/workflows/x.yml', 'docs/.github/workflows/x.yml', '.github/workflowsx']) {
+      assert.ok(tree([{ ...ok, path }]), `control ${path}`);
+      assert.ok(tree([{ ...ok, path, blobSha: null }]), `control delete ${path}`);
+    }
+    assert.equal(treePath('.github/dependabot.yml'), true);
     for (const mode of ['120000', '160000', '040000', '100664']) assert.equal(tree([{ ...ok, mode }]), null, mode);
     assert.equal(tree([ok, ok]), null, 'duplicate path');
     assert.equal(tree([{ ...ok, path: 'docs' }, ok]), null, 'file and directory prefix');
@@ -446,9 +503,10 @@ describe('publication: the recorded-success gates', () => {
     ['an aborted outcome', (operation) => ({ operation, status: 'aborted' })],
     ['another operation\'s success', () => ({ operation: 'blob.put', status: 'succeeded' })],
     ['a claim and outcome with different digests', (operation) => ({ operation, status: 'succeeded', outcomeDigest: 'b'.repeat(64) })],
+    ['a reconciled ("applied") outcome', (operation) => ({ operation, status: 'applied' })],
   ];
 
-  test('commit.create needs a tree.create success: status, operation and claim pairing, not only matching fields', async () => {
+  test('commit.create needs an executed tree.create success: status, operation and claim pairing, not only matching fields', async () => {
     const tree = { treeSha: BASE_TREE, parentCommitSha: BASE, baseTreeSha: BASE_TREE, repositoryId: REPOSITORY_ID };
     const commit = (h: Harness, id: string) => run(h, 'commit.create', { treeOperationId: id, treeSha: BASE_TREE, parentCommitSha: BASE, message: 'm', target: { pr: null, branch: 'lcc/feature' }, origin: null });
     for (const [name, forged] of refused) {
@@ -470,8 +528,7 @@ describe('publication: the recorded-success gates', () => {
       return { h, sha };
     };
     const result = (sha: string) => ({ commitSha: sha, treeSha: BASE_TREE, parentCommitSha: BASE, branch: 'lcc/feature', pr: null, repositoryId: REPOSITORY_ID, originActor: 'luca-claude-code', authorDate: 'd' });
-    const cases: Array<[string, (operation: string) => Forged]> = [...refused, ['a reconciled ("applied") commit', (operation) => ({ operation, status: 'applied' })]];
-    for (const [name, forged] of cases) {
+    for (const [name, forged] of refused) {
       const { h, sha } = setup();
       await forge(h, 'op-forged-commit-001', forged('commit.create'), result(sha));
       const update = await run(h, 'ref.update', { branch: 'lcc/feature', beforeOid: BASE, afterOid: sha, commitOperationId: 'op-forged-commit-001' });

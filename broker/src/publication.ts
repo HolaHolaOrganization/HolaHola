@@ -36,8 +36,20 @@ const OPERATION_ID = /^[A-Za-z0-9_-]{16,128}$/;
 const BRANCH = /^(?!\/)(?!.*\.\.)(?!refs\/)[A-Za-z0-9._/-]{1,200}$/;
 /** RFC 4648 with padding and no whitespace. Round-tripping below also rejects non-zero padding bits. */
 const BASE64_CANONICAL = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
-/** Workflow files are a founder or manual exception (design section 2), never broker publication. */
+/**
+ * Workflow files are a founder or manual exception (design section 2), never
+ * broker publication. An entry AT an ancestor path also counts: replacing
+ * `.github` or `.github/workflows` with a file, or deleting it, removes every
+ * workflow beneath it (luca-replit PR #124 review, B-WORKFLOW). Compared
+ * case-insensitively.
+ */
+const WORKFLOW_ANCESTORS = ['.github', '.github/workflows'];
 const WORKFLOW_DIR = '.github/workflows/';
+
+export function touchesWorkflows(path: string): boolean {
+  const lower = path.toLowerCase();
+  return WORKFLOW_ANCESTORS.includes(lower) || lower.startsWith(WORKFLOW_DIR);
+}
 
 type Payload = Record<string, unknown>;
 
@@ -85,7 +97,7 @@ function treeEntries(value: unknown): TreeEntry[] | null {
     const entry = exact(item, ['path', 'mode', 'blobSha']);
     if (!entry || !treePath(entry.path) || !(FILE_MODES as readonly unknown[]).includes(entry.mode)) return null;
     if (entry.blobSha !== null && !sha(entry.blobSha)) return null;
-    if (entry.path.toLowerCase().startsWith(WORKFLOW_DIR)) return null;
+    if (touchesWorkflows(entry.path)) return null;
     entries.push({ path: entry.path, mode: entry.mode as TreeEntry['mode'], blobSha: entry.blobSha as string | null });
   }
   const paths = entries.map((entry) => entry.path);

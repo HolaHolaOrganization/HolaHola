@@ -57,7 +57,8 @@ Source reaches a branch only through four signed steps, each its own operation u
 2. **`tree.create`:**
    - the base tree must be the parent commit's tree, and every referenced blob must exist;
    - paths must be normalized and unique, with no path that is both a file and a directory prefix of another;
-   - entries are regular files only (`100644` or `100755`), at most 100, and never under `.github/workflows/`;
+   - entries are regular files only (`100644` or `100755`), at most 100, and never `.github`, `.github/workflows` or anything under it (an entry at an ancestor would replace or delete every workflow), compared case-insensitively;
+   - an uncertain tree is **never reconciled**: an object at the caller-named `expectedTreeSha` does not prove it is the tree of the signed base and entries. Recovery is a fresh `tree.create`, and only an executed success (GitHub returned exactly `expectedTreeSha`) can be committed;
    - a result other than `expectedTreeSha` is a recorded failure.
 3. **`commit.create`:**
    - the tree must be this actor's **recorded** `tree.create` success for this repository and parent;

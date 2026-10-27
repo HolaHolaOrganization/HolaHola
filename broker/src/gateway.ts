@@ -145,11 +145,14 @@ function isPublication(operation: Operation): operation is PublicationOperation 
   return (PUBLICATION_OPERATIONS as readonly string[]).includes(operation);
 }
 
-/** A recorded success of `operation`: executed ("succeeded") or, where `allowApplied`, positively reconciled. */
-function recordedSuccess(recorded: Awaited<ReturnType<typeof readRecorded>>, operation: string, allowApplied: boolean): OutcomeRecord | null {
+/**
+ * A recorded, EXECUTED success of `operation`: status "succeeded", written by
+ * the claim winner from GitHub's own response. A reconciled ("applied")
+ * outcome never gates a later publication step.
+ */
+function recordedSuccess(recorded: Awaited<ReturnType<typeof readRecorded>>, operation: string): OutcomeRecord | null {
   if (!recorded || recorded.claim.operation !== operation) return null;
-  const { status } = recorded.outcome;
-  return status === 'succeeded' || (allowApplied && status === 'applied') ? recorded.outcome : null;
+  return recorded.outcome.status === 'succeeded' ? recorded.outcome : null;
 }
 
 export class Gateway {
@@ -409,10 +412,11 @@ export class Gateway {
         return infos.every((info) => info?.type === 'Blob') ? { ok: true } : { ok: false, reason: 'missing_blob' };
       }
       case 'commit.create': {
-        // The tree must be this actor's recorded tree.create success, for this
-        // repository and this parent. Content-addressed, so a reconciled
-        // ("applied") tree counts.
-        const tree = recordedSuccess(await readRecorded(this.config.ledger, actor, payload.treeOperationId as string), 'tree.create', true);
+        // The tree must be this actor's executed tree.create success, for this
+        // repository and this parent: GitHub returned exactly expectedTreeSha
+        // for the signed base and entries. Trees are never reconciled (see
+        // reconcilePublication), and "applied" is never accepted.
+        const tree = recordedSuccess(await readRecorded(this.config.ledger, actor, payload.treeOperationId as string), 'tree.create');
         if (!tree || tree.result.treeSha !== payload.treeSha || tree.result.parentCommitSha !== payload.parentCommitSha
           || tree.result.repositoryId !== this.config.repo.id) return { ok: false, reason: 'tree_not_recorded' };
         const target = payload.target as { pr: number | null; branch: string };
@@ -432,7 +436,7 @@ export class Gateway {
         // Only a commit with a recorded success from this actor's own
         // commit.create, for this repository, this branch and this parent. An
         // uncertain commit has no outcome and can never be published.
-        const commit = recordedSuccess(await readRecorded(this.config.ledger, actor, payload.commitOperationId as string), 'commit.create', false);
+        const commit = recordedSuccess(await readRecorded(this.config.ledger, actor, payload.commitOperationId as string), 'commit.create');
         if (!commit || commit.result.commitSha !== payload.afterOid || commit.result.branch !== payload.branch
           || commit.result.parentCommitSha !== payload.beforeOid || commit.result.repositoryId !== this.config.repo.id) {
           return { ok: false, reason: 'commit_not_recorded' };
@@ -527,10 +531,18 @@ export class Gateway {
   }
 
   /**
-   * Positive-only reconciliation for publication. Blobs and trees are
-   * content-addressed and settle by existence. An uncertain commit.create is
-   * never settled: its sha was never recorded, so it can never be published.
-   * Refs settle only when the live ref equals the claimed afterOid.
+   * Positive-only reconciliation for publication.
+   * - blob.put settles by existence: the blob sha was verified against the
+   *   signed content itself, so an object at that sha IS that content.
+   * - tree.create is never settled (luca-replit PR #124 review, B-TREE): an
+   *   object at the caller-named expectedTreeSha does not prove it is the
+   *   tree of the signed base and entries. Only GitHub's own response to this
+   *   operation's POST proves that. An uncertain tree stays unpublishable;
+   *   recovery is a fresh tree.create under a new operation id, which is
+   *   content-addressed and returns the same sha if it was in fact created.
+   * - commit.create is never settled: its sha was never recorded, so it can
+   *   never be published.
+   * - Refs settle only when the live ref equals the claimed afterOid.
    */
   private async reconcilePublication(operation: PublicationOperation, actor: string, payload: Payload, token: string): ReturnType<Reconciler> {
     const repositoryId = this.config.repo.id;
@@ -540,12 +552,7 @@ export class Gateway {
         return info?.type === 'Blob' && info.byteSize === payload.rawSize
           ? { status: 'applied', result: { blobSha: payload.blobSha as string, presence: 'present', repositoryId } } : { status: 'not_observed' };
       }
-      case 'tree.create': {
-        const [info] = await this.objects(token, [payload.expectedTreeSha as string]);
-        return info?.type === 'Tree'
-          ? { status: 'applied', result: { treeSha: payload.expectedTreeSha as string, parentCommitSha: payload.parentCommitSha as string, baseTreeSha: payload.baseTreeSha as string, repositoryId } }
-          : { status: 'not_observed' };
-      }
+      case 'tree.create':
       case 'commit.create':
         return { status: 'ambiguous' };
       case 'ref.create':
@@ -553,7 +560,7 @@ export class Gateway {
           ? { status: 'applied', result: { branch: payload.branch as string, afterOid: payload.afterOid as string, repositoryId } } : { status: 'not_observed' };
       case 'ref.update': {
         if (await this.refSha(token, payload.branch as string) !== payload.afterOid) return { status: 'not_observed' };
-        const commit = recordedSuccess(await readRecorded(this.config.ledger, actor, payload.commitOperationId as string), 'commit.create', false);
+        const commit = recordedSuccess(await readRecorded(this.config.ledger, actor, payload.commitOperationId as string), 'commit.create');
         return commit ? { status: 'applied', result: this.refUpdateResult(payload, commit) } : { status: 'ambiguous' };
       }
     }
