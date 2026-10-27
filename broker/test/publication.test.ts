@@ -7,7 +7,7 @@ import { createHash, generateKeyPairSync, sign } from 'node:crypto';
 import { describe, test } from 'node:test';
 import { decide } from '../src/authorize.ts';
 import { canonicalJson } from '../src/canonical.ts';
-import { EXECUTION_DEADLINE_MS, type Ledger, outcomePath } from '../src/claims.ts';
+import { claimPath, EXECUTION_DEADLINE_MS, type Ledger, outcomePath } from '../src/claims.ts';
 import { AUDIENCE, type Envelope, payloadDigest, PROTOCOL } from '../src/envelope.ts';
 import { Gateway, validatePayload } from '../src/gateway.ts';
 import { type Fetch, GitHubApi } from '../src/github.ts';
@@ -427,6 +427,66 @@ describe('publication: commit.create', () => {
     assert.deepEqual((await run(h, 'ref.create', { branch: 'lcc/other', afterOid: u, baseRef: 'main' })).body.result, { reason: 'base_moved' });
     assert.equal(h.git.refs.get('lcc/feature'), BASE);
     assert.equal(h.git.refs.get('lcc/other'), undefined);
+  });
+});
+
+describe('publication: the recorded-success gates', () => {
+  type Forged = { operation: string; status: string; outcomeDigest?: string };
+  /** Writes a claim and outcome straight to the ledger, with every result field the gate compares. */
+  async function forge(h: Harness, id: string, f: Forged, result: Record<string, unknown>) {
+    const digest = 'a'.repeat(64);
+    const claim = { actor: 'luca-claude-code', operationId: id, digest, operation: f.operation, pr: null, headSha: null, policyEpoch: 'e'.repeat(40), decision: 'allow', status: 'claimed', claimedAt: NOW };
+    const outcome = { actor: 'luca-claude-code', operationId: id, digest: f.outcomeDigest ?? digest, status: f.status, result, reconciled: false, recordedAt: NOW };
+    const written = await h.ledger.commit(await h.ledger.head(), { [claimPath('luca-claude-code', id)]: `${canonicalJson(claim)}\n`, [outcomePath('luca-claude-code', id)]: `${canonicalJson(outcome)}\n` });
+    assert.ok(written.ok);
+  }
+
+  const refused: Array<[string, (operation: string) => Forged]> = [
+    ['a failed outcome', (operation) => ({ operation, status: 'failed' })],
+    ['an aborted outcome', (operation) => ({ operation, status: 'aborted' })],
+    ['another operation\'s success', () => ({ operation: 'blob.put', status: 'succeeded' })],
+    ['a claim and outcome with different digests', (operation) => ({ operation, status: 'succeeded', outcomeDigest: 'b'.repeat(64) })],
+  ];
+
+  test('commit.create needs a tree.create success: status, operation and claim pairing, not only matching fields', async () => {
+    const tree = { treeSha: BASE_TREE, parentCommitSha: BASE, baseTreeSha: BASE_TREE, repositoryId: REPOSITORY_ID };
+    const commit = (h: Harness, id: string) => run(h, 'commit.create', { treeOperationId: id, treeSha: BASE_TREE, parentCommitSha: BASE, message: 'm', target: { pr: null, branch: 'lcc/feature' }, origin: null });
+    for (const [name, forged] of refused) {
+      const h = harness();
+      await forge(h, 'op-forged-tree-00001', forged('tree.create'), tree);
+      assert.deepEqual((await commit(h, 'op-forged-tree-00001')).body.result, { reason: 'tree_not_recorded' }, name);
+    }
+    const control = harness();
+    await forge(control, 'op-forged-tree-00001', { operation: 'tree.create', status: 'succeeded' }, tree);
+    assert.equal((await commit(control, 'op-forged-tree-00001')).body.status, 'succeeded', 'control: the same fields with a real success pass');
+  });
+
+  test('ref.update needs a commit.create success executed by the broker: status, operation and claim pairing', async () => {
+    const setup = () => {
+      const h = harness();
+      const sha = 'c'.repeat(40);
+      h.git.commits.set(sha, { tree: BASE_TREE, parents: [BASE] });
+      h.git.refs.set('lcc/feature', BASE);
+      return { h, sha };
+    };
+    const result = (sha: string) => ({ commitSha: sha, treeSha: BASE_TREE, parentCommitSha: BASE, branch: 'lcc/feature', pr: null, repositoryId: REPOSITORY_ID, originActor: 'luca-claude-code', authorDate: 'd' });
+    const cases: Array<[string, (operation: string) => Forged]> = [...refused, ['a reconciled ("applied") commit', (operation) => ({ operation, status: 'applied' })]];
+    for (const [name, forged] of cases) {
+      const { h, sha } = setup();
+      await forge(h, 'op-forged-commit-001', forged('commit.create'), result(sha));
+      const update = await run(h, 'ref.update', { branch: 'lcc/feature', beforeOid: BASE, afterOid: sha, commitOperationId: 'op-forged-commit-001' });
+      assert.deepEqual(update.body.result, { reason: 'commit_not_recorded' }, name);
+    }
+    const { h, sha } = setup();
+    await forge(h, 'op-forged-commit-001', { operation: 'commit.create', status: 'succeeded' }, result(sha));
+    const update = await run(h, 'ref.update', { branch: 'lcc/feature', beforeOid: BASE, afterOid: sha, commitOperationId: 'op-forged-commit-001' });
+    assert.equal(update.body.status, 'succeeded', 'control');
+  });
+
+  test('a publication request with an envelope PR or head is malformed', () => {
+    const b = blob('x');
+    assert.equal(validatePayload({ operation: 'blob.put', actor: 'luca-claude-code', pr: 48, headSha: null } as Envelope, b), null);
+    assert.equal(validatePayload({ operation: 'blob.put', actor: 'luca-claude-code', pr: null, headSha: BASE } as Envelope, b), null);
   });
 });
 
