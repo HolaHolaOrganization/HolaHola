@@ -20,10 +20,33 @@ import {
   releaseCursorLock,
   CHAT_CAPTURE_PATH,
   parseChatCaptureFromOffset,
+  type ChatCaptureSource,
   type DialogueTurn,
 } from './transcript-parser';
 
-export type CanonicalConversationSource = 'replit' | 'claude-code';
+export type CanonicalConversationSource = ChatCaptureSource;
+
+/**
+ * The one coordination actor allowed to submit each source. An exchange's
+ * source is bound to the authenticated caller, so no runtime can record
+ * dialogue as another interface.
+ */
+const SOURCE_ACTOR: Record<CanonicalConversationSource, string> = {
+  'replit': 'luca-replit',
+  'claude-code': 'luca-claude-code',
+  'antigravity': 'luca-antigravity',
+};
+
+/** The source an authenticated actor may submit, or null if it may submit none. */
+export function canonicalSourceForActor(actor: string | undefined): CanonicalConversationSource | null {
+  const entry = Object.entries(SOURCE_ACTOR).find(([, a]) => a === actor);
+  return entry ? entry[0] as CanonicalConversationSource : null;
+}
+
+/** Claude Code's assistant side is the bare Claude Code identity; every other source's is Luca. */
+function assistantSpeakerFor(source: CanonicalConversationSource): 'LUCA' | 'CLAUDE_CODE' {
+  return source === 'claude-code' ? 'CLAUDE_CODE' : 'LUCA';
+}
 export type CanonicalConversationSpeaker = 'user' | 'assistant';
 
 export interface CanonicalConversationExchange {
@@ -59,7 +82,7 @@ export function isCompleteCanonicalCaptureBatch(
   const captureId = turns[0].captureId;
   const source = turns[0].source;
   if (!source || turns.some(turn => turn.captureId !== captureId || turn.source !== source)) return false;
-  const assistant = source === 'replit' ? 'LUCA' : 'CLAUDE_CODE';
+  const assistant = assistantSpeakerFor(source);
   return turns.length === 2
     && turns.filter(turn => turn.speaker === 'DAVID').length === 1
     && turns.filter(turn => turn.speaker === assistant).length === 1;
@@ -271,8 +294,14 @@ export function releaseCanonicalConversationIngressLock(fd: number): void {
 // Code" for exactly that reason -- see its doc comment for the full model,
 // including the separate "Luca [Claude Code]" case (Luca authoring through
 // the Claude Code interface) that this function does not produce today.
-function assistantLabel(source: CanonicalConversationSource): 'Luca Replit' | 'Claude Code' {
-  return source === 'replit' ? 'Luca Replit' : 'Claude Code';
+// Antigravity's assistant side is Luca speaking through Antigravity: it is
+// written as speaker "Luca" with SOURCE antigravity and rendered
+// "Luca [Antigravity]". Unlike Replit's turns it carries no four-channel
+// envelope (autosave requires that envelope for Replit Luca turns only).
+function assistantLabel(source: CanonicalConversationSource): 'Luca Replit' | 'Claude Code' | 'Luca' {
+  if (source === 'replit') return 'Luca Replit';
+  if (source === 'claude-code') return 'Claude Code';
+  return 'Luca';
 }
 
 function assertText(name: string, value: string): string {
@@ -316,7 +345,7 @@ export function appendCanonicalConversationExchange(
   try {
     const parsed = parseChatCaptureFromOffset(capturePath, 0);
     const matchingTurns = parsed.turns.filter(turn => turn.captureId === turnId);
-    const expectedAssistant = input.source === 'replit' ? 'LUCA' : 'CLAUDE_CODE';
+    const expectedAssistant = assistantSpeakerFor(input.source);
     for (const turn of matchingTurns) {
       if (turn.source !== input.source) {
         throw new Error(`canonical conversation turn ${turnId} already belongs to a different or legacy source`);

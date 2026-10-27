@@ -69,6 +69,7 @@ import {
   parseAutoCaptureTrigger,
   consumeAutoCaptureTrigger,
   formatChatCaptureSpeakerLabel,
+  requiresFourChannelEnvelope,
 } from './transcript-parser';
 import {
   acquireCanonicalConversationIngressLock,
@@ -2603,9 +2604,7 @@ async function checkChatCapture(): Promise<void> {
     // any DB insert or episode append, and deliberately leave the cursor at its
     // prior boundary so a repaired capture can be retried without loss.
     const incompleteLuca = turns.find(turn =>
-      turn.speaker === 'LUCA' &&
-      turn.source !== 'claude-code' &&
-      !isCanonicalFourChannelLucaTurn(turn.text),
+      requiresFourChannelEnvelope(turn) && !isCanonicalFourChannelLucaTurn(turn.text),
     );
     if (incompleteLuca) {
       throw new Error(

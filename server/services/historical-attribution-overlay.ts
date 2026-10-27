@@ -5,7 +5,7 @@ import { workspaceResolution } from './workspace-root';
 
 type CapturedTurn = {
   speaker: 'DAVID' | 'LUCA' | 'CLAUDE_CODE';
-  source?: 'replit' | 'claude-code';
+  source?: 'replit' | 'claude-code' | 'antigravity';
   captureId?: string;
   text?: string;
 };
@@ -156,7 +156,8 @@ export class HistoricalAttributionOverlay {
       if (turn.speaker === 'CLAUDE_CODE') return 'Claude Code';
       const name = turn.speaker === 'DAVID' ? 'David' : 'Luca';
       return turn.source === 'claude-code' ? `${name} [Claude Code]`
-        : turn.source === 'replit' ? `${name} [Replit]` : name;
+        : turn.source === 'replit' ? `${name} [Replit]`
+        : turn.source === 'antigravity' ? `${name} [Antigravity]` : name;
     };
     const original = sourceTurns.map(turn => `**${originalLabel(turn)}:** ${turn.text}`).join('\n\n');
     const projected = sourceTurns.map(turn =>

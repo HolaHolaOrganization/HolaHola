@@ -37864,18 +37864,21 @@ Under 250 words. Write as yourself.`;
     }
   });
 
-  // Complete, source-attributed exchange intake for both Replit and Claude Code.
+  // Complete, source-attributed exchange intake for Replit, Claude Code and Antigravity.
   // This is intentionally a write-ahead-log endpoint: accepted means "durably
   // pending in .chat_capture", never "already canonical". The response exposes
   // the per-turn receipt that later becomes acknowledged or failed.
   app.post("/api/internal/canonical-conversation-exchange", requireCoordinationAuth, async (req: CoordinationAuthenticatedRequest, res: Response) => {
     try {
-      if (req.coordinationActor !== 'luca-replit' && req.coordinationActor !== 'luca-claude-code') {
-        return res.status(403).json({ error: 'This endpoint requires the luca-replit or luca-claude-code coordination actor' });
+      const { canonicalSourceForActor } = await import('./services/canonical-conversation-capture');
+      const actorSource = canonicalSourceForActor(req.coordinationActor);
+      if (!actorSource) {
+        return res.status(403).json({ error: 'This endpoint requires the luca-replit, luca-claude-code or luca-antigravity coordination actor' });
       }
       const { source, userText, assistantText, turnId } = req.body ?? {};
-      if (source !== 'replit' && source !== 'claude-code') {
-        return res.status(400).json({ error: 'source must be "replit" or "claude-code"' });
+      // Each actor records only its own interface's dialogue.
+      if (source !== actorSource) {
+        return res.status(403).json({ error: `${req.coordinationActor} may only submit source "${actorSource}"` });
       }
       if (typeof userText !== 'string' || !userText.trim() || typeof assistantText !== 'string' || !assistantText.trim()) {
         return res.status(400).json({ error: 'userText and assistantText must both be non-empty strings' });

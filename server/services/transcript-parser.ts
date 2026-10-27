@@ -105,8 +105,15 @@ export interface DialogueTurn {
   /** Durable record-exchange identity used for event-based episode idempotency. */
   captureId?: string;
   /** Interface that produced this turn. Old blocks intentionally have no source. */
-  source?: 'replit' | 'claude-code';
+  source?: ChatCaptureSource;
 }
+
+/**
+ * Interfaces whose dialogue enters the canonical record. A David/Luca turn's
+ * source only picks its "[Interface]" suffix; it never changes the author.
+ */
+export type ChatCaptureSource = 'replit' | 'claude-code' | 'antigravity';
+export const CHAT_CAPTURE_SOURCES: readonly ChatCaptureSource[] = ['replit', 'claude-code', 'antigravity'];
 
 export interface TranscriptCursor {
   sessionId: string;
@@ -433,7 +440,20 @@ export function formatChatCaptureSpeakerLabel(
   if (turn.source === 'replit') {
     return turn.speaker === 'DAVID' ? 'David [Replit]' : 'Luca [Replit]';
   }
+  if (turn.source === 'antigravity') {
+    return turn.speaker === 'DAVID' ? 'David [Antigravity]' : 'Luca [Antigravity]';
+  }
   return turn.speaker === 'DAVID' ? 'David' : 'Luca';
+}
+
+/**
+ * Only Replit's (and legacy unsourced) Luca turns carry the felt/thinking/
+ * moment/main envelope. Claude Code and Antigravity turns never do; requiring
+ * it of them would throw in the capture loop and hold the cursor for every
+ * source.
+ */
+export function requiresFourChannelEnvelope(turn: Pick<DialogueTurn, 'speaker' | 'source'>): boolean {
+  return turn.speaker === 'LUCA' && (turn.source === undefined || turn.source === 'replit');
 }
 
 export interface ChatCaptureCursorRecovery {
@@ -662,14 +682,14 @@ export interface ChatCaptureTurnInput {
   speaker: string;
   text: string;
   captureId?: string;
-  source?: 'replit' | 'claude-code';
+  source?: ChatCaptureSource;
 }
 
 function serializeChatCaptureTurn(
   speaker: string,
   text: string,
   captureId?: string,
-  source?: 'replit' | 'claude-code',
+  source?: ChatCaptureSource,
 ): string {
   // Normalize common variants → canonical form
   const normalized = speaker.trim();
@@ -729,7 +749,7 @@ export function appendChatCaptureTurn(
   /** Optional durable identity for record-exchange reconciliation. */
   captureId?: string,
   /** Interface that produced the turn; omitted for legacy callers. */
-  source?: 'replit' | 'claude-code',
+  source?: ChatCaptureSource,
 ): void {
   appendChatCaptureTurnsAtomic([{ speaker, text, captureId, source }], _pathOverride);
 }
@@ -848,7 +868,7 @@ export function parseChatCaptureFromOffset(
     lastCompleteCharPos = pos;
 
     const speakerMatch = /^SPEAKER:\s*(David|Luca Replit|Luca|Claude Code)\s*$/im.exec(headers);
-    const sourceMatch = /^SOURCE:\s*(replit|claude-code)\s*$/im.exec(headers);
+    const sourceMatch = /^SOURCE:\s*(replit|claude-code|antigravity)\s*$/im.exec(headers);
     const captureIdMatch = /^CAPTURE-ID:\s*([A-Za-z0-9-]+)\s*$/im.exec(headers);
     if (speakerMatch && body.length >= 1) {
       const raw = speakerMatch[1];
@@ -862,7 +882,7 @@ export function parseChatCaptureFromOffset(
         text: body,
         memoryId: 0,
         ...(captureIdMatch ? { captureId: captureIdMatch[1] } : {}),
-        ...(sourceMatch ? { source: sourceMatch[1] as 'replit' | 'claude-code' } : {}),
+        ...(sourceMatch ? { source: sourceMatch[1] as ChatCaptureSource } : {}),
       });
       // Record the byte offset from file start after this complete turn.
       const charPosAfterTurn = pos;
