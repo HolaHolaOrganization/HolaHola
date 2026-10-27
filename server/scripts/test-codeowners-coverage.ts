@@ -5,9 +5,10 @@
  * GitHub's codeowners/errors API proves syntax and owner validity, not that the
  * right paths are covered. This check resolves the effective owner of every
  * tracked file (last matching pattern wins, as GitHub does) and requires:
- *   - the founder is the ONLY owner of EVERY tracked file during the bootstrap
- *     (an additional listed owner could satisfy code-owner review alone), because the
- *     App-key broker runs in the main application process;
+ *   - the founder is the ONLY owner of every tracked file (an additional listed
+ *     owner could satisfy code-owner review alone), because the App-key broker
+ *     runs in the main application process, EXCEPT files under the explicit
+ *     OWNERLESS_PREFIXES, which must have NO owner (founder decision 2026-10-27);
  *   - each named credential/auth/boot boundary below is founder-owned;
  *   - CODEOWNERS uses only the pattern forms this resolver understands, so an
  *     unsupported pattern fails instead of being misread.
@@ -18,6 +19,13 @@ import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 
 export const FOUNDER = '@davidwmcintosh';
+
+/**
+ * Paths that never run inside the App-key process, so an independent agent
+ * approval may stand in for the founder's. Files here must have no owner at
+ * all: never a non-founder owner, never silently founder-owned again.
+ */
+export const OWNERLESS_PREFIXES = ['client/', 'public/', 'attached_assets/'];
 
 /** Boundaries named in review; each must stay founder-owned. */
 export const REQUIRED_BOUNDARIES = [
@@ -94,6 +102,10 @@ export function coverageFailures(text: string, trackedFiles: string[]): string[]
   const failures: string[] = [];
   for (const path of new Set([...trackedFiles, ...REQUIRED_BOUNDARIES])) {
     const owners = ownersOf(rules, path);
+    if (!REQUIRED_BOUNDARIES.includes(path) && OWNERLESS_PREFIXES.some((prefix) => path.startsWith(prefix))) {
+      if (owners.length !== 0) failures.push(`${path} must be ownerless (owners: ${owners.join(' ')})`);
+      continue;
+    }
     // Founder-ONLY: any additional listed owner could satisfy code-owner review alone.
     if (owners.length !== 1 || owners[0] !== FOUNDER) {
       failures.push(`${path} must be owned by ${FOUNDER} alone (owners: ${owners.join(' ') || 'none'})`);
@@ -109,7 +121,7 @@ function selfCheck(text: string, tracked: string[]): string[] {
     if (!failures.some((f) => f.includes(mustMention))) problems.push(`negative case did not fail: ${label}`);
   };
   const withoutCatchAll = text.replace(/^\*\s+@davidwmcintosh\s*$/m, '');
-  expectFailure('catch-all removed (an unlisted file loses its owner)', withoutCatchAll, 'client/');
+  expectFailure('catch-all removed (an unlisted file loses its owner)', withoutCatchAll, 'capacitor.config.ts');
   expectFailure('catch-all and /server/ removed (replitAuth.ts unowned)',
     withoutCatchAll.replace(/^\/server\/\s+@davidwmcintosh\s*$/m, ''), 'server/replitAuth.ts');
   expectFailure('a later rule hands server/db.ts to someone else', `${text}\n/server/db.ts @someone-else\n`, 'server/db.ts');
@@ -120,6 +132,9 @@ function selfCheck(text: string, tracked: string[]): string[] {
     text.replace(/^\*\s+@davidwmcintosh\s*$/m, '* @davidwmcintosh @org/team').replace(/^\/server\/\s+@davidwmcintosh\s*$/m, ''),
     'server/replitAuth.ts');
   expectFailure('an invalid owner token', `${text}\n/server/db.ts @davidwmcintosh not-an-owner\n`, 'invalid owner');
+  expectFailure('an ownerless rule for /server/', `${text}\n/server/\n`, 'server/replitAuth.ts');
+  expectFailure('an ownerless prefix handed to someone else', `${text}\n/client/ @someone-else\n`, 'must be ownerless');
+  expectFailure('an ownerless prefix silently founder-owned again', `${text}\n/public/ @davidwmcintosh\n`, 'must be ownerless');
   return problems;
 }
 
@@ -132,14 +147,15 @@ function main(): void {
     for (const failure of failures.slice(0, 50)) console.error(`  - ${failure}`);
     process.exit(1);
   }
-  console.log(`CODEOWNERS coverage PASS: ${tracked.length} tracked files and ${REQUIRED_BOUNDARIES.length} named boundaries owned by ${FOUNDER}.`);
+  const ownerless = tracked.filter((path) => OWNERLESS_PREFIXES.some((prefix) => path.startsWith(prefix))).length;
+  console.log(`CODEOWNERS coverage PASS: ${tracked.length - ownerless} tracked files and ${REQUIRED_BOUNDARIES.length} named boundaries owned by ${FOUNDER} alone; ${ownerless} files under ${OWNERLESS_PREFIXES.join(', ')} ownerless.`);
   if (process.argv.includes('--self-check')) {
     const problems = selfCheck(text, tracked);
     if (problems.length) {
       for (const problem of problems) console.error(`  - ${problem}`);
       process.exit(1);
     }
-    console.log('CODEOWNERS coverage self-check PASS: 8 deliberate removals/overrides/additions each fail.');
+    console.log('CODEOWNERS coverage self-check PASS: 11 deliberate removals/overrides/additions each fail.');
   }
 }
 

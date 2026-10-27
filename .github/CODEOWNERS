@@ -11,6 +11,13 @@
 # Narrowing this file later requires either process isolation of the broker
 # (so a smaller, named surface holds the keys) or a reviewed plan revision.
 # server/scripts/test-codeowners-coverage.ts enforces coverage in CI.
+#
+# First narrowing (founder decision 2026-10-27, option 1): only paths that never
+# run inside the App-key process are ownerless (see the end of this file). Agent
+# PRs that touch ONLY those paths need an independent agent approval instead of
+# the founder's. Everything else, including any new top-level path, stays
+# founder-owned through the catch-all. Narrowing /server/ waits for the isolated
+# broker (broker/) to be deployed and cut over.
 
 *                                                    @davidwmcintosh
 
@@ -35,3 +42,12 @@
 
 # The whole server: the process that holds App keys and every module it loads
 /server/                                             @davidwmcintosh
+
+# Ownerless: never imported or executed by the server process. client/ is the
+# browser bundle (the server only names its paths in strings); public/ and
+# attached_assets/ are static files. docs/ is deliberately NOT here: it holds
+# episode Markdown that non-rolling episodes promote into the canonical record,
+# and the shared agent instructions.
+/client/
+/public/
+/attached_assets/
