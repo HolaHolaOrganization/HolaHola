@@ -1,5 +1,15 @@
 import { createInterface } from 'node:readline';
+import { resolve } from 'node:path';
 import type { Readable, Writable } from 'node:stream';
+import {
+  LISTENER_EXIT,
+  ListenerStore,
+  normalizeScope,
+  runListener,
+  type InboxPage,
+} from '../scripts/lib/coordination-listener';
+import { listenerErrorCode } from '../scripts/coordination-listener';
+import { readProcessIdentity, type ParentIdentity } from '../scripts/lib/coordination-listener-identity';
 import { RuntimeOnboardingClient } from './runtime-onboarding-client';
 import type { RuntimeOnboardingStore } from './runtime-onboarding-store';
 
@@ -223,4 +233,127 @@ export function generateRuntimeMcpClientConfig(input: {
       },
     },
   };
+}
+
+export type DiagnosticWriter = {
+  write(chunk: string): unknown;
+};
+
+export type RuntimeListenerOptions = RuntimeTransportOptions & {
+  parentPid?: number;
+  stateDir?: string;
+  mode?: 'continuous' | 'once';
+  initialAfter?: number;
+  resume?: boolean;
+  signal?: AbortSignal;
+  output?: DiagnosticWriter;
+  diagnostics?: DiagnosticWriter;
+  emit?: (line: string) => void;
+};
+
+/**
+ * Native, enrolled coordination listener transport. Composes established
+ * ListenerStore, parent-PID lifecycle supervision, and authenticatedFetch
+ * without exporting unencrypted credentials to child environments or disk.
+ */
+export async function runRuntimeOnboardingListener(options: RuntimeListenerOptions): Promise<number> {
+  const client = new RuntimeOnboardingClient({
+    endpoint: options.endpoint,
+    actor: options.actor,
+    runtimeId: options.runtimeId,
+    store: options.store,
+    fetchImpl: options.fetchImpl,
+    allowInsecureHttpForTests: options.allowInsecureHttpForTests,
+  });
+
+  const credentialStored = await client.hasCredential();
+  if (!credentialStored) {
+    throw new Error('onboarding_credential_unavailable_run_setup');
+  }
+
+  const scope = normalizeScope({ actor: options.actor, apiUrl: options.endpoint });
+  const defaultStateDir = resolve(`.local/coordination-listeners/${options.actor}`);
+  const stateDir = resolve(options.stateDir ?? defaultStateDir);
+  const store = new ListenerStore(stateDir, scope);
+
+  const output: DiagnosticWriter = options.output ?? process.stdout;
+  const diagnostics: DiagnosticWriter = options.diagnostics ?? process.stderr;
+  const emit = options.emit ?? ((line: string) => {
+    output.write(`${line}\n`);
+  });
+
+  let hasExistingCursor = false;
+  try {
+    await store.cursor();
+    hasExistingCursor = true;
+  } catch {
+    hasExistingCursor = false;
+  }
+  if (!hasExistingCursor && options.initialAfter === undefined) {
+    diagnostics.write(
+      'runtime-onboarding-listener: fresh state directory requires explicit --after <sequence> on initial run (exit 64)\n',
+    );
+    return LISTENER_EXIT.invalid;
+  }
+
+  let parent: ParentIdentity | undefined;
+  if (options.parentPid !== undefined) {
+    const identity = await readProcessIdentity(options.parentPid);
+    if (identity.state !== 'present') {
+      throw new Error('onboarding_listener_parent_invalid');
+    }
+    parent = { pid: options.parentPid, created: identity.created };
+  }
+
+  const inbox = async (after: number, token?: string): Promise<InboxPage> => {
+    const url = new URL('/api/coordination/inbox', `${client.scope.endpoint}/`);
+    url.searchParams.set('limit', '50');
+    if (token) {
+      url.searchParams.set('token', token);
+    } else {
+      url.searchParams.set('after', String(after));
+    }
+    const response = await client.authenticatedFetch(url.toString(), {
+      method: 'GET',
+      headers: { accept: 'application/json' },
+      minRemainingMs: 180_000,
+    });
+    if (!response.ok) {
+      throw new Error(`inbox_request_failed:${response.status}`);
+    }
+    const body = await response.text();
+    return JSON.parse(body) as InboxPage;
+  };
+
+  try {
+    const exitCode = await runListener({
+      store,
+      mode: options.mode ?? 'continuous',
+      initialAfter: options.initialAfter,
+      resume: options.resume ?? false,
+      signal: options.signal ?? new AbortController().signal,
+      inbox,
+      emit,
+      parent,
+    });
+
+    // Explicit semantic exit diagnostics (exit codes 64, 70, 71, 72, 73)
+    if (exitCode === LISTENER_EXIT.parentGone) {
+      diagnostics.write(`runtime-onboarding-listener: parent session (PID ${options.parentPid}) closed (exit 71)\n`);
+    }
+
+    return exitCode;
+  } catch (error) {
+    const code = listenerErrorCode(error);
+    if (code === LISTENER_EXIT.failure) {
+      diagnostics.write('runtime-onboarding-listener: repeated inbox fetch failure against remote endpoint (exit 70)\n');
+    } else if (code === LISTENER_EXIT.locked) {
+      diagnostics.write('runtime-onboarding-listener: listener lock held by another live process (exit 73)\n');
+    } else if (code === LISTENER_EXIT.invalid) {
+      diagnostics.write('runtime-onboarding-listener: invalid listener configuration or cursor regression (exit 64)\n');
+    } else {
+      diagnostics.write(`runtime-onboarding-listener: listener failure (exit ${code})\n`);
+    }
+    return code;
+  }
 }
