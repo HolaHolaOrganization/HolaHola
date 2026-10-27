@@ -276,6 +276,26 @@ export async function runRuntimeOnboardingListener(options: RuntimeListenerOptio
   const stateDir = resolve(options.stateDir ?? defaultStateDir);
   const store = new ListenerStore(stateDir, scope);
 
+  const output: DiagnosticWriter = options.output ?? process.stdout;
+  const diagnostics: DiagnosticWriter = options.diagnostics ?? process.stderr;
+  const emit = options.emit ?? ((line: string) => {
+    output.write(`${line}\n`);
+  });
+
+  let hasExistingCursor = false;
+  try {
+    await store.cursor();
+    hasExistingCursor = true;
+  } catch {
+    hasExistingCursor = false;
+  }
+  if (!hasExistingCursor && options.initialAfter === undefined) {
+    diagnostics.write(
+      'runtime-onboarding-listener: fresh state directory requires explicit --after <sequence> on initial run (exit 64)\n',
+    );
+    return LISTENER_EXIT.invalid;
+  }
+
   let parent: ParentIdentity | undefined;
   if (options.parentPid !== undefined) {
     const identity = await readProcessIdentity(options.parentPid);
@@ -296,6 +316,7 @@ export async function runRuntimeOnboardingListener(options: RuntimeListenerOptio
     const response = await client.authenticatedFetch(url.toString(), {
       method: 'GET',
       headers: { accept: 'application/json' },
+      minRemainingMs: 180_000,
     });
     if (!response.ok) {
       throw new Error(`inbox_request_failed:${response.status}`);
@@ -304,18 +325,12 @@ export async function runRuntimeOnboardingListener(options: RuntimeListenerOptio
     return JSON.parse(body) as InboxPage;
   };
 
-  const output: DiagnosticWriter = options.output ?? process.stdout;
-  const diagnostics: DiagnosticWriter = options.diagnostics ?? process.stderr;
-  const emit = options.emit ?? ((line: string) => {
-    output.write(`${line}\n`);
-  });
-
   try {
     const exitCode = await runListener({
       store,
       mode: options.mode ?? 'continuous',
       initialAfter: options.initialAfter,
-      resume: options.resume ?? true,
+      resume: options.resume ?? false,
       signal: options.signal ?? new AbortController().signal,
       inbox,
       emit,

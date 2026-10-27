@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash, createPublicKey, generateKeyPairSync, verify } from 'node:crypto';
-import { spawn } from 'node:child_process';
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { PassThrough } from 'node:stream';
@@ -25,6 +24,7 @@ import {
   runRuntimeMcpStdioBridge,
   runRuntimeOnboardingListener,
 } from '../services/runtime-onboarding-transports';
+import { ListenerStore, normalizeScope } from './lib/coordination-listener';
 
 class MemoryStore implements RuntimeOnboardingStore {
   readonly entries = new Map<string, string>();
@@ -823,4 +823,177 @@ test('usableCredential respects minRemainingMs and auto-renews when below thresh
   const cred2 = await client.usableCredential(180_000);
   assert.equal(cred2.accessToken, 'renewed-token');
   assert.equal(renewed, true);
+});
+
+test('runRuntimeOnboardingListener requires explicit --after on fresh state directory (L1)', async () => {
+  const store = new MemoryStore();
+  const scope = { endpoint, actor, runtimeId };
+  await store.set(scope, 'access-credential', JSON.stringify({
+    endpoint, actor, runtimeId, accessToken: 'listener-fake-token',
+    expiresAt: future(), capabilities: ['coordination:read'],
+  }));
+  const stateDir = mkdtempSync(join(tmpdir(), 'listener-l1-test-'));
+  const diag: string[] = [];
+  try {
+    // Missing initialAfter on fresh directory must exit 64 with explicit diagnostic
+    const exitCode = await runRuntimeOnboardingListener({
+      ...scope,
+      store,
+      stateDir,
+      mode: 'once',
+      allowInsecureHttpForTests: true,
+      diagnostics: { write: (c: string) => { diag.push(c); return true; } },
+      fetchImpl: async () => response({ actor, items: [], window: { through: 0, complete: true } }),
+    });
+    assert.equal(exitCode, 64);
+    assert.ok(diag.some((d) => d.includes('fresh state directory requires explicit --after')));
+  } finally {
+    rmSync(stateDir, { recursive: true, force: true });
+  }
+});
+
+test('runRuntimeOnboardingListener preserves operator stop marker when resume is omitted (L2)', async () => {
+  const store = new MemoryStore();
+  const scope = { endpoint, actor, runtimeId };
+  await store.set(scope, 'access-credential', JSON.stringify({
+    endpoint, actor, runtimeId, accessToken: 'listener-fake-token',
+    expiresAt: future(), capabilities: ['coordination:read'],
+  }));
+  const stateDir = mkdtempSync(join(tmpdir(), 'listener-l2-test-'));
+  try {
+    // 1. Initialize scope and cursor in state directory
+    const scopeObj = normalizeScope({ actor, apiUrl: endpoint });
+    const lStore = new ListenerStore(stateDir, scopeObj);
+    await lStore.acquire(0, false);
+    await lStore.release();
+
+    // 2. Place an operator stop marker
+    const stopFile = join(stateDir, 'stop');
+    writeFileSync(stopFile, 'stopped-by-operator\n');
+    assert.equal(existsSync(stopFile), true);
+
+    // 3. Restart without resume (default resume: false)
+    const exitCodeStopped = await runRuntimeOnboardingListener({
+      ...scope,
+      store,
+      stateDir,
+      mode: 'once',
+      allowInsecureHttpForTests: true,
+      fetchImpl: async () => response({ actor, items: [], window: { through: 0, complete: true } }),
+    });
+    // Must exit stopped (0 or 72) and PRESERVE stop marker
+    assert.equal(existsSync(stopFile), true);
+
+    // 4. Restart with explicit resume: true
+    const exitCodeResumed = await runRuntimeOnboardingListener({
+      ...scope,
+      store,
+      stateDir,
+      mode: 'once',
+      resume: true,
+      allowInsecureHttpForTests: true,
+      fetchImpl: async () => response({
+        actor,
+        items: [
+          {
+            inboxItem: {
+              id: '11111111-1111-4111-8111-111111111111',
+              recipientActor: actor,
+              coordinationEventId: '22222222-2222-4222-8222-222222222222',
+              coordinationThreadId: '33333333-3333-4333-8333-333333333333',
+              eventGlobalSequence: 1,
+              senderActor: 'luca-replit',
+            },
+            event: { id: '22222222-2222-4222-8222-222222222222' },
+            thread: { id: '33333333-3333-4333-8333-333333333333' },
+          },
+        ],
+        window: { through: 1, complete: true, nextToken: null },
+      }),
+    });
+    assert.equal(exitCodeResumed, 0);
+    // Stop marker must now be unlinked
+    assert.equal(existsSync(stopFile), false);
+  } finally {
+    rmSync(stateDir, { recursive: true, force: true });
+  }
+});
+
+test('usableCredential single-flight coalesces concurrent renewal calls (L3)', async () => {
+  const store = new MemoryStore();
+  const scope = { endpoint, actor, runtimeId };
+  // Expiring in 2 minutes: threshold of 3 minutes will trigger renewal
+  const expiringSoon = new Date(Date.now() + 120_000).toISOString();
+  await store.set(scope, 'access-credential', JSON.stringify({
+    endpoint, actor, runtimeId, accessToken: 'token-before-renew',
+    expiresAt: expiringSoon, capabilities: ['coordination:read', 'coordination:credential:renew'],
+  }));
+
+  let brokerRenewCalls = 0;
+  const client = new RuntimeOnboardingClient({
+    ...scope,
+    store,
+    allowInsecureHttpForTests: true,
+    fetchImpl: async (input) => {
+      const url = new URL(input instanceof Request ? input.url : String(input));
+      if (url.pathname === '/api/coordination/credentials/renew') {
+        brokerRenewCalls += 1;
+        // Delay to ensure concurrent callers arrive while renewal is in-flight
+        await new Promise((r) => setTimeout(r, 50));
+        return response({
+          endpoint, actor, runtimeId, accessToken: 'single-flight-renewed-token',
+          expiresAt: future(), capabilities: ['coordination:read'],
+        });
+      }
+      throw new Error(`unexpected_url:${url.pathname}`);
+    },
+  });
+
+  // Launch two concurrent usableCredential calls
+  const [cred1, cred2] = await Promise.all([
+    client.usableCredential(180_000),
+    client.usableCredential(180_000),
+  ]);
+
+  // Both callers must receive the renewed token
+  assert.equal(cred1.accessToken, 'single-flight-renewed-token');
+  assert.equal(cred2.accessToken, 'single-flight-renewed-token');
+
+  // Single-flight guarantee: broker was called EXACTLY ONCE
+  assert.equal(brokerRenewCalls, 1);
+});
+
+test('usableCredential reloads store when another process won the renewal transaction (L3 cross-process)', async () => {
+  const store = new MemoryStore();
+  const scope = { endpoint, actor, runtimeId };
+  const expiringSoon = new Date(Date.now() + 120_000).toISOString();
+  await store.set(scope, 'access-credential', JSON.stringify({
+    endpoint, actor, runtimeId, accessToken: 'old-token',
+    expiresAt: expiringSoon, capabilities: ['coordination:read', 'coordination:credential:renew'],
+  }));
+
+  const client = new RuntimeOnboardingClient({
+    ...scope,
+    store,
+    allowInsecureHttpForTests: true,
+    fetchImpl: async (input) => {
+      const url = new URL(input instanceof Request ? input.url : String(input));
+      if (url.pathname === '/api/coordination/credentials/renew') {
+        // Simulate broker rejecting old token because another process already rotated it
+        // The winning process also updated the store
+        await store.set(scope, 'access-credential', JSON.stringify({
+          endpoint, actor, runtimeId, accessToken: 'winner-process-token',
+          expiresAt: future(), capabilities: ['coordination:read'],
+        }));
+        return new Response(JSON.stringify({ error: 'credential_already_revoked' }), {
+          status: 401,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      throw new Error(`unexpected_url:${url.pathname}`);
+    },
+  });
+
+  const cred = await client.usableCredential(180_000);
+  assert.equal(cred.accessToken, 'winner-process-token');
 });

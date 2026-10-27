@@ -504,25 +504,84 @@ export class RuntimeOnboardingClient {
     return credential;
   }
 
+  private inFlightCredentialOperation?: Promise<StoredCredential>;
+
   /**
    * Resolve an unexpired, capability-checked credential from native storage,
    * renewing or recovering against the broker when needed.
+   *
+   * Single-flight coalescing ensures concurrent callers within the same client
+   * share a single in-flight renewal/recovery promise rather than racing against
+   * the broker's one-winner transaction.
    */
   async usableCredential(minRemainingMs: number = this.credentialRenewalSkewMs): Promise<StoredCredential> {
-    let credential = await this.loadCredential();
-    if (!credential) credential = await this.recoverCredential();
-    const expiresIn = Date.parse(credential.expiresAt) - Date.now();
-    const threshold = Math.max(minRemainingMs, this.credentialRenewalSkewMs);
-    if (expiresIn <= 0) {
-      credential = await this.recoverCredential();
-    } else if (expiresIn < threshold
-      && credential.capabilities.includes('coordination:credential:renew')) {
-      credential = await this.renewCredential(credential);
+    if (this.inFlightCredentialOperation) {
+      return await this.inFlightCredentialOperation;
     }
+
+    let credential = await this.loadCredential();
+    const threshold = Math.max(minRemainingMs, this.credentialRenewalSkewMs);
+    const expiresIn = credential ? Date.parse(credential.expiresAt) - Date.now() : 0;
+
+    if (!credential || expiresIn <= 0 || (expiresIn < threshold && credential.capabilities.includes('coordination:credential:renew'))) {
+      return this.coalesceCredentialOperation(async () => {
+        // Re-read store first: another concurrent caller or process may have already renewed
+        const storeCred = await this.loadCredential();
+        if (storeCred) {
+          const storeExpiresIn = Date.parse(storeCred.expiresAt) - Date.now();
+          if (storeExpiresIn >= threshold) {
+            if (!/^[A-Za-z0-9._~+/=-]+$/.test(storeCred.accessToken)) {
+              throw new Error('onboarding_local_credential_invalid');
+            }
+            return storeCred;
+          }
+        }
+
+        let resolved: StoredCredential;
+        const current = storeCred ?? credential;
+        if (!current || Date.parse(current.expiresAt) - Date.now() <= 0) {
+          resolved = await this.recoverCredential();
+        } else if (current.capabilities.includes('coordination:credential:renew')) {
+          try {
+            resolved = await this.renewCredential(current);
+          } catch (renewError) {
+            // In case cross-process contention occurred where another process won the broker renewal transaction,
+            // reload from native storage to see if the other winner already persisted a valid credential.
+            const freshStoreCred = await this.loadCredential();
+            if (freshStoreCred && Date.parse(freshStoreCred.expiresAt) - Date.now() > 0 && freshStoreCred.accessToken !== current.accessToken) {
+              resolved = freshStoreCred;
+            } else {
+              throw renewError;
+            }
+          }
+        } else {
+          resolved = current;
+        }
+
+        if (!/^[A-Za-z0-9._~+/=-]+$/.test(resolved.accessToken)) {
+          throw new Error('onboarding_local_credential_invalid');
+        }
+        return resolved;
+      });
+    }
+
     if (!/^[A-Za-z0-9._~+/=-]+$/.test(credential.accessToken)) {
       throw new Error('onboarding_local_credential_invalid');
     }
     return credential;
+  }
+
+  private async coalesceCredentialOperation(fn: () => Promise<StoredCredential>): Promise<StoredCredential> {
+    if (this.inFlightCredentialOperation) {
+      return await this.inFlightCredentialOperation;
+    }
+    const promise = fn().finally(() => {
+      if (this.inFlightCredentialOperation === promise) {
+        this.inFlightCredentialOperation = undefined;
+      }
+    });
+    this.inFlightCredentialOperation = promise;
+    return await promise;
   }
 
   /**
@@ -572,7 +631,10 @@ export class RuntimeOnboardingClient {
   }
 
   /** Credential stays inside the adapter and is never returned to CLI output. */
-  async authenticatedFetch(input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> {
+  async authenticatedFetch(
+    input: RequestInfo | URL,
+    init: RequestInit & { minRemainingMs?: number } = {},
+  ): Promise<Response> {
     const baseRequest = input instanceof Request ? new Request(input, init) : new Request(input.toString(), init);
     const target = new URL(baseRequest.url, `${this.scope.endpoint}/`);
     const path = canonicalPathname(target.pathname);
@@ -586,7 +648,7 @@ export class RuntimeOnboardingClient {
     if (target.origin !== new URL(this.scope.endpoint).origin || !allowedPath || credentialPath) {
       throw new Error('onboarding_auth_header_target_not_allowed');
     }
-    const credential = await this.usableCredential();
+    const credential = await this.usableCredential(init.minRemainingMs);
     const headers = new Headers(baseRequest.headers);
     headers.delete('authorization');
     headers.delete('x-coordination-token');

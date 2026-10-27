@@ -37,12 +37,13 @@ const CLI_HELP = [
   '  node holahola-onboarding.mjs status --endpoint https://host --actor <actor> --runtime-id <id>',
   '  node holahola-onboarding.mjs mcp --endpoint https://host --actor <actor> --runtime-id <id>',
   '  node holahola-onboarding.mjs mcp --print-config --endpoint https://host --actor <actor> --runtime-id <id>',
-  '  node holahola-onboarding.mjs sdk --endpoint https://host --actor <actor> --runtime-id <id>',
-  '  node holahola-onboarding.mjs listen --endpoint https://host --actor <actor> --runtime-id <id> [--parent-pid <pid>] [--mode continuous|once] [--state-dir <dir>]',
+  '  node holahola-onboarding.mjs listen --endpoint https://host --actor <actor> --runtime-id <id> [--parent-pid <pid>] [--mode continuous|once] [--state-dir <dir>] [--after <cursor>] [--resume]',
   '',
   'setup prints the approval reference and can be rerun with the same scope after approval.',
   '--wait opens the founder approval page and polls for up to ten minutes.',
   'listen runs an enrolled, authenticated coordination message listener using the native secure store.',
+  '--after <cursor> is required on fresh state initialization to set the starting global sequence.',
+  '--resume explicitly clears a previous operator stop marker.',
 ].join('\n');
 
 function parseArguments(argv: string[]): ParsedArguments {
@@ -342,7 +343,7 @@ export async function runRuntimeOnboardingCli(argv = process.argv.slice(2)): Pro
       ...(parsed.stateDir ? { stateDir: parsed.stateDir } : {}),
       ...(parsed.mode ? { mode: parsed.mode } : {}),
       ...(parsed.after !== undefined ? { initialAfter: parsed.after } : {}),
-      ...(parsed.resume !== undefined ? { resume: parsed.resume } : {}),
+      resume: parsed.resume === true,
     });
     process.exitCode = exitCode;
     return;
