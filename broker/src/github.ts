@@ -140,8 +140,14 @@ function encodePath(path: string): string {
   return path.split('/').map(encodeURIComponent).join('/');
 }
 
+/** The only policy files a broker instance may read: production's, or the F4-a sandbox instance's. */
+export const POLICY_PATHS = ['broker/policy.json', 'broker/policy.sandbox.json'] as const;
+export type PolicyPath = (typeof POLICY_PATHS)[number];
+
 /**
- * Reads broker/policy.json from main. The contents API returns the file's git
+ * Reads the instance's policy file from main of the CONTROL repository (always
+ * HolaHola, where the file is founder-owned), never from a sandbox target that
+ * its writers could edit. The contents API returns the file's git
  * blob sha alongside its bytes; PolicyLoader recomputes the sha from the bytes
  * and refuses a mismatch, so this source cannot vouch for content it did not
  * actually receive.
@@ -150,18 +156,21 @@ export class GitHubPolicySource implements PolicySource {
   private readonly api: GitHubApi;
   private readonly repo: RepositoryRef;
   private readonly token: () => Promise<string>;
+  private readonly path: PolicyPath;
 
-  constructor(api: GitHubApi, repo: RepositoryRef, token: () => Promise<string>) {
+  constructor(api: GitHubApi, repo: RepositoryRef, token: () => Promise<string>, path: PolicyPath = 'broker/policy.json') {
+    if (!POLICY_PATHS.includes(path)) throw new RangeError('unknown policy path');
     this.api = api;
     this.repo = repo;
     this.token = token;
+    this.path = path;
   }
 
   async fetch(): Promise<PolicySnapshot> {
-    const file = await this.api.rest(await this.token(), 'GET', `${repoPath(this.repo)}/contents/broker/policy.json?ref=main`) as
+    const file = await this.api.rest(await this.token(), 'GET', `${repoPath(this.repo)}/contents/${this.path}?ref=main`) as
       { type?: unknown; encoding?: unknown; content?: unknown; sha?: unknown };
     if (file?.type !== 'file' || file.encoding !== 'base64' || typeof file.content !== 'string' || typeof file.sha !== 'string') {
-      throw new GitHubError(502, `${repoPath(this.repo)}/contents/broker/policy.json`);
+      throw new GitHubError(502, `${repoPath(this.repo)}/contents/${this.path}`);
     }
     return { bytes: new Uint8Array(Buffer.from(file.content, 'base64')), blobSha: file.sha };
   }

@@ -37,3 +37,14 @@ Tests: `npx tsx --test broker/test/broker.test.ts broker/test/claims.test.ts`. T
   - A preflight runs after the claim and after every preparatory await. It looks up the token and the live PR or ref, then re-runs the full authorization.
   - Each operation makes exactly one dispatch. A 4xx response is a recorded failure. Any unknown result is never resent and stays uncertain.
   - Evidence is positive-only, bound to the App identity, the target and the head. `pr.update-branch` has no reliable evidence and stays uncertain.
+
+## Stage 1: instance target (decision F4-a)
+
+Each broker instance acts on exactly **one** repository, fixed by its own environment for the life of the process.
+- **Production (default, `BROKER_TARGET` unset or `main`):** the main repository, with policy from `broker/policy.json`.
+- **The temporary sandbox instance (`BROKER_TARGET=sandbox`):**
+  - its target comes from `BROKER_TARGET_REPO` (owner/name) and `BROKER_TARGET_REPO_ID`;
+  - the target can never be HolaHola, under any owner or by id, and never the audit repository;
+  - it reads `broker/policy.sandbox.json`, always from **main of HolaHola**, never from the sandbox, so sandbox writers cannot edit their own policy.
+
+**Binding to the target:** a policy whose `repositoryId` is not the instance's target fails closed. So does a request or status original that names another repository. Nothing is multiplexed.

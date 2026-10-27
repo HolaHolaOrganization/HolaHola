@@ -9,7 +9,7 @@
 
 import { createHash, verify } from 'node:crypto';
 import { canonicalJson } from './canonical.ts';
-import { REPOSITORY_ID, type Policy } from './policy.ts';
+import { type Policy } from './policy.ts';
 
 export const AUDIENCE = 'holahola-broker/v1';
 export const PROTOCOL = 1;
@@ -137,7 +137,8 @@ export function verifySignedRequest(body: unknown, policy: Policy, now: number):
   const { envelope, signature, payload } = request;
   if (envelope.audience !== AUDIENCE) return { ok: false, reason: 'wrong_audience' };
   if (envelope.protocol !== PROTOCOL) return { ok: false, reason: 'wrong_protocol' };
-  if (envelope.repositoryId !== REPOSITORY_ID) return { ok: false, reason: 'wrong_repository' };
+  // The policy is already bound to this instance's configured target repository.
+  if (envelope.repositoryId !== policy.repositoryId) return { ok: false, reason: 'wrong_repository' };
 
   const actor = policy.actors.get(envelope.actor);
   if (!actor) return { ok: false, reason: 'unknown_actor' };
@@ -179,7 +180,7 @@ export function verifyOriginalSignature(body: unknown, policy: Policy): Envelope
   const { envelope, signature, payload } = request;
   if (envelope.audience !== AUDIENCE) return { ok: false, reason: 'wrong_audience' };
   if (envelope.protocol !== PROTOCOL) return { ok: false, reason: 'wrong_protocol' };
-  if (envelope.repositoryId !== REPOSITORY_ID) return { ok: false, reason: 'wrong_repository' };
+  if (envelope.repositoryId !== policy.repositoryId) return { ok: false, reason: 'wrong_repository' };
   const actor = policy.actors.get(envelope.actor);
   if (!actor) return { ok: false, reason: 'unknown_actor' };
   const key = actor.signingKeys.find((candidate) => candidate.id === envelope.keyId);
