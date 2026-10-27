@@ -1,6 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseShipperArgs } from './antigravity-journal-shipper';
+import { mkdtempSync } from 'node:fs';
+import { rm, writeFile, mkdir } from 'node:fs/promises';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { parseShipperArgs, runShipper } from './antigravity-journal-shipper';
+import { ShipperStateStore } from './lib/antigravity-journal-shipper';
 
 test('parseShipperArgs parses valid arguments', () => {
   const opts = parseShipperArgs([
@@ -29,13 +34,7 @@ test('parseShipperArgs rejects unknown arguments', () => {
 });
 
 test('runShipper persists source evidence on input-only and ambiguous-only journals (Review Point 1 CLI probe)', async () => {
-  const { runShipper } = await import('./antigravity-journal-shipper');
-  const { ShipperStateStore } = await import('./lib/antigravity-journal-shipper');
-  const { mkdtemp, rm, writeFile } = await import('node:fs/promises');
-  const { join } = await import('node:path');
-  const { tmpdir } = await import('node:os');
-
-  const dir = await mkdtemp(join(tmpdir(), 'shipper-cli-probe-'));
+  const dir = mkdtempSync(join(tmpdir(), 'shipper-cli-probe-'));
   try {
     const transcriptPath = join(dir, 'transcript.jsonl');
     const stateDir = join(dir, 'state');
@@ -102,18 +101,12 @@ test('runShipper persists source evidence on input-only and ambiguous-only journ
 });
 
 test('runShipper refuses mismatched conversation scope before cursor use or parsing (Review Block A CLI probe)', async () => {
-  const { runShipper } = await import('./antigravity-journal-shipper');
-  const { mkdtemp, rm, writeFile } = await import('node:fs/promises');
-  const { join } = await import('node:path');
-  const { tmpdir } = await import('node:os');
-
-  const dir = await mkdtemp(join(tmpdir(), 'shipper-scope-probe-'));
+  const dir = mkdtempSync(join(tmpdir(), 'shipper-scope-probe-'));
   try {
     const transcriptPath = join(dir, 'transcript.jsonl');
     const stateDir = join(dir, 'state');
 
     // Create state dir with checkpoint for 'foreign-conversation'
-    const { mkdir } = await import('node:fs/promises');
     await mkdir(stateDir, { recursive: true });
     await writeFile(
       join(stateDir, 'checkpoint.json'),

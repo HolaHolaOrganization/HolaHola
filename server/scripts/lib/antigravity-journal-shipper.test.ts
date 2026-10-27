@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtempSync } from 'node:fs';
+import { rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -269,7 +270,7 @@ test('parseAntigravityJournal fails closed on mid-file corrupt JSON line', () =>
 });
 
 test('persistJournalEvidence persists source evidence even on input-only or ambiguous-only journal (Review Point 1)', async () => {
-  const dir = await mkdtemp(join(tmpdir(), 'shipper-evidence-test-'));
+  const dir = mkdtempSync(join(tmpdir(), 'shipper-evidence-test-'));
   try {
     const store = new ShipperStateStore(dir);
     const conversationId = 'conv-input-only';
@@ -346,7 +347,7 @@ test('calculateContiguousAcknowledgedStep does not leap past unacknowledged earl
 });
 
 test('ShipperStateStore fails closed on corrupted checkpoint, scope mismatch, or invalid values (Review Block A & 4)', async () => {
-  const dir = await mkdtemp(join(tmpdir(), 'shipper-fail-closed-test-'));
+  const dir = mkdtempSync(join(tmpdir(), 'shipper-fail-closed-test-'));
   try {
     const store = new ShipperStateStore(dir);
 
@@ -422,7 +423,7 @@ test('ShipperStateStore fails closed on corrupted checkpoint, scope mismatch, or
 });
 
 test('shipAntigravityExchanges posts turns, updates checkpoint on 202, archives accepted ledger, and preserves pending inputs (Review Block C)', async () => {
-  const dir = await mkdtemp(join(tmpdir(), 'shipper-ship-test-'));
+  const dir = mkdtempSync(join(tmpdir(), 'shipper-ship-test-'));
   try {
     const store = new ShipperStateStore(dir);
     const postedPayloads: any[] = [];
@@ -526,7 +527,7 @@ test('shipAntigravityExchanges posts turns, updates checkpoint on 202, archives 
 });
 
 test('dryRun simulation leaves accepted ledger empty, retains pending, and does not advance cursor (Review Finding B3-DRY)', async () => {
-  const dir = await mkdtemp(join(tmpdir(), 'shipper-b3-dry-test-'));
+  const dir = mkdtempSync(join(tmpdir(), 'shipper-b3-dry-test-'));
   try {
     const store = new ShipperStateStore(dir);
     const conversationId = 'conv-dry-test';
