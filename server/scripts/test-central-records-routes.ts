@@ -5,7 +5,7 @@ import { after, before, test } from "node:test";
 import express from "express";
 import type { AddressInfo } from "node:net";
 import { registerCentralRecordsRoutes } from "../routes/central-records-routes";
-import { centralEpisodeMetadata, type CentralEpisodeRow } from "../services/central-episode-records";
+import { centralEpisodeMetadata, createCentralEpisodeRepository, type CentralEpisodeRow } from "../services/central-episode-records";
 
 // Synthetic in-memory records only. These tests never write canonical data.
 const episode: CentralEpisodeRow = {
@@ -134,6 +134,33 @@ test("database failures are explicit and redacted for all surfaces", async () =>
 });
 test("unrecognized titles use canonical ID filenames rather than guessing episode numbers", () => {
   assert.equal(centralEpisodeMetadata({ ...episode, title: "Untitled" }).filename, "record-episode-fixture.md");
+});
+
+test("catalog and ID queries exclude exactly the three fixture IDs and their linked stories, not numbered titles", async () => {
+  const hidden = [
+    "9939a73b-0a99-42fd-874b-54e50e969a2d",
+    "06fa6956-5213-4ce6-8dbc-8ab0f75c6c80",
+    "a5782e96-79b4-4695-91a2-1eca49c754ad",
+  ];
+  const records: Array<{ id: string; title: string; tags: string[]; parent: string | null }> = [
+    ...hidden.map(id => ({ id, title: "fixture", tags: [], parent: null })),
+    { id: "linked-fixture-story", title: "fixture story", tags: ["episode-story"], parent: hidden[0] },
+    { id: "real-episode-99", title: "Episode 99", tags: [], parent: null },
+    { id: "real-prequel", title: "Prequel Episode 1", tags: [], parent: null },
+  ];
+  const repo = await createCentralEpisodeRepository({ query: async (sql, params) => {
+    // Check the SQL contract independently: removing either predicate must fail.
+    assert.match(sql, /m\.id <> ALL\(\$\d::text\[\]\)/);
+    assert.match(sql, /p\.id <> ALL\(\$\d::text\[\]\)/);
+    assert.deepEqual(params.at(-1), hidden);
+    const matching = sql.includes("LIMIT") ? records : records.filter(row => row.id === params[0]);
+    return matching
+      .filter(row => !hidden.includes(row.id) && !(row.tags.includes("episode-story") && row.parent && hidden.includes(row.parent)))
+      .map(row => ({ ...row, entry_type: "episode", recorded_at_iso: "2026-01-01T00:00:00.000000Z", bytes: 0 }));
+  }});
+  assert.deepEqual((await repo.list(50, 0)).map(row => row.id), ["real-episode-99", "real-prequel"]);
+  for (const id of [...hidden, "linked-fixture-story"]) assert.equal(await repo.find(id), null);
+  assert.equal((await repo.find("real-episode-99"))?.title, "Episode 99");
 });
 
 for (const timezone of ["UTC", "America/Denver", "Asia/Tokyo"]) {

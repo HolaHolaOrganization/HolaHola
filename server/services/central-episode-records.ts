@@ -54,6 +54,14 @@ export function centralEpisodeRead(row: CentralEpisodeRow) {
 
 type CentralEpisodeQuery = (text: string, params: unknown[]) => Promise<Record<string, any>[]>;
 
+// Display-only exclusions for the three inventoried fixtures. Never infer
+// fixtures from episode numbers/titles or mutate their canonical rows.
+const HIDDEN_EPISODE_FIXTURE_IDS = [
+  "9939a73b-0a99-42fd-874b-54e50e969a2d",
+  "06fa6956-5213-4ce6-8dbc-8ab0f75c6c80",
+  "a5782e96-79b4-4695-91a2-1eca49c754ad",
+];
+
 async function createReadQuery(): Promise<CentralEpisodeQuery> {
   const { neon } = await import("@neondatabase/serverless");
   const url = process.env.NEON_SHARED_DATABASE_URL;
@@ -68,14 +76,15 @@ export async function createCentralEpisodeRepository(
   const query = options.query ?? await createReadQuery();
   // Stories are only exposed as stories when linked to an actual episode.
   // An episode's extends_memory_id is history, NOT a story-parent relation.
-  const from = `
+  const from = (hiddenParameter: 2 | 3) => `
     FROM conversation_memories m
     LEFT JOIN conversation_memories p ON p.id = m.extends_memory_id
-    WHERE (
+    WHERE m.id <> ALL($${hiddenParameter}::text[]) AND (
       (m.entry_type = 'episode' AND m.arc_name = 'HolaHola Episodes'
         AND NOT ('episode-story' = ANY(COALESCE(m.tags, '{}'))))
       OR ('episode-story' = ANY(COALESCE(m.tags, '{}'))
-        AND p.entry_type = 'episode' AND p.arc_name = 'HolaHola Episodes')
+        AND p.entry_type = 'episode' AND p.arc_name = 'HolaHola Episodes'
+        AND p.id <> ALL($${hiddenParameter}::text[]))
     )`;
   // recorded_at is timestamp WITHOUT time zone, with UTC wall-clock values.
   // Format it in Postgres so driver/host TZ cannot shift it or drop microseconds.
@@ -94,12 +103,14 @@ export async function createCentralEpisodeRepository(
   return {
     async list(limit, offset) {
       // Do not transfer multi-megabyte contents just to display the catalog.
-      const rows = await query(`SELECT ${columns} ${from}
-        ORDER BY m.recorded_at DESC, m.id DESC LIMIT $1 OFFSET $2`, [limit, offset]);
+      const rows = await query(`SELECT ${columns} ${from(3)}
+        ORDER BY m.recorded_at DESC, m.id DESC LIMIT $1 OFFSET $2`,
+      [limit, offset, HIDDEN_EPISODE_FIXTURE_IDS]);
       return rows.map(map);
     },
     async find(id) {
-      const rows = await query(`SELECT ${columns}, m.content ${from} AND m.id = $1`, [id]);
+      const rows = await query(`SELECT ${columns}, m.content ${from(2)} AND m.id = $1`,
+        [id, HIDDEN_EPISODE_FIXTURE_IDS]);
       return rows[0] ? map(rows[0]) : null;
     },
   };
