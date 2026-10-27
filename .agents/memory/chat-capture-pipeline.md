@@ -221,3 +221,59 @@ Certification depends on the closing witness as well as the content before it. A
 
 **How to apply:** Include all classification dependencies of a closing event in the certification boundary. Test alternatives where one observation is a new turn and another is continuation, not only conflicts inside an already-selected interval. Keep preservation, provisional visibility and certified finality as distinct claims.
 
+
+## Independent source, canonical, episode and replica health
+
+Treat source preservation, canonical turn capture, rolling-episode projection and Markdown replication as separate health claims. Coordination notifications prove none of them.
+
+**Why:** A live recorder reported armed, accepted a genuine Replit exchange and advanced its acknowledgement cursor; the exact source-attributed row existed once, but the active rolling episode did not contain it. The old local writer was deliberately held. Meanwhile the Antigravity native journal was preserving its chat without any shared-DB ingestion. Describing all of this as “recording is running” would conceal distinct gaps.
+
+**How to apply:** Explicitly submit Replit turns through an authorized existing capture path; do not assume an external listener observes this chat. Verify a real capture ID exactly once in the canonical DB, verify its independent episode projection, then compare the Markdown to the DB. Do not bypass held writers. A missing checkout file is not missing source: locate prior founder-approved work in canonical chats, peer worktrees and the actual published branch before regenerating anything. Recover omitted dialogue only from original source, never from a compacted summary.
+
+
+## All conversation paths are in scope
+
+Recording completeness covers every conversation path, including Replit, Claude Code, Antigravity, Alden's conversations and upcoming OpenAI/runtime paths. Do not treat working capture in one interface as coverage of the others.
+
+**Why:** The founder explicitly asked for all of these transcript paths to be in the record. Source: conversation_memories `9e5feb1e-3dda-40b5-900a-86dc799979df`.
+
+**How to apply:** Require original dialogue, correct author/runtime attribution, a verified durable source record and verified placement in the correct episode. Native persistence, shared ingestion and episode projection are separate evidence claims. New runtime/provider connectivity is not recording readiness; verify a genuine exchange end-to-end before calling it ready. Missing or stalled coverage must be visible and alertable, not hidden behind a green recorder status. Preserve authored notes when supplied without inventing another hat's reflections. Use original source identities and occurrence provenance for historical recovery; late ingestion alone must not choose the episode. Respect existing launch holds and bounded backfill approval.
+
+
+## Central access, not per-checkout Markdown synchronization
+
+The approved direction is centralized, database-backed access to records and documents. Runtime-local Markdown replicas are not a requirement for recording completeness. Episodes, memory and the ledger establish shared continuity. Markdown serves human and Daniela consumption; matching files in every desktop or agent checkout are not required.
+
+**Why:** The founder explicitly corrected the multi-checkout synchronization model, requested a centralized repository and identified Alden's "getting on the air" onboarding as the place to establish access. He subsequently approved this direction. Sources: conversation_memories `86c48837-1fbb-4e5a-bbb9-328418c66bb9`, `97d358f7-da87-450a-af33-79b255046834` and `5d4c99c0-019e-44fa-9618-dbf71001f71e`.
+
+**How to apply:** Do not equate absent local files with absent canonical dialogue or make every checkout's filesystem parity a completion gate. Provide central, credentialed access to current documents and records, with onboarding and reconnection establishing where to read them and proving recording readiness. A private website-served reader/download surface is part of the approved direction, not evidence that it already exists. Keep full records and curated stories distinct and linked. Do not invent missing ingestion or a missing story DB entry just because other data is centralized. Local copies, if used, are explicitly caches or exports; do not let them overwrite canonical records. Reuse existing services rather than creating another parallel archive; implementation and activation remain subject to their review and release gates.
+
+**Design reference:** Resolve the central shared-spec document `52edc2fe-7d05-45b6-8b44-4d6c48beb490` ("Central Records, Documents, and On-Air Readiness") and its applicable review rationale. Read the approved revision rather than a newer draft or a local export. Design approval is not implementation or activation authority. Existing recording diagnosis/repair must not depend on first building the document reader. The scoped-API transition includes existing hats, not just newly onboarded runtimes.
+
+
+## Completion-only capture can miss input before staging
+
+Do not infer complete user-input capture from an empty outbox or successfully captured adjacent turns. A completion-triggered recorder can have a gap before staging, leaving nothing queued to retry.
+
+**Why:** A runtime owner reported that a classifier-stopped exchange omitted the founder input from canonical rows while adjacent turns existed and the local outbox was empty. This is an attributed report, not independently reproduced proof of the exact failing hook.
+
+**How to apply:** Audit native message identities against durable source receipts, including interrupted/completion-hook-missing paths. Keep input persistence independent of assistant completion where supported. Preserve authorization for historical recovery, never reconstruct the missing original from a forward, and never retry a stopped reasoning inspection as a capture repair.
+
+
+## Wrapper regex anchoring does not prove lossless extraction
+
+Anchored, non-greedy wrapper regexes do not by themselves prove lossless user-text extraction. A broad optional metadata tail can absorb user-authored closing tags and metadata-shaped literals.
+
+**Why:** A synthetic prompt wrapped according to the proposed native format lost most of its user text: an embedded closing-tag/metadata sequence caused the extractor to return5bytes from102bytes. Ordinary complete-prompt fixtures had passed.
+
+**How to apply:** Require source-supported wrapper provenance and unambiguous boundaries, plus literal full-wrapper, closing-tag and metadata-block negative controls with byte-exact expected output. Preserve raw evidence and mark extraction unresolved when ambiguous. Do not infer correctness from regex anchoring or replace it with an untested greedy variant.
+
+
+## Unresolved source evidence is not a raw dialogue fallback
+
+Unresolved transcript extraction is not permission to display raw harness/context material as a human utterance. Preserve only already-authorized source evidence in its restricted evidence surface; keep dialogue projection visibly unresolved. Never use raw metadata as the default student/Daniela dialogue fallback or executable context.
+
+**Why:** The independently reproduced lossy extractor led to a proposed raw-content fallback. That preserves bytes but can misattribute harness/context metadata and broaden exposure. Independent formal design review confirmed that source fidelity and dialogue/display authorization are separate invariants.
+
+**How to apply:** Require source-supported boundaries, honest extraction/projection states and separately authorized restricted inspection. Neither a parse failure nor shared-read access to personal notes grants authority for a blanket raw archive, secret-bearing tool ingestion or private-reasoning collection.
+

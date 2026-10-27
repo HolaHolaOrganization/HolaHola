@@ -61,3 +61,21 @@ Keep authorization freshness separate from the immutable identity of an already-
 
 **How to apply:** Preserve the original source linkage and source namespace. Test the complete multi-speaker event, exact whole-event retry, one-side retry, changed-one-side conflict and concurrent independent events. Do not generate fresh identities on retry, compare text alone, or merge different voices.
 
+
+## Mutually exclusive outcomes need a crash-stable winner
+
+Per-outcome idempotency does not enforce mutual exclusion between outcomes. When a late event can change which outcome would be selected, persist one authoritative decision before applying effects, or commit a cross-outcome decision transactionally with the effect. Recovery must retain that winner rather than rerun selection against newly arrived events.
+
+**Why:** Independent-input capture review exposed a concrete failure: a timeout committed a user-only row, the process crashed before recording completion, then a reply arrived. Re-running selection could create a paired row too, because keys including the outcome kind allowed both. The approved design records the decision before effects and distinguishes that pending decision from completed projection. Canonical source: shared-spec document `97df12be-ea7f-4e82-86b3-5519710428c9`.
+
+**How to apply:** For timeout/arrival races, test late arrival after a crash both before and after the effect commits. Verify one cross-outcome winner, idempotent effect recovery, and no success acknowledgement before the required effects complete. Same-kind deduplication alone is not proof.
+
+
+## Derived effect identities must not alias source identities
+
+Derived effect keys must occupy a namespace disjoint from every permitted raw source identity. Adding a readable suffix does not establish uniqueness across record roles.
+
+**Why:** Independent capture review demonstrated that a late reply's suffixed identity could equal a different, valid exchange's raw identity. Each exchange was internally valid, but the shared idempotency lookup silently treated the second exchange as a replay and omitted its words.
+
+**How to apply:** Check collisions across atomic exchanges, multipart pairs and late effects, in both insertion orders. Use collision-safe typed keys or enforce a reserved namespace across every intake path. Keep human-readable reply links separate from the key used to suppress duplicate effects. Do not assume current clients' naming habits are an enforced invariant.
+

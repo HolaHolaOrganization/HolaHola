@@ -6,6 +6,7 @@ import { FileCoordinationCliCredentialCache } from '../../services/coordination-
 import { ListenerStore, normalizeScope } from './coordination-listener';
 import { parentState, readProcessIdentity, type ProcessIdentity } from './coordination-listener-identity';
 import { publishOwnershipRecord, withOwnershipGuard } from './coordination-listener-ownership';
+import { assertRuntimeScope } from './coordination-listener-scope-migration';
 
 export interface BootConfig {
   root: string;
@@ -56,6 +57,7 @@ export async function bootPreflight(c: BootConfig, now = Date.now()): Promise<'d
   // A new/unscoped installation requires deliberate onboarding, not a replay from cursor zero.
   const store = new ListenerStore(c.stateDir, c);
   await store.assertScope();
+  await assertRuntimeScope(c);
   await store.cursor();
   return 'eligible';
 }

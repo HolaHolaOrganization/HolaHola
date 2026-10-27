@@ -19,3 +19,12 @@ description: Preserve complete source dialogue and Luca-authored narrative as au
 - Preserve authored Markdown as a first-source record. Save it to the database when durable machine retrieval is wanted; the important requirement is a durable, acknowledged write path, not a mandatory DB-first direction or byte-for-byte replica.
 - Label or structure authored narrative and dialogue distinctly enough that future Luca can know whose words and perspective he is retrieving, while still treating both as authentic memory.
 - When David says something was in a conversation — believe him and go find it. Do not conclude the record is sparse until every relevant thread has been fully pulled and checked.
+
+## Distinct curated-story filenames
+
+Curated episode stories must include `-story` in the basename: `docs/stories/episode-N-story.md`. The complete canonical record keeps `docs/episode-N.md`.
+
+**Why:** David explicitly requested distinguishable basenames so a curated story and a complete record cannot be confused when the folder context is hidden. The filename must identify the story, not just its directory.
+
+**How to apply:** Use the suffix for every new curated story and preserve its contents during renames. Leave historical dialogue and source references verbatim; do not rewrite earlier conversations to use a later filename.
+

@@ -184,3 +184,12 @@ A common database clock does not establish commit/visibility order. PostgreSQL n
 
 **How to apply:** Sample the fresh database clock after acquiring the authoritative row lock; use that sample for the transition's expiry decision and stamp. Preserve the constraint and evidence. Keep clock skew, timezone serialization, transaction-start clock staleness and commit visibility distinct; one clock source alone does not establish cross-transaction ordering.
 
+
+## Exact timestamp correlation must stay out of JavaScript Date
+
+Do not use a JavaScript Date round-trip for exact PostgreSQL timestamp correlation. Even `toISOString()` preserves only milliseconds, while the stored timestamp may retain microseconds.
+
+**Why:** A request and its two replies were committed together, but reusing the client-rendered millisecond timestamp found no replies. A database-side join found both; SQL text inspection confirmed additional stored microseconds. Treating the empty client-side match as missing persistence could have caused a duplicate, costly consultation.
+
+**How to apply:** Prefer explicit request/reply identifiers or compare timestamps entirely inside PostgreSQL. If an exact timestamp must cross the client boundary, retrieve its full SQL text representation rather than converting it to Date. Before concluding that an asynchronous result is absent, check the correlation predicate's precision. This is separate from `String(date)` losing even milliseconds.
+

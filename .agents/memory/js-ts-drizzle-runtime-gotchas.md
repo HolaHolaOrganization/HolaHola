@@ -263,3 +263,12 @@ A closed esbuild resolver plugin must preserve native Node-built-in side-effect 
 
 **How to apply:** Test prototype-named keys on every independent dictionary lookup path. Validate absence without traversing the prototype, and preserve the intended fail-closed result rather than throwing on malformed or unsupported metadata.
 
+
+## Async rejection assertion return values
+
+Node's `assert.rejects()` resolves to `undefined`, not the rejected Error. Inspect the actual caught exception with a predicate callback or explicit try/catch, and assert the exact safe diagnostic rather than assigning the assertion's return value.
+
+**Why:** A non-disclosure guard checked `String(await assert.rejects(...)).includes(canary)`. That inspected the word `undefined`, so it could pass while the actual error leaked a secret suffix. A matching safe prefix alone did not detect the leak either.
+
+**How to apply:** Exercise the real guard with independently injected leaking implementations, not merely a synthetic string whose `includes()` returns true. Each protected failure path should fail the guard under its own leaking mutant, while the unmodified implementation passes. Restore all mocks and keep these tests independent of real credential stores.
+

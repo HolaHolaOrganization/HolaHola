@@ -42,6 +42,7 @@ import { tryAcquireInnerLifeLock, releaseInnerLifeLock, waitForInnerLifeLock } f
 import { join, basename, dirname } from 'path';
 import { getUserDb } from '../db';
 import { sql } from 'drizzle-orm';
+import { episodeFilenameFromTitle, selectEpisodeTarget } from './episode-target-identity';
 import { projectHistoricalEpisodeMirror } from './historical-attribution-mirror-recovery';
 import { recordHistoricalAttributionPause, clearHistoricalAttributionPause, historicalAttributionRecoveryStatusLines } from './historical-attribution-status';
 import {
@@ -1894,13 +1895,7 @@ async function appendInnerLifeToEpisodeDb(
   let memoryId = episodeIdCache.get(episodeFilename);
   if (!memoryId) {
     try {
-      const rows = await db.execute(sql`
-        SELECT id FROM conversation_memories
-        WHERE arc_name = 'HolaHola Episodes'
-          AND title = ${title}
-        LIMIT 1
-      `);
-      const row = (rows as any).rows?.[0] ?? (rows as any)[0];
+      const row = await findEpisodeTargetRow(episodeFilename);
       if (row?.id) {
         memoryId = row.id as string;
         episodeIdCache.set(episodeFilename, memoryId);
@@ -2264,11 +2259,7 @@ async function getCurrentRollingEpisodeFilename(): Promise<string | null> {
     `);
     const row = (rows as any).rows?.[0] ?? (rows as any)[0];
     if (!row?.title) return null;
-    // Convert "Episode 27" → "episode-27.md"
-    const m = /^Episode (\d+)$/i.exec(row.title as string);
-    if (m) return `episode-${parseInt(m[1], 10)}.md`;
-    // Fallback: slugify the title
-    return (row.title as string).toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '') + '.md';
+    return episodeFilenameFromTitle(row.title as string);
   } catch (err: any) {
     console.error('[AgentAutosave] Failed to look up rolling episode from DB:', err.message);
     return null;
@@ -2991,6 +2982,16 @@ function episodeTitleFromFilename(filename: string): string {
   return m ? `Episode ${parseInt(m[1], 10)}` : filename.replace('.md', '');
 }
 
+/** Read only headers first: never transfer every episode's full transcript. */
+async function findEpisodeTargetRow(filename: string) {
+  const db = getUserDb();
+  const result = await db.execute(sql`
+    SELECT id, title FROM conversation_memories WHERE arc_name = 'HolaHola Episodes'
+  `);
+  const rows = ((result as any).rows ?? result) as Array<{ id: string; title: string }>;
+  return selectEpisodeTarget(filename, rows);
+}
+
 /** Derive a human title for prequel episodes, e.g. "prequel-episode-1.md" → "Prequel Episode 1" */
 function prequelEpisodeTitleFromFilename(filename: string): string {
   const m = PREQUEL_RE.exec(filename);
@@ -3021,10 +3022,11 @@ export async function syncEpisodeFile(filename: string): Promise<void> {
 
   if (!memoryId) {
     try {
+      const target = await findEpisodeTargetRow(filename);
       const rows = await db.execute(sql`
         SELECT id, tags, content FROM conversation_memories
         WHERE arc_name = 'HolaHola Episodes'
-          AND title = ${title}
+          AND id = ${target?.id ?? null}
         LIMIT 1
       `);
       const row = (rows as any).rows?.[0] ?? (rows as any)[0];
@@ -4048,6 +4050,34 @@ export async function seedInnerLifeTriggerState(
 export function setAutoCaptureEpisodeEnabled(val: boolean): void { _autoCaptureEpisodeEnabled = val; }
 let _autoCaptureEpisodeEnabled = true;
 export function getAutoCaptureEpisodeEnabled(): boolean { return _autoCaptureEpisodeEnabled; }
+/** Read-only snapshot of the exact gates used by canonical episode routing. */
+export function getCanonicalEpisodeProjectionGates() {
+  return {
+    liveModeRequested: existsSync(EPISODE_LIVE_PATH),
+    episodeWritesEnabled: _autoCaptureEpisodeEnabled,
+    routingValidated: !_rollingTagIsStale,
+  };
+}
+/** Uses the same read-only resolver as canonical capture; never appends. */
+export async function getCanonicalEpisodeProjectionTarget():
+  Promise<import('./canonical-capture-worker-readiness').CanonicalEpisodeProjectionTarget> {
+  const pinnedTargetSet = _pinnedRollingEpisodeFilename !== null;
+  const misrouteAlertActive = _rollingTagMisrouteAlert !== null;
+  if (_rollingTagIsStale) {
+    return { resolution: 'blocked', filename: null, pinnedTargetSet, misrouteAlertActive };
+  }
+  // Canonical chat capture does not use the inner-life pinned-target override.
+  // Null includes lookup failure; never interpret it as successful routing.
+  const filename = await getCurrentRollingEpisodeFilename();
+  const target = filename ? await findEpisodeTargetRow(filename) : null;
+  return {
+    resolution: target ? 'resolved' : 'unresolved',
+    filename,
+    rowMatched: Boolean(target),
+    pinnedTargetSet,
+    misrouteAlertActive,
+  };
+}
 export function setAutoCaptureDbEnabled(val: boolean): void { _autoCaptureDbEnabled = val; }
 export function setPinnedRollingEpisodeFilename(f: string | null): void { _pinnedRollingEpisodeFilename = f; }
 let _pinnedRollingEpisodeFilename: string | null = null;

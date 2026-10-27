@@ -42,3 +42,12 @@ live ownership, explicitly recover only confirmed-absent ownership, resume the
 same scoped cursor and receipts, and arm the new native task before recording
 its arming. Never reset the cursor or infer liveness from heartbeat age.
 
+
+## Antigravity completion-based notification
+
+Antigravity's active-idle notification path uses completion of a native background task, not stdout from a continuing daemon. Run the receiver in one-shot resume mode, retain durable receipts, and re-arm another native task after observing incoming work. Canonical messages arriving while the receiver is stopped can be replayed on resume; the IDE itself remained open during that test.
+
+**Why:** In the 2026-10-25 (America/Denver) listener trial, Antigravity reported that its continuous daemon captured incoming messages without notifying the model. After changing to one-shot mode, fresh nonce replies supplied native high-priority completion events and re-arm identities. A later canonical nonce was independently verified as sent inside a pre-announced receiver-downtime window; Antigravity reported replay after resume without clearing receipts or remotely acknowledging them. Source evidence: canonical coordination events 0e4a9bb6-1a3c-4793-a8b6-ee54cfcf3f92 and 2cc5526b-d413-479c-8c53-b0f1a272370f. Replit observed canonical timing/replies, not Antigravity's native IDE UI or filesystem firsthand.
+
+**How to apply:** Require fresh unsolicited nonce/read/reply evidence plus a separately demonstrated re-arm and interruption/replay cycle. Completion output alone is not evidence that the model read it. Preserve observed-but-open receipts and the cursor across interruptions. Do not count a founder prompt or manual relay as native wake, and never generalize receiver-downtime replay to a crash after local persistence or to waking a closed IDE.
+

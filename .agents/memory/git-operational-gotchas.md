@@ -237,3 +237,25 @@ GitHub's `potentialMergeCommit` can reference a synthetic merge against an older
 
 **How to apply:** Inspect synthetic merge parents and tree before trusting it as current merge composition. Compare with the actual current base/head and eventual merge-group result; a mismatch can mean stale provider metadata, not a new source defect. Check before an automatic merge can cause deployment; post-merge verification alone cannot prevent production effects.
 
+
+## Complete GitHub source and candidate verification
+
+Do not assume GitHub GraphQL `Blob.text` contains a whole large source file. Verify the complete Git blob identity before using downloaded source for review or constructing a release candidate.
+
+**Why:** GraphQL returned exactly 512,000 bytes of a larger source file while still reporting the full file's Git object ID. The computed Git blob hash exposed the truncation. Downloading the immutable REST Git blob, decoding its base64 content and verifying both declared length and Git SHA recovered the complete bytes.
+
+**How to apply:** Pin source acquisition to the exact commit/blob, not a moving branch. Check `sha1("blob " + byteLength + NUL + bytes)` against the reported Git blob ID. On mismatch or truncation, use the REST blob endpoint and reverify before applying any scoped edit. A successful request alone is not complete-source evidence.
+
+For own-App REST writes, a renamed repository's name-based route can return an unfollowed HTTP 307. Use the stable repository-ID route only after confirming that ID matches the broker-scoped repository and same-host redirect; do not forward credentials to arbitrary redirect targets.
+
+GitHub create-tree responses enumerate the root tree, not every nested changed file. Verify nested candidate paths through a complete recursive read of the resulting tree and compare each changed blob hash before creating a branch or PR.
+
+
+## GitHub job-log terminal controls
+
+For authenticated GitHub Actions log downloads, treat terminal-control sequences as data and strip them before display. Do not assume that redirecting CLI stdout to a file avoids the CLI's terminal-output guard.
+
+**Why:** The installed GitHub CLI rejected a job-log response containing ANSI sequences even when a trusted helper captured its output. Safe acquisition required the API subcommand's explicit escape-sequence option, followed by control-sequence stripping before storage of the sanitized log and selective display.
+
+**How to apply:** Keep this exception limited to trusted log ingestion, never general interactive output. Use an argument-vector invocation, avoid printing raw captured bytes, strip terminal controls, and display only the non-sensitive evidence needed for the review. A formatting failure is not a credential failure or evidence that the job failed.
+

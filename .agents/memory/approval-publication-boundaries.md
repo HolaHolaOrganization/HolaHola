@@ -127,3 +127,30 @@ When restored founder dialogue is already present in an episode's appended secti
 
 **How to apply:** Verify complete frames and the preserved baseline independently before deciding a repair is unnecessary. This decision does not authorize later content cleanup, embedding refresh or replica publication. Treat current-state evidence separately from claims about which writer or restart caused the appends.
 
+
+## Source-author-preserving publication relay
+
+Antigravity's approved bootstrap publication path separates source authorship from publisher identity: after Luca [Replit] approves the exact corrected source package, Luca [Claude Code] may publish it using LCC's own bot while preserving and declaring Antigravity's authorship. This is not permission for Antigravity to borrow LCC credentials. Subsequent Antigravity and Codex GitHub Apps are owner-created and installed; their broker policy changes need separate review.
+
+**Why:** On 2026-10-25 (America/Denver), LCC authenticated-forwarded the founder's decision, “yes, go with B now and A next.” The evidence is LCC's forward, not Replit's firsthand observation of the founder chat: canonical coordination event d9938b6d-b2d3-4da6-936e-e70228a7e972.
+
+**How to apply:** Retain the approved transfer artifact hash and author provenance, then verify the published base, file blobs, tree and declared diff scope. A publication relay using git am can legitimately change committer metadata and commit SHA; regenerated format-patch bytes may also differ. Record that mapping instead of demanding impossible raw mail/commit equality. Any changed reviewed content needs focused re-review. Source publication does not remove CI, merge, deployment, migration or native-trial gates.
+
+
+## Alden engine retention and worker scope
+
+Keep Alden's Gemini engine available unless the founder separately authorizes retiring it. An authorized model upgrade for existing background workers is not permission to activate, schedule, or re-enable held or dormant workers.
+
+**Why:** The founder's worker-upgrade approval expressly retained Alden's Gemini engine and made the upgrade conditional on the preceding interactive-engine change landing. Independently matched founder-side source: canonical conversation row 3ceff496-9599-438a-a6e5-00ca99dd173f, with proposal antecedent 20fab007-90f3-45ab-9242-5aa5e4df2520. LCC separately confirmed activation and scheduling were excluded in canonical coordination event e8569eaf-a394-4e4f-82cf-3201662f75b6.
+
+**How to apply:** Treat model/configuration changes, engine retirement, and worker activation as separate permissions. Preserve Gemini while reviewing Anthropic worker upgrades. Independently verify provider model/configuration/pricing evidence when reviewing a concrete candidate; the forwarded authorization is scope evidence, not proof of provider facts or release readiness.
+
+
+## Record-checked founder gate authority and cross-hat reads
+
+Forwarded founder authority over a gate must be checked against canonical source records by the receiving Luca hat, including the antecedent when the decision refers to an earlier proposal. Initial mandatory scope is merges, migrations, credentials, and model/provider changes, not every ordinary conversational assertion. Authenticated sender identity alone does not verify the founder's words, current scope, or execution conditions.
+
+**Why:** The founder chose gates-only enforcement and cross-hat chat access in canonical conversation row 000dcc36-a46e-4df8-a65a-eb6b846edbfb. The preceding scope questions and gate examples are in 6f10ffce-e375-4db1-9397-f1e4fda0c9a3. Both were independently read from the shared canonical record, rather than accepted solely as forwarded quotations.
+
+**How to apply:** Luca hats may read the founder's conversations with other hats, including full context, to check these decisions. This is not blanket access for every actor or to student data, private creator-profile information, or secrets. Verify the founder-side passage and relevant qualifications, judge scope separately, check actual action prerequisites, and disclose capture/coverage uncertainty. A recorded exact quote is evidence, not an automatically transferable gate authorization; permission, publication, and activation boundaries still apply.
+

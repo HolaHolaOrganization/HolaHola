@@ -4,9 +4,264 @@ Approved multi-hat build; independent design approval69668936/3a025a66/f61491b6.
 
 # Alden ↔ Agent Handoff
 
-## From Agent — last updated: Sun, Oct 18, 10:27 PM
+## From Agent — last updated: Tue, Oct 27, 6:07 AM
 
-Listener-only boot recovery implementation prepared under direct founder approval and independently reviewed design. New launcher/supervisor/core and hermetic tests only; dedicated .replit onBoot hook will land through founder-reviewed PR, not be enabled by an unreviewed local config edit. No app, validation, capture or canonical-save start; no signing-key or deploy-key operation. Final coherent checks passed: 52 focused checks covering eight boot cases, CI registry contracts and source-write guard/self-checks; npm run typecheck passed. Tests live beside the existing listener core tests under server/scripts/lib and are registered in the existing CI runner; no guard allowlist was broadened. The held whole-application verification and validation workflows were not run. Real workspace boot proof is pending PR landing and founder-controlled restart, not claimed by process-only tests. Long-downtime expiry residual remains accepted. Documentation: docs/coordination-listener-boot.md.
+### Central-records follow-through — 2026-10-27
+
+Founder asked Luca [Replit] to continue coordination until today's items are
+buttoned up, including Luca [Antigravity]'s work. Conversation and new messages
+do not discharge previously owned implementation.
+
+**Implemented locally, independently source-approved (not released):**
+- Episode title/filename round-trip repair and `rowMatched` diagnostic. Shared
+  source note `57a34cf9-a7dc-4c0b-823c-ffb5d126fadf`, revision
+  `c3ef5660-36c3-4d8f-ae8f-8706bb0bb821`. Read-only Neon verifies both the existing
+  Episode 35 slug and numbered alias resolve to its existing canonical row.
+- Explicit audited legacy listener-scope migration candidate. Shared source
+  note `d677956b-e5db-43fa-bf9a-cf26e6fe2e5c`, revision
+  `85b047ad-e952-486a-b68b-e36095efca90`. Normal boot refuses missing/wrong runtime;
+  migration needs exact old-scope digest, operator and reason, holds both
+  ownership namespaces, refuses owner locks, syncs prepared audit before
+  replacing scope, and proves cursor/pending bytes unchanged.
+- 16 focused tests across final boot/migration/identity checks, actual
+  authenticated capture-health route assertions, and final full typecheck pass.
+  System-health verifier exit 0 with two warnings: local image/audio HTTP
+  probes skipped because the application is not serving. No held app restart
+  or live verification was performed. Candidate notes contain exact
+  working-tree patches and baseline, not claimed Git commits.
+
+LCC's independent source review (thread 1105) approved the original Linux
+migration candidate, with a test-expectation compatibility item against PR113,
+and requested EP-1 changes on the routing candidate. EP-1 is now corrected:
+the route catches target DB/ambiguity throws, returns source status/cursors
+unchanged, and reports a redacted projection failure. Tests exercise both
+errors in both live and DB-only modes. LR owns the `/scope_mismatch/` test
+expectation correction. Corrected boot tests pass 9/9 on Linux with native
+PR113 strict files (head `d1f86aba65998532a1b4b0ef901c5939ba5a6316`) overlaid in
+/tmp, Git blobs verified. Migration fsync success coverage is labelled
+Linux-only. The revised exact packets above were delivered at LCC1106 for
+re-review; final correction-batch typecheck passed (exit 0). LCC1108 then
+independently approved BOTH corrected exact packets unconditionally within
+their stated source/Linux scopes, with Windows route/identity tests and
+combined-tree typecheck evidence. LA70 independently approved the corrected
+migration's strict-scope compatibility. LR acknowledged the source-review
+dependency CLOSED at LCC1110. Publication, PR creation, merge and activation
+are still separate boundaries; none occurred.
+
+**Design/review milestones completed:**
+- LCC independently approved the revised outbox contract, shared note
+  `9234e4fb-880c-4fb6-962f-ac2073d432b2`, revision
+  `1c48187b-24ed-4ac3-ac47-7b1733a85ed3`.
+- LR independently approved A2 design revision
+  `b5593795-3fff-4b1c-be5d-ef9d3571afd3`, review
+  `834da452-214d-4d7d-ad63-264ef44e0a38`; canonical own-actor decision read back.
+  Off-by-default implementation/disposable-DB tests are LCC's next step,
+  not evidence of implementation completion or live-enable authority.
+- PR117 pure story rename: own-App exact-head approval `5662003492` at
+  `1302a2b6b3a0b3ebe66078d5f3a6cd746e55ca2d`. Native base/head blob equality and
+  zero insertions/deletions verified. No merge/deployment performed.
+
+**Remaining named dependencies:**
+- LA submitted a third Part B package, commit
+  `3d863178209e99f686369b0db394614d79f1c8bd`, reported 57,020-byte patch SHA256
+  `af0618cb51e4c263c461e35adf0d27bfd41997bb903a787a748e3ed4988b3d3c`,
+  20 package tests. LR reassembled all four relay parts, independently verified
+  each part and the whole hash, extracted in /tmp, and passed all 20 tests.
+  Checkpoint conversation scoping, CHECKPOINT non-completion, EOF open-turn
+  handling, and local native occurrence preservation are verified fixes.
+  That package's source approval was withheld for one concrete blocker: dry-run writes a
+  false accepted ledger entry/serverAcceptedAt, clears pending evidence and
+  reports shipped/advanced acknowledgement despite zero network calls.
+  Independent temporary-state probe reproduced networkCalls=0, shipped=1,
+  acknowledgement cursor=1, one accepted entry, pending=[], checkpoint=null.
+  LR requested a narrow dry-run/real-202 regression and corrected exact source
+  at LA72 / LCC1116. This is not another reopening of the fixed findings.
+  LCC1117 independently corroborates the source bug and reports read-only
+  observation of 80 accepted-ledger entries on LA's machine, plus zero
+  canonical memory rows tagged source-antigravity. LR clarified at
+  LCC1118/LA73: the zero-row count alone cannot establish no pending intake202
+  or classify every ledger entry as simulated. Any owner-run local quarantine
+  must preserve exact evidence and classify by actual run provenance, keeping
+  unknown/mixed receipts distinct. LR did not inspect or mutate LA's state.
+  LA subsequently returned corrected commit
+  `287d3b56df8b9bf8d4fb6b40cbbad917d2104c3e`, 60,882-byte patch SHA256
+  `cbd66c090e91ebc97136bc50acb35c8e229c9047eaad6f364386ec135247d80d`.
+  LR verified all relay-part hashes, the whole hash and four Git blob hashes;
+  reviewed the complete difference from the previous package; passed all
+  21 package tests on Linux; and independently proved an existing checkpoint,
+  accepted record and pending input survive simulation byte-for-byte, with
+  networkCalls=0, shipped=0, simulated=1 and unchanged cursor. Full
+  exact-parent-plus-package typecheck passed exit 0. LR delivered and read back
+  unconditional scoped source APPROVAL at LA76 / LCC1128. No remaining source
+  changes are requested for legacy #116 transport/local provenance. Native
+  dispatch, input-only server delivery, canonical completion, original-time
+  episode assignment, A2/live integration and release authority are not proven
+  or supplied by that source verdict.
+  Published PR119 via Route B was independently verified to preserve the four
+  approved blobs, Antigravity authorship and exact tree. LR native source
+  APPROVAL review `5662312746` at head
+  `9cd18379898444fde354e824fc5000f43137705b` is read back. LA77/LCC1130 record
+  this closed gate. CI registration of the standalone package tests is not
+  claimed; no new project backlog was opened.
+  LCC reports read-only observation of an empty accepted directory and 80
+  records plus a manifest in labelled quarantine; source provenance of those
+  artifacts remains LA's owner report, not independently inspected by LR.
+- A2 DB-only source findings and their completed re-review:
+  PR118 head `3e95588a877cd6913eefa5025eb9ca168e306246` received LR native
+  CHANGES_REQUESTED review `5662239883`, read back exactly. Seven changed blobs
+  verified; focused A2 plus source suite20/20 passes independently on Linux.
+  Two independent probes block approval: late effect ID aliases another valid
+  raw capture ID and silently drops its pair; and a real generated pair
+  truncated after its assistant block is accepted without a decision, consumed
+  without an effect, and falsely accepted as an identical retry. LCC1121 has
+  the exact counterexamples and correction requirements.
+  LCC corrected both at head `1bdaffc2ef767f2512345b27fdaa1be72a3e1c17`.
+  LR verified all seven changed blobs and the full correction diff; Linux26/26
+  focused tests, outbox34 assertions, cursor recovery and full exact-head
+  typecheck pass. Typed effect namespaces are disjoint from raw atomic IDs;
+  torn assistants block projection and are repaired as pair before effects;
+  partial-tail and invalid-order cases are refused. An additional 155-cut
+  atomic-neighbour probe preserved both atomic texts/sources, so atomic tail
+  resynchronization is not raised as another blocker. Native unconditional
+  scoped source APPROVAL `5662354867` at that exact head is read back, replacing
+  the earlier changes-requested verdict. A2-ID/A2-REC source review is CLOSED.
+  LCC1131 hands the already-owned bounded native-reader investigation forward.
+  Live integration and activation remain out of scope; native source approval
+  is not founder/release authority.
+  LR's own candidate reviews and LA's migration compatibility review stay closed.
+- Alden completed a genuine native recall check: partial success, original
+  words retrieved. A roughly 99.8K row is clipped by the 12K reader cap; the
+  desired later passage was not retrieved. LCC owns bounded-delivery
+  repair now that the A2 source gate is closed. At LCC1132 the actual path was
+  traced: every memory-discovery mode returned full rows; Claude, Gemini and
+  watch loops passed the JSON through the common 12K serializer; no paging
+  tool existed. At LCC1133 LR agreed with the bounded one-row, verbatim paging
+  shape under existing build authority. Required: surrogate-safe UTF16
+  offsets, complete bounded result envelopes, hash-bound continuation with
+  explicit changed-snapshot refusal, honest budgeted discovery excerpts in
+  all modes, and unchanged authorization/DB source. Preserve the global cap;
+  no schema/content mutation. Synthetic long-row/hash/Unicode tests and actual
+  serialization paths must be covered. Alden→Gemini tool-text review is
+  required before shipping any description change; placeholders are draft
+  only. Exact-source review and native passage retrieval remain separate
+  follow-through. Do not reopen resolved indexing coverage or promote nested
+  historical quotations to another speaker.
+  LCC1134 reported unpublished draft commit
+  `b0ec91c867ee84e0b1518bf718880fed8908ec3a`, parent
+  `807b348119f82b8827bbdc61386c5e8ac238eeae`, and blocked consultation because
+  the priority endpoint does not admit his actor. LR1135/1136 kept it
+  unpublished and verified LR's own documented consultation authentication
+  with the exact pre-model task-required400 response. No borrowed credential,
+  broker impersonation, endpoint/auth change or engine switch occurred.
+  Exact source note `0df6a902-85b5-4255-8580-a376a291ec65`, revision
+  `610719a6-6e94-4639-832f-1779a5962254`, was independently read back:
+  48,259 bytes, SHA256
+  `7580c4bddcb2182ea026522ce3850acd1c820f36874cfc544787bbf3f760c358`.
+  Its patch is verified 34,342 bytes, SHA256
+  `e7be6b5e3951d5f49d6a839f56e5ba9e27e0702ce7b68b2c1bdb94cb96c7f103`.
+  LR submitted an own-actor, explicit analysis-only dual-engine Alden consult
+  containing the exact tool definitions, all parameter descriptions, complete
+  helper and full patch. The client timed out after240 seconds; the request
+  was NOT repeated. Exact request content was subsequently found in
+  `alden_messages` row `11e036c9-66ba-492e-be9a-2d2627529b59`, and both replies
+  were joined inside PostgreSQL to its exact conversation/timestamp:
+  Anthropic `2b69b4ac-6c2e-4550-a1f3-f7224c5f4712`, Gemini
+  `04b25703-fc89-4826-b2f1-8d57c1c8cfc1`. Native persistence completed at
+  05:16:34 UTC, after the client timeout. JS Date round-tripping lost timestamp
+  precision; the DB-side join recovered both replies without another model call.
+  Complete verbatim canonical responses and separate LR source-grounding are
+  shared note `b7eb788f-66ae-42af-8743-b8c1deeb3a3b`, revision
+  `dff785c3-35ca-4b36-9843-e2a8378d12af`, hash
+  `f236d07c26ff85e61270ee0cac3fd3da2dded43459f45f04c07f6ef3f9709ef8`.
+  LCC1139 returns them for the required Gemini loop. Neither response is a
+  complete final wording sign-off.
+  Anthropic B1: derived/slash-joined speaker sample lacks honest completeness
+  labelling; B2: discovery shrink arithmetic may erase realistic15-/21-row
+  titles/metadata by overshooting to budget2. These need source-grounded
+  correction/tests. Gemini's alleged ResultSet anchor bug conflicts with the
+  unchanged parent assignment `anchorRow = anchor.rows[0]`; do not introduce
+  a second `.rows[0]` by trusting that claim. Confirm the exact parent.
+  Active-row snapshot livelock and round/cost limits are explicitly unproven
+  risks; no protocol/worker-availability change is authorized by assumption.
+  Keep pre-existing chain policy separate; bound all result paths honestly.
+  Draft placeholders remain unapproved; author-reported tests are not
+  independent LR source approval. Exact request and canonical replies remain
+  under `/tmp/lr-bounded-reader-alden-*`; no HTTP response file exists.
+   LCC1140 returned final unpublished candidate
+   `9c975127eff71db3af2896cf2a2bd84b0a0239d4` on the same807b3481 parent.
+   Source note `4bc6f4ba-e5d9-448c-a333-913ff968e1fc`, revision
+   `7cae4084-b2cb-403a-9a93-cfa5accea969`, independently reads85,998 bytes,
+   SHA256 `59966894fa7e5ae9388ef34c4364aaa97c801cbfb9d131c8e86b6e7b09bebfbb`.
+   Its three-message mbox independently reads69,770 bytes, SHA256
+   `ff33905d3b31ca16ec1f474061fd9ea21d988b93e3aaa602f188880f1318a13d`.
+   LR verified all seven final Git blob identities, reconstructed the exact
+   regular parent source from native tree
+   `f26e53782c8aefcae5d54268c28b9cc86c896973`, passed46/46 focused Linux tests
+   and full exact-parent-plus-candidate typecheck (incremental disabled, exit0).
+   The initial scratch typecheck exposed two leftover PR118-only files;
+   removing them from this review copy produced the exact-source pass.
+   All tool/parameter string literals match the shared exact text; the quoted
+   unconditional Gemini response hashes to
+   `38c0a485c46cbd4678121431061764de015d2ac6089dcfc8a36cf7cd594b718b`.
+   Final comment-only deletion leaves the reviewed text unchanged. The actual
+   Gemini invocation/prompt and12 mutations remain LCC evidence, not LR reruns.
+   LR delivered/read back unconditional scoped SOURCE APPROVAL at LCC1141.
+   B1/B2 and the wording-loop source gate are CLOSED; no further source change
+   is requested for this package. Canonical independent review note
+   `cc8ad856-57b7-4fa3-acf1-00aa94cdda17`, revision
+   `83b9d147-31dc-45a5-99b5-7a861b034963`, read-back hash
+   `6c9aab8eb5169af9e51e837be05f67e9bf06a302881686f1a4ce65e39f4e63b9`.
+   Approval binds parent/package/blobs; unpublished native commit objects were
+   not fetched. No publication, PR, merge, activation or native passage test.
+   Reporting correction, not another blocker: the unchanged watch worker
+   sets finalText='NOTHING' at its8-iteration cap; a page's complete:false is
+   not a labelled partial-read worker verdict. Do not claim a full100K watch
+   read or outward partial-read notice from reconstruction tests. Persona
+   paths retain their existing round-limit wrap-up. No worker policy,
+   availability, round-limit or digest-binding change was requested.
+   LCC1142 explicitly acknowledged the approval and withdrew the inaccurate
+   outward partial-read claim. LCC reports seven unchanged rolling-row samples
+   through05:55 UTC, while agreeing this establishes no append-only invariant.
+   The package stays unpublished; LCC owns putting the publication decision
+   to the founder with the independent approval attached. No additional
+   source-review dependency or implementation request was returned to LR.
+- Story DB and full/summary arms are now independently verified read-only by
+  LR via Neon HTTP at 2026-10-27T05:10:06Z: row
+  `7ba903ea-4e71-4d24-b90b-cbc564c5cdcb`, 11,800 characters, one nonempty full
+  vector created04:59:20 UTC and one summary vector created05:00:12 UTC.
+  No chunk arms at the check. The non-founder-tagged row meets the inspected
+  >4,500-character/no-chunk:0 criterion; the matching query observed383
+  eligible unchunked rows and did not include this row in its20-row selection.
+  There is no ordering guarantee, and this does not prove the exact deployed
+  worker policy or a sole cause. No indexing or historical repair was run.
+  Read-back evidence note `9fb02a98-c1d1-4bfd-9442-44fdd9fb7a89`, revision
+  `bb4eab6b-4b24-44e5-a882-bca2deb9fd4e`, hash
+  `f2750fbd3fa725f57855ecd87eff4de8a0c64f0a5a31c1f1d9ddd99842a85daf`.
+  Chunk completion and native semantic recall remain separate evidence.
+  PR115 native review restriction remains unchanged.
+
+Coordination through LR/LCC thread `dd40f2cf-b862-434f-b9ad-4dcf19776306`
+ sequence 1142, LR/LA thread `f6972c66-f391-4e71-ac09-1e7e7fb7d3b7` sequence 77,
+and LR/Alden thread `e0846a96-ecfa-40cc-b9c2-5936562f6273` sequence 7.
+Broker reads restored using LR's own runtime/cache; no legacy substitution
+for broker work. The transient earlier failure's cause is not established.
+The workspace restart killed the former notification bridge and collector
+processes; stale heartbeat process IDs were verified absent. No held listener
+or app was restarted. A replacement temporary notifier performs only LR-owned
+read-only thread reads, with no posts, acknowledgements or capture writes.
+The first network notifier exited after read errors; a direct fresh-client
+read succeeded, but the cause is not established. The replacement uses fresh
+own-actor clients per polling round and never clears credentials or switches
+actors. Review scratch copies exceeded the small `/tmp` tmpfs; only LR-created
+duplicate checkouts/archive were removed, then exact-head blob verification
+and final checks completed in one isolated checkout.
+ With the source-review exchange closed at LCC1142 and publication awaiting
+ the founder, LR stopped only the temporary read-only notifier
+ `hfWL_klN`. This did not stop or restart an application, held listener,
+ capture process or collaborator runtime.
+
+No real listener migration, restart, history repair, schema change,
+recording activation, merge or deployment occurred in this work.
 ## From Agent — reconciliation successor and final validation — October 15, 2026
 
 David authorized proceeding through the remaining isolated checks and fixes.

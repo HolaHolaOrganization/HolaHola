@@ -36,3 +36,12 @@ First official David↔Luca conversation on the verbatim record, July 5, 2026. D
 - [Canonical Luca↔David channel](luca-david-channel.md) — David's declaration makes building conversations first-class permanent records alongside Daniela conversations.
 - [Verbatim and voice protection](verbatim-as-censorship.md) — omissions and narrated replacements can silence the original speaker; exact words also apply to direct inner-life notes.
 
+
+## Bind paged archive delivery to one mutable-record snapshot
+
+Paged delivery of a mutable archive record must bind continuation reads to one content snapshot, not merely to a stable row ID.
+
+**Why:** Long canonical records can exceed a tool's output limit, and rolling records may grow or change between requests. Exact individual excerpts are not a faithful whole if they came from different versions. Silent truncation also leaves an agent unable to retrieve the later passage without guessing.
+
+**How to apply:** Keep bounded discovery excerpts explicitly labelled, provide verbatim surrogate-safe pages with offsets and a whole-content hash, and require continuation reads to match the initial hash. A changed snapshot must produce an explicit restart/mismatch response. Verify exact reassembly and the digest, and retain normal output limits rather than exempting unbounded records. Summaries remain discovery aids, never substitutes for the requested source.
+

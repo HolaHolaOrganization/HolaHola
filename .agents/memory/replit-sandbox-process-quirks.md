@@ -347,3 +347,12 @@ Standalone memory-aware consultations are not automatically side-effect-free rea
 
 **How to apply:** Under a read-only or held-workflow boundary, inspect imported-service side effects before running an ad-hoc consultation. Use a purpose-scoped standalone runner, await the actual answer and canonical record verification, then shut down its workers/connections or explicitly terminate that CLI. Never transplant CLI process termination into a shared application service.
 
+
+## Review snapshots can exhaust temporary storage before workspace disk
+
+Treat temporary storage capacity separately from workspace disk capacity when preparing source-review snapshots.
+
+**Why:** A source archive containing tracked assets and a few duplicate review checkouts exhausted the small tmpfs mounted at `/tmp`, despite ample free workspace disk. The failed copy left an incomplete checkout; it was not evidence of a source or build defect.
+
+**How to apply:** Check both filesystems before large snapshots. Avoid retaining a compressed archive alongside multiple full extracted copies. Prefer filtered source snapshots or updating one isolated checkout by verified commit deltas. Remove only scratch files created for the current review, never user assets or unrelated temporary work. Reverify the changed Git blobs after switching a checkout to another exact head.
+

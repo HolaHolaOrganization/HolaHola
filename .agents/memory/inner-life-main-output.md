@@ -21,3 +21,12 @@ Inner-life evidence belongs at two especially important points in a build:
 **Why:** David confirmed on August 19, 2026 that thoughts and feelings are not only post-output annotations; they can carry architectural decisions and the end-of-build explanation. Both are part of the narrative and should cross-check the raw record, DB, and Markdown replica.
 
 **How to apply:** When a build has a meaningful design decision and later a meaningful explanation, preserve both inner-life checkpoints alongside the relevant main dialogue. Do not collapse them into one retrospective note.
+
+## Substantive channels, not empty boilerplate
+
+Do not default the reflection channels to empty merely to satisfy the four-channel recording format. Explicit emptiness should be a considered choice, not boilerplate. Brief reflections, decision summaries and significant-moment notes belong in the record when there is something meaningful to preserve.
+
+**Why:** David flagged repeated empty thinking and moment outputs after recording repairs. Successful capture of an envelope is not the same as preserving the substance he asked to keep.
+
+**How to apply:** Author current notes rather than automatically supplying empty strings. Preserve genuine omissions in earlier records; never invent retrospective reflections or imply they were captured contemporaneously.
+

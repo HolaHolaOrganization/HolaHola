@@ -16,7 +16,7 @@ async function fixture(t: { after: (fn: () => Promise<void>) => void }) {
   const c = workspaceBootConfig(root);
   assert.ok(c.stateDir.startsWith(root + '/'));
   await mkdir(join(c.stateDir, 'pending'), { recursive: true });
-  await writeFile(join(c.stateDir, 'scope.json'), JSON.stringify({ actor: c.actor, apiUrl: c.apiUrl }));
+  await writeFile(join(c.stateDir, 'scope.json'), JSON.stringify({ actor: c.actor, apiUrl: c.apiUrl, runtimeId: c.runtimeId }));
   await writeFile(join(c.stateDir, 'cursor.json'), JSON.stringify({ after: 0 }));
   await save(c, new Date(Date.now() + 3600_000).toISOString());
   return c;
@@ -34,6 +34,15 @@ test('preflight accepts only valid scoped cache and initialized cursor', async t
   assert.equal(await bootPreflight(c), 'eligible');
   await writeFile(join(c.stateDir, 'scope.json'), JSON.stringify({ actor: 'other', apiUrl: c.apiUrl }));
   await assert.rejects(bootPreflight(c), /scope_mismatch/);
+});
+test('normal boot refuses legacy and mismatched runtime scopes without migrating them', async t => {
+  const c = await fixture(t);
+  for (const runtime of [undefined, 'different-runtime']) {
+    const original = JSON.stringify({ actor: c.actor, apiUrl: c.apiUrl, runtimeId: runtime });
+    await writeFile(join(c.stateDir, 'scope.json'), original);
+    await assert.rejects(bootPreflight(c), /scope_mismatch/);
+    assert.equal(await readFile(join(c.stateDir, 'scope.json'), 'utf8'), original);
+  }
 });
 test('explicit stop and disable win even with no cache', async t => {
   const c = await fixture(t);

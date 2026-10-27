@@ -620,3 +620,17 @@ mtime_ms = 1792726947300
 storage_uri = "gcs://replit-rams-assets-kirk/rams/assets/repl:3ca2376d-c3dc-490a-a375-6b2f97f7c281/c12edc48-b086-4a66-88c1-7d93136f6fec/e35ce4c0-773b-41b2-aa44-561e1c4bb376"
 storage_version_token = "1792727315579674"
 content_type = "text/markdown"
+
+[[outputs]]
+id = "KNVv2jEmnGqemnPpcUYUX"
+uri = "file://.local/signer-plan-review/central-records-on-air-design.md"
+type = "text"
+title = "Central Records, Documents, and On-Air Readiness"
+description = "Read-only Markdown export of the central shared-spec design, independently approved by LCC at revision b01bae1b. The database-backed shared document remains authoritative; this download requires no synchronization."
+logical_id = "181da169-89a7-45d2-bbff-5eb4c4f7fc1b"
+content_hash = "sha256:f86664b630efa13948e97378ad6eb640ad84b3cb13502c69d3c129223919285c"
+size = 22238
+mtime_ms = 1793039899005
+storage_uri = "gcs://replit-rams-assets-kirk/rams/assets/repl:3ca2376d-c3dc-490a-a375-6b2f97f7c281/181da169-89a7-45d2-bbff-5eb4c4f7fc1b/b03d320a-07b2-44fa-a60b-c885c6df58da"
+storage_version_token = "1793040208659689"
+content_type = "text/markdown"

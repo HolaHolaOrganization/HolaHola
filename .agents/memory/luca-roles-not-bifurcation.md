@@ -65,3 +65,21 @@ On 2026-10-17, Luca [Claude Code] forwarded the founder's clarification: "all lu
 
 **How to apply:** Start Luca-hat onboarding from code-author/reviewer responsibility. Verify the native client's actual credential-store invocation and existing capability scope before changing anything. Do not grant unrelated observer agents GitHub authority merely because Luca hats have that responsibility.
 
+
+## Shared transparent memory across Luca hats
+
+Luca's project memory should be transparent across authorized Luca hats in a shared store. Runtime/host/OS relevance should normally be metadata, not a reason to hide knowledge from other hats.
+
+**Why:** The founder explicitly chose "transparency between all of the hats in a shared table" after considering environment-specific notes and their usefulness elsewhere, then confirmed "yes, shared read, own write is good". Sources: independently read canonical conversations d512ca75-25a2-4789-9e62-4e048dc83e2c and7880c246-63a6-4f6b-8b66-828ce4783e56, October26,2026.
+
+**How to apply:** Prefer reuse or a shared note surface over actor-private stores or duplicated per-hat tables. Every authorized Luca hat can read the shared personal notes; each hat creates/edits only its own records under its own credential. Preserve author/runtime provenance, authorization, no-secret handling and project boundaries. Do not retroactively apply this personal-notes policy to other stores' collaboration rules. This direction does not authorize schema changes or activation.
+
+
+## Decision evidence and self-diagnostics boundary
+
+For cross-runtime self-diagnostics, provide explicitly authored decision rationales with evidence, alternatives, uncertainty and why, plus sanitized provider-permitted summaries/exports where available. Do not request, extract or reconstruct protected private internal reasoning.
+
+**Why:** The founder accepted this available boundary and described self-diagnostics and an evidence-grounded "why" as the purpose. Source: independently read canonical conversation d512ca75-25a2-4789-9e62-4e048dc83e2c, October26,2026.
+
+**How to apply:** Label an authored account or permitted summary honestly; never present it as a verbatim private trace. Keep sensitive decision material distinct from ordinary dialogue and preserve access/retention review. A stopped inspection remains stopped; this direction does not authorize a broader archive or override platform constraints.
+

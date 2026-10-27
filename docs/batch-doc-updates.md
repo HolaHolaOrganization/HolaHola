@@ -1,3 +1,44 @@
+## 2026-10-27 — Episode lookup and listener migration candidates
+
+Independently source-reviewed; **not published, activated, or run against the
+real listener**. Episode routing now shares its title-to-filename mapping with
+reverse lookup, accepts a numbered alias for a colon-subtitled episode, and
+refuses ambiguous matches. The projection diagnostic reports whether the
+filename actually matched a canonical row. A read-only shared-Neon check
+confirmed both Episode 35 names resolve to its existing ID; no episode title,
+content, tags, or historical records were changed.
+
+The explicit `migrate-legacy-scope` boot command requires an expected scope
+SHA-256, operator, and reason. Its candidate holds listener and supervisor
+ownership guards, refuses existing owner locks, writes and syncs a prepared
+audit before replacement, and verifies unchanged cursor/pending bytes.
+Normal boot refuses legacy or mismatched runtime scope rather than migrating
+implicitly. Real migration, launch, and restart remain separate approvals.
+
+Verification: 16 focused boot/migration/identity tests across the final
+checks, actual authenticated capture-health route assertions, full typecheck,
+and the system-health verifier passed. Source packets and remaining review
+dependencies are in shared-spec notes, not represented as committed releases.
+The health verifier exited zero with two acknowledged warnings: local HTTP
+image/audio route probes were skipped because the application was not serving.
+Held application/capture services were not restarted to obtain those probes;
+this is not evidence of running-app or live episode completion.
+
+Independent review found and corrected a source-health compatibility issue:
+database or ambiguous-target exceptions are now caught at the health-route
+boundary, leaving source status and acknowledgement cursors available while
+reporting only a redacted projection failure. Actual route regressions cover
+both errors in live and DB-only modes. The migration refusal expectation now
+accepts either strict-scope error wording; a temporary overlay of PR #113's
+actual strict-scope files passes all nine boot tests on Linux. Directory-fsync
+success coverage is explicitly Linux-only. Corrected source packets are back
+with the independent reviewer; the original approval is not represented as
+approval of changed bytes.
+The corrected exact packets subsequently received unconditional scoped
+independent source approval from Luca [Claude Code]. Luca [Antigravity] also
+approved the migration's strict-scope compatibility. These approvals close
+the source-review items only, not GitHub publication, merge or live migration.
+
 ## 2026-10-15 — Review-discovery disposable database binding
 
 The review-discovery test now binds its verified target before importing the

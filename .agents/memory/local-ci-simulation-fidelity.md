@@ -100,3 +100,12 @@ and environment gates, not only npm commands. Attribute evidence to the
 workflow and exact commit that actually ran; never treat a parent's green
 CI as verification of a revised publication workflow.
 
+
+## Source-review fixture capacity
+
+Budget exact-head review fixtures by their dependency closure, not by the size of the pull request. Prefer blob-verified individual files and a minimal fixture; do not assume a repository archive is small enough to extract in the bounded scratch filesystem.
+
+**Why:** A narrow CLI review's repository archive included enough unrelated tracked assets that full extraction exhausted the scratch tmpfs. Selective extraction of the required code/configuration files was sufficient for the focused checks. Scratch exhaustion can also interfere with unrelated live local receipt writers.
+
+**How to apply:** Check available capacity and archive size before full extraction. Use content/blob-verified API reads or explicitly selected archive members where possible. Remove only the current review's own disposable copies when reclaiming space; never delete other hats' working trees, application state or receipt directories.
+

@@ -158,3 +158,12 @@ existing sensitive ownership controls, and explicit founder-only key/deletion
 or execution steps; this does not authorize unrelated scope or silently remove
 those controls.
 
+
+## Review intake and runtime-wide automatic notification
+
+Review and act on incoming approved-project work without repeatedly asking the founder whether to read or review it. Prioritize supported automatic inbox notification across Luca runtimes, including Antigravity, rather than requiring founder prompts.
+
+**Why:** On 2026-10-25 the founder reiterated “please review whatever comes in” and asked for automatic listeners so collaboration does not wait, on any runtime, for a request to read messages.
+
+**How to apply:** Coordinate directly with the owning hat and verify exact-source work as it arrives. Distinguish durable message collection from actual runtime awareness; prove idle-session notification, re-arming and replay on each native runtime. Preserve sensitive approval boundaries and do not claim waking ended sessions without evidence.
+
