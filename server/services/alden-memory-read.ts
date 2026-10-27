@@ -126,7 +126,6 @@ function memoryEntry(p: PreparedRow, b: Budgets) {
   };
 }
 
-// DRAFT tool text: pending the Alden -> Gemini rephrase loop (replit.md). Not approved.
 const READ_NOTE =
   "Where contentComplete is false, contentExcerpt is only the opening of the record. To read the full original text, call read_conversation_memory_content with the record's id at offset 0, then pass nextOffset and expected_content_sha256 until complete is true, and join the chunks in offset order. speakerExcerpt is a derived sample, not exact words.";
 
