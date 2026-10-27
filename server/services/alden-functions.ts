@@ -49,7 +49,7 @@ import {
 } from "./coordination-ledger-service";
 import { listCoordinationInbox } from "./coordination-inbox-service";
 import { listAldenCoordinationInbox, readAldenCoordinationMessage } from "./alden-coordination-read";
-import { assertMemoryId, buildMemoryDiscovery, readMemoryContentChunk } from "./alden-memory-read";
+import { assertMemoryId, boundEcho, buildMemoryDiscovery, memorySearchLimit, readMemoryContentChunk } from "./alden-memory-read";
 import { OPERATIONS_CATALOG, toPublicOperationManifest } from "./operations-catalog";
 import { checkExpectedContent } from "./alden-verbatim";
 import { activeRegistrationsFor, buildActorBriefing } from "./alden-actor-briefing";
@@ -168,16 +168,16 @@ export const ALDEN_TOOLS: AldenTool[] = [
   {
     name: "read_conversation_memories",
     // DRAFT tool text: pending the Alden -> Gemini rephrase loop (replit.md). Not approved.
-    description: "Search the shared conversation_memories archive — curated records of significant conversations between David, Daniela, and the Agent. Returns each match's id, tags, arc membership, chaining (extends_memory_id), length and content digest, with its full content when it is short and a leading excerpt when it is long (contentComplete says which). Read a long entry's full words with read_conversation_memory_content. Filter by arc to read a narrative thread. Use speaker to find what a specific person said. Use related_to to follow a memory chain across sessions.",
-    gemini_description: "Find past, significant conversations between David, Daniela, and the Agent. Each match shows its id, arc, tags and length, with the full text when it is short and the opening of the text when it is long; read the full words of a long one with read_conversation_memory_content. Can filter by topic, keyword, arc (narrative thread), speaker, or chain from a known memory ID.",
+    description: "Search the shared conversation_memories archive: curated records of significant conversations between David, Daniela, the Agent and the team. This finds records; it does not read long ones. Each match returns id, title, importance, entryType, tags, arcName, extendsMemoryId, recordedAt, summary, totalCharacters (UTF-16 code units), contentSha256 (a version token for the content) and contentComplete. If contentComplete is true, content is the record's full original text. If it is false, contentExcerpt is only the opening: never quote it as the whole record or conclude from it that something is absent from the record; read the full text with read_conversation_memory_content. Everything must fit one bounded result, so when more or longer records match, text fields can be shortened, even to empty, and each shortened field is marked by its flag set to false (titleComplete, summaryComplete, tagsComplete, arcNameComplete, entryTypeComplete, speakerExcerptComplete). query, arc and speaker combine; related_to returns a chain instead and ignores them. A result that cannot fit returns an error, never a cut result.",
+    gemini_description: "Find past significant conversations between David, Daniela, the Agent and the team, by keyword, arc, speaker or memory chain. This finds records; it does not read long ones in full. Each match gives its id, title, summary, tags, arc, date, length and contentComplete. If contentComplete is true, content is the full original text. If it is false, contentExcerpt is only the opening: not the whole record, and not evidence that anything is missing from it; read the record with read_conversation_memory_content. When many records match, fields can be shortened or empty, and each shortened field is marked by its ...Complete flag set to false. speakerExcerpt is a sample of where that speaker's lines are, not their exact words.",
     input_schema: {
       type: "object" as const,
       properties: {
-        query: { type: "string" as const, description: "Search term, topic, or title keyword to find in conversation memories" },
-        arc: { type: "string" as const, description: "Filter to a specific arc (narrative thread), e.g. 'HolaHola Episodes', 'daniela-emergence', 'white-wall'. Use list_conversation_arcs to see all available arcs." },
-        limit: { type: "number" as const, description: "Max number of results to return (default 5, max 15)" },
-        speaker: { type: "string" as const, description: "Find passages spoken by a specific person within the transcripts. E.g. 'David', 'Daniela', 'Agent', 'Luca'. Returns memories containing dialogue lines from that speaker, with their lines highlighted." },
-        related_to: { type: "string" as const, description: "A conversation_memories ID. Follows the extends_memory_id chain in both directions — finds the sessions this memory grew from, and any sessions that grew from it. Use to read a full multi-session thread." },
+        query: { type: "string" as const, description: "Case-insensitive text to find in a memory's title, summary or full content (substring match, not semantic search). Title matches rank first, then importance, then most recent. Combines with arc and speaker." },
+        arc: { type: "string" as const, description: "Exact arc name to restrict to, e.g. 'HolaHola Episodes', 'daniela-emergence', 'white-wall'. Use list_conversation_arcs to get exact names." },
+        limit: { type: "number" as const, description: "Maximum matches for query, arc and speaker searches: a positive whole number, default 5, at most 15. Ignored with related_to. More matches means shorter fields per match." },
+        speaker: { type: "string" as const, description: "A speaker name, e.g. 'David' or 'Daniela'. Keeps only memories containing that speaker's bracketed turn tag (e.g. [DAVID]). Each match adds speakerExcerpt: up to the first 8 lines found under that tag, trimmed and joined with ' / '. It is a pointer to where they spoke, not their exact wording; read the content for the original words." },
+        related_to: { type: "string" as const, description: "A conversation memory id (UUID). Returns that memory as anchor, its ancestors (following extends_memory_id upward, up to 10, oldest first), and up to 10 descendants: memories that directly extend the anchor or one of its ancestors. Descendants can include sibling branches and repeat an ancestor, and do not include the anchor's grandchildren. Ignores query, arc, speaker and limit." },
       },
       required: [],
     },
@@ -185,14 +185,14 @@ export const ALDEN_TOOLS: AldenTool[] = [
   {
     name: "read_conversation_memory_content",
     // DRAFT tool text: pending the Alden -> Gemini rephrase loop (replit.md). Not approved.
-    description: "Read the exact, complete text of one conversation memory in bounded chunks, verbatim. Start at offset=0, then pass the returned nextOffset as offset and the first chunk's contentSha256 as expected_content_sha256 until complete=true; join chunks in offset order. If the memory changed while you were reading, the read is refused with snapshot_changed: start again at offset 0.",
-    gemini_description: "Read the exact, complete words of one conversation memory in bounded chunks. Start at offset 0, then pass nextOffset as offset and the first chunk's contentSha256 as expected_content_sha256 until complete is true; join the chunks in offset order. If the memory changed meanwhile, the read is refused with snapshot_changed and I start again at offset 0.",
+    description: "Read the exact original text of one conversation memory, verbatim, in bounded chunks; offsets count UTF-16 code units. To read the whole text: start at offset 0 without expected_content_sha256, then pass each result's nextOffset as offset and the first result's contentSha256 as expected_content_sha256, until complete is true, and join the chunks in offset order. Any offset other than 0 requires expected_content_sha256: the contentSha256 from the first chunk, or from read_conversation_memories. A read that starts past 0 returns only part of the record. If the record changed since that contentSha256, the read is refused with snapshot_changed: discard the chunks read so far and start again at offset 0 without the old value.",
+    gemini_description: "Read the exact original words of one conversation memory in bounded chunks. To read it all: start at offset 0 with no expected_content_sha256, then pass each nextOffset as offset and the first chunk's contentSha256 as expected_content_sha256 until complete is true, and join the chunks in offset order. Any offset other than 0 needs expected_content_sha256, and a read that starts past 0 is only part of the record. If the record changed meanwhile, the read is refused with snapshot_changed: discard the chunks and start again at offset 0 without the old value.",
     input_schema: {
       type: "object" as const,
       properties: {
-        id: { type: "string" as const, description: "The conversation memory id, from read_conversation_memories." },
-        offset: { type: "number" as const, description: "Zero-based UTF-16 offset; default 0. Continue with the previous nextOffset." },
-        expected_content_sha256: { type: "string" as const, description: "Required when offset > 0: the contentSha256 returned with the first chunk." },
+        id: { type: "string" as const, description: "The conversation memory id (UUID), from read_conversation_memories." },
+        offset: { type: "number" as const, description: "Where to start, in UTF-16 code units; default 0. To continue, pass the previous result's nextOffset. Must not split a surrogate pair." },
+        expected_content_sha256: { type: "string" as const, description: "Required whenever offset is not 0: the contentSha256 of the version being read, from the first chunk or from read_conversation_memories. Omit it when starting again at offset 0 after snapshot_changed." },
       },
       required: ["id"],
     },
@@ -1349,11 +1349,12 @@ export async function executeAldenTool(
       }
 
       case "read_conversation_memories": {
-        const { query, arc, limit: memLimit = 5, speaker, related_to } = args;
+        const { query, arc, limit: memLimit, speaker, related_to } = args;
         const sharedDb = getMonitoringDb();
 
         // ── related_to: follow extends_memory_id chain in both directions ──────
         if (related_to && typeof related_to === 'string') {
+          assertMemoryId(related_to);
           // Fetch the anchor memory itself
           const anchor = await sharedDb.execute(sql`
             SELECT id, title, summary, content, importance, created_at, tags, entry_type,
@@ -1361,7 +1362,7 @@ export async function executeAldenTool(
             FROM conversation_memories WHERE id = ${related_to} LIMIT 1
           `);
           if (!anchor.rows.length) {
-            return { data: { related_to, matchCount: 0, memories: [], note: `No memory found with id ${related_to}.` } };
+            return { data: { related_to: boundEcho(related_to, 64), matchCount: 0, memories: [], note: 'No memory found with this id.' } };
           }
           const anchorRow = anchor.rows[0] as any;
 
@@ -1427,12 +1428,12 @@ export async function executeAldenTool(
           ${arc ? sql`AND arc_name = ${arc}` : sql``}
           ${hasSpeaker ? sql`AND content ILIKE ${speakerPattern}` : sql``}
           ORDER BY title_match DESC, importance DESC, created_at DESC
-          LIMIT ${Math.min(Number(memLimit), 15)}
+          LIMIT ${memorySearchLimit(memLimit)}
         `);
 
         const rows = results.rows as any[];
         if (!rows.length) {
-          return { data: { query, arc: arc ?? null, speaker: speaker ?? null, matchCount: 0, memories: [], note: 'No conversation memories matched this query.' } };
+          return { data: { query: boundEcho(query, 500), arc: boundEcho(arc, 200), speaker: boundEcho(speaker, 100), matchCount: 0, memories: [], note: 'No conversation memories matched this query.' } };
         }
 
         // When speaker filter is active, extract just that speaker's lines for each memory
@@ -1453,9 +1454,9 @@ export async function executeAldenTool(
 
         return {
           data: buildMemoryDiscovery({ memories: rows }, {
-            query: typeof query === 'string' ? query.slice(0, 500) : query,
-            arc: typeof arc === 'string' ? arc.slice(0, 200) : arc ?? null,
-            speaker: typeof speaker === 'string' ? speaker.slice(0, 100) : speaker ?? null,
+            query: boundEcho(query, 500),
+            arc: boundEcho(arc, 200),
+            speaker: boundEcho(speaker, 100),
             matchCount: rows.length,
           }, hasSpeaker ? (r: any) => extractSpeakerLines(String(r.content ?? ''), speaker as string) : undefined),
         };

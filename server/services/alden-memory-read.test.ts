@@ -9,7 +9,9 @@ import {
 } from './alden-tool-result';
 import {
   assertMemoryId,
+  boundEcho,
   buildMemoryDiscovery,
+  memorySearchLimit,
   readMemoryContentChunk,
   READ_MEMORY_CONTENT_TOOL,
   type MemoryRow,
@@ -70,7 +72,7 @@ test('a ~100K row reassembles exactly on the Claude/Gemini and watch-worker path
     assert.equal(joined, content, name);
     assert.equal(digest, sha(content), name);
     assert.ok(joined.includes(LATE), name);
-    assert.ok(chunks.length > 10, `${name}: ${chunks.length} chunks`);
+    assert.ok(chunks.length > 5, `${name}: ${chunks.length} chunks`);
     // No chunk ends between the halves of a surrogate pair.
     for (const chunk of chunks) assert.doesNotMatch(chunk.slice(-1), /[\uD800-\uDBFF]/);
   }
@@ -174,4 +176,78 @@ test('short rows keep their full content in discovery, marked complete', () => {
   assert.deepEqual([e.content, e.contentComplete, e.totalCharacters], ['short words 😀', true, 'short words 😀'.length]);
   for (const key of ['contentExcerpt', 'titleComplete', 'summaryComplete', 'tagsComplete']) assert.equal(key in e, false, key);
   assert.deepEqual(e.tags, ['a', 'b']);
+});
+
+/** A realistic long row: modest title, summary and tags, a large transcript. */
+function realisticRow(i: number): MemoryRow {
+  return {
+    id: `00000000-0000-4000-8000-${String(i).padStart(12, '0')}`,
+    title: `Episode ${i}: a title of about sixty characters, like the real ones`,
+    summary: 'A summary of roughly four hundred characters. '.repeat(9),
+    content: longText(),
+    importance: 8,
+    created_at: '2026-10-27 04:00:00.123456',
+    tags: ['david-luca-chat', 'canonical-conversation', 'verbatim', 'per-turn', 'chat-capture', 'source-replit'],
+    entry_type: 'episode',
+    arc_name: 'HolaHola Episodes',
+    extends_memory_id: ID,
+  };
+}
+
+test('B2: realistic 15- and 21-row discovery keeps identification and uses the budget', () => {
+  const rows = (n: number, from = 0) => Array.from({ length: n }, (_, i) => realisticRow(from + i));
+  const cases = {
+    query15: buildMemoryDiscovery({ memories: rows(15) }, { matchCount: 15 }) as any,
+    related21: buildMemoryDiscovery({ anchor: realisticRow(99), ancestors: rows(10), descendants: rows(10, 10) }, { totalInChain: 21 }) as any,
+  };
+  for (const [name, data] of Object.entries(cases)) {
+    const wire = serializeAldenToolResult('read_conversation_memories', data);
+    assert.ok(wire.length <= ALDEN_TOOL_RESULT_LIMIT, name);
+    // The search keeps the largest budget that fits, not a collapse to 2.
+    assert.ok(wire.length > ALDEN_TOOL_RESULT_LIMIT * 0.85, `${name} uses only ${wire.length}`);
+    const entries = [...(data.memories ?? []), ...(data.ancestors ?? []), ...(data.descendants ?? []), ...(data.anchor ? [data.anchor] : [])];
+    for (const e of entries) {
+      assert.match(e.title, /^Episode \d+: a title/);
+      assert.equal('titleComplete' in e, false, `${name}: title shortened`);
+      assert.equal(e.arcName, 'HolaHola Episodes');
+      assert.equal(e.entryType, 'episode');
+      assert.ok(e.contentExcerpt.length > 0, `${name}: empty excerpt`);
+    }
+  }
+});
+
+test('B1: a shortened speaker sample is flagged; entry type is flagged when cut', () => {
+  const row: MemoryRow = { id: ID, content: longText(), entry_type: 'e'.repeat(100) };
+  const data = buildMemoryDiscovery({ memories: Array.from({ length: 15 }, () => row) }, {}, () => 'line / '.repeat(5_000)) as any;
+  for (const e of data.memories) {
+    assert.equal(e.speakerExcerptComplete, false);
+    assert.equal(e.entryTypeComplete, false);
+  }
+  const short = buildMemoryDiscovery({ memories: [{ id: ID, content: 'x' }] }, {}, () => 'a / b') as any;
+  assert.equal(short.memories[0].speakerExcerpt, 'a / b');
+  assert.equal('speakerExcerptComplete' in short.memories[0], false);
+});
+
+test('search limit and request echoes are validated and bounded', () => {
+  assert.equal(memorySearchLimit(undefined), 5);
+  assert.equal(memorySearchLimit(3), 3);
+  assert.equal(memorySearchLimit(99), 15);
+  for (const bad of [0, -1, 2.5, '5', NaN]) assert.throws(() => memorySearchLimit(bad), /positive whole number/, String(bad));
+  assert.equal(boundEcho(undefined, 10), null);
+  assert.equal(JSON.stringify(boundEcho('q'.repeat(100_000), 500)).length <= 500, true);
+});
+
+test('a plain ~100K transcript needs at most 9 chunks, so one 10-round phase can read it', () => {
+  // Mostly prose with newlines, like real transcripts. Escape-heavy text
+  // (tabs, quotes, backslashes) needs more chunks: see the reassembly test.
+  let content = '';
+  while (content.length < 100_000) content += 'David: una línea normal de conversación, con acentos y un emoji 😀.\n';
+  let offset = 0, calls = 0, digest: string | undefined;
+  for (;;) {
+    const d = readMemoryContentChunk({ id: ID, content }, { offset, ...(digest ? { expected_content_sha256: digest } : {}) });
+    calls++; digest ??= d.contentSha256;
+    if (d.complete) break;
+    offset = d.nextOffset!;
+  }
+  assert.ok(calls <= 9, `${calls} chunks`);
 });

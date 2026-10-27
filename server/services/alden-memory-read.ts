@@ -12,8 +12,8 @@ import { ALDEN_TOOL_RESULT_LIMIT, serializeAldenToolResult } from "./alden-tool-
 // so they are delivered complete instead of being cut.
 
 /** Escaped-JSON budget for one content chunk (the envelope fits in the rest). */
-export const MEMORY_CONTENT_CHUNK_BUDGET = 9_000;
-const DISCOVERY_START_BUDGET = 1_200;
+export const MEMORY_CONTENT_CHUNK_BUDGET = 11_600;
+const MAX_TEXT_BUDGET = 1_200;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export const READ_MEMORY_CONTENT_TOOL = "read_conversation_memory_content";
@@ -68,75 +68,121 @@ function boundedTags(tags: unknown, budget: number): { tags: string[]; tagsCompl
   return { tags: kept, tagsComplete: kept.length === all.length };
 }
 
+interface PreparedRow {
+  row: MemoryRow;
+  title: string;
+  summary: string;
+  content: string;
+  contentSha256: string;
+  arc: string | null;
+  entryType: string | null;
+  speakerExcerpt?: string;
+}
+
+/** Budgets: identification (title, arc) is protected; text (summary, excerpts, tags) shrinks first. */
+interface Budgets { id: number; text: number }
+
+const MAX_TITLE = 300;
+const MAX_ARC = 80;
+const MAX_ENTRY_TYPE = 40;
+
 /**
- * Discovery entry for one row. Text fields are cut to `budget` escaped-JSON
- * characters and say so; `content` appears only when the whole text fits,
- * otherwise `contentExcerpt` (a leading excerpt, never a summary) does.
+ * Discovery entry for one row. Text fields are cut to their escaped-JSON
+ * budget and say so. `content` appears only when the whole text fits;
+ * otherwise `contentExcerpt` (the opening, never a summary) does.
  */
-function memoryEntry(row: MemoryRow, budget: number, speakerExcerpt?: string) {
-  const title = asText(row.title);
-  const summary = asText(row.summary);
-  const content = asText(row.content);
-  const shownTitle = jsonPrefix(title, Math.min(budget, 300));
-  const shownSummary = jsonPrefix(summary, budget);
-  const shownContent = jsonPrefix(content, budget);
-  const contentComplete = shownContent.length === content.length;
-  const { tags, tagsComplete } = boundedTags(row.tags, Math.min(budget, 400));
-  const shownArc = row.arc_name == null ? null : jsonPrefix(asText(row.arc_name), Math.min(budget, 80));
+function memoryEntry(p: PreparedRow, b: Budgets) {
+  const shownTitle = jsonPrefix(p.title, Math.min(b.id, MAX_TITLE));
+  const shownArc = p.arc === null ? null : jsonPrefix(p.arc, Math.min(b.id, MAX_ARC));
+  const shownEntryType = p.entryType === null ? null : jsonPrefix(p.entryType, MAX_ENTRY_TYPE);
+  const shownSummary = jsonPrefix(p.summary, b.text);
+  const shownContent = jsonPrefix(p.content, b.text);
+  const contentComplete = shownContent.length === p.content.length;
+  const { tags, tagsComplete } = boundedTags(p.row.tags, Math.min(b.text, 400));
+  const shownSpeaker = p.speakerExcerpt === undefined ? undefined : jsonPrefix(p.speakerExcerpt, b.text);
   return {
-    id: row.id,
+    id: p.row.id,
     title: shownTitle,
-    ...(shownTitle.length === title.length ? {} : { titleComplete: false }),
-    importance: row.importance ?? null,
-    entryType: row.entry_type == null ? null : jsonPrefix(asText(row.entry_type), 40),
+    ...(shownTitle.length === p.title.length ? {} : { titleComplete: false }),
+    importance: p.row.importance ?? null,
+    entryType: shownEntryType,
+    ...(shownEntryType === null || shownEntryType.length === p.entryType!.length ? {} : { entryTypeComplete: false }),
     tags,
     ...(tagsComplete ? {} : { tagsComplete: false }),
     arcName: shownArc,
-    ...(shownArc === null || shownArc.length === asText(row.arc_name).length ? {} : { arcNameComplete: false }),
-    extendsMemoryId: row.extends_memory_id ?? null,
-    recordedAt: row.created_at ?? null,
+    ...(shownArc === null || shownArc.length === p.arc!.length ? {} : { arcNameComplete: false }),
+    extendsMemoryId: p.row.extends_memory_id ?? null,
+    recordedAt: p.row.created_at ?? null,
     summary: shownSummary,
-    ...(shownSummary.length === summary.length ? {} : { summaryComplete: false }),
-    totalCharacters: content.length,
-    contentSha256: sha256(content),
+    ...(shownSummary.length === p.summary.length ? {} : { summaryComplete: false }),
+    totalCharacters: p.content.length,
+    contentSha256: p.contentSha256,
     contentComplete,
-    ...(contentComplete ? { content } : { contentExcerpt: shownContent }),
-    ...(speakerExcerpt !== undefined ? { speakerExcerpt: jsonPrefix(speakerExcerpt, budget) } : {}),
+    ...(contentComplete ? { content: p.content } : { contentExcerpt: shownContent }),
+    ...(shownSpeaker === undefined ? {} : {
+      speakerExcerpt: shownSpeaker,
+      ...(shownSpeaker.length === p.speakerExcerpt!.length ? {} : { speakerExcerptComplete: false }),
+    }),
   };
 }
 
+// DRAFT tool text: pending the Alden -> Gemini rephrase loop (replit.md). Not approved.
 const READ_NOTE =
-  "Entries with contentComplete=false show only a leading excerpt. Read the full text with "
-  + `${READ_MEMORY_CONTENT_TOOL}(id, offset=0), then pass nextOffset and expected_content_sha256 `
-  + "until complete=true, joining chunks in offset order.";
+  "Where contentComplete is false, contentExcerpt is only the opening of the record. To read the full original text, call read_conversation_memory_content with the record's id at offset 0, then pass nextOffset and expected_content_sha256 until complete is true, and join the chunks in offset order. speakerExcerpt is a derived sample, not exact words.";
+
+/** Largest integer in [low, high] for which `fits` holds, or null if none does. */
+function largestFitting(low: number, high: number, fits: (n: number) => boolean): number | null {
+  if (!fits(low)) return null;
+  while (low < high) {
+    const mid = Math.ceil((low + high) / 2);
+    if (fits(mid)) low = mid;
+    else high = mid - 1;
+  }
+  return low;
+}
 
 /**
- * Shape any discovery result so that it fits the serializer limit, shrinking
- * the per-row text budget until it does. `rows` maps a group name (memories,
- * ancestors, descendants, anchor) to its rows, in order.
+ * Shape any discovery result so that it fits the serializer limit. `groups`
+ * maps a group name (memories, ancestors, descendants, anchor) to its rows.
+ * The text budget is the largest that fits with full identification (title,
+ * arc); only if even the smallest text budget does not fit does
+ * identification shrink too.
  */
 export function buildMemoryDiscovery(
   groups: Record<string, MemoryRow[] | MemoryRow>,
   extras: Record<string, unknown>,
   speakerExcerpt?: (row: MemoryRow) => string,
 ) {
-  const rowCount = Object.values(groups).reduce((n, g) => n + (Array.isArray(g) ? g.length : 1), 0);
-  const build = (budget: number) => {
+  // Computed once: the budget search rebuilds the result many times.
+  const prepare = (row: MemoryRow): PreparedRow => {
+    const content = asText(row.content);
+    return {
+      row,
+      title: asText(row.title),
+      summary: asText(row.summary),
+      content,
+      contentSha256: sha256(content),
+      arc: row.arc_name == null ? null : asText(row.arc_name),
+      entryType: row.entry_type == null ? null : asText(row.entry_type),
+      ...(speakerExcerpt ? { speakerExcerpt: speakerExcerpt(row) } : {}),
+    };
+  };
+  const prepared = Object.entries(groups).map(([name, group]) =>
+    [name, Array.isArray(group) ? group.map(prepare) : prepare(group)] as const);
+  const build = (b: Budgets) => {
     const data: Record<string, unknown> = { ...extras };
-    for (const [name, group] of Object.entries(groups)) {
-      const entry = (row: MemoryRow) => memoryEntry(row, budget, speakerExcerpt?.(row));
-      data[name] = Array.isArray(group) ? group.map(entry) : entry(group);
+    for (const [name, group] of prepared) {
+      data[name] = Array.isArray(group) ? group.map(p => memoryEntry(p, b)) : memoryEntry(group as PreparedRow, b);
     }
     data.readNote = READ_NOTE;
     return data;
   };
-  let budget = DISCOVERY_START_BUDGET;
-  let data = build(budget);
-  while (JSON.stringify(data).length > ALDEN_TOOL_RESULT_LIMIT && rowCount > 0 && budget > 2) {
-    const excess = JSON.stringify(data).length - ALDEN_TOOL_RESULT_LIMIT;
-    budget = Math.max(2, budget - Math.max(1, Math.ceil(excess / rowCount)));
-    data = build(budget);
-  }
+  const fits = (b: Budgets) => JSON.stringify(build(b)).length <= ALDEN_TOOL_RESULT_LIMIT;
+  const text = largestFitting(2, MAX_TEXT_BUDGET, t => fits({ id: MAX_TITLE, text: t }));
+  const budgets: Budgets = text !== null
+    ? { id: MAX_TITLE, text }
+    : { id: largestFitting(2, MAX_TITLE, i => fits({ id: i, text: 2 })) ?? 2, text: 2 };
+  const data = build(budgets);
   // Throws rather than deliver a cut result if the bound could not be met.
   serializeAldenToolResult("read_conversation_memories", data);
   return data;
@@ -186,6 +232,20 @@ export function readMemoryContentChunk(
   };
   serializeAldenToolResult(READ_MEMORY_CONTENT_TOOL, data);
   return data;
+}
+
+/** A request value echoed back in a result, bounded so the echo cannot overflow it. */
+export function boundEcho(value: unknown, max: number): unknown {
+  return typeof value === "string" ? jsonPrefix(value, max) : value ?? null;
+}
+
+/** `limit` for query/arc/speaker searches: a positive whole number, default 5, at most 15. */
+export function memorySearchLimit(value: unknown): number {
+  if (value === undefined) return 5;
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 1) {
+    throw new Error("invalid_request: limit must be a positive whole number");
+  }
+  return Math.min(value, 15);
 }
 
 export function assertMemoryId(id: unknown): string {
