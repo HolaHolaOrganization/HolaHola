@@ -198,6 +198,26 @@ export async function statusOf(ledger: Ledger, entry: ClaimEntry, reconcile: Rec
   return settleExisting(ledger, entry, record, outcome === null ? null : (JSON.parse(outcome) as OutcomeRecord), reconcile, now);
 }
 
+/**
+ * A claim and its recorded outcome, read at one ledger head, for gating a
+ * later step on an earlier one (commit.create on tree.create, ref.update on
+ * commit.create). Null when the claim or the outcome is absent, or when the
+ * two records disagree on actor, operation id or digest: a claim with no
+ * outcome is never a success.
+ */
+export async function readRecorded(ledger: Ledger, actor: string, operationId: string): Promise<{ claim: ClaimRecord; outcome: OutcomeRecord } | null> {
+  const head = await ledger.head();
+  const rawClaim = await ledger.read(head, claimPath(actor, operationId));
+  if (rawClaim === null) return null;
+  const rawOutcome = await ledger.read(head, outcomePath(actor, operationId));
+  if (rawOutcome === null) return null;
+  const claimRecord = JSON.parse(rawClaim) as ClaimRecord;
+  const outcome = JSON.parse(rawOutcome) as OutcomeRecord;
+  if (claimRecord.actor !== actor || outcome.actor !== actor || claimRecord.operationId !== operationId
+    || outcome.operationId !== operationId || claimRecord.digest !== outcome.digest) return null;
+  return { claim: claimRecord, outcome };
+}
+
 export async function executeOnce(
   ledger: Ledger,
   entry: ClaimEntry,

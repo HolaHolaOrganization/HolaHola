@@ -16,11 +16,20 @@ export const PROTOCOL = 1;
 export const MAX_VALIDITY_MS = 60_000;
 export const MAX_CLOCK_SKEW_MS = 5_000;
 
-/** Named own-App operations (plan section B, operation gateway). No passthrough exists. */
+/**
+ * Named own-App operations (plan section B, operation gateway). No passthrough
+ * exists. Source publication is the stage-1 Git data pipeline (blob.put,
+ * tree.create, commit.create, ref.create, ref.update). The earlier
+ * branch.create and commit.write were retired with it, so ref.update is the
+ * single gate for publishing source (stage-1 design revision 4).
+ */
 export const OPERATIONS = [
-  'branch.create',
+  'blob.put',
+  'tree.create',
+  'commit.create',
+  'ref.create',
+  'ref.update',
   'branch.delete',
-  'commit.write',
   'pr.open',
   'pr.edit',
   'pr.close',
