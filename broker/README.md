@@ -114,14 +114,16 @@ The values come from the sandbox measurement, which is not run yet.
 - the author or committer of any commit on the PR;
 - the recorded origin of any broker-published commit on the PR.
 
-A commit that carries a broker trailer and was authored by a configured actor's bot must have that actor's recorded `commit.create` success for exactly that sha. Its explicitly stored `originActor` decides. A missing outcome or origin is `origin_unknown`, which refuses; it never defaults to "no conflict". A PR with 250 or more commits (GitHub's listing limit) is refused as `too_many_commits`.
+A commit that carries a broker trailer and was authored by a configured actor's bot must have that actor's recorded `commit.create` success for exactly that sha. Its explicitly stored `originActor` decides. A missing outcome or origin is `origin_unknown`, which refuses; it never defaults to "no conflict".
 
-**`pr.enqueue`** is the single completion operation. It names the recorded review (`reviewActor`, `reviewOperationId`) and enqueues the exact head through `enqueuePullRequest` with `expectedHeadOid`, only if all of these hold:
+The commits are enumerated from `compare(signed baseSha...signed head)`, which is immutable between two shas. The PR's live commit listing is never read, because it follows whatever the branch points at when it is read. The pages must account for exactly `total_commits`, or the result is `origin_incomplete`. A range of 250 or more commits is refused as `too_many_commits`.
+
+**`pr.enqueue`** is the single completion operation. It names the recorded review (`reviewActor`, `reviewOperationId`) and signs the live base it expects (`liveBaseSha`, which must equal the live base). It enqueues the exact head through `enqueuePullRequest` with `expectedHeadOid`, only if all of these hold:
 - that review is a recorded `pr.review` APPROVE for this PR and head;
 - it still stands on GitHub;
 - its reviewed base is the live base, or an ancestor of it.
 
-A rewritten (non-ancestor) base needs a fresh review. Both bases are recorded, and the merge queue's own CI then gates the merged result. Recovery is positive-only, from the live queue state.
+A rewritten (non-ancestor) base needs a fresh review. Both bases are recorded, and the merge queue's own CI then gates the merged result. Recovery is positive-only, from the live queue state. A recovered outcome takes its bases from durable sources only: the reviewed base from the recorded review, and the signed live base. It never takes them from a later snapshot of the PR.
 
 `compareCommits` is the one exception to the `..` path guard: two exact shas and a fixed repository path.
 

@@ -101,10 +101,12 @@ export function validatePayload(envelope: Envelope, payload: unknown): Payload |
         && sha(p.baseSha) && sha(p.headTreeSha) ? p : null;
     }
     case 'pr.enqueue': {
-      // Names the recorded broker review that authorizes this exact head.
-      const p = exact(payload, ['reviewActor', 'reviewOperationId']);
+      // Names the recorded broker review that authorizes this exact head, and
+      // signs the live base it expects, so the outcome (even a recovered one)
+      // records the base that preflight actually verified.
+      const p = exact(payload, ['reviewActor', 'reviewOperationId', 'liveBaseSha']);
       return p && needsPr && typeof p.reviewActor === 'string' && ACTOR.test(p.reviewActor)
-        && typeof p.reviewOperationId === 'string' && OPERATION_ID.test(p.reviewOperationId) ? p : null;
+        && typeof p.reviewOperationId === 'string' && OPERATION_ID.test(p.reviewOperationId) && sha(p.liveBaseSha) ? p : null;
     }
     case 'pr.close':
     case 'pr.update-branch':
@@ -372,7 +374,7 @@ export class Gateway {
     if (pull.base.sha !== payload.baseSha) return { ok: false, reason: 'base_moved' };
     const head = await this.config.api.rest(token, 'GET', `${this.repoPath()}/git/commits/${envelope.headSha}`) as { tree?: { sha?: unknown } };
     if (head?.tree?.sha !== payload.headTreeSha) return { ok: false, reason: 'tree_mismatch' };
-    return this.originCheck(envelope.actor, binding, token, pull.number);
+    return this.originCheck(envelope.actor, binding, token, payload.baseSha as string, envelope.headSha as string);
   }
 
   /**
@@ -382,16 +384,27 @@ export class Gateway {
    *   bot must have that actor's recorded commit.create success for exactly
    *   this sha, and its explicitly stored origin decides. A missing outcome or
    *   origin is unknown, which refuses: it never defaults to "no conflict".
-   * - More commits than GitHub will list (250) cannot be fully checked, so refuse.
+   * - 250 or more commits are not checked; refuse.
+   *
+   * The commits are enumerated from compare(signed base...signed head), which is
+   * immutable between two shas (luca-replit PR #128 review, C-ORIGIN-SNAPSHOT).
+   * The PR's live commit listing is never consulted: it follows whatever the
+   * branch points at when it is read. The pages must account for exactly
+   * total_commits, or the result is incomplete and refused.
    */
-  private async originCheck(reviewer: string, binding: ActorBinding, token: string, pr: number): Promise<Check> {
+  private async originCheck(reviewer: string, binding: ActorBinding, token: string, base: string, head: string): Promise<Check> {
     const commits: PullCommit[] = [];
+    let total: number | null = null;
     for (let page = 1; page <= 3; page += 1) {
-      const batch = await this.config.api.rest(token, 'GET', `${this.repoPath()}/pulls/${pr}/commits?per_page=100&page=${page}`) as PullCommit[];
-      commits.push(...batch);
-      if (batch.length < 100) break;
+      const result = await this.config.api.compareCommits(token, this.repoPath(), base, head, page);
+      if (!Number.isSafeInteger(result.total_commits) || !Array.isArray(result.commits)) return { ok: false, reason: 'origin_incomplete' };
+      if (total === null) total = result.total_commits as number;
+      else if (result.total_commits !== total) return { ok: false, reason: 'origin_incomplete' };
+      if (total >= MAX_PR_COMMITS) return { ok: false, reason: 'too_many_commits' };
+      commits.push(...(result.commits as PullCommit[]));
+      if (commits.length >= total || (result.commits as unknown[]).length < 100) break;
     }
-    if (commits.length >= MAX_PR_COMMITS) return { ok: false, reason: 'too_many_commits' };
+    if (commits.length !== total) return { ok: false, reason: 'origin_incomplete' };
     const actorByBot = new Map([...this.config.actors].map(([actor, b]) => [b.botLogin, actor]));
     for (const commit of commits) {
       if (commit.author?.login === binding.botLogin || commit.committer?.login === binding.botLogin) return { ok: false, reason: 'self_review' };
@@ -423,6 +436,7 @@ export class Gateway {
     if (native?.state !== 'APPROVED' || native.commit_id !== envelope.headSha) return { ok: false, reason: 'review_not_standing' };
     const liveBase = pull.base.sha;
     if (typeof liveBase !== 'string' || typeof pull.node_id !== 'string') return { ok: false, reason: 'pr_unreadable' };
+    if (liveBase !== payload.liveBaseSha) return { ok: false, reason: 'base_moved' };
     if (liveBase !== review.result.baseSha) {
       // "ahead": the live base strictly descends from the reviewed base.
       const compare = await this.config.api.compareCommits(token, this.repoPath(), review.result.baseSha, liveBase);
@@ -693,7 +707,7 @@ export class Gateway {
           // clean, positive result is success; anything else stays uncertain.
           const entry = (data as { enqueuePullRequest?: { mergeQueueEntry?: unknown } } | null)?.enqueuePullRequest?.mergeQueueEntry;
           if (errors.length > 0 || typeof entry !== 'object' || entry === null) throw new Error(`enqueue result unknown (${errors.length} graphql errors)`);
-          return { status: 'succeeded', result: { pr, headSha: head, reviewedBase: queued.reviewedBase, liveBase: queued.liveBase, reviewActor: payload.reviewActor as string, reviewOperationId: payload.reviewOperationId as string } };
+          return { status: 'succeeded', result: { pr, headSha: head, reviewedBase: queued.reviewedBase, liveBase: payload.liveBaseSha as string, reviewActor: payload.reviewActor as string, reviewOperationId: payload.reviewOperationId as string } };
         }
         case 'pr.close': {
           await api.rest(token, 'PATCH', `${repo}/pulls/${pr}`, { state: 'closed' });
@@ -768,9 +782,15 @@ export class Gateway {
             const repository = (data as { repository?: { databaseId?: unknown; pullRequest?: { headRefOid?: unknown; merged?: unknown; mergeQueueEntry?: unknown } | null } | null } | null)?.repository;
             if (errors.length > 0 || repository?.databaseId !== this.config.repo.id || !repository.pullRequest) return { status: 'ambiguous' };
             const p = repository.pullRequest;
-            return p.headRefOid === head && (p.merged === true || (typeof p.mergeQueueEntry === 'object' && p.mergeQueueEntry !== null))
-              ? { status: 'applied', result: { pr, headSha: head as string, reviewActor: payload.reviewActor as string, reviewOperationId: payload.reviewOperationId as string } }
-              : { status: 'not_observed' };
+            if (p.headRefOid !== head || !(p.merged === true || (typeof p.mergeQueueEntry === 'object' && p.mergeQueueEntry !== null))) return { status: 'not_observed' };
+            // Bases from durable sources only (C-ENQUEUE-RECOVERY-BASES): the
+            // reviewed base from the recorded review, and the live base the
+            // request signed and preflight verified before dispatch. Never a
+            // later snapshot of the PR.
+            const review = await readRecorded(this.config.ledger, payload.reviewActor as string, payload.reviewOperationId as string);
+            const reviewedBase = review?.claim.operation === 'pr.review' ? review.outcome.result.baseSha : undefined;
+            if (typeof reviewedBase !== 'string') return { status: 'ambiguous' };
+            return { status: 'applied', result: { pr, headSha: head as string, reviewedBase, liveBase: payload.liveBaseSha as string, reviewActor: payload.reviewActor as string, reviewOperationId: payload.reviewOperationId as string } };
           }
           case 'pr.close': {
             const pull = await this.getPull(token, pr as number);

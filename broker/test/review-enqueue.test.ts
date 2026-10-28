@@ -60,6 +60,11 @@ class FakeGitHub {
   headTree = HEAD_TREE;
   reviews: Array<{ id: number; user: { login: string }; body: string; commit_id: string; state: string }> = [];
   compareStatus = 'ahead';
+  /** What GitHub's live PR commit listing would show; the broker must never use it. */
+  liveListing: Commit[] = [];
+  /** Overrides compare's total_commits, to simulate an incomplete enumeration. */
+  totalOverride: number | null = null;
+  comparePaths: string[] = [];
   queued = false;
   failAfterApply = false;
   enqueueResponse: unknown = null;
@@ -75,10 +80,7 @@ class FakeGitHub {
     if (pathname.endsWith('/access_tokens')) return this.json(201, { token: 'ghs_test', expires_at: new Date(NOW + 3_600_000).toISOString() });
     const base = `/repos/${REPO.owner}/${REPO.name}`;
     if (pathname === `${base}/pulls/48` && method === 'GET') return this.json(200, this.pull);
-    if (pathname === `${base}/pulls/48/commits`) {
-      const page = Number(searchParams.get('page') ?? 1);
-      return this.json(200, this.prCommits.slice((page - 1) * 100, page * 100));
-    }
+    if (pathname === `${base}/pulls/48/commits`) return this.json(200, this.liveListing);
     if (pathname === `${base}/git/commits/${HEAD}`) return this.json(200, { sha: HEAD, tree: { sha: this.headTree } });
     if (pathname === `${base}/pulls/48/reviews` && method === 'POST') {
       const r = { id: 900 + this.reviews.length, user: { login: LCC_BOT }, body: body.body, commit_id: body.commit_id, state: body.event === 'APPROVE' ? 'APPROVED' : body.event };
@@ -88,7 +90,14 @@ class FakeGitHub {
     if (pathname === `${base}/pulls/48/reviews` && method === 'GET') return this.json(200, Number(searchParams.get('page') ?? 1) > 1 ? [] : this.reviews);
     const one = pathname.match(new RegExp(`^${base}/pulls/48/reviews/(\\d+)$`));
     if (one) { const r = this.reviews.find((x) => x.id === Number(one[1])); return r ? this.json(200, r) : this.json(404, {}); }
-    if (pathname.startsWith(`${base}/compare/`)) return this.json(200, { status: this.compareStatus });
+    if (pathname.startsWith(`${base}/compare/`)) {
+      this.comparePaths.push(`${pathname}?${searchParams.toString()}`);
+      if (pathname === `${base}/compare/${BASE}...${HEAD}`) {
+        const page = Number(searchParams.get('page') ?? 1);
+        return this.json(200, { status: 'ahead', total_commits: this.totalOverride ?? this.prCommits.length, commits: this.prCommits.slice((page - 1) * 100, page * 100) });
+      }
+      return this.json(200, { status: this.compareStatus });
+    }
     if (pathname === '/graphql') {
       const { query, variables } = body as { query: string; variables: Record<string, any> };
       if (query.includes('enqueuePullRequest')) {
@@ -228,6 +237,32 @@ describe('pr.review: no self-review, including by origin', () => {
     assert.deepEqual((await approve(h)).body.result, { reason: 'too_many_commits' });
   });
 
+  // luca-replit PR #128 review, C-ORIGIN-SNAPSHOT.
+  test('commits come from the immutable signed base...head compare, never the live PR listing', async () => {
+    const h = harness();
+    // The live listing (as after an ABA head change) shows only someone else's commit;
+    // the immutable range holds the reviewer's own. The review must be refused.
+    h.github.prCommits.push({ sha: 'b'.repeat(40), commit: { message: 'mine' }, author: { login: LCC_BOT }, committer: { login: LCC_BOT } });
+    h.github.liveListing = [{ sha: 'c'.repeat(40), commit: { message: 'theirs' }, author: { login: LR_BOT }, committer: { login: LR_BOT } }];
+    assert.deepEqual((await approve(h)).body.result, { reason: 'self_review' });
+    assert.equal(h.github.count('GET', '/pulls/48/commits'), 0, 'the live listing is never read');
+    assert.ok(h.github.comparePaths.every((path) => path.includes(`/compare/${BASE}...${HEAD}?`)), 'pinned to the signed base and head');
+  });
+
+  test('the range is paged in full: a reviewer commit on page 2 is found', async () => {
+    const h = harness();
+    h.github.prCommits = Array.from({ length: 150 }, (_, i) => ({ sha: (i + 1).toString(16).padStart(40, '0'), commit: { message: 'x' }, author: { login: LR_BOT }, committer: { login: LR_BOT } }));
+    h.github.prCommits[120].author = { login: LCC_BOT };
+    assert.deepEqual((await approve(h)).body.result, { reason: 'self_review' });
+    assert.equal(h.github.comparePaths.length, 2);
+  });
+
+  test('pages that do not account for exactly total_commits are incomplete and refused', async () => {
+    const h = harness();
+    h.github.totalOverride = 5;
+    assert.deepEqual((await approve(h)).body.result, { reason: 'origin_incomplete' });
+  });
+
   test('an uncertain review reconciles from its marker with the full tuple', async () => {
     const h = harness();
     h.github.failAfterApply = true;
@@ -241,7 +276,8 @@ describe('pr.review: no self-review, including by origin', () => {
 });
 
 describe('pr.enqueue: only the exact approved head, behind a recorded review', () => {
-  const enqueue = (h: H, reviewOperationId: string, reviewActor = 'luca-claude-code') => run(h, 'pr.enqueue', { reviewActor, reviewOperationId });
+  const enqueue = (h: H, reviewOperationId: string, reviewActor = 'luca-claude-code', liveBaseSha = h.github.pull.base.sha) =>
+    run(h, 'pr.enqueue', { reviewActor, reviewOperationId, liveBaseSha });
 
   test('a recorded approving review at the exact head and base enqueues once, pinned to the head', async () => {
     const h = harness();
@@ -303,7 +339,31 @@ describe('pr.enqueue: only the exact approved head, behind a recorded review', (
     h.clock.now += EXECUTION_DEADLINE_MS;
     const settled = await queued.replay();
     assert.equal(settled.body.status, 'applied');
+    // C-ENQUEUE-RECOVERY-BASES: both bases survive recovery, from durable sources.
+    assert.deepEqual(settled.body.result, { pr: 48, headSha: HEAD, reviewedBase: BASE, liveBase: BASE, reviewActor: 'luca-claude-code', reviewOperationId: review.operationId });
     assert.equal(h.github.count('POST', 'enqueuePullRequest'), 1);
+  });
+
+  test('recovery records the signed live base, never a later snapshot of the PR', async () => {
+    const h = harness();
+    const review = await approve(h);
+    h.github.pull.base.sha = NEWER_BASE;
+    h.github.enqueueResponse = { data: { enqueuePullRequest: { mergeQueueEntry: { id: 'MQE_1' } } }, errors: [{ type: 'INTERNAL', message: 'partial' }] };
+    const queued = await enqueue(h, review.operationId);
+    assert.equal(queued.body.decision, 'uncertain');
+    h.github.pull.base.sha = '7'.repeat(40);
+    h.clock.now += EXECUTION_DEADLINE_MS;
+    const settled = await queued.replay();
+    assert.equal(settled.body.status, 'applied');
+    assert.equal(settled.body.result.reviewedBase, BASE);
+    assert.equal(settled.body.result.liveBase, NEWER_BASE, 'the base preflight verified, not the base read during recovery');
+  });
+
+  test('a signed live base that is not the live base refuses', async () => {
+    const h = harness();
+    const review = await approve(h);
+    assert.deepEqual((await enqueue(h, review.operationId, 'luca-claude-code', NEWER_BASE)).body.result, { reason: 'base_moved' });
+    assert.equal(h.github.count('POST', 'enqueuePullRequest'), 0);
   });
 
   test('an uncertain enqueue is not settled when the queue holds a different head', async () => {
@@ -319,10 +379,13 @@ describe('pr.enqueue: only the exact approved head, behind a recorded review', (
 
   test('payload shape: named reviewer and operation, with an envelope PR and head', () => {
     const env = { operation: 'pr.enqueue', pr: 48, headSha: HEAD } as Envelope;
-    assert.ok(validatePayload(env, { reviewActor: 'luca-replit', reviewOperationId: 'op-review-000000000001' }));
-    assert.equal(validatePayload({ ...env, pr: null } as Envelope, { reviewActor: 'luca-replit', reviewOperationId: 'op-review-000000000001' }), null);
-    assert.equal(validatePayload(env, { reviewActor: 'Luca', reviewOperationId: 'op-review-000000000001' }), null);
-    assert.equal(validatePayload(env, { reviewActor: 'luca-replit', reviewOperationId: 'short' }), null);
+    const p = { reviewActor: 'luca-replit', reviewOperationId: 'op-review-000000000001', liveBaseSha: BASE };
+    assert.ok(validatePayload(env, p));
+    assert.equal(validatePayload({ ...env, pr: null } as Envelope, p), null);
+    assert.equal(validatePayload(env, { ...p, reviewActor: 'Luca' }), null);
+    assert.equal(validatePayload(env, { ...p, reviewOperationId: 'short' }), null);
+    assert.equal(validatePayload(env, { reviewActor: 'luca-replit', reviewOperationId: 'op-review-000000000001' }), null, 'the live base is required');
+    assert.equal(validatePayload(env, { ...p, liveBaseSha: 'main' }), null);
   });
 
   test('qualification: enqueue is allowed only for the listed PR at its pinned head', async () => {
@@ -338,7 +401,10 @@ describe('compareCommits: the one exception to the path guard', () => {
     const seen: string[] = [];
     const api = new GitHubApi(async (url) => { seen.push(url); return new Response(JSON.stringify({ status: 'ahead' })); });
     assert.deepEqual(await api.compareCommits('t', '/repos/HolaHolaOrganization/HolaHola', BASE, NEWER_BASE), { status: 'ahead' });
-    assert.equal(seen[0], `https://api.github.com/repos/HolaHolaOrganization/HolaHola/compare/${BASE}...${NEWER_BASE}`);
+    assert.equal(seen[0], `https://api.github.com/repos/HolaHolaOrganization/HolaHola/compare/${BASE}...${NEWER_BASE}?per_page=100&page=1`);
+    for (const page of [0, 11, 1.5, -1]) {
+      await assert.rejects(api.compareCommits('t', '/repos/HolaHolaOrganization/HolaHola', BASE, NEWER_BASE, page), TypeError, `page ${page}`);
+    }
     for (const [path, base, head] of [
       ['/repos/HolaHolaOrganization/HolaHola', 'main', NEWER_BASE],
       ['/repos/HolaHolaOrganization/HolaHola', BASE, `${NEWER_BASE}/../x`],

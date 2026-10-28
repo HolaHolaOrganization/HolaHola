@@ -103,7 +103,7 @@ class FakeRepo {
     }
     if (pathname === `${base}/pulls` && method === 'GET') return this.json(200, [...this.pulls.values()].filter((p) => `${REPO.owner}:${p.head.ref}` === searchParams.get('head')));
     if (pathname === `${base}/git/commits/${HEAD}` && method === 'GET') return this.json(200, { sha: HEAD, tree: { sha: HEAD_TREE } });
-    if (pathname.match(new RegExp(`^${base}/pulls/\\d+/commits$`)) && method === 'GET') return this.json(200, []);
+    if (pathname === `${base}/compare/${BASE}...${HEAD}` && method === 'GET') return this.json(200, { status: 'ahead', total_commits: 0, commits: [] });
     const refMatch = pathname.match(new RegExp(`^${base}/git/ref/heads/(.+)$`));
     if (refMatch) { const sha = this.refs.get(decodeURIComponent(refMatch[1])); return sha ? this.json(200, { object: { sha } }) : this.json(404, {}); }
     return this.json(500, { message: `unhandled ${method} ${pathname}` });
