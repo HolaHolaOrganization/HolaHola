@@ -64,6 +64,7 @@ export type ExchangeBootstrapFailureReason =
   | 'bootstrap_already_consumed'
   | 'consumed_bootstrap_digest_conflict';
 export type BrokerCredential = {
+  centralGrantId?: string;
   actor: CoordinationActorId;
   runtimeId: string;
   credentialId: string;
@@ -1008,6 +1009,7 @@ async function attemptGraceBootstrapReexchange(input: {
     .from(coordinationRuntimeCredentials)
     .where(and(
       eq(coordinationRuntimeCredentials.runtimeId, runtimeId),
+      isNull(coordinationRuntimeCredentials.centralGrantId),
       isNotNull(coordinationRuntimeCredentials.lastUsedAt),
     ))
     .limit(1);
@@ -1037,6 +1039,7 @@ async function attemptGraceBootstrapReexchange(input: {
     .set({ revokedAt: new Date() })
     .where(and(
       eq(coordinationRuntimeCredentials.runtimeId, runtimeId),
+      isNull(coordinationRuntimeCredentials.centralGrantId),
       isNull(coordinationRuntimeCredentials.revokedAt),
     ))
     .returning({ id: coordinationRuntimeCredentials.id });
@@ -1217,6 +1220,11 @@ export async function resolveBrokerCredential(
       )
       .where(eq(coordinationRuntimeCredentials.tokenHash, tokenHash));
     const stored = row?.credential;
+    if (stored?.centralGrantId != null) {
+      await audit({ eventType: 'access_failed', success: false, runtimeId: stored.runtimeId,
+        actor: stored.actor, credentialId: stored.id, reason: 'central_credential_generic_use', sourceIp }, executor);
+      return null;
+    }
     if (!stored || !actorIds.has(stored.actor) || !validCapabilities(stored.capabilities)) {
       await audit({ eventType: 'access_failed', success: false, reason: 'invalid_token', sourceIp }, executor);
       return null;
@@ -1308,6 +1316,7 @@ export async function renewBrokerCredential(
       .set({ revokedAt: new Date() })
       .where(and(
         eq(coordinationRuntimeCredentials.id, credential.credentialId),
+        isNull(coordinationRuntimeCredentials.centralGrantId),
         isNull(coordinationRuntimeCredentials.revokedAt),
         gt(coordinationRuntimeCredentials.expiresAt, new Date()),
       ))
@@ -1645,6 +1654,7 @@ export async function reissueCoordinationRuntimeBootstrap(
       .from(coordinationRuntimeCredentials)
       .where(and(
         eq(coordinationRuntimeCredentials.runtimeId, runtimeId),
+        isNull(coordinationRuntimeCredentials.centralGrantId),
         isNull(coordinationRuntimeCredentials.revokedAt),
         gt(coordinationRuntimeCredentials.expiresAt, new Date()),
       ))
@@ -1818,6 +1828,7 @@ export async function disableCoordinationRuntimeRegistration(
       .from(coordinationRuntimeCredentials)
       .where(and(
         eq(coordinationRuntimeCredentials.runtimeId, runtimeId),
+        isNull(coordinationRuntimeCredentials.centralGrantId),
         or(
           isNotNull(coordinationRuntimeCredentials.lastUsedAt),
           and(

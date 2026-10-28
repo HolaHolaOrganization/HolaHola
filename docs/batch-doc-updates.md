@@ -1,3 +1,17 @@
+## 2026-10-28 — Founder-only central-read issuer (local source)
+
+Implements the independently approved isolated-grant design: canonical-founder
+web controls, exact actor/runtime grants and expected-state confirmations,
+runtime-pulled 300-second central-only credentials, dedicated grant-bound
+resolution and generic-path isolation. Generated migration adds scope/expiry,
+live-grant uniqueness and credential FK/binding constraints. Transactional
+audit, revoke/regrant and rotation isolation are covered by disposable local
+PostgreSQL proofs; HTTP fixtures and the disposable runner are in native CI.
+Full root typecheck passes. Independent exact-source review and the
+founder-dispatched Linux/Neon gate remain separate; no shared migration, grant,
+service restart, activation, recording/backfill or release has occurred.
+Details: `docs/central-runtime-record-reads.md`.
+
 ## 2026-10-27 — Runtime central read foundation
 
 Adds a broker-only runtime episode/story read router, shared explicit reader

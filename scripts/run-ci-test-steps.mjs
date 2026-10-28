@@ -260,6 +260,8 @@ commands.splice(safetyInsertion, 0,
   'npx tsx --test server/scripts/test-alden-coordination-read.test.ts',
   'npx tsx --test server/scripts/test-central-records-routes.ts',
   'npx tsx --test server/scripts/test-runtime-central-records-routes.ts',
+  'npx tsx --test server/scripts/test-central-read-grant-routes.ts',
+  'npx tsx scripts/test-central-read-grants-disposable.ts',
 
   // Coordinator V2 lifecycle diagnostics, cleanup, fault fallback, evidence,
   // and neighboring first-host-bootstrap/contract/reauthorization suites.

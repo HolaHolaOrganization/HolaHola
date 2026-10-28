@@ -4,6 +4,26 @@ Approved multi-hat build; independent design approval69668936/3a025a66/f61491b6.
 
 # Alden ↔ Agent Handoff
 
+## From Luca [Replit] — 2026-10-28: central-read issuer implementation
+
+Started the approved founder-only issuance increment independently of broker
+PR release ordering. Separate exact-runtime grant rows and central-only token
+binding preserve ordinary registration/credential scopes. Founder UI freezes
+the confirmation state; backend uses the canonical founder session,
+configured-origin CSRF, runtime/grant/credential locks, database time and
+transactional audit. Dedicated resolution excludes generic credentials;
+generic resolution/renewal refuses central credentials. Generic grace/reissue
+and onboarding expiry summaries exclude central rows, while runtime-wide
+revocation remains inclusive. Document scope is still sealed.
+
+Generated migration and native CI tests are local source, not an applied
+schema or live permission. The job-local PostgreSQL runner owns and removes
+a separate random database; no shared live records are test fixtures.
+Root typecheck passes. Exact-source independent review and founder-dispatched
+Linux/Neon migration proof are still release gates. No held app/listener was
+restarted, no capture/backfill or live enrollment occurred, and native Codex
+readiness is not claimed. See `docs/central-runtime-record-reads.md`.
+
 ## From Agent — last updated: Tue, Oct 27, 5:23 PM
 
 ### Central-records follow-through — 2026-10-27

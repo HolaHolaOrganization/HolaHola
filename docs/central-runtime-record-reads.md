@@ -1,4 +1,52 @@
-# Runtime central record reads — first source increment
+# Runtime central record reads
+
+## Founder-only issuance — local implementation, not released (2026-10-28)
+
+The approved isolated-grant design is now implemented locally. This is not a
+live grant, applied migration, source approval, deployment or runtime-readiness
+claim. The sections below this update describe the already-landed first
+increment; their issuer-absent/no-migration statements apply only to that
+historical increment.
+
+- Founder controls are in `/admin/runtime-onboarding`. Dedicated
+  `/api/runtime/central-read/admin` routes require a loaded canonical founder
+  session, reject mixed credential headers and enforce a session CSRF token
+  plus the configured `APP_URL` origin, never a request-supplied Host.
+  Non-production founder-equivalence does not authorize this path.
+- Grants bind an existing exact actor/runtime and only `central-records:read`.
+  Confirmation freezes actor/runtime/expiry/expected grant state; background
+  refresh cannot silently advance that expected state.
+- `POST /api/runtime/central-read/exchange` accepts the runtime's own current
+  routine broker credential and an exact grant ID. The browser grant response
+  never contains a token. The runtime receives a separate central-only token;
+  its TTL is 300 seconds, capped by grant expiry. Five minutes bounds exposure
+  of a copied token; grant revocation is additionally checked on every use.
+- The dedicated resolver rechecks grant, credential, scope and runtime.
+  Generic resolution refuses any grant-bound credential, records the denial,
+  and cannot renew it. Routine registrations and token scopes are unchanged.
+  Generic grace/reissue/status queries exclude central credentials; an explicit
+  runtime-wide revocation remains inclusive.
+- Transactions lock the exact runtime using
+  `pg_advisory_xact_lock(hashtextextended(runtimeId,0))`, then registration,
+  grant and credential rows, using database `now()` for central expiry checks.
+  A resolution acquiring that lock after grant revocation commits is denied.
+  A previously authenticated in-flight request may finish.
+- Migration `0067_central_read_grants.sql` adds the grant table and credential
+  FK binding, one-scope CHECK, partial live-grant uniqueness and a CHECK requiring
+  a binding for central credentials. Expired unrevoked grants are explicitly
+  revoked during a confirmed replacement. Audit failure rolls back mutations.
+- Native CI registers HTTP fixtures and a dedicated PostgreSQL runner. The
+  latter verifies a job-local target, creates its own random child database,
+  applies the actual migration to predecessor fixture tables, runs the real
+  services and drops that database. It never substitutes the shared database.
+
+Independent exact-source review and the founder-dispatched Linux/Neon migration
+gate are still required. No shared migration, held application/listener restart,
+live enrollment, recording/backfill, document activation or publish occurred.
+The approved-document resolver/activation and genuine native Codex continuity
+and visible-message readback remain subsequent work, not completed by issuance.
+
+## Historical first source increment
 
 This source increment implements authenticated machine reading of the same
 canonical episode/story records used by the founder reader. It does **not**
