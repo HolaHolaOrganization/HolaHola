@@ -80,16 +80,17 @@ describe('committed broker/policy.json', () => {
 
 // Stage 1, decision F4-a: the temporary sandbox instance's founder-owned policy
 // on main. It differs from broker/policy.json only in repositoryId (the
-// disposable sandbox repository) and starts CLOSED: the first deploy is a
-// smoke test only. Opening it for the sandbox proofs is a separate PR.
+// disposable sandbox repository) and state. It started CLOSED for the smoke
+// test (passed 2026-10-28) and is now ROUTINE for the live sandbox proofs,
+// still with luca-claude-code as the only actor.
 describe('committed broker/policy.sandbox.json', () => {
   const SANDBOX_REPOSITORY_ID = 1436541790;
   const sandboxBytes = new Uint8Array(readFileSync(new URL('../policy.sandbox.json', import.meta.url)));
 
-  test('parses only for the sandbox repository, is closed, and carries the same luca-claude-code key', () => {
+  test('parses only for the sandbox repository, is routine, and carries only the same luca-claude-code key', () => {
     const policy = parsePolicy(sandboxBytes, SANDBOX_REPOSITORY_ID);
     assert.equal(policy.repositoryId, SANDBOX_REPOSITORY_ID);
-    assert.equal(policy.state, 'closed');
+    assert.equal(policy.state, 'routine');
     assert.deepEqual(policy.qualification, []);
     assert.deepEqual([...policy.actors.keys()], ['luca-claude-code']);
     const lcc = policy.actors.get('luca-claude-code')!;
@@ -101,9 +102,11 @@ describe('committed broker/policy.sandbox.json', () => {
     assert.notEqual(SANDBOX_REPOSITORY_ID, REPOSITORY_ID);
   });
 
-  test('differs from broker/policy.json only in repositoryId', () => {
+  test('differs from broker/policy.json only in repositoryId and state', () => {
     const prod = JSON.parse(readFileSync(new URL('../policy.json', import.meta.url), 'utf8'));
     const sandbox = JSON.parse(new TextDecoder().decode(sandboxBytes));
-    assert.deepEqual({ ...sandbox, repositoryId: prod.repositoryId }, prod);
+    assert.deepEqual({ ...sandbox, repositoryId: prod.repositoryId, state: prod.state }, prod);
+    // The production policy stays closed; only the sandbox opens.
+    assert.equal(prod.state, 'closed');
   });
 });
