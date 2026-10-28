@@ -172,6 +172,13 @@ describe('gateway: comments and replay', () => {
     const result = await run(h, {}, { body: 'hello' });
     assert.doesNotMatch(JSON.stringify(result), /ghs_/);
   });
+
+  test('tokens ask only for contents and pull_requests: the App holds no issues permission', async () => {
+    const h = harness();
+    await run(h, {}, { body: 'hello' });
+    const mints = h.repo.calls.filter((c) => c.path.endsWith('/access_tokens')).map((c) => (c.body as { permissions: unknown }).permissions);
+    assert.deepEqual(mints, [{ contents: 'read', pull_requests: 'read' }, { contents: 'write', pull_requests: 'write' }]);
+  });
 });
 
 describe('gateway: re-authorization after preparatory awaits', () => {
@@ -435,7 +442,7 @@ describe('through the HTTP server (review findings 1-3)', () => {
       assert.equal((await post(request(ok, { operation: 'read' }, {}))).body.decision, 'read');
       const mints = ok.repo.calls.filter((c) => c.path.endsWith('/access_tokens'));
       assert.equal(mints.length, 1, 'a read never mints a write token');
-      assert.deepEqual((mints[0].body as { permissions: unknown }).permissions, { contents: 'read', pull_requests: 'read', issues: 'read' });
+      assert.deepEqual((mints[0].body as { permissions: unknown }).permissions, { contents: 'read', pull_requests: 'read' });
     });
   });
 });

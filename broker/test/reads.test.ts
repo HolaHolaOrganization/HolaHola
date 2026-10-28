@@ -174,7 +174,7 @@ describe('object reads: authority and side effects', () => {
     for (const [op, payload] of [['read.repository', {}], ['read.ref', { branch: 'main' }], ['read.commit', { sha: HEAD }], ['read.tree', { sha: TREE, recursive: false }]] as const) {
       assert.equal((await read(h, op, payload)).status, 200, op);
     }
-    assert.deepEqual(h.github.mints, [{ contents: 'read', pull_requests: 'read', issues: 'read' }]);
+    assert.deepEqual(h.github.mints, [{ contents: 'read', pull_requests: 'read' }]);
     assert.ok(h.github.calls.every((c) => c.method === 'GET' || c.path.endsWith('/access_tokens')));
   });
 
