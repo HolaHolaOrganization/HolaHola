@@ -72,7 +72,7 @@ describe('committed broker/policy.json', () => {
     const policy = parsePolicy(bytes);
     const envelope = signedRequest(policy.epoch).envelope as Envelope;
     assert.deepEqual(stateAllows(policy, envelope), { ok: false, reason: 'policy_closed' });
-    for (const operation of ['read', 'status', 'pr.merge', 'ref.update', 'branch.delete'] as const) {
+    for (const operation of ['read', 'status', 'pr.enqueue', 'ref.update', 'branch.delete'] as const) {
       assert.deepEqual(stateAllows(policy, { ...envelope, operation }), { ok: false, reason: 'policy_closed' }, operation);
     }
   });

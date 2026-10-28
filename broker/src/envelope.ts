@@ -21,7 +21,10 @@ export const MAX_CLOCK_SKEW_MS = 5_000;
  * exists. Source publication is the stage-1 Git data pipeline (blob.put,
  * tree.create, commit.create, ref.create, ref.update). The earlier
  * branch.create and commit.write were retired with it, so ref.update is the
- * single gate for publishing source (stage-1 design revision 4).
+ * single gate for publishing source (stage-1 design revision 4). Completion
+ * is pr.enqueue into the merge queue at the exact approved head; a direct
+ * merge is a founder or manual exception (design section 2), so pr.merge was
+ * retired.
  */
 export const OPERATIONS = [
   'blob.put',
@@ -36,7 +39,7 @@ export const OPERATIONS = [
   'pr.comment',
   'pr.review',
   'pr.update-branch',
-  'pr.merge',
+  'pr.enqueue',
   'read',
   'status',
 ] as const;

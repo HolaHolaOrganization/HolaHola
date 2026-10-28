@@ -12,6 +12,10 @@ import { gitBlobSha, PolicyLoader, REPOSITORY_ID } from '../src/policy.ts';
 const NOW = 1_800_000_000_000;
 const HEAD = 'a'.repeat(40);
 const OTHER = 'b'.repeat(40);
+const BASE = '1'.repeat(40);
+const HEAD_TREE = '2'.repeat(40);
+/** The pr.review tuple fields beyond the envelope's PR and head. */
+const TUPLE = { baseSha: BASE, headTreeSha: HEAD_TREE };
 const BOT = 'holahola-luca-claude-code[bot]';
 const REPO = { owner: 'davidwmcintosh', name: 'HolaHola', id: REPOSITORY_ID };
 const rsa = generateKeyPairSync('rsa', { modulusLength: 2048 });
@@ -38,7 +42,7 @@ class MemoryLedger implements Ledger {
   file(path: string) { const v = this.commits[this.commits.length - 1].get(path); return v === undefined ? null : JSON.parse(v); }
 }
 
-type Pull = { number: number; state: string; merged: boolean; merge_commit_sha: string | null; title: string; body: string; user: { login: string }; head: { sha: string; ref: string; repo: { id: number } }; base: { ref: string; repo: { id: number } } };
+type Pull = { number: number; state: string; merged: boolean; merge_commit_sha: string | null; title: string; body: string; user: { login: string }; head: { sha: string; ref: string; repo: { id: number } }; base: { ref: string; sha: string; repo: { id: number } } };
 
 /** A fake HolaHola repository on GitHub, with hooks to interleave changes mid-operation. */
 class FakeRepo {
@@ -54,7 +58,7 @@ class FakeRepo {
   rejectWith: number | null = null;
 
   constructor() {
-    this.pulls.set(48, { number: 48, state: 'open', merged: false, merge_commit_sha: null, title: 't', body: 'b', user: { login: 'holahola-luca-replit[bot]' }, head: { sha: HEAD, ref: 'lcc/feature', repo: { id: REPOSITORY_ID } }, base: { ref: 'main', repo: { id: REPOSITORY_ID } } });
+    this.pulls.set(48, { number: 48, state: 'open', merged: false, merge_commit_sha: null, title: 't', body: 'b', user: { login: 'holahola-luca-replit[bot]' }, head: { sha: HEAD, ref: 'lcc/feature', repo: { id: REPOSITORY_ID } }, base: { ref: 'main', sha: BASE, repo: { id: REPOSITORY_ID } } });
     this.refs.set('lcc/feature', HEAD);
   }
 
@@ -94,10 +98,12 @@ class FakeRepo {
     if (pathname.match(new RegExp(`^${base}/pulls/\\d+/update-branch$`)) && method === 'PUT') return this.mutate(202, { message: 'Updating pull request branch.' });
     if (pathname === `${base}/pulls` && method === 'POST') {
       const n = 100 + this.pulls.size;
-      this.pulls.set(n, { number: n, state: 'open', merged: false, merge_commit_sha: null, title: body.title, body: body.body, user: { login: BOT }, head: { sha: this.refs.get(body.head)!, ref: body.head, repo: { id: REPOSITORY_ID } }, base: { ref: body.base, repo: { id: REPOSITORY_ID } } });
+      this.pulls.set(n, { number: n, state: 'open', merged: false, merge_commit_sha: null, title: body.title, body: body.body, user: { login: BOT }, head: { sha: this.refs.get(body.head)!, ref: body.head, repo: { id: REPOSITORY_ID } }, base: { ref: body.base, sha: BASE, repo: { id: REPOSITORY_ID } } });
       return this.mutate(201, { number: n });
     }
     if (pathname === `${base}/pulls` && method === 'GET') return this.json(200, [...this.pulls.values()].filter((p) => `${REPO.owner}:${p.head.ref}` === searchParams.get('head')));
+    if (pathname === `${base}/git/commits/${HEAD}` && method === 'GET') return this.json(200, { sha: HEAD, tree: { sha: HEAD_TREE } });
+    if (pathname === `${base}/compare/${BASE}...${HEAD}` && method === 'GET') return this.json(200, { status: 'ahead', total_commits: 0, commits: [] });
     const refMatch = pathname.match(new RegExp(`^${base}/git/ref/heads/(.+)$`));
     if (refMatch) { const sha = this.refs.get(decodeURIComponent(refMatch[1])); return sha ? this.json(200, { object: { sha } }) : this.json(404, {}); }
     return this.json(500, { message: `unhandled ${method} ${pathname}` });
@@ -203,31 +209,27 @@ describe('gateway: re-authorization after preparatory awaits', () => {
   });
 });
 
-describe('gateway: reviews and merges', () => {
+describe('gateway: reviews and failures', () => {
   test('pr.review targets commit_id = head and refuses self-review', async () => {
     const h = harness();
-    const ok = await run(h, { operation: 'pr.review' }, { event: 'APPROVE', body: '' });
+    const ok = await run(h, { operation: 'pr.review' }, { event: 'APPROVE', body: '', ...TUPLE });
     assert.equal(ok.body.decision, 'executed');
     assert.equal(h.repo.reviews[0].commit_id, HEAD);
     const own = harness();
     own.repo.pulls.get(48)!.user.login = BOT;
-    const self = await run(own, { operation: 'pr.review' }, { event: 'APPROVE', body: '' });
+    const self = await run(own, { operation: 'pr.review' }, { event: 'APPROVE', body: '', ...TUPLE });
     assert.deepEqual(self.body.result, { reason: 'self_review' });
     assert.equal(own.repo.reviews.length, 0);
   });
 
-  test('pr.merge is squash with the head sha pinned', async () => {
-    const h = harness();
-    const result = await run(h, { operation: 'pr.merge' }, {});
-    assert.equal(result.body.decision, 'executed');
-    const put = h.repo.calls.find((c) => c.method === 'PUT' && c.path.endsWith('/merge'));
-    assert.deepEqual(put?.body, { merge_method: 'squash', sha: HEAD });
+  test('pr.merge is retired: direct merge is a founder or manual exception', () => {
+    assert.equal(validatePayload({ operation: 'pr.merge', pr: 48, headSha: HEAD } as unknown as Envelope, {}), null);
   });
 
   test('a definite GitHub rejection (4xx) is a recorded failure, not uncertain', async () => {
     const h = harness();
     h.repo.rejectWith = 405;
-    const result = await run(h, { operation: 'pr.merge' }, {});
+    const result = await run(h, { operation: 'pr.close' }, {});
     assert.equal(result.body.decision, 'executed');
     assert.equal(result.body.status, 'failed');
     assert.deepEqual(result.body.result, { http: 405 });
