@@ -366,3 +366,18 @@ Under Git Bash/MSYS, preserve Git revision-and-path arguments literally. For com
 
 **How to apply:** Include argument transport and CLI entrypoint execution in Windows qualification, not just process exit or an empty diff/count. A comparison of two empty outputs cannot prove equal source, and a successful filter cannot replace the exit status of the command producing its input. Keep the conversion override command-scoped rather than changing global Git/shell configuration.
 
+
+## Windows clipboard overwrite
+
+Some Windows PowerShell versions reject `Set-Clipboard -Value ""` as a null
+value. When removing a sensitive value from the current clipboard, overwrite it
+with harmless nonempty text instead. Do not claim this clears clipboard history
+or synchronized copies.
+
+**Why:** An owner-side provisioning attempt failed with `Value cannot be null`;
+the nonempty overwrite succeeded. Clipboard overwrite is a temporary exposure
+reduction, not secure storage or proof of historical deletion.
+
+**How to apply:** Give only the command, never the `PS C:\...>` prompt prefix.
+Ask the owner to run `Set-Clipboard -Value "cleared"` after secure-form entry.
+
