@@ -13,6 +13,17 @@
           "publicKeyPem": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA6y2ootZdoigEsmZEsVwCNE+Fcv9gJR8NL4k0qpyob3Y=\n-----END PUBLIC KEY-----\n"
         }
       ]
+    },
+    "luca-replit": {
+      "appId": 5361771,
+      "installationId": 174218509,
+      "host": "REPLIT",
+      "signingKeys": [
+        {
+          "id": "lr-replit-1",
+          "publicKeyPem": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA84y4XizImKXAixz6LOe/j80wDSzrIbpXSu2LihU5dlQ=\n-----END PUBLIC KEY-----\n"
+        }
+      ]
     }
   },
   "qualification": []

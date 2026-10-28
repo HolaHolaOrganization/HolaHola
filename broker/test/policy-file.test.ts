@@ -8,26 +8,36 @@ import { AUDIENCE, type Envelope, payloadDigest, PROTOCOL } from '../src/envelop
 import { gitBlobSha, parsePolicy, PolicyLoader, REPOSITORY_ID } from '../src/policy.ts';
 
 // The committed broker/policy.json is the broker's only authority source.
-// Phase 4 started it CLOSED with no actors. This revision adds ONE actor,
-// luca-claude-code, with its own Ed25519 key (created on LITTLENEMO in DPAPI
-// by broker-signing-key-cli; only the public key is here) and stays CLOSED,
-// so every request is still refused. Moving out of closed, or adding another
-// actor's key, is a separate founder-approved PR to this founder-owned file.
+// Phase 4 started it CLOSED with no actors. It lists two actors, each with its
+// own Ed25519 key (only public keys are here): luca-claude-code (created on
+// LITTLENEMO in DPAPI by broker-signing-key-cli) and luca-replit (generated
+// by the founder, held as the Replit project Secret
+// BROKER_SIGNING_KEY_LR_REPLIT_1). It stays CLOSED, so every request is still
+// refused. Moving out of closed, or adding another actor's key, is a separate
+// founder-approved PR to this founder-owned file.
+
+const LCC_FINGERPRINT = '4c1c96dcaac778cd67302a2bd7ba1a240393cdb1aa810ee84a2fe0ed2c8cc040';
+const LR_FINGERPRINT = '604a5e07f088b0ed33978ba1264a0665bcf1b4ddb2efcb70d562177a67a1a6b4';
+const fingerprintOf = (key: { publicKey: { export(o: { type: 'spki'; format: 'der' }): Buffer } }) =>
+  createHash('sha256').update(key.publicKey.export({ type: 'spki', format: 'der' })).digest('hex');
 
 const bytes = new Uint8Array(readFileSync(new URL('../policy.json', import.meta.url)));
 
 describe('committed broker/policy.json', () => {
-  test('parses, names this repository, is closed, and lists exactly the luca-claude-code key', () => {
+  test('parses, names this repository, is closed, and lists exactly the luca-claude-code and luca-replit keys', () => {
     const policy = parsePolicy(bytes);
     assert.equal(policy.repositoryId, REPOSITORY_ID);
     assert.equal(policy.state, 'closed');
     assert.deepEqual(policy.qualification, []);
-    assert.deepEqual([...policy.actors.keys()], ['luca-claude-code']);
+    assert.deepEqual([...policy.actors.keys()], ['luca-claude-code', 'luca-replit']);
     const lcc = policy.actors.get('luca-claude-code')!;
     assert.deepEqual([lcc.appId, lcc.installationId, lcc.host], [5350010, 174218337, 'LITTLENEMO']);
     assert.deepEqual(lcc.signingKeys.map(k => k.id), ['lcc-littlenemo-1']);
-    const fingerprint = createHash('sha256').update(lcc.signingKeys[0].publicKey.export({ type: 'spki', format: 'der' })).digest('hex');
-    assert.equal(fingerprint, '4c1c96dcaac778cd67302a2bd7ba1a240393cdb1aa810ee84a2fe0ed2c8cc040', 'the key created on LITTLENEMO');
+    assert.equal(fingerprintOf(lcc.signingKeys[0]), LCC_FINGERPRINT, 'the key created on LITTLENEMO');
+    const lr = policy.actors.get('luca-replit')!;
+    assert.deepEqual([lr.appId, lr.installationId, lr.host], [5361771, 174218509, 'REPLIT']);
+    assert.deepEqual(lr.signingKeys.map(k => k.id), ['lr-replit-1']);
+    assert.equal(fingerprintOf(lr.signingKeys[0]), LR_FINGERPRINT, 'the key held as the Replit project Secret');
   });
 
   test('its epoch is the git blob sha of the committed bytes', () => {
@@ -63,7 +73,7 @@ describe('committed broker/policy.json', () => {
   test('an actor the policy does not list is refused', async () => {
     const loader = new PolicyLoader({ fetch: async () => ({ bytes, blobSha: gitBlobSha(bytes) }) }, () => NOW);
     const request = signedRequest(gitBlobSha(bytes));
-    const envelope = { ...(request.envelope as Envelope), actor: 'luca-replit' };
+    const envelope = { ...(request.envelope as Envelope), actor: 'luca-gemini' };
     const resigned = { envelope, signature: sign(null, Buffer.from(canonicalJson(envelope), 'utf8'), signer.privateKey).toString('base64'), payload: request.payload };
     assert.deepEqual(await decide(resigned, () => loader, () => NOW), { decision: 'deny', reason: 'unknown_actor' });
   });
@@ -82,21 +92,23 @@ describe('committed broker/policy.json', () => {
 // on main. It differs from broker/policy.json only in repositoryId (the
 // disposable sandbox repository) and state. It started CLOSED for the smoke
 // test (passed 2026-10-28) and is now ROUTINE for the live sandbox proofs,
-// still with luca-claude-code as the only actor.
+// with the same two actors as broker/policy.json.
 describe('committed broker/policy.sandbox.json', () => {
   const SANDBOX_REPOSITORY_ID = 1436541790;
   const sandboxBytes = new Uint8Array(readFileSync(new URL('../policy.sandbox.json', import.meta.url)));
 
-  test('parses only for the sandbox repository, is routine, and carries only the same luca-claude-code key', () => {
+  test('parses only for the sandbox repository, is routine, and carries only the same two keys', () => {
     const policy = parsePolicy(sandboxBytes, SANDBOX_REPOSITORY_ID);
     assert.equal(policy.repositoryId, SANDBOX_REPOSITORY_ID);
     assert.equal(policy.state, 'routine');
     assert.deepEqual(policy.qualification, []);
-    assert.deepEqual([...policy.actors.keys()], ['luca-claude-code']);
+    assert.deepEqual([...policy.actors.keys()], ['luca-claude-code', 'luca-replit']);
     const lcc = policy.actors.get('luca-claude-code')!;
     assert.deepEqual([lcc.appId, lcc.installationId, lcc.host], [5350010, 174218337, 'LITTLENEMO']);
-    const fingerprint = createHash('sha256').update(lcc.signingKeys[0].publicKey.export({ type: 'spki', format: 'der' })).digest('hex');
-    assert.equal(fingerprint, '4c1c96dcaac778cd67302a2bd7ba1a240393cdb1aa810ee84a2fe0ed2c8cc040');
+    assert.equal(fingerprintOf(lcc.signingKeys[0]), LCC_FINGERPRINT);
+    const lr = policy.actors.get('luca-replit')!;
+    assert.deepEqual([lr.appId, lr.installationId, lr.host], [5361771, 174218509, 'REPLIT']);
+    assert.equal(fingerprintOf(lr.signingKeys[0]), LR_FINGERPRINT);
     // The production broker can never accept it, and it is not the production file.
     assert.throws(() => parsePolicy(sandboxBytes));
     assert.notEqual(SANDBOX_REPOSITORY_ID, REPOSITORY_ID);
