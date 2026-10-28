@@ -45,6 +45,15 @@ export type GatewayResult =
 const MARKER_PREFIX = 'holahola-broker-op';
 const BRANCH = /^(?!\/)(?!.*\.\.)(?!refs\/)[A-Za-z0-9._/-]{1,200}$/;
 const SHA1_HEX = /^[0-9a-f]{40}$/;
+const ACTOR = /^[a-z][a-z0-9-]{1,62}$/;
+const OPERATION_ID = /^[A-Za-z0-9_-]{16,128}$/;
+const BROKER_TRAILER = /^Holahola-Broker-Op: ([A-Za-z0-9_-]{16,128}):[0-9a-f]{16}$/m;
+/** GitHub's pull-request commits endpoint returns at most 250 commits. */
+const MAX_PR_COMMITS = 250;
+
+function sha(value: unknown): value is string {
+  return typeof value === 'string' && SHA1_HEX.test(value);
+}
 const MAX_TEXT = 60_000;
 const PROTECTED_BRANCHES = new Set(['main']);
 const WRITE_PERMISSIONS = { contents: 'write', pull_requests: 'write', issues: 'write' } as const;
@@ -85,10 +94,18 @@ export function validatePayload(envelope: Envelope, payload: unknown): Payload |
       return p && needsPr && text(p.body) ? p : null;
     }
     case 'pr.review': {
-      const p = exact(payload, ['event', 'body']);
-      return p && needsPr && ['APPROVE', 'REQUEST_CHANGES', 'COMMENT'].includes(p.event as string) && text(p.body, p.event === 'APPROVE') ? p : null;
+      // The review tuple (design section 3): repository (fixed), PR and head
+      // (envelope), plus the exact base commit and head tree.
+      const p = exact(payload, ['event', 'body', 'baseSha', 'headTreeSha']);
+      return p && needsPr && ['APPROVE', 'REQUEST_CHANGES', 'COMMENT'].includes(p.event as string) && text(p.body, p.event === 'APPROVE')
+        && sha(p.baseSha) && sha(p.headTreeSha) ? p : null;
     }
-    case 'pr.merge':
+    case 'pr.enqueue': {
+      // Names the recorded broker review that authorizes this exact head.
+      const p = exact(payload, ['reviewActor', 'reviewOperationId']);
+      return p && needsPr && typeof p.reviewActor === 'string' && ACTOR.test(p.reviewActor)
+        && typeof p.reviewOperationId === 'string' && OPERATION_ID.test(p.reviewOperationId) ? p : null;
+    }
     case 'pr.close':
     case 'pr.update-branch':
       return needsPr ? exact(payload, []) : null;
@@ -123,8 +140,13 @@ export function markerFor(operationId: string, digest: string): { html: string; 
 }
 
 type Pull = {
-  number: number; state: string; merged?: boolean; merge_commit_sha?: string | null; title: string; body: string | null;
-  user: { login: string }; head: { sha: string; ref: string; repo: { id: number } | null }; base: { ref: string; repo: { id: number } };
+  number: number; node_id?: string; state: string; merged?: boolean; merge_commit_sha?: string | null; title: string; body: string | null;
+  user: { login: string }; head: { sha: string; ref: string; repo: { id: number } | null }; base: { ref: string; sha?: string; repo: { id: number } };
+};
+
+type PullCommit = {
+  sha: string; commit: { message: string };
+  author: { login: string } | null; committer: { login: string } | null;
 };
 
 type Context = {
@@ -136,6 +158,8 @@ type Context = {
   repositoryNodeId?: string;
   /** ref.update: the recorded commit.create success that this update publishes. */
   commitOutcome?: OutcomeRecord;
+  /** pr.enqueue: the reviewed and live base commits, recorded with the outcome. */
+  enqueue?: { reviewedBase: string; liveBase: string; nodeId: string };
 };
 
 type Check = { ok: true } | { ok: false; reason: string };
@@ -327,12 +351,84 @@ export class Gateway {
       if (pull.head.repo?.id !== this.config.repo.id) return { ok: false, reason: 'fork_head' };
       if (pull.state !== 'open' && envelope.operation !== 'read') return { ok: false, reason: 'pr_not_open' };
       if (pull.head.sha !== envelope.headSha) return { ok: false, reason: 'head_moved' };
-      if (envelope.operation === 'pr.review' && pull.user.login === binding.botLogin) return { ok: false, reason: 'self_review' };
+      if (envelope.operation === 'pr.review') return this.reviewCheck(envelope, payload, binding, readToken, pull);
+      if (envelope.operation === 'pr.enqueue') return this.enqueueCheck(envelope, payload, readToken, pull, ctx);
       return { ok: true };
     }
     // pr.open: the branch must still be at the signed head.
     const sha = await this.refSha(readToken, payload.branch as string);
     if (sha !== envelope.headSha) return { ok: false, reason: 'head_moved' };
+    return { ok: true };
+  }
+
+  /**
+   * pr.review preflight (design sections 3 and 5). The live base and head
+   * tree must equal the signed tuple; a base change means a new tuple and a
+   * fresh review. No self-review: the reviewer may be neither the PR's App
+   * author nor the author, committer or recorded origin of any commit on it.
+   */
+  private async reviewCheck(envelope: Envelope, payload: Payload, binding: ActorBinding, token: string, pull: Pull): Promise<Check> {
+    if (pull.user.login === binding.botLogin) return { ok: false, reason: 'self_review' };
+    if (pull.base.sha !== payload.baseSha) return { ok: false, reason: 'base_moved' };
+    const head = await this.config.api.rest(token, 'GET', `${this.repoPath()}/git/commits/${envelope.headSha}`) as { tree?: { sha?: unknown } };
+    if (head?.tree?.sha !== payload.headTreeSha) return { ok: false, reason: 'tree_mismatch' };
+    return this.originCheck(envelope.actor, binding, token, pull.number);
+  }
+
+  /**
+   * Excludes every originator of the PR's commits from reviewing it.
+   * - A commit authored or committed by the reviewer's own bot is the reviewer's.
+   * - A commit carrying a broker trailer and authored by a configured actor's
+   *   bot must have that actor's recorded commit.create success for exactly
+   *   this sha, and its explicitly stored origin decides. A missing outcome or
+   *   origin is unknown, which refuses: it never defaults to "no conflict".
+   * - More commits than GitHub will list (250) cannot be fully checked, so refuse.
+   */
+  private async originCheck(reviewer: string, binding: ActorBinding, token: string, pr: number): Promise<Check> {
+    const commits: PullCommit[] = [];
+    for (let page = 1; page <= 3; page += 1) {
+      const batch = await this.config.api.rest(token, 'GET', `${this.repoPath()}/pulls/${pr}/commits?per_page=100&page=${page}`) as PullCommit[];
+      commits.push(...batch);
+      if (batch.length < 100) break;
+    }
+    if (commits.length >= MAX_PR_COMMITS) return { ok: false, reason: 'too_many_commits' };
+    const actorByBot = new Map([...this.config.actors].map(([actor, b]) => [b.botLogin, actor]));
+    for (const commit of commits) {
+      if (commit.author?.login === binding.botLogin || commit.committer?.login === binding.botLogin) return { ok: false, reason: 'self_review' };
+      const marker = BROKER_TRAILER.exec(commit.commit.message);
+      const publisher = commit.author ? actorByBot.get(commit.author.login) : undefined;
+      if (!marker || !publisher) continue;
+      const outcome = recordedSuccess(await readRecorded(this.config.ledger, publisher, marker[1]), 'commit.create');
+      if (!outcome || outcome.result.commitSha !== commit.sha || typeof outcome.result.originActor !== 'string') return { ok: false, reason: 'origin_unknown' };
+      if (outcome.result.originActor === reviewer) return { ok: false, reason: 'self_review' };
+    }
+    return { ok: true };
+  }
+
+  /**
+   * pr.enqueue preflight (design section 3). A distinct rule from review: the
+   * exact head (already checked), and an APPROVE review recorded by the
+   * broker for this PR and head whose reviewed base is the live base or an
+   * ancestor of it. A rewritten (non-ancestor) base needs a fresh review. The
+   * review must still stand on GitHub. The merge queue's own CI then gates
+   * the merged result.
+   */
+  private async enqueueCheck(envelope: Envelope, payload: Payload, token: string, pull: Pull, ctx: Context): Promise<Check> {
+    const recorded = await readRecorded(this.config.ledger, payload.reviewActor as string, payload.reviewOperationId as string);
+    const review = recorded && recorded.claim.operation === 'pr.review' && (recorded.outcome.status === 'succeeded' || recorded.outcome.status === 'applied')
+      ? recorded.outcome : null;
+    if (!review || review.result.event !== 'APPROVE' || review.result.pr !== envelope.pr || review.result.headSha !== envelope.headSha
+      || typeof review.result.baseSha !== 'string' || typeof review.result.reviewId !== 'number') return { ok: false, reason: 'review_not_recorded' };
+    const native = await this.config.api.rest(token, 'GET', `${this.repoPath()}/pulls/${envelope.pr}/reviews/${review.result.reviewId}`) as { state?: unknown; commit_id?: unknown };
+    if (native?.state !== 'APPROVED' || native.commit_id !== envelope.headSha) return { ok: false, reason: 'review_not_standing' };
+    const liveBase = pull.base.sha;
+    if (typeof liveBase !== 'string' || typeof pull.node_id !== 'string') return { ok: false, reason: 'pr_unreadable' };
+    if (liveBase !== review.result.baseSha) {
+      // "ahead": the live base strictly descends from the reviewed base.
+      const compare = await this.config.api.compareCommits(token, this.repoPath(), review.result.baseSha, liveBase);
+      if (compare?.status !== 'ahead') return { ok: false, reason: 'base_rewritten' };
+    }
+    ctx.enqueue = { reviewedBase: review.result.baseSha, liveBase, nodeId: pull.node_id };
     return { ok: true };
   }
 
@@ -521,6 +617,14 @@ export class Gateway {
     }
   }
 
+  /** A review's outcome records its full tuple, which pr.enqueue later relies on. */
+  private reviewResult(reviewId: number, envelope: Envelope, payload: Payload): Record<string, string | number | null> {
+    return {
+      reviewId, event: payload.event as string, pr: envelope.pr, headSha: envelope.headSha,
+      baseSha: payload.baseSha as string, headTreeSha: payload.headTreeSha as string,
+    };
+  }
+
   /** The commit's expected tree, origin and target carry through to the ref outcome. */
   private refUpdateResult(payload: Payload, commit: OutcomeRecord): Record<string, string | number | null> {
     return {
@@ -578,11 +682,18 @@ export class Gateway {
         }
         case 'pr.review': {
           const r = await api.rest(token, 'POST', `${repo}/pulls/${pr}/reviews`, { commit_id: head, event: payload.event, body: `${payload.body}\n\n${marker.html}` }) as { id: number };
-          return { status: 'succeeded', result: { reviewId: r.id } };
+          return { status: 'succeeded', result: this.reviewResult(r.id, envelope, payload) };
         }
-        case 'pr.merge': {
-          const r = await api.rest(token, 'PUT', `${repo}/pulls/${pr}/merge`, { merge_method: 'squash', sha: head }) as { sha: string };
-          return { status: 'succeeded', result: { mergeSha: r.sha } };
+        case 'pr.enqueue': {
+          const queued = ctx.enqueue as NonNullable<Context['enqueue']>;
+          const { data, errors } = await api.graphql(token,
+            'mutation($input: EnqueuePullRequestInput!) { enqueuePullRequest(input: $input) { mergeQueueEntry { id } } }',
+            { input: { pullRequestId: queued.nodeId, expectedHeadOid: head } });
+          // As for every GraphQL mutation here (phase 2b finding 2), only a
+          // clean, positive result is success; anything else stays uncertain.
+          const entry = (data as { enqueuePullRequest?: { mergeQueueEntry?: unknown } } | null)?.enqueuePullRequest?.mergeQueueEntry;
+          if (errors.length > 0 || typeof entry !== 'object' || entry === null) throw new Error(`enqueue result unknown (${errors.length} graphql errors)`);
+          return { status: 'succeeded', result: { pr, headSha: head, reviewedBase: queued.reviewedBase, liveBase: queued.liveBase, reviewActor: payload.reviewActor as string, reviewOperationId: payload.reviewOperationId as string } };
         }
         case 'pr.close': {
           await api.rest(token, 'PATCH', `${repo}/pulls/${pr}`, { state: 'closed' });
@@ -647,12 +758,19 @@ export class Gateway {
           case 'pr.review': {
             const found = (await list<{ id: number; user: { login: string }; body: string; commit_id: string }>(`${repo}/pulls/${pr}/reviews`))
               .find((r) => r.user.login === binding.botLogin && r.commit_id === head && r.body.endsWith(marker.html));
-            return found ? { status: 'applied', result: { reviewId: found.id } } : { status: 'not_observed' };
+            return found ? { status: 'applied', result: this.reviewResult(found.id, envelope, payload) } : { status: 'not_observed' };
           }
-          case 'pr.merge': {
-            const pull = await this.getPull(token, pr as number);
-            return pull.merged && pull.head.sha === head && typeof pull.merge_commit_sha === 'string'
-              ? { status: 'applied', result: { mergeSha: pull.merge_commit_sha } } : { status: 'not_observed' };
+          case 'pr.enqueue': {
+            // Positive only: this exact head is in the merge queue, or was merged at this exact head.
+            const { data, errors } = await api.graphql(token,
+              'query($owner: String!, $name: String!, $pr: Int!) { repository(owner: $owner, name: $name) { databaseId pullRequest(number: $pr) { headRefOid merged mergeQueueEntry { id } } } }',
+              { owner: this.config.repo.owner, name: this.config.repo.name, pr });
+            const repository = (data as { repository?: { databaseId?: unknown; pullRequest?: { headRefOid?: unknown; merged?: unknown; mergeQueueEntry?: unknown } | null } | null } | null)?.repository;
+            if (errors.length > 0 || repository?.databaseId !== this.config.repo.id || !repository.pullRequest) return { status: 'ambiguous' };
+            const p = repository.pullRequest;
+            return p.headRefOid === head && (p.merged === true || (typeof p.mergeQueueEntry === 'object' && p.mergeQueueEntry !== null))
+              ? { status: 'applied', result: { pr, headSha: head as string, reviewActor: payload.reviewActor as string, reviewOperationId: payload.reviewOperationId as string } }
+              : { status: 'not_observed' };
           }
           case 'pr.close': {
             const pull = await this.getPull(token, pr as number);

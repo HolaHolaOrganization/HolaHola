@@ -104,3 +104,27 @@ The broker verifies the manifest with one Ed25519 check against the current poli
 The values come from the sandbox measurement, which is not run yet.
 
 **Settling a large `blob.put`:** its original cannot fit inside a `status` request. An uncertain large `blob.put` is therefore settled by a fresh `blob.put` under a new operation id; blobs are content-addressed, so it reports `already_present` if the first one landed. The client (`BrokerClient`) attaches the admission header only to a `blob.put` above the standard cap.
+
+## Stage 1: review and queue completion (design dc6f8927, sections 3 and 5)
+
+**`pr.review`** is bound to the exact review tuple: the repository (fixed), the PR and head (from the envelope), and the payload's `baseSha` and `headTreeSha`. The live base and head tree must equal them; a base change means a new tuple and a fresh review. The outcome records the full tuple.
+
+**No self-review, including by origin.** The reviewer may not be:
+- the PR's App author;
+- the author or committer of any commit on the PR;
+- the recorded origin of any broker-published commit on the PR.
+
+A commit that carries a broker trailer and was authored by a configured actor's bot must have that actor's recorded `commit.create` success for exactly that sha. Its explicitly stored `originActor` decides. A missing outcome or origin is `origin_unknown`, which refuses; it never defaults to "no conflict". A PR with 250 or more commits (GitHub's listing limit) is refused as `too_many_commits`.
+
+**`pr.enqueue`** is the single completion operation. It names the recorded review (`reviewActor`, `reviewOperationId`) and enqueues the exact head through `enqueuePullRequest` with `expectedHeadOid`, only if all of these hold:
+- that review is a recorded `pr.review` APPROVE for this PR and head;
+- it still stands on GitHub;
+- its reviewed base is the live base, or an ancestor of it.
+
+A rewritten (non-ancestor) base needs a fresh review. Both bases are recorded, and the merge queue's own CI then gates the merged result. Recovery is positive-only, from the live queue state.
+
+`compareCommits` is the one exception to the `..` path guard: two exact shas and a fixed repository path.
+
+**Retired:** `pr.merge`. A direct merge is a founder or manual exception (design section 2).
+
+**Not yet:** relay origin attestations (F2-ii) and `Origin-Author` trailers as review exclusions. Both depend on the relay design.

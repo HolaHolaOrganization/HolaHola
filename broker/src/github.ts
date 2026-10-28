@@ -54,6 +54,24 @@ export class GitHubApi {
   /** REST call. `path` must start with "/"; 404 resolves to null when `allow404` is set. */
   async rest(bearer: string, method: string, path: string, body?: unknown, allow404 = false): Promise<unknown> {
     if (!path.startsWith('/') || path.includes('://') || path.includes('..')) throw new TypeError('invalid GitHub path');
+    return this.request(bearer, method, path, body, allow404);
+  }
+
+  /**
+   * GitHub's compare endpoint is `compare/{base}...{head}`, which the general
+   * path guard rightly refuses. This is the one exception: both sides must be
+   * exact 40-hex commit shas and the repository path exactly /repos/owner/name,
+   * so nothing caller-shaped reaches the URL.
+   */
+  async compareCommits(bearer: string, repositoryPath: string, base: string, head: string): Promise<{ status?: unknown }> {
+    if (!/^\/repos\/[A-Za-z0-9_.-]{1,100}\/[A-Za-z0-9_.-]{1,100}$/.test(repositoryPath) || repositoryPath.includes('..')
+      || !/^[0-9a-f]{40}$/.test(base) || !/^[0-9a-f]{40}$/.test(head)) {
+      throw new TypeError('invalid compare request');
+    }
+    return await this.request(bearer, 'GET', `${repositoryPath}/compare/${base}...${head}`) as { status?: unknown };
+  }
+
+  private async request(bearer: string, method: string, path: string, body?: unknown, allow404 = false): Promise<unknown> {
     const response = await this.fetch(`${GITHUB_API}${path}`, {
       method,
       headers: {
