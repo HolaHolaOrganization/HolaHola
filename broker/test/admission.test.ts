@@ -5,7 +5,8 @@
 import assert from 'node:assert/strict';
 import { generateKeyPairSync } from 'node:crypto';
 import { request as httpRequest } from 'node:http';
-import { type AddressInfo } from 'node:net';
+import { type AddressInfo, connect } from 'node:net';
+import { performance } from 'node:perf_hooks';
 import { describe, test } from 'node:test';
 import {
   ADMISSION_DOMAIN, ADMISSION_HEADER, type AdmissionConfig, type AdmissionManifest, AdmissionSlots, encodedLength,
@@ -15,7 +16,7 @@ import { BrokerClient, Journal, signRequest, type Signer } from '../src/client.t
 import { type Gateway } from '../src/gateway.ts';
 import { ConfigError, loadConfig } from '../src/main.ts';
 import { gitBlobSha, parsePolicy, PolicyLoader, REPOSITORY_ID } from '../src/policy.ts';
-import { createBrokerServer } from '../src/server.ts';
+import { createBrokerServer, HEADERS_TIMEOUT_MS } from '../src/server.ts';
 
 const lcc = generateKeyPairSync('ed25519');
 const other = generateKeyPairSync('ed25519');
@@ -318,6 +319,27 @@ describe('through the HTTP server', () => {
       never.open();
       assert.notEqual(reply, 'no early answer');
       assert.equal(reason(reply as Reply), 'admission_invalid');
+      assert.deepEqual(calls, []);
+    });
+  });
+
+  // luca-replit PR #126 review, C-HEADERS: the 5 s header deadline must be enforced in practice,
+  // not just set (Node checks it every connectionsCheckingInterval, 30 s by default).
+  test('a connection that never finishes its headers is closed within the 5 s deadline', async () => {
+    await withServer(undefined, async (port, calls) => {
+      const started = performance.now();
+      const closedAfterMs = await new Promise<number>((resolve) => {
+        const socket = connect(port, '127.0.0.1', () => {
+          socket.write('POST /v1/operations HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\n');
+        });
+        socket.on('data', () => {});
+        socket.on('error', () => {});
+        // Safety stop: with Node's default 30 s checker this fires first and fails the bound below.
+        const stop = setTimeout(() => socket.destroy(), 10_000);
+        socket.on('close', () => { clearTimeout(stop); resolve(performance.now() - started); });
+      });
+      assert.ok(closedAfterMs >= HEADERS_TIMEOUT_MS - 500, `closed too early, after ${Math.round(closedAfterMs)} ms`);
+      assert.ok(closedAfterMs < HEADERS_TIMEOUT_MS + 2_000, `closed after ${Math.round(closedAfterMs)} ms`);
       assert.deepEqual(calls, []);
     });
   });

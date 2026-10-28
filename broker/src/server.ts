@@ -33,6 +33,12 @@ export type BrokerServerOptions = {
 export const MAX_BODY_BYTES = STANDARD_BODY_LIMIT;
 /** Design section 8: request headers must arrive within 5 s. */
 export const HEADERS_TIMEOUT_MS = 5_000;
+/**
+ * How often Node checks headersTimeout. Its default is 30 s, which would let a
+ * partial-header connection live about 30 s regardless of headersTimeout
+ * (luca-replit PR #126 review, C-HEADERS).
+ */
+export const CONNECTIONS_CHECK_INTERVAL_MS = 250;
 
 function send(res: ServerResponse, status: number, body: unknown, close = false): void {
   const text = JSON.stringify(body);
@@ -85,7 +91,7 @@ async function readBody(req: IncomingMessage, limit: number, timing?: Timing): P
 export function createBrokerServer(options: BrokerServerOptions): Server {
   const now = options.now ?? Date.now;
   const slots = options.admission ? new AdmissionSlots(options.admission) : null;
-  const server = createServer(async (req, res) => {
+  const server = createServer({ connectionsCheckingInterval: CONNECTIONS_CHECK_INTERVAL_MS }, async (req, res) => {
     let release: (() => void) | undefined;
     try {
       const path = (req.url ?? '').split('?')[0];
@@ -146,6 +152,7 @@ export function createBrokerServer(options: BrokerServerOptions): Server {
       release?.();
     }
   });
+  // Enforced by Node's connection checker, which runs every CONNECTIONS_CHECK_INTERVAL_MS.
   server.headersTimeout = HEADERS_TIMEOUT_MS;
   return server;
 }
