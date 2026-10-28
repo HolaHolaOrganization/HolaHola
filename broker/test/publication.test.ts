@@ -106,10 +106,11 @@ class FakeGit {
       const sha = sha1(`commit ${JSON.stringify(body)}`);
       this.objects.set(sha, { type: 'Commit', byteSize: null });
       this.commits.set(sha, { tree: body.tree, parents: body.parents });
-      // As GitHub does for an App: the bot as author, GitHub itself as committer.
+      // As GitHub does for an App: the bot as author, GitHub itself as committer,
+      // and the message returned without its final newline.
       const author = { name: BOT, email: BOT_EMAIL, date: '2027-01-15T08:00:00Z' };
       const committer = { name: 'GitHub', email: 'noreply@github.com', date: '2027-01-15T08:00:00Z' };
-      return this.applied(201, this.commitResponse({ sha, message: body.message, tree: { sha: body.tree }, parents: body.parents.map((p: string) => ({ sha: p })), author, committer }));
+      return this.applied(201, this.commitResponse({ sha, message: body.message.replace(/\n$/, ''), tree: { sha: body.tree }, parents: body.parents.map((p: string) => ({ sha: p })), author, committer }));
     }
     if (pathname === '/graphql') {
       const { query, variables } = body as { query: string; variables: Record<string, unknown> };
@@ -441,6 +442,8 @@ describe('publication: commit.create', () => {
       ['committer email', (r) => ({ ...r, committer: { ...(r.committer as object), email: 'x@example.com' } })],
       ['committer is the bot, not GitHub', (r) => ({ ...r, committer: { ...(r.author as object) } })],
       ['message', (r) => ({ ...r, message: 'other' })],
+      ['message with an extra line', (r) => ({ ...r, message: `${r.message as string}\nextra` })],
+      ['message without its trailer', (r) => ({ ...r, message: (r.message as string).replace(/\nHolahola-Broker-Op: [^\n]*$/, '') })],
       ['tree', (r) => ({ ...r, tree: { sha: '7'.repeat(40) } })],
       ['parents', (r) => ({ ...r, parents: [{ sha: BASE }, { sha: BASE }] })],
     ];
