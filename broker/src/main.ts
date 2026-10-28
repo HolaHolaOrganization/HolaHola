@@ -12,6 +12,7 @@ import { type LoaderFor } from './authorize.ts';
 import { Gateway, type ActorBinding } from './gateway.ts';
 import { GitHubApi, GitHubLedger, GitHubPolicySource, InstallationToken, type PolicyPath } from './github.ts';
 import { PolicyLoader, REPOSITORY_ID } from './policy.ts';
+import { type AdmissionConfig } from './admission.ts';
 import { createBrokerServer } from './server.ts';
 
 export const MAIN_REPOSITORY = { owner: 'HolaHolaOrganization', name: 'HolaHola', id: REPOSITORY_ID } as const;
@@ -70,6 +71,8 @@ export type BrokerConfig = {
    */
   target: { owner: string; name: string; id: number };
   policyPath: PolicyPath;
+  /** Large-body admission caps, or undefined: the path is disabled unless every cap is configured (F5). */
+  admission: AdmissionConfig | undefined;
   audit: { repo: { owner: string; name: string }; repositoryId: number; appId: number; installationId: number; privateKey: KeyObject };
   port: number;
 };
@@ -83,6 +86,11 @@ export type BrokerConfig = {
  * BROKER_TARGET (optional): 'main' (default) or 'sandbox'. A sandbox instance
  *   also needs BROKER_TARGET_REPO (owner/name) and BROKER_TARGET_REPO_ID, and
  *   reads broker/policy.sandbox.json from main instead of broker/policy.json.
+ * BROKER_ADMISSION_MAX_RAW_BYTES, BROKER_ADMISSION_GLOBAL_SLOTS,
+ * BROKER_ADMISSION_ACTOR_SLOTS, BROKER_ADMISSION_BODY_DEADLINE_MS,
+ * BROKER_ADMISSION_MIN_BYTES_PER_SECOND (optional, all or none): the
+ *   large-body admission caps. There are no defaults (founder decision F5);
+ *   with none set, large-body admission is disabled.
  * PORT: listen port (default 10000).
  */
 export function loadConfig(env: Env): BrokerConfig {
@@ -154,6 +162,7 @@ export function loadConfig(env: Env): BrokerConfig {
     // A sandbox setting without the sandbox target is a misconfiguration, never silently ignored.
     throw new ConfigError('invalid BROKER_TARGET');
   }
+  const admission = admissionConfig(env);
   const port = env.PORT === undefined ? 10_000 : Number(env.PORT);
   if (!Number.isSafeInteger(port) || port <= 0 || port > 65_535) throw new ConfigError('invalid PORT');
   return {
@@ -161,12 +170,32 @@ export function loadConfig(env: Env): BrokerConfig {
     mainRepository,
     target,
     policyPath,
+    admission,
     audit: {
       repo: { owner, name }, repositoryId: auditRepositoryId,
       appId: auditAppId, installationId: auditInstallation, privateKey: appKey(env, 'BROKER_AUDIT_APP_PRIVATE_KEY'),
     },
     port,
   };
+}
+
+const ADMISSION_VARIABLES = {
+  maxRawBytes: 'BROKER_ADMISSION_MAX_RAW_BYTES',
+  globalSlots: 'BROKER_ADMISSION_GLOBAL_SLOTS',
+  actorSlots: 'BROKER_ADMISSION_ACTOR_SLOTS',
+  bodyDeadlineMs: 'BROKER_ADMISSION_BODY_DEADLINE_MS',
+  minBytesPerSecond: 'BROKER_ADMISSION_MIN_BYTES_PER_SECOND',
+} as const;
+
+/** All five caps as finite positive integers, or none at all (disabled). A partial set is refused. */
+function admissionConfig(env: Env): AdmissionConfig | undefined {
+  const names = Object.values(ADMISSION_VARIABLES);
+  const present = names.filter((name) => env[name] !== undefined);
+  if (present.length === 0) return undefined;
+  if (present.length !== names.length) throw new ConfigError('invalid BROKER_ADMISSION (set all five caps or none)');
+  const config = Object.fromEntries(Object.entries(ADMISSION_VARIABLES).map(([key, name]) => [key, positiveInt(env, name)])) as AdmissionConfig;
+  if (config.actorSlots > config.globalSlots) throw new ConfigError('invalid BROKER_ADMISSION_ACTOR_SLOTS');
+  return config;
 }
 
 /** Builds the per-actor policy loaders, the audit ledger and the gateway from trusted config. */
@@ -202,8 +231,8 @@ export function main(env: Env = process.env): void {
     process.exit(78);
   }
   const { loaderFor, healthLoader, gateway } = assemble(config, new GitHubApi(fetch));
-  createBrokerServer({ loaderFor, healthLoader, gateway }).listen(config.port, () => {
-    console.log(`broker: listening on ${config.port}`);
+  createBrokerServer({ loaderFor, healthLoader, gateway, admission: config.admission }).listen(config.port, () => {
+    console.log(`broker: listening on ${config.port}; large-body admission ${config.admission ? 'configured' : 'disabled'}`);
   });
 }
 
