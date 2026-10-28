@@ -85,3 +85,22 @@ Source reaches a branch only through four signed steps, each its own operation u
 - origin-aware `pr.review` exclusion.
 
 Each of those is a later stage-1 PR. The behaviour of GraphQL object existence, `updateRefs`, and App-created commit identity are sandbox acceptance proofs, not yet run.
+
+## Stage 1: large-body admission (design dc6f8927, section 8)
+
+Every request body keeps the standard 64 KiB cap. A `blob.put` that cannot fit sends a signed admission manifest first, in the `holahola-admission` header (`src/admission.ts`):
+- the header is at most 2 KiB, and is signed by the actor's policy key under the domain `holahola-admission/v1`;
+- it binds the actor, key, operation, repository, raw size, encoded size (exactly `4 * ceil(raw / 3)`), body size (at most encoded + 64 KiB), payload digest and a unique admission id, with at most 60 s of validity.
+
+The broker verifies the manifest with one Ed25519 check against the current policy, **before reading any body byte**. It then reserves a slot, global and per actor; an admission id still in flight cannot be reused. The streamed body is counted, never trusted from `Content-Length`, and must arrive within its deadline and above a minimum average rate. It must then be exactly the announced request, after which it is **fully authorized again** as usual: admission is never authority to execute. The slot is released however the request ends. Refusals are `large_body_disabled`, `admission_invalid`, `too_large` or `busy`, and request headers must arrive within 5 s.
+
+**Configuration (founder decision F5): there are no limits in code.** The path is enabled only when all five of these are set on the broker service as positive integers. With none set it is disabled, and a partial set is refused at startup:
+- `BROKER_ADMISSION_MAX_RAW_BYTES`
+- `BROKER_ADMISSION_GLOBAL_SLOTS`
+- `BROKER_ADMISSION_ACTOR_SLOTS` (at most the global value)
+- `BROKER_ADMISSION_BODY_DEADLINE_MS`
+- `BROKER_ADMISSION_MIN_BYTES_PER_SECOND`
+
+The values come from the sandbox measurement, which is not run yet.
+
+**Settling a large `blob.put`:** its original cannot fit inside a `status` request. An uncertain large `blob.put` is therefore settled by a fresh `blob.put` under a new operation id; blobs are content-addressed, so it reports `already_present` if the first one landed. The client (`BrokerClient`) attaches the admission header only to a `blob.put` above the standard cap.

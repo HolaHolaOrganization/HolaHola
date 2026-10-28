@@ -18,6 +18,7 @@
 import { randomBytes, type KeyObject, sign } from 'node:crypto';
 import { mkdir, open, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { ADMISSION_DOMAIN, ADMISSION_HEADER, encodedLength, newAdmissionId, signAdmission, STANDARD_BODY_LIMIT } from './admission.ts';
 import { canonicalJson } from './canonical.ts';
 import { AUDIENCE, type Envelope, type Operation, payloadDigest, PROTOCOL } from './envelope.ts';
 import { REPOSITORY_ID } from './policy.ts';
@@ -146,9 +147,34 @@ export class BrokerClient {
     return body.epoch;
   }
 
+  /**
+   * A blob.put body above the standard cap carries a signed admission
+   * manifest (stage-1 design section 8) naming its exact sizes and payload
+   * digest. Every other request, and every request that fits, is unchanged.
+   * A large blob.put's original cannot fit inside a status request, so an
+   * uncertain large blob.put is settled by a fresh blob.put under a new
+   * operation id: blobs are content-addressed, and the fresh one reports
+   * already_present if the first one landed.
+   */
+  private admissionFor(request: SignedRequest, body: string): Record<string, string> {
+    const bodySize = Buffer.byteLength(body, 'utf8');
+    if (bodySize <= STANDARD_BODY_LIMIT || request.envelope.operation !== 'blob.put') return {};
+    const payload = request.payload as { rawSize: number; contentBase64: string };
+    const issuedAt = this.now();
+    return {
+      [ADMISSION_HEADER]: signAdmission(this.signer.privateKey, {
+        domain: ADMISSION_DOMAIN, actor: this.signer.actor, keyId: this.signer.keyId, operation: 'blob.put',
+        repositoryId: request.envelope.repositoryId, rawSize: payload.rawSize, encodedSize: encodedLength(payload.rawSize),
+        bodySize, payloadDigest: request.envelope.payloadSha256, admissionId: newAdmissionId(),
+        issuedAt, expiresAt: issuedAt + VALIDITY_MS,
+      }),
+    };
+  }
+
   private async post(request: SignedRequest): Promise<BrokerResponse> {
+    const body = JSON.stringify(request);
     const res = await this.fetch(`${this.baseUrl}/v1/operations`, {
-      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(request),
+      method: 'POST', headers: { 'content-type': 'application/json', ...this.admissionFor(request, body) }, body,
       redirect: 'error', signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
     return { status: res.status, body: await res.json() as Record<string, unknown> };
