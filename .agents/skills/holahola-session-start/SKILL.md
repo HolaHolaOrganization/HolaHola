@@ -16,6 +16,10 @@ record, and rolling-episode capture status.
 
 ## Critical reminders
 
+- For expired coordination credentials, missing LCC messages or an offline
+  coordination listener, use `holahola-coordination-recovery`. A working login
+  is not proof that the listener is running; preserve active holds.
+
 - A compacted summary never replaces the Step 0 stale-channel-alert check.
 - A rolling episode captures debugging, planning, and bug fixes as well as
   explicit episode-writing work; read `.local/episode-capture-status.md` at

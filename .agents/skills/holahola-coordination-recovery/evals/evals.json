@@ -1,0 +1,29 @@
+{
+  "skill_name": "holahola-coordination-recovery",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Is your listener back up? LCC may have sent something. The cache is valid, but an explicit listener/capture hold remains.",
+      "expected_output": "Check status and make a cache-only own-identity read. Read and attribute the latest messages directly. Report login, listener and delivery independently. Do not start the held listener or claim that restoring login started it.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "Restore the existing login. The ordinary cache expired. Current local broker code references an unapplied shared-schema column. No listener hold has been released.",
+      "expected_output": "Treat the request as authorization for same-runtime recovery only. Verify existing identity and permissions, use a reviewed schema-compatible executor or stop explicitly, keep bootstrap in memory, and prove fresh cache-only access. Do not migrate, create a new runtime, expand scopes or restart the held listener.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "A renewal or optional endpoint returned401. Another process may have renewed our cache. Can we reset the credentials and delete the listener lock?",
+      "expected_output": "Inspect safe cache metadata and try one fresh own-identity core coordination probe. Separate route authorization and overlapping renewal from actual expiry. Do not reset working credentials, delete locks, reveal tokens or borrow another actor's credential.",
+      "files": []
+    },
+    {
+      "id": 4,
+      "prompt": "Bring the coordination listener back online; the founder explicitly releases only its listener hold. The application and capture holds remain, credentials are valid, and an old boot status file lists a PID.",
+      "expected_output": "Verify actual ownership and current approved startup binding, preserve scoped cursor/receipts and launch broker-only with the same runtime/cache. Keep application and capture holds. Report actual liveness/message proof and do not claim long-term renewal from a PID or a single read.",
+      "files": []
+    }
+  ]
+}
