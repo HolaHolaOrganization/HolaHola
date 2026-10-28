@@ -1,6 +1,21 @@
 # Broker sandbox instance (stage 1, decision F4-a)
 
-A **temporary** second deployment of the same broker code. Its only job is to prove the stage-1 operations live (design dc6f8927, section 6, tier 2) without any authority over HolaHola itself. The founder approved the cost (about $7/month while it exists) on 2026-10-28. It is removed after the proofs.
+A **temporary** second deployment of the same broker code. Its only job is to prove the stage-1 operations live (design dc6f8927, section 6, tier 2). The founder approved the cost (about $7/month while it exists) on 2026-10-28. It is removed after the proofs.
+
+## What it can and cannot do
+
+**What the broker code limits:**
+- Its gateway acts only on the sandbox repository, and every write token it mints is scoped to that one repository.
+- The only token it mints for HolaHola is contents:read, used to read its policy file from `main`.
+- It refuses to start if configured to target HolaHola or the audit repository.
+
+**What it does not limit: the App key's own authority.** The private key it holds belongs to the existing `holahola-luca-claude-code` App installation (`174218337`), which also covers HolaHola.
+- A new key is not limited to one repository.
+- Whoever holds it can mint any token that App installation allows, including HolaHola tokens with all of the App's permissions.
+- So the sandbox's secret store holds the same class of authority as the production App key, and the same custody statement applies (decision F1).
+- What a separate key buys is independent revocation, not a smaller authority. Revoke it at teardown.
+
+This is a statement of fact, not a redesign: the sandbox keeps using the actor's real App, so the proofs exercise the real identity.
 
 ## Fixed identities
 
@@ -13,6 +28,16 @@ A **temporary** second deployment of the same broker code. Its only job is to pr
 | Policy | `broker/policy.sandbox.json` on HolaHola `main` (founder-owned), read through the actor App's contents:read token on HolaHola. It is never read from the sandbox repository. |
 
 The broker refuses to start if the target is HolaHola (under any owner or id) or is the audit repository (`broker/src/main.ts`). Every request and policy must name the sandbox repository id, or it fails closed.
+
+## Prerequisite: App repository access (founder)
+
+Before the Render service starts, the `holahola-luca-claude-code` App's existing installation (`174218337`) must cover **both** repositories:
+- `holahola-broker-sandbox`, the target, for the write tokens;
+- `HolaHola`, which must stay selected, for the read token on `broker/policy.sandbox.json`.
+
+To set it: in the org's settings, open **GitHub Apps**, then **holahola-luca-claude-code**, then **Configure**. Under **Repository access**, keep `HolaHola` and add `holahola-broker-sandbox`.
+
+The audit App (`5505040`) stays installed on `holahola-broker-sandbox-audit` only.
 
 ## Founder setup: Render service (about 5 minutes)
 
@@ -61,6 +86,12 @@ The broker refuses to start if the target is HolaHola (under any owner or id) or
 - A correctly signed `luca-claude-code` request is denied with `policy_closed`.
 
 A failing health check names its cause in the service log without secrets, for example a missing App installation.
+
+**What the smoke test does NOT prove.** A closed health check proves only the policy path: the HolaHola contents:read token, the policy file, its repository binding and the epoch.
+- A closed policy denies every request before the gateway mints a write token for the sandbox repository.
+- It therefore says nothing about sandbox target-token access, the audit App's ledger writes, or any operation.
+
+Those are proven only by the first operations after the policy is opened.
 
 ## Opening it for the proofs (separate PR)
 
