@@ -73,6 +73,8 @@ function sha(value: unknown): value is string {
 }
 const MAX_TEXT = 60_000;
 const PROTECTED_BRANCHES = new Set(['main']);
+/** The committer GitHub records on a commit created through the REST API. */
+const GITHUB_COMMITTER = { name: 'GitHub', email: 'noreply@github.com' } as const;
 const WRITE_PERMISSIONS = { contents: 'write', pull_requests: 'write' } as const;
 const READ_PERMISSIONS = { contents: 'read', pull_requests: 'read' } as const;
 
@@ -727,9 +729,10 @@ export class Gateway {
         return { status: 'succeeded', result: { treeSha: r.sha, parentCommitSha: payload.parentCommitSha as string, baseTreeSha: payload.baseTreeSha as string, repositoryId } };
       }
       case 'commit.create': {
-        // Self-origin (F2): author and committer are both left to GitHub, which
-        // sets the authenticated App bot and the current time. Both are then
-        // verified against this actor's bot login.
+        // Self-origin (F2): author and committer are both left to GitHub. It
+        // sets the author to the authenticated App bot and the current time, and
+        // records API-created commits with its own committer identity (observed
+        // in the live sandbox proof, 2026-10-28). Both are verified exactly.
         const message = withTrailer(payload.message as string, marker.trailer);
         const binding = this.config.actors.get(envelope.actor) as ActorBinding;
         const r = await api.rest(token, 'POST', `${repo}/git/commits`, { message, tree: payload.treeSha, parents: [payload.parentCommitSha] }) as {
@@ -739,8 +742,9 @@ export class Gateway {
         if (typeof r?.sha !== 'string' || !SHA1_HEX.test(r.sha)) throw new Error('commit result unknown');
         const botEmail = (email: unknown) => typeof email === 'string' && email.endsWith(`+${binding.botLogin}@users.noreply.github.com`);
         const exact = r.tree?.sha === payload.treeSha && r.parents?.length === 1 && r.parents[0]?.sha === payload.parentCommitSha
-          && r.message === message && r.author?.name === binding.botLogin && r.committer?.name === binding.botLogin
-          && botEmail(r.author?.email) && r.committer?.email === r.author?.email && typeof r.author?.date === 'string';
+          && r.message === message && r.author?.name === binding.botLogin && botEmail(r.author?.email)
+          && r.committer?.name === GITHUB_COMMITTER.name && r.committer?.email === GITHUB_COMMITTER.email
+          && typeof r.author?.date === 'string';
         // A commit that is not exactly the requested one is recorded as failed, so ref.update can never publish it.
         if (!exact) return { status: 'failed', result: { reason: 'postcondition', commitSha: r.sha } };
         const target = payload.target as { pr: number | null; branch: string };

@@ -106,8 +106,10 @@ class FakeGit {
       const sha = sha1(`commit ${JSON.stringify(body)}`);
       this.objects.set(sha, { type: 'Commit', byteSize: null });
       this.commits.set(sha, { tree: body.tree, parents: body.parents });
-      const who = { name: BOT, email: BOT_EMAIL, date: '2027-01-15T08:00:00Z' };
-      return this.applied(201, this.commitResponse({ sha, message: body.message, tree: { sha: body.tree }, parents: body.parents.map((p: string) => ({ sha: p })), author: { ...who }, committer: { ...who } }));
+      // As GitHub does for an App: the bot as author, GitHub itself as committer.
+      const author = { name: BOT, email: BOT_EMAIL, date: '2027-01-15T08:00:00Z' };
+      const committer = { name: 'GitHub', email: 'noreply@github.com', date: '2027-01-15T08:00:00Z' };
+      return this.applied(201, this.commitResponse({ sha, message: body.message, tree: { sha: body.tree }, parents: body.parents.map((p: string) => ({ sha: p })), author, committer }));
     }
     if (pathname === '/graphql') {
       const { query, variables } = body as { query: string; variables: Record<string, unknown> };
@@ -435,7 +437,9 @@ describe('publication: commit.create', () => {
     const mutations: Array<[string, (r: Record<string, unknown>) => Record<string, unknown>]> = [
       ['author name', (r) => ({ ...r, author: { ...(r.author as object), name: 'someone' } })],
       ['author email', (r) => ({ ...r, author: { ...(r.author as object), email: 'x@example.com' } })],
-      ['committer', (r) => ({ ...r, committer: { ...(r.committer as object), name: 'web-flow' } })],
+      ['committer name', (r) => ({ ...r, committer: { ...(r.committer as object), name: 'web-flow' } })],
+      ['committer email', (r) => ({ ...r, committer: { ...(r.committer as object), email: 'x@example.com' } })],
+      ['committer is the bot, not GitHub', (r) => ({ ...r, committer: { ...(r.author as object) } })],
       ['message', (r) => ({ ...r, message: 'other' })],
       ['tree', (r) => ({ ...r, tree: { sha: '7'.repeat(40) } })],
       ['parents', (r) => ({ ...r, parents: [{ sha: BASE }, { sha: BASE }] })],
