@@ -73,8 +73,8 @@ function sha(value: unknown): value is string {
 }
 const MAX_TEXT = 60_000;
 const PROTECTED_BRANCHES = new Set(['main']);
-const WRITE_PERMISSIONS = { contents: 'write', pull_requests: 'write', issues: 'write' } as const;
-const READ_PERMISSIONS = { contents: 'read', pull_requests: 'read', issues: 'read' } as const;
+const WRITE_PERMISSIONS = { contents: 'write', pull_requests: 'write' } as const;
+const READ_PERMISSIONS = { contents: 'read', pull_requests: 'read' } as const;
 
 type Payload = Record<string, unknown>;
 
