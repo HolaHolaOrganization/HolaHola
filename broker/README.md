@@ -130,3 +130,22 @@ A rewritten (non-ancestor) base needs a fresh review. Both bases are recorded, a
 **Retired:** `pr.merge`. A direct merge is a founder or manual exception (design section 2).
 
 **Not yet:** relay origin attestations (F2-ii) and `Origin-Author` trailers as review exclusions. Both depend on the relay design.
+
+## Stage 1: bounded object reads, first increment (design sections 5 and 7)
+
+These are four read operations. Each has a fixed field set and uses only the actor's **read-only** installation token on this instance's target repository. None creates a claim or writes the ledger; per the design, reads are logged by the service, not audited in the ledger. Each is fully re-authorized after its GitHub awaits, so nothing is disclosed under a policy that changed meanwhile.
+
+| Operation | Payload | Returns |
+|---|---|---|
+| `read.repository` (R1) | `{}` | `{id, fullName, defaultBranch, defaultBranchHead}`. The id must be the configured target. |
+| `read.ref` | `{branch}` (any branch, including `main`) | `{branch, sha}`, or `sha: null` when the branch is absent |
+| `read.commit` (R4) | `{sha}` | `{sha, tree, parents, author, committer, message}`, or `null` if the commit is absent. A response for any other sha is refused. |
+| `read.tree` (R5) | `{sha, recursive}` | `{sha, complete, entries[{path, mode, type, sha, size?}]}` |
+
+`complete` is false when GitHub truncated the tree. A tree of more than 10,000 entries is refused (`too_large`), never clipped.
+
+All four carry no envelope PR or head, so `qualification` denies them. The client never journals reads.
+
+Each read writes one bounded service-log line (`broker: read <operation> actor=… op=… status=… outcome=ok|deny:<reason>`), never a token, signature, payload body or content. Any upstream failure (token mint, HTTP, network, timeout) is a 502 `github_unavailable` with no content.
+
+The remaining read families (R2, R3, R6–R11) are later increments.

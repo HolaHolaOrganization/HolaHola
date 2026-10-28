@@ -190,7 +190,8 @@ export class BrokerClient {
     if (operation === 'status') throw new TypeError('use status()');
     const request = signRequest(this.signer, { operation, pr, headSha, payload, policyEpoch: await this.policyEpoch(), repositoryId: this.repositoryId }, this.now());
     const operationId = request.envelope.operationId;
-    if (operation === 'read') return { ...(await this.post(request)), operationId };
+    // Reads change nothing and are never journaled or settled by status().
+    if (operation === 'read' || operation.startsWith('read.')) return { ...(await this.post(request)), operationId };
     await this.journal.record(request);
     let response: BrokerResponse;
     try {

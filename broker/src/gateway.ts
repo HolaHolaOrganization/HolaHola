@@ -36,6 +36,12 @@ export type GatewayConfig = {
   ledger: Ledger;
   loaderFor: LoaderFor;
   now?: () => number;
+  /**
+   * Service log sink for reads (design section 5: reads go to service logs,
+   * not the ledger). One bounded line per read; never a token, signature,
+   * payload body or content. Defaults to stdout.
+   */
+  log?: (line: string) => void;
 };
 
 export type GatewayResult =
@@ -47,6 +53,17 @@ const BRANCH = /^(?!\/)(?!.*\.\.)(?!refs\/)[A-Za-z0-9._/-]{1,200}$/;
 const SHA1_HEX = /^[0-9a-f]{40}$/;
 const ACTOR = /^[a-z][a-z0-9-]{1,62}$/;
 const OPERATION_ID = /^[A-Za-z0-9_-]{16,128}$/;
+/** A branch name a read may name, including the default branch (reads change nothing). */
+const READ_BRANCH = /^(?!\/)(?!.*\.\.)(?!refs\/)[A-Za-z0-9._/-]{1,200}$/;
+/** A recursive tree larger than this is refused, never clipped. */
+const MAX_READ_TREE_ENTRIES = 10_000;
+const OBJECT_READS = ['read.repository', 'read.ref', 'read.commit', 'read.tree'] as const;
+type ObjectRead = (typeof OBJECT_READS)[number];
+
+function isObjectRead(operation: Operation): operation is ObjectRead {
+  return (OBJECT_READS as readonly string[]).includes(operation);
+}
+
 const BROKER_TRAILER = /^Holahola-Broker-Op: ([A-Za-z0-9_-]{16,128}):[0-9a-f]{16}$/m;
 /** GitHub's pull-request commits endpoint returns at most 250 commits. */
 const MAX_PR_COMMITS = 250;
@@ -85,6 +102,21 @@ export function validatePayload(envelope: Envelope, payload: unknown): Payload |
   switch (envelope.operation) {
     case 'read':
       return needsPr ? exact(payload, []) : null;
+    case 'read.repository':
+      return envelope.pr === null && envelope.headSha === null ? exact(payload, []) : null;
+    case 'read.ref': {
+      const p = exact(payload, ['branch']);
+      return p && envelope.pr === null && envelope.headSha === null && typeof p.branch === 'string'
+        && READ_BRANCH.test(p.branch) && !p.branch.endsWith('/') ? p : null;
+    }
+    case 'read.commit': {
+      const p = exact(payload, ['sha']);
+      return p && envelope.pr === null && envelope.headSha === null && sha(p.sha) ? p : null;
+    }
+    case 'read.tree': {
+      const p = exact(payload, ['sha', 'recursive']);
+      return p && envelope.pr === null && envelope.headSha === null && sha(p.sha) && typeof p.recursive === 'boolean' ? p : null;
+    }
     case 'status': {
       const p = exact(payload, ['original']);
       return p && envelope.pr === null && envelope.headSha === null && typeof p.original === 'object' && p.original !== null ? p : null;
@@ -184,12 +216,14 @@ function recordedSuccess(recorded: Awaited<ReturnType<typeof readRecorded>>, ope
 export class Gateway {
   private readonly config: GatewayConfig;
   private readonly now: () => number;
+  private readonly log: (line: string) => void;
   private readonly tokens = new Map<string, InstallationToken>();
   private readonly readTokens = new Map<string, InstallationToken>();
 
   constructor(config: GatewayConfig) {
     this.config = config;
     this.now = config.now ?? Date.now;
+    this.log = config.log ?? ((line) => console.log(line));
   }
 
   private repoPath(): string {
@@ -258,6 +292,7 @@ export class Gateway {
     if (!valid) return deny('malformed_payload');
 
     if (envelope.operation === 'read') return this.read(body, envelope, digest, epoch, valid, binding);
+    if (isObjectRead(envelope.operation)) return this.readObject(envelope.operation, body, envelope, digest, epoch, valid, binding);
     if (envelope.operation === 'status') return this.status(body, envelope, digest, epoch, valid.original, binding);
 
     const ctx: Context = { token: '' };
@@ -307,6 +342,78 @@ export class Gateway {
   }
 
   /**
+   * Bounded object reads (design sections 5 and 7). Each one has a fixed field
+   * set, uses only the actor's read-only token on this instance's target
+   * repository, writes nothing (no claim, no ledger), and is fully
+   * re-authorized after its GitHub awaits, so nothing is disclosed under a
+   * policy that changed meanwhile.
+   */
+  private async readObject(operation: ObjectRead, body: unknown, envelope: Envelope, digest: string, epoch: string, payload: Payload, binding: ActorBinding): Promise<GatewayResult> {
+    const result = await this.readObjectResult(operation, body, envelope, digest, epoch, payload, binding);
+    // One bounded, non-secret service-log line per read (design section 5).
+    const outcome = result.body.decision === 'read' ? 'ok' : `deny:${String((result.body as { reason?: unknown }).reason)}`;
+    this.log(`broker: read ${operation} actor=${envelope.actor} op=${envelope.operationId} status=${result.status} outcome=${outcome}`);
+    return result;
+  }
+
+  private async readObjectResult(operation: ObjectRead, body: unknown, envelope: Envelope, digest: string, epoch: string, payload: Payload, binding: ActorBinding): Promise<GatewayResult> {
+    const deny = (reason: string) => ({ status: 403, body: { decision: 'deny' as const, reason, operationId: envelope.operationId } });
+    const api = this.config.api, repo = this.repoPath();
+    let result: Record<string, unknown>;
+    try {
+      // Inside the try: a failed token mint is an upstream failure like any other.
+      const token = await this.readTokenFor(envelope.actor, binding).get();
+      switch (operation) {
+        case 'read.repository': {
+          const r = await api.rest(token, 'GET', repo) as { id?: unknown; full_name?: unknown; default_branch?: unknown };
+          if (r?.id !== this.config.repo.id || typeof r.default_branch !== 'string' || typeof r.full_name !== 'string') return deny('wrong_repository');
+          result = { repository: { id: r.id, fullName: r.full_name, defaultBranch: r.default_branch, defaultBranchHead: await this.refSha(token, r.default_branch) } };
+          break;
+        }
+        case 'read.ref':
+          result = { ref: { branch: payload.branch, sha: await this.refSha(token, payload.branch as string) } };
+          break;
+        case 'read.commit': {
+          const c = await api.rest(token, 'GET', `${repo}/git/commits/${payload.sha}`, undefined, true) as {
+            sha?: unknown; message?: unknown; tree?: { sha?: unknown }; parents?: Array<{ sha?: unknown }>;
+            author?: { name?: unknown; email?: unknown; date?: unknown }; committer?: { name?: unknown; email?: unknown; date?: unknown };
+          } | null;
+          if (c === null) { result = { commit: null }; break; }
+          if (c.sha !== payload.sha || !sha(c.tree?.sha) || !Array.isArray(c.parents) || !c.parents.every((p) => sha(p.sha))) return deny('read_unverifiable');
+          const who = (x?: { name?: unknown; email?: unknown; date?: unknown }) => ({ name: x?.name ?? null, email: x?.email ?? null, date: x?.date ?? null });
+          result = { commit: { sha: c.sha, tree: c.tree?.sha, parents: c.parents.map((p) => p.sha), author: who(c.author), committer: who(c.committer), message: typeof c.message === 'string' ? c.message : null } };
+          break;
+        }
+        case 'read.tree': {
+          const t = await api.rest(token, 'GET', `${repo}/git/trees/${payload.sha}${payload.recursive ? '?recursive=1' : ''}`, undefined, true) as {
+            sha?: unknown; truncated?: unknown; tree?: Array<{ path?: unknown; mode?: unknown; type?: unknown; sha?: unknown; size?: unknown }>;
+          } | null;
+          if (t === null) { result = { tree: null }; break; }
+          if (t.sha !== payload.sha || !Array.isArray(t.tree) || typeof t.truncated !== 'boolean') return deny('read_unverifiable');
+          if (t.tree.length > MAX_READ_TREE_ENTRIES) return deny('too_large');
+          result = {
+            tree: {
+              sha: t.sha,
+              // GitHub's own truncation flag; never clipped further here.
+              complete: !t.truncated,
+              entries: t.tree.map((e) => ({ path: e.path, mode: e.mode, type: e.type, sha: e.sha, ...(typeof e.size === 'number' ? { size: e.size } : {}) })),
+            },
+          };
+          break;
+        }
+      }
+    } catch {
+      // Any upstream failure (token mint, HTTP error, network, timeout,
+      // unreadable response): a read changes nothing, so it fails as 502
+      // with no content rather than as an internal error.
+      return { status: 502, body: { decision: 'deny', reason: 'github_unavailable', operationId: envelope.operationId } };
+    }
+    const again = await this.reauthorize(body, envelope, digest, epoch, binding);
+    if (!again.ok) return deny(again.reason);
+    return { status: 200, body: { decision: 'read', operationId: envelope.operationId, ...result } };
+  }
+
+  /**
    * Status of an earlier operation (luca-replit phase 2b review, finding 1).
    * The status request itself was fully authorized on arrival (fresh
    * signature, current policy, not closed). It carries the ORIGINAL signed
@@ -323,7 +430,7 @@ export class Gateway {
     if (!verified.ok) return deny(`original_${verified.reason}`);
     const origin = verified.envelope;
     if (origin.actor !== envelope.actor) return deny('actor_mismatch');
-    if (origin.operation === 'status' || origin.operation === 'read') return deny('not_a_claim');
+    if (origin.operation === 'status' || origin.operation === 'read' || isObjectRead(origin.operation)) return deny('not_a_claim');
     const originPayload = validatePayload(origin, (original as { payload: unknown }).payload);
     if (!originPayload) return deny('original_malformed_payload');
     await this.readTokenFor(envelope.actor, binding).get();
@@ -689,7 +796,7 @@ export class Gateway {
     const api = this.config.api, repo = this.repoPath(), token = ctx.token, pr = envelope.pr, head = envelope.headSha as string;
     try {
       if (isPublication(envelope.operation)) return await this.publish(envelope.operation, envelope, payload, marker, ctx);
-      switch (envelope.operation as Exclude<Operation, 'read' | 'status' | 'branch.delete' | PublicationOperation>) {
+      switch (envelope.operation as Exclude<Operation, 'read' | 'status' | 'branch.delete' | PublicationOperation | ObjectRead>) {
         case 'pr.comment': {
           const r = await api.rest(token, 'POST', `${repo}/issues/${pr}/comments`, { body: `${payload.body}\n\n${marker.html}` }) as { id: number };
           return { status: 'succeeded', result: { commentId: r.id } };
