@@ -36,6 +36,12 @@ export type GatewayConfig = {
   ledger: Ledger;
   loaderFor: LoaderFor;
   now?: () => number;
+  /**
+   * Service log sink for reads (design section 5: reads go to service logs,
+   * not the ledger). One bounded line per read; never a token, signature,
+   * payload body or content. Defaults to stdout.
+   */
+  log?: (line: string) => void;
 };
 
 export type GatewayResult =
@@ -210,12 +216,14 @@ function recordedSuccess(recorded: Awaited<ReturnType<typeof readRecorded>>, ope
 export class Gateway {
   private readonly config: GatewayConfig;
   private readonly now: () => number;
+  private readonly log: (line: string) => void;
   private readonly tokens = new Map<string, InstallationToken>();
   private readonly readTokens = new Map<string, InstallationToken>();
 
   constructor(config: GatewayConfig) {
     this.config = config;
     this.now = config.now ?? Date.now;
+    this.log = config.log ?? ((line) => console.log(line));
   }
 
   private repoPath(): string {
@@ -341,11 +349,20 @@ export class Gateway {
    * policy that changed meanwhile.
    */
   private async readObject(operation: ObjectRead, body: unknown, envelope: Envelope, digest: string, epoch: string, payload: Payload, binding: ActorBinding): Promise<GatewayResult> {
+    const result = await this.readObjectResult(operation, body, envelope, digest, epoch, payload, binding);
+    // One bounded, non-secret service-log line per read (design section 5).
+    const outcome = result.body.decision === 'read' ? 'ok' : `deny:${String((result.body as { reason?: unknown }).reason)}`;
+    this.log(`broker: read ${operation} actor=${envelope.actor} op=${envelope.operationId} status=${result.status} outcome=${outcome}`);
+    return result;
+  }
+
+  private async readObjectResult(operation: ObjectRead, body: unknown, envelope: Envelope, digest: string, epoch: string, payload: Payload, binding: ActorBinding): Promise<GatewayResult> {
     const deny = (reason: string) => ({ status: 403, body: { decision: 'deny' as const, reason, operationId: envelope.operationId } });
-    const token = await this.readTokenFor(envelope.actor, binding).get();
     const api = this.config.api, repo = this.repoPath();
     let result: Record<string, unknown>;
     try {
+      // Inside the try: a failed token mint is an upstream failure like any other.
+      const token = await this.readTokenFor(envelope.actor, binding).get();
       switch (operation) {
         case 'read.repository': {
           const r = await api.rest(token, 'GET', repo) as { id?: unknown; full_name?: unknown; default_branch?: unknown };
@@ -385,9 +402,11 @@ export class Gateway {
           break;
         }
       }
-    } catch (error) {
-      if (error instanceof GitHubError) return { status: 502, body: { decision: 'deny', reason: 'github_unavailable', operationId: envelope.operationId } };
-      throw error;
+    } catch {
+      // Any upstream failure (token mint, HTTP error, network, timeout,
+      // unreadable response): a read changes nothing, so it fails as 502
+      // with no content rather than as an internal error.
+      return { status: 502, body: { decision: 'deny', reason: 'github_unavailable', operationId: envelope.operationId } };
     }
     const again = await this.reauthorize(body, envelope, digest, epoch, binding);
     if (!again.ok) return deny(again.reason);

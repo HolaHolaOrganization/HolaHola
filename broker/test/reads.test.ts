@@ -45,6 +45,8 @@ class FakeGitHub {
   treeShaOverride: string | null = null;
   onRead: () => void = () => {};
   fail = false;
+  failMint = false;
+  networkError = false;
 
   private json(status: number, body: unknown) { return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } }); }
 
@@ -54,10 +56,12 @@ class FakeGitHub {
     const method = init.method ?? 'GET';
     this.calls.push({ method, path: pathname, search });
     if (pathname.endsWith('/access_tokens')) {
+      if (this.failMint) return this.json(503, {});
       this.mints.push(JSON.parse(String(init.body)).permissions);
       return this.json(201, { token: 'ghs_t', expires_at: new Date(NOW + 3_600_000).toISOString() });
     }
     this.onRead();
+    if (this.networkError) throw new TypeError('fetch failed');
     if (this.fail) return this.json(503, {});
     const base = `/repos/${REPO.owner}/${REPO.name}`;
     if (pathname === base) return this.json(200, { id: this.repoId, full_name: 'HolaHolaOrganization/HolaHola', default_branch: 'main', private: true });
@@ -86,15 +90,16 @@ class FakeGitHub {
 
 function harness(state = 'routine') {
   const github = new FakeGitHub();
+  const logs: string[] = [];
   const clock = { now: NOW };
   const policy = { bytes: policyBytes(state) };
   const loader = new PolicyLoader({ fetch: async () => ({ bytes: policy.bytes, blobSha: gitBlobSha(policy.bytes) }) }, () => clock.now, 1);
   const gateway = new Gateway({
     repo: REPO,
     actors: new Map([['luca-claude-code', { appId: 5350010, installationId: 172194780, privateKey: rsa.privateKey, botLogin: BOT }]]),
-    api: new GitHubApi(github.fetch), ledger: new NoLedger(), loaderFor: () => loader, now: () => clock.now,
+    api: new GitHubApi(github.fetch), ledger: new NoLedger(), loaderFor: () => loader, now: () => clock.now, log: (line) => logs.push(line),
   });
-  return { github, clock, policy, loader, gateway };
+  return { github, clock, policy, loader, gateway, logs };
 }
 type H = ReturnType<typeof harness>;
 
@@ -181,11 +186,33 @@ describe('object reads: authority and side effects', () => {
     assert.equal(r.body.repository, undefined);
   });
 
-  test('a GitHub failure is reported without content', async () => {
+  test('every upstream failure is a 502 without content: an HTTP error, a failed token mint, a network error', async () => {
     const h = harness();
     h.github.fail = true;
     const r = await read(h, 'read.ref', { branch: 'main' });
     assert.deepEqual([r.status, r.body.reason], [502, 'github_unavailable']);
+    // C-READ-UPSTREAM-FAILURE: the token mint and network errors are inside the same boundary.
+    const mint = harness();
+    mint.github.failMint = true;
+    const m = await read(mint, 'read.repository', {});
+    assert.deepEqual([m.status, m.body.reason, m.body.repository], [502, 'github_unavailable', undefined]);
+    const net = harness();
+    net.github.networkError = true;
+    const n = await read(net, 'read.commit', { sha: HEAD });
+    assert.deepEqual([n.status, n.body.reason, n.body.commit], [502, 'github_unavailable', undefined]);
+  });
+
+  test('each read writes one bounded service-log line, never a token, signature or content', async () => {
+    const h = harness();
+    await read(h, 'read.commit', { sha: HEAD });
+    h.github.fail = true;
+    await read(h, 'read.ref', { branch: 'main' });
+    assert.equal(h.logs.length, 2);
+    assert.match(h.logs[0], /^broker: read read\.commit actor=luca-claude-code op=op-read-\d+ status=200 outcome=ok$/);
+    assert.match(h.logs[1], /^broker: read read\.ref actor=luca-claude-code op=op-read-\d+ status=502 outcome=deny:github_unavailable$/);
+    for (const line of h.logs) {
+      assert.doesNotMatch(line, /ghs_|Initial|signature|BEGIN/);
+    }
   });
 
   test('closed denies reads; qualification denies these PR-less reads', async () => {

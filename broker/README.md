@@ -146,4 +146,6 @@ These are four read operations. Each has a fixed field set and uses only the act
 
 All four carry no envelope PR or head, so `qualification` denies them. The client never journals reads.
 
+Each read writes one bounded service-log line (`broker: read <operation> actor=… op=… status=… outcome=ok|deny:<reason>`), never a token, signature, payload body or content. Any upstream failure (token mint, HTTP, network, timeout) is a 502 `github_unavailable` with no content.
+
 The remaining read families (R2, R3, R6–R11) are later increments.
