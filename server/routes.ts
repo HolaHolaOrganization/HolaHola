@@ -13,6 +13,7 @@ import { aiLimiter, voiceLimiter, authLimiter, mutationLimiter, hiveExternalLimi
 import { requireRole, allowRoles, loadAuthenticatedUser, requireFounder, requireAgentToken, requireFounderOrAgent, logAgentAction, getAgentAuditLog, isAgentTokenConfigured, isReplitAgentRequest } from "./middleware/rbac";
 import { registerCoordinationRoutes } from "./routes/coordination-routes";
 import { registerCentralRecordsRoutes } from "./routes/central-records-routes";
+import { registerRuntimeCentralRecordsRoutes } from "./routes/runtime-central-records-routes";
 import { lucaChatPostHandler } from "./routes/luca-chat-post-route";
 import { registerMcpCoordinationRoutes } from "./routes/mcp-coordination-route";
 import { registerCoordinationCredentialRoutes } from "./routes/coordination-credential-routes";
@@ -697,6 +698,8 @@ export async function registerRoutes(app: Application): Promise<void> {
   registerCentralRecordsRoutes(app, {
     authorize: [isAuthenticated, loadAuthenticatedUser(storage), requireFounder],
   });
+  // Read-only and ungrantable until the separately reviewed founder issuer.
+  registerRuntimeCentralRecordsRoutes(app);
 
   const sourcePromotionError = sourcePromotionConfigurationError();
   if (sourcePromotionError) {
