@@ -77,3 +77,33 @@ describe('committed broker/policy.json', () => {
     }
   });
 });
+
+// Stage 1, decision F4-a: the temporary sandbox instance's founder-owned policy
+// on main. It differs from broker/policy.json only in repositoryId (the
+// disposable sandbox repository) and starts CLOSED: the first deploy is a
+// smoke test only. Opening it for the sandbox proofs is a separate PR.
+describe('committed broker/policy.sandbox.json', () => {
+  const SANDBOX_REPOSITORY_ID = 1436541790;
+  const sandboxBytes = new Uint8Array(readFileSync(new URL('../policy.sandbox.json', import.meta.url)));
+
+  test('parses only for the sandbox repository, is closed, and carries the same luca-claude-code key', () => {
+    const policy = parsePolicy(sandboxBytes, SANDBOX_REPOSITORY_ID);
+    assert.equal(policy.repositoryId, SANDBOX_REPOSITORY_ID);
+    assert.equal(policy.state, 'closed');
+    assert.deepEqual(policy.qualification, []);
+    assert.deepEqual([...policy.actors.keys()], ['luca-claude-code']);
+    const lcc = policy.actors.get('luca-claude-code')!;
+    assert.deepEqual([lcc.appId, lcc.installationId, lcc.host], [5350010, 174218337, 'LITTLENEMO']);
+    const fingerprint = createHash('sha256').update(lcc.signingKeys[0].publicKey.export({ type: 'spki', format: 'der' })).digest('hex');
+    assert.equal(fingerprint, '4c1c96dcaac778cd67302a2bd7ba1a240393cdb1aa810ee84a2fe0ed2c8cc040');
+    // The production broker can never accept it, and it is not the production file.
+    assert.throws(() => parsePolicy(sandboxBytes));
+    assert.notEqual(SANDBOX_REPOSITORY_ID, REPOSITORY_ID);
+  });
+
+  test('differs from broker/policy.json only in repositoryId', () => {
+    const prod = JSON.parse(readFileSync(new URL('../policy.json', import.meta.url), 'utf8'));
+    const sandbox = JSON.parse(new TextDecoder().decode(sandboxBytes));
+    assert.deepEqual({ ...sandbox, repositoryId: prod.repositoryId }, prod);
+  });
+});
