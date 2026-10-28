@@ -1025,8 +1025,11 @@ async function attemptGraceBootstrapReexchange(input: {
     return { ok: false, reason: 'bootstrap_already_consumed' };
   }
   // Nothing issued for this runtime has ever authenticated a request, so
-  // every still-live row found here is an abandoned dead end, never an
-  // active session -- safe to revoke. This is what closes the race against a
+  // every still-live ordinary row here is an abandoned dead end. Recovery
+  // also revokes central credentials, used or unused: a lost bootstrap/token
+  // must not leave a second read credential alive. The everUsed check above
+  // excludes central use, but this runtime-wide revocation stays inclusive.
+  // This is what closes the race against a
   // concurrent *first* use of one of them: resolveBrokerCredential takes the
   // exact advisory lock this function's caller already holds (see
   // exchangeBootstrapCredential) before marking a never-used credential as
@@ -1039,10 +1042,9 @@ async function attemptGraceBootstrapReexchange(input: {
     .set({ revokedAt: new Date() })
     .where(and(
       eq(coordinationRuntimeCredentials.runtimeId, runtimeId),
-      isNull(coordinationRuntimeCredentials.centralGrantId),
       isNull(coordinationRuntimeCredentials.revokedAt),
     ))
-    .returning({ id: coordinationRuntimeCredentials.id });
+    .returning({ id: coordinationRuntimeCredentials.id, centralGrantId: coordinationRuntimeCredentials.centralGrantId });
   await audit({
     eventType: 'bootstrap_grace_reexchange',
     success: true,
@@ -1051,7 +1053,8 @@ async function attemptGraceBootstrapReexchange(input: {
     sourceIp,
     metadata: {
       reason: 'prior_consumption_never_authenticated_a_request',
-      priorUnusedCredentialsRevoked: revoked.length,
+      priorUnusedCredentialsRevoked: revoked.filter(row => row.centralGrantId === null).length,
+      priorCentralCredentialsRevoked: revoked.filter(row => row.centralGrantId !== null).length,
     },
   }, executor);
   const issued = await issueForRegistration(registration, 'issued', sourceIp, undefined, executor);

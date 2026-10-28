@@ -131,7 +131,8 @@ export async function exchangeCentralRead(routineToken: string, grantId: string)
     const [credential] = await rows(executor, sql`INSERT INTO coordination_runtime_credentials
       (runtime_id,actor,token_hash,capabilities,expires_at,central_grant_id)
       VALUES (${runtime.id},${runtime.actor},${hash(accessToken)},ARRAY['central-records:read']::text[],
-        least(${grant.expires_at}::timestamp,now()+${CENTRAL_CREDENTIAL_TTL_SECONDS}*interval '1 second'),${grant.id})
+        least((SELECT expires_at FROM central_read_grants WHERE id=${grant.id}),
+          now()+${CENTRAL_CREDENTIAL_TTL_SECONDS}*interval '1 second'),${grant.id})
       RETURNING id,expires_at`);
     await audit(executor, "central_credential_issued", runtime.id, runtime.actor, grant.id, credential.id);
     return { accessToken, tokenType: "Coordination", actor: runtime.actor, runtimeId: runtime.id,

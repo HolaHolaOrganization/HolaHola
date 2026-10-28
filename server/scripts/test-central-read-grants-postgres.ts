@@ -187,23 +187,62 @@ check("concurrent founder confirmations serialize and only one exact-state repla
   assert.equal((await pool.query(`SELECT count(*)::int AS n FROM central_read_grants
     WHERE runtime_id='confirm-race' AND revoked_at IS NULL`)).rows[0].n, 1);
 });
-check("central usage neither blocks grace reexchange nor gets revoked by its unused-routine cleanup", async () => {
-  await runtime("grace");
-  const g = await grant("grace");
-  const issued = await exchangeCentralRead(routine("grace"), g.id);
-  assert.ok(await resolveCentralReadCredential(issued.accessToken));
+for (const priorCentralUse of [false, true]) {
+check(`grace ignores ${priorCentralUse ? "used" : "unused"} central credentials for eligibility but revokes them on recovery`, async () => {
+  const id = priorCentralUse ? "grace-used" : "grace-unused";
+  await runtime(id);
+  const g = await grant(id);
+  const issued = await exchangeCentralRead(routine(id), g.id);
+  if (priorCentralUse) assert.ok(await resolveCentralReadCredential(issued.accessToken));
   const { consumedCoordinationBootstrapHash, exchangeBootstrapCredential } =
     await import("../services/coordination-credential-broker");
   const bootstrap = "fixture-grace-bootstrap";
-  await pool.query(`UPDATE coordination_runtime_registrations SET bootstrap_hash=$1 WHERE id='grace'`,
-    [consumedCoordinationBootstrapHash("grace", hash(bootstrap))]);
-  // Fixture the exact grace precondition: only central credentials have been
-  // used; an abandoned, never-authenticated ordinary credential exists.
+  await pool.query(`UPDATE coordination_runtime_registrations SET bootstrap_hash=$1 WHERE id=$2`,
+    [consumedCoordinationBootstrapHash(id, hash(bootstrap)), id]);
+  // Fixture the exact grace precondition: no ordinary credential has been
+  // used; central use is varied independently. The grant/runtime stay active.
   await pool.query(`UPDATE coordination_runtime_credentials SET last_used_at=NULL
-    WHERE runtime_id='grace' AND central_grant_id IS NULL`);
-  const exchanged = await exchangeBootstrapCredential("grace", bootstrap);
+    WHERE runtime_id=$1 AND central_grant_id IS NULL`, [id]);
+  const exchanged = await exchangeBootstrapCredential(id, bootstrap);
   assert.equal(exchanged.ok, true);
-  assert.ok(await resolveCentralReadCredential(issued.accessToken));
+  assert.equal(await resolveCentralReadCredential(issued.accessToken), null);
+  const state = await pool.query(`SELECT c.revoked_at IS NOT NULL AS credential_revoked,
+    g.revoked_at IS NULL AS grant_active, g.expires_at>now() AS grant_unexpired,
+    r.enabled AND r.revoked_at IS NULL AS runtime_active
+    FROM coordination_runtime_credentials c JOIN central_read_grants g ON g.id=c.central_grant_id
+    JOIN coordination_runtime_registrations r ON r.id=c.runtime_id WHERE c.id=$1`, [issued.credentialId]);
+  assert.deepEqual(state.rows[0], { credential_revoked: true, grant_active: true,
+    grant_unexpired: true, runtime_active: true });
+  const audit = await pool.query(`SELECT metadata FROM coordination_credential_audit_events
+    WHERE runtime_id=$1 AND event_type='bootstrap_grace_reexchange' ORDER BY id DESC LIMIT 1`, [id]);
+  assert.equal(audit.rows[0].metadata.priorUnusedCredentialsRevoked, 1);
+  assert.equal(audit.rows[0].metadata.priorCentralCredentialsRevoked, 1);
+  if (!exchanged.ok) throw new Error("fixture grace exchange failed");
+  const { resolveBrokerCredential } = await import("../services/coordination-credential-broker");
+  const ordinary = await resolveBrokerCredential(exchanged.accessToken);
+  assert.deepEqual(ordinary?.capabilities, ["coordination:read", "coordination:write"]);
+  const retry = await exchangeBootstrapCredential(id, bootstrap);
+  assert.equal(retry.ok, false, "real ordinary use still blocks grace reexchange");
+  if (!retry.ok) assert.equal(retry.reason, "bootstrap_already_consumed");
+});
+}
+check("central exchange expiry uses only database timestamps for the grant cap", async () => {
+  await runtime("database-expiry-cap");
+  const g = await grant("database-expiry-cap", {
+    expiresAt: new Date(Date.now() + 60_000).toISOString(),
+  });
+  const issued = await exchangeCentralRead(routine("database-expiry-cap"), g.id);
+  // Deliberately compare stored timestamps in SQL. Comparing two JS Dates can
+  // hide the same host-local timestamp decoding error on both sides.
+  const result = await pool.query(`SELECT
+    c.expires_at <= g.expires_at AS bounded_by_grant,
+    c.expires_at = g.expires_at AS short_grant_wins,
+    c.expires_at > c.issued_at AS usable_lifetime,
+    c.expires_at <= c.issued_at + interval '300 seconds' AS bounded_by_ttl
+    FROM coordination_runtime_credentials c JOIN central_read_grants g ON g.id=c.central_grant_id
+    WHERE c.id=$1`, [issued.credentialId]);
+  assert.deepEqual(result.rows[0], { bounded_by_grant: true, short_grant_wins: true,
+    usable_lifetime: true, bounded_by_ttl: true });
 });
 check("a replacement runtime does not inherit grants or central credentials", async () => {
   await runtime("replacement-source");

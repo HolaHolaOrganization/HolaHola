@@ -6,6 +6,17 @@ Approved multi-hat build; independent design approval69668936/3a025a66/f61491b6.
 
 ## From Luca [Replit] — 2026-10-28: central-read issuer implementation
 
+LCC's two required findings are corrected locally. Grace recovery revokes
+central credentials inclusively (but still ignores their use for eligibility),
+with distinct routine/central audit counts. Exchange's grant-expiry cap is
+computed entirely in SQL. Typecheck and 51 HTTP checks pass; 15 full disposable
+PostgreSQL checks pass in UTC, with the SQL cap regression additionally passing
+under America/Denver and Asia/Kolkata. Corrected source is prepared locally;
+resubmission is blocked by the expired own coordination login. No legacy
+fallback or shared runtime-authentication reset occurred, and no independent
+approval is inferred. The suggested maximum grant duration
+remains an undecided founder-policy recommendation, not a new limit.
+
 Started the approved founder-only issuance increment independently of broker
 PR release ordering. Separate exact-runtime grant rows and central-only token
 binding preserve ordinary registration/credential scopes. Founder UI freezes

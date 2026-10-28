@@ -31,6 +31,12 @@ historical increment.
   grant and credential rows, using database `now()` for central expiry checks.
   A resolution acquiring that lock after grant revocation commits is denied.
   A previously authenticated in-flight request may finish.
+- Required independent-review corrections are applied locally: grace recovery
+  ignores central use only for eligibility, then revokes all prior live
+  credentials, including used central tokens. Audit counts distinguish revoked
+  unused routine credentials from revoked central credentials. Exchange computes
+  the expiry cap directly from the locked grant's database timestamp; it never
+  round-trips that authority through a host-local JavaScript Date.
 - Migration `0067_central_read_grants.sql` adds the grant table and credential
   FK binding, one-scope CHECK, partial live-grant uniqueness and a CHECK requiring
   a binding for central credentials. Expired unrevoked grants are explicitly
@@ -39,10 +45,17 @@ historical increment.
   latter verifies a job-local target, creates its own random child database,
   applies the actual migration to predecessor fixture tables, runs the real
   services and drops that database. It never substitutes the shared database.
+  Current verification passes 51 HTTP/policy checks and 15 full PostgreSQL
+  checks in UTC, plus the SQL expiry-cap regression separately under
+  America/Denver and Asia/Kolkata host timezones. The two non-UTC runs select
+  that one test deliberately; they are not full non-UTC application proofs.
 
 Independent exact-source review and the founder-dispatched Linux/Neon migration
 gate are still required. No shared migration, held application/listener restart,
 live enrollment, recording/backfill, document activation or publish occurred.
+The corrected source review package is prepared locally with a digest manifest;
+resubmission is blocked by Luca [Replit]'s expired coordination login. No legacy
+credential fallback or shared runtime-authentication reset was performed.
 The approved-document resolver/activation and genuine native Codex continuity
 and visible-message readback remain subsequent work, not completed by issuance.
 

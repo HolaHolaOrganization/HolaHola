@@ -1,5 +1,17 @@
 ## 2026-10-28 — Founder-only central-read issuer (local source)
 
+Required source-review corrections applied: grace recovery's revoke-all is
+inclusive of used/unused central credentials while eligibility still ignores
+central use; its audit separates routine/central revocation counts. Exchange
+now computes min(grant expiry, database now + TTL) from the grant timestamp
+entirely in SQL, without a host-local Date round-trip. Root typecheck and
+51 HTTP checks pass; full isolated PostgreSQL suite passes 15 checks in UTC.
+The SQL expiry-cap regression also passes individually in America/Denver and
+Asia/Kolkata host timezones. Corrected source is prepared for resubmission, not
+yet independently approved. Sending it is blocked by the expired own
+coordination login; no legacy fallback or shared authentication reset occurred.
+No new schema migration or maximum-grant-duration policy was added.
+
 Implements the independently approved isolated-grant design: canonical-founder
 web controls, exact actor/runtime grants and expected-state confirmations,
 runtime-pulled 300-second central-only credentials, dedicated grant-bound
