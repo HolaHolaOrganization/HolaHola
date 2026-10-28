@@ -93,9 +93,16 @@ A failing health check names its cause in the service log without secrets, for e
 
 Those are proven only by the first operations after the policy is opened.
 
-## Opening it for the proofs (separate PR)
+## Opening it for the proofs
 
-A later founder-approved PR to `broker/policy.sandbox.json` moves it to `routine`, and adds Luca [Replit]'s key once that key is enrolled. Only then do the live W1–W7 proofs run: branch, publish (including a large blob, once admission caps are configured from measurement), PR, review, enqueue. All of them act on the sandbox repository only.
+- **Smoke test passed** on 2026-10-28. `/healthz` returned `closed` with epoch `f40780cf…`, equal to the policy blob. A signed `luca-claude-code` request got `policy_closed`, and the same key signing for the production repository id got `wrong_repository`.
+- **Opened for the proofs:** a founder-approved PR moves `broker/policy.sandbox.json` to `routine`. `luca-claude-code` is still the only actor. `broker/policy.json` (production) stays `closed`.
+- **The live single-actor proofs** act on the sandbox repository only:
+  - W1: `ref.create`;
+  - W2: `blob.put`, `tree.create`, `commit.create` and `ref.update`, with small blobs (admission stays disabled);
+  - W3: `pr.open`;
+  - W5: `pr.comment` and `pr.close`.
+- **Two-actor proofs** (W4 `pr.review` and W6 `pr.enqueue`, where the reviewer cannot be the author) wait for Luca [Replit]'s key to be enrolled in a later policy PR. The large-blob proof waits for admission caps set from measurement.
 
 ## Teardown (after the proofs)
 
