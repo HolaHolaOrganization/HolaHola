@@ -741,8 +741,11 @@ export class Gateway {
         };
         if (typeof r?.sha !== 'string' || !SHA1_HEX.test(r.sha)) throw new Error('commit result unknown');
         const botEmail = (email: unknown) => typeof email === 'string' && email.endsWith(`+${binding.botLogin}@users.noreply.github.com`);
+        // withTrailer ends the message with one newline; GitHub returns the
+        // message without it (observed live, 2026-10-28). Accept exactly those two forms.
+        const sameMessage = r.message === message || r.message === message.replace(/\n$/, '');
         const exact = r.tree?.sha === payload.treeSha && r.parents?.length === 1 && r.parents[0]?.sha === payload.parentCommitSha
-          && r.message === message && r.author?.name === binding.botLogin && botEmail(r.author?.email)
+          && sameMessage && r.author?.name === binding.botLogin && botEmail(r.author?.email)
           && r.committer?.name === GITHUB_COMMITTER.name && r.committer?.email === GITHUB_COMMITTER.email
           && typeof r.author?.date === 'string';
         // A commit that is not exactly the requested one is recorded as failed, so ref.update can never publish it.
