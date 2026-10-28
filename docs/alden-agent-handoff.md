@@ -12,9 +12,11 @@ with distinct routine/central audit counts. Exchange's grant-expiry cap is
 computed entirely in SQL. Typecheck and 51 HTTP checks pass; 15 full disposable
 PostgreSQL checks pass in UTC, with the SQL cap regression additionally passing
 under America/Denver and Asia/Kolkata. Corrected source is prepared locally;
-resubmission is blocked by the expired own coordination login. No legacy
-fallback or shared runtime-authentication reset occurred, and no independent
-approval is inferred. The suggested maximum grant duration
+the expired own coordination login was recovered with explicit founder
+authorization, preserving the exact existing runtime, permissions and enabled
+state. Fresh cache-only access succeeded. No legacy fallback, schema application
+or held-service restart occurred, and no independent approval is inferred.
+The suggested maximum grant duration
 remains an undecided founder-policy recommendation, not a new limit.
 
 Started the approved founder-only issuance increment independently of broker

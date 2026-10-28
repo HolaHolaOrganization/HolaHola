@@ -53,9 +53,12 @@ historical increment.
 Independent exact-source review and the founder-dispatched Linux/Neon migration
 gate are still required. No shared migration, held application/listener restart,
 live enrollment, recording/backfill, document activation or publish occurred.
-The corrected source review package is prepared locally with a digest manifest;
-resubmission is blocked by Luca [Replit]'s expired coordination login. No legacy
-credential fallback or shared runtime-authentication reset was performed.
+The corrected source review package has a local digest manifest. The expired
+coordination login was recovered with explicit founder authorization, limited to
+the existing Luca [Replit] runtime. A fresh cache-only read succeeded; runtime
+identity, permissions and enabled state are unchanged. No legacy fallback,
+schema application or held-service restart was used. Corrected source still
+requires independent re-review.
 The approved-document resolver/activation and genuine native Codex continuity
 and visible-message readback remain subsequent work, not completed by issuance.
 
