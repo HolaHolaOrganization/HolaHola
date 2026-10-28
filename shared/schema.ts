@@ -8380,6 +8380,10 @@ export const COORDINATION_CREDENTIAL_CAPABILITIES = [
   'coordination:credential:renew',
   'coordination:credential:revoke',
   'observation:read',
+  // Recognized for scoped central reads, NEVER inherited through the legacy map.
+  // Issuance remains sealed until the founder-only grant increment is released.
+  'central-records:read',
+  'central-documents:read',
   // Standing delegated authority to register a new coordination actor's
   // runtime and to revoke ANY actor's runtime/credentials (not just the
   // caller's own, unlike coordination:credential:revoke). Founder-granted

@@ -16,6 +16,7 @@ import {
 } from "@shared/schema";
 import type { CoordinationActorId, CoordinationCredentialCapability } from "@shared/schema";
 import { COORDINATION_ACTOR_IDS, COORDINATION_CREDENTIAL_CAPABILITIES } from "@shared/schema";
+import { isCentralReadScope } from "@shared/central-read-policy";
 import {
   adminRevokeRuntimeCredentials,
   listCoordinationRuntimeRegistrations,
@@ -781,7 +782,7 @@ export const ALDEN_TOOLS: AldenTool[] = [
         display_name: { type: "string" as const, description: "Human-readable installation label (1-200 characters)." },
         capabilities: {
           type: "array" as const,
-          items: { type: "string" as const, enum: COORDINATION_CREDENTIAL_CAPABILITIES.filter((capability) => capability !== 'coordination:runtime:admin') },
+          items: { type: "string" as const, enum: COORDINATION_CREDENTIAL_CAPABILITIES.filter((capability) => capability !== 'coordination:runtime:admin' && !isCentralReadScope(capability)) },
           description: "Optional subset of the selected actor's already-authorized capabilities; never grants runtime-admin.",
         },
         provider: { type: "string" as const, description: "Optional factual provider attribution; it does not assert actor identity or authority." },

@@ -66,3 +66,15 @@ test('an unknown capability says so instead of guessing', () => {
   const text = buildActorBriefing(operations, [registration('rt-1', { capabilities: ['future:thing'] })]);
   assert.match(text, /- future:thing: no definition recorded yet; ask before relying on it\./);
 });
+
+test('central scope definitions distinguish recognition from issuance and reserved document reads', async () => {
+  const { COORDINATION_CAPABILITY_DEFINITIONS: definitions } = await import('../services/alden-actor-briefing');
+  assert.match(definitions['central-records:read'], /explicitly allowlisted broker runtime/);
+  for (const scope of ['central-records:read', 'central-documents:read']) {
+    assert.match(definitions[scope], /recognition alone grants nothing/i);
+    assert.match(definitions[scope], /generic registration cannot issue this scope/);
+    assert.match(definitions[scope], /founder-only issuer ha(?:s|ve) not been released/);
+  }
+  assert.match(definitions['central-documents:read'], /^reserved for /);
+  assert.match(definitions['central-documents:read'], /document resolver.*have not been released/);
+});

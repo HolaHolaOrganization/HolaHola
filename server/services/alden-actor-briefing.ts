@@ -43,6 +43,8 @@ export const COORDINATION_CAPABILITY_DEFINITIONS: Readonly<Record<string, string
   'coordination:credential:revoke': "revoke your own runtime's credentials, for example after a suspected leak. It does not reach other actors.",
   'observation:read': "read a live Daniela session through /api/admin/luca/observe: the session's in-memory state and its recent messages (the most recently active session when none is named). Observing Daniela from different perspectives is the core purpose of the Luca hats. While this is still being tested, keep it gentle: one snapshot at a time, when David or the active task asks for one.",
   'coordination:runtime:admin': "register new runtimes and revoke any actor's runtime or credentials. Standing delegated authority, founder-granted.",
+  'central-records:read': "read canonical episode and linked-story catalogs, content and exact Markdown through /api/runtime/central-records, only as an explicitly allowlisted broker runtime. Recognition alone grants nothing; generic registration cannot issue this scope and the dedicated founder-only issuer has not been released.",
+  'central-documents:read': "reserved for reading explicitly activated, independently approved immutable governing-document revisions within the runtime actor's explicit audience. The document resolver and dedicated founder-only issuer have not been released; recognition alone grants nothing and generic registration cannot issue this scope.",
 };
 
 export function describeCapability(capability: string): string {
