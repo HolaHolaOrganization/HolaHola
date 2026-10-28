@@ -41,6 +41,12 @@ export const OPERATIONS = [
   'pr.update-branch',
   'pr.enqueue',
   'read',
+  // Bounded object reads (stage-1 design sections 5 and 7: R1, R4, R5, plus a
+  // branch-head read). Read-only token, no claim, no ledger.
+  'read.repository',
+  'read.ref',
+  'read.commit',
+  'read.tree',
   'status',
 ] as const;
 export type Operation = (typeof OPERATIONS)[number];

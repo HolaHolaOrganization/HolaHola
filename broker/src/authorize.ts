@@ -18,7 +18,8 @@ export type StateRejection = 'policy_closed' | 'not_qualified' | 'not_implemente
  * - qualification: only operations bound to an exact (repository, PR, head)
  *   listed in the policy. The repository is already fixed by the policy and
  *   envelope checks; operations with no PR (pr.open and the publication
- *   operations blob.put, tree.create, commit.create, ref.create, ref.update)
+ *   operations blob.put, tree.create, commit.create, ref.create, ref.update,
+ *   and the object reads read.repository, read.ref, read.commit, read.tree)
  *   are therefore denied, never widened to routine.
  * - routine: every named operation.
  * branch.delete is denied in every state: REST DELETE /git/refs has no
