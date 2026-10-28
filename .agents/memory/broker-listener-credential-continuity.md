@@ -41,3 +41,32 @@ Do not silently reconnect the Replit GitHub integration or restore its OAuth gra
 
 **How to apply:** If the canonical credential works but GitHub access does not, request an immutable exact-source review package rather than stall, borrow credentials or repeatedly retry a known-unavailable broker path. Verify supplied file bytes against manifest hashes, but distinguish that self-consistency check from independently proving the package's commit, ancestry and current GitHub state. Do not issue native commit-bound approval without the missing proof.
 
+
+## Separate review notifications from broker renewal lifetime
+
+Keep broker credential maintenance separate from the source-review notification lifecycle. A read-only review notifier may also be the only process renewing the runtime's cached credential; closing a review gate is not by itself a reason to stop that renewal while more coordination is pending.
+
+**Why:** Stopping the temporary review notifier left the same enabled runtime with an expired cache when the next message check occurred. Its already-consumed/stale bootstrap could not restore access. Founder-authorized in-place recovery succeeded, without any identity or capability change.
+
+**How to apply:** Before stopping a temporary polling process, determine whether another authorized process maintains the same broker cache. If capture listeners are held, keep credential maintenance on a separate broker-only, read-only path rather than restarting capture to preserve access. Exclude both bootstrap and legacy credentials when proving cache-only operation. Treat observed renewal as bounded evidence, not a guarantee across downtime or cache loss.
+
+
+## Overlapping renewal and stale in-memory clients
+
+A renewal401 is not by itself proof that runtime recovery or a new bootstrap
+is required. Check whether another authorized process has already advanced the
+same actor/runtime's shared cache before changing credentials or stopping its
+renewal process.
+
+**Why:** A short-lived client failed renewal while the read-only watcher had
+successfully renewed the shared cache. A fresh client, with bootstrap and legacy
+credentials still excluded, then read all linked coordination threads normally.
+This is bounded evidence of overlapping cache renewal, not proof that every401
+has that cause.
+
+**How to apply:** Inspect only cache existence and expiry metadata, never token
+values. If the cache advanced, make one fresh same-actor/runtime/cache client
+attempt. Success requires no service restart, reissue or legacy fallback.
+Repeated failure still needs the documented authorized recovery path; do not
+turn this check into an unbounded retry or a broader credential substitution.
+

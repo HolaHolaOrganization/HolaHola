@@ -76,7 +76,6 @@
 - [Autoscale startup schema gates](autoscale-startup-schema-gates.md) — never issue database DDL before opening the HTTP port; use reviewed migrations plus read-only fail-closed startup assertions.
 - [Always-on honest record](always-on-honest-record.md) — source recording is the invariant; downstream failures trigger repair, never silence; attributed opinion and uncertainty belong.
 - [Agent monitor interrupt proof](replit-agent-monitor-interrupt-proof.md) — a monitored watcher line reached an active Agent session twice without polling; this does not prove waking an ended session.
-- [Neon destructive postconditions](neon-destructive-postconditions.md) — verify exact allowlist absence and unrelated-row preservation; do not trust a data-modifying CTE counter alone.
 - [Live voice route ownership](live-voice-route-ownership.md) — provider choice, not session-object presence, owns all response paths and survives upstream failure.
 - [Gemini Live greeting ownership](gemini-live-greeting-ownership.md) — client supplies intent; the provider session alone owns queued delivery, first-audio acknowledgement, and bounded retries.
 - [Durable reconnect lease](durable-reconnect-lease.md) — reconnect authority is won from the exact durable grace row; process-local timers are never authoritative.
@@ -94,10 +93,8 @@
 - [Verification suite parallel fixture race](verification-suite-parallel-fixture-race.md) — validation-suite.sh + consolidated-ci.sh can race on shared docs/ fixtures if run concurrently.
 - [Wiring new DB-backed tests into CI](ci-wiring-db-test-scripts.md) — use run-ci-test-steps.mjs's splice list, not test-all-consolidated-ci.sh; neon-branch.ts is a separate migration-gate allowlist.
 - [Coordination V2 cross-host verification lessons](coordination-v2-cross-host-verification.md) — 10 cross-host verification gotchas (canonical bytes, idempotency, projection races, provenance vs authority, and more) — see topic file.
-- [PostgreSQL hermetic testing gotchas](postgres-hermetic-testing-gotchas.md) — POSIX regex vs JS escapes, immutable expiry, wrapped driver errors, lease clocks, CLI termination, composite-FK negative fixtures.
-- [pg-pool idle timeout silently inflates CI wall time](pg-pool-idle-timeout-ci-hang.md) — missing closeDbConnections() leaves an unref'd-only-if-allowExitOnIdle timer+socket open; compare per-test duration_ms sum vs total to detect it.
+- [PostgreSQL hermetic testing gotchas](postgres-hermetic-testing-gotchas.md) — Regex, expiry, driver errors, lease clocks, composite-FK fixtures and cleanup postcondition/absence proofs; retained source links.
 - [Pre-existing consolidated-CI failures](consolidated-ci-preexisting-failures.md) — Multiple pre-existing CI/test failures (episode-sync scripts, a north-star flake, and coordination-ledger/actor-client token-format and contract bugs) are unrelated regressions -- verify via git-stash or a parent-commit worktree before blaming your change.
-- [tsx path alias resolution depends on spawn cwd](tsx-path-alias-resolution-cwd.md) — a spawned `npx tsx` driver with cwd outside the checkout fails to resolve `@shared/*`; keep cwd at repo root, pass overrides via env instead.
 - [Idempotency key scope granularity](idempotency-key-scope-granularity.md) — dedupe scope is (operation, actor, key) only; a loop reusing one literal key across distinct requests collides on the second call
 - [Agent-memory round-trip isolation](agent-memory-round-trip-isolation.md) — a global snapshot-diff test must run alone; per-file scratch dirs don't stop a shared-DB race.
 - [Fail-closed trust lists go stale across concurrent tasks](trust-list-extension-on-rebase.md) — an exact-name trust-list guard fails closed on a rebased-in equally-safe helper under a new name; extend it only after verifying.
@@ -117,7 +114,7 @@
 - [MCP SSE response framing](mcp-sse-response-framing.md) — SDK 406s without both Accept values; success responses are always SSE-framed, even for one-shot calls -- parse the data: line.
 - [Git operational gotchas](git-operational-gotchas.md) — Git/SSH/recovery/worktree pitfalls; audit restoration, scope baselines, generated-memory rebases and review retries.
 - [Long validation runs can hit the poll-budget limit](validation-run-poll-budget.md) — startValidationRun can time out (POLL_BUDGET_EXCEEDED, STOPPED exitCode -1) on a 10+ minute suite -- not a real failure; use backgrounded ShellExec + Monitor instead.
-- [JS/TS/Drizzle runtime gotchas](js-ts-drizzle-runtime-gotchas.md) — Bundling, ESM, Drizzle, regex, union-type, module-format, timestamp and test-fixture typechecking pitfalls; follow the topic and its retained source links.
+- [JS/TS/Drizzle runtime gotchas](js-ts-drizzle-runtime-gotchas.md) — Bundling, ESM, Drizzle, typechecking, TSX working directories and pool lifetime; retained source links.
 - [Alden tool-result persistence boundary](alden-tool-result-persistence.md) — raw tool-result JSON is never persisted; secret-bearing tools need instruction, not redaction
 - [CLI-to-service extraction exit semantics](cli-to-service-exit-semantics.md) — extracting a CLI script's logic for an in-process tool/service must drop every process.exit() — it would kill the whole server, not a one-shot subprocess.
 - [Episode-lifecycle service guards](episode-lifecycle-service-guards.md) — new episode-insertion call sites must mirror createEpisode's fire-and-forget indexing side effects; never flip the live 'rolling' tag against shared prod DB during testing.
@@ -156,3 +153,6 @@
 - [Aggregate-record attribution](aggregate-record-attribution.md) — Frame source events, not label-shaped prose; inspect every voice a writer emits.
 - [Cross-runtime open decisions](cross-runtime-open-decisions.md) — Shared tracking covers every runtime; inbox delivery is not decision resolution.
 - [Filesystem lock recovery](filesystem-lock-recovery.md) — Rename-then-inspect is not CAS; test third contenders during every recovery namespace change.
+- [Onboarding scope boundary](onboarding-scope-boundary.md) — Finish approved onboarding corrections independently of optional broker and ownership redesign.
+- [Broker rollout decisions](broker-rollout-decisions.md) — Canonical founder choices on custody, audit retention, a separate temporary sandbox and measurement-based final limits.
+- [Archive extraction destination](archive-extraction-destination.md) — Put tar destination options before member selectors; trailing -C can extract review files into the workspace.

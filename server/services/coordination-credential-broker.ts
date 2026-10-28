@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { assertGenericRegistrationScopes } from '@shared/central-read-policy';
 import { and, eq, gt, inArray, isNotNull, isNull, ne, or, sql } from 'drizzle-orm';
 import {
   COORDINATION_ACTOR_IDS,
@@ -97,6 +98,9 @@ function validateRuntimeRegistrationInput(input: {
   capabilities: CoordinationCredentialCapability[];
   tokenTtlSeconds?: number;
 }): number {
+  // Shared by bootstrap, onboarding-only and replacement constructors.
+  // No generic constructor may issue central scopes before the founder issuer.
+  assertGenericRegistrationScopes(input.capabilities);
   if (!input.runtimeId || input.runtimeId.length > 120) throw new Error('runtimeId is invalid');
   if (!actorIds.has(input.actor) || input.actor === 'coordination-system') throw new Error('actor is invalid');
   if (!input.displayName || input.displayName.length > 200) throw new Error('displayName is invalid');

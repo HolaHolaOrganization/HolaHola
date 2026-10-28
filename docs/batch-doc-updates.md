@@ -1,3 +1,62 @@
+## 2026-10-27 — Runtime central read foundation
+
+Adds a broker-only runtime episode/story read router, shared explicit reader
+allowlist, mandatory content-free read auditing and exact-byte downloads.
+Generic/bootstrap/onboarding/prehashed registration refuses the new read
+scopes; legacy maps are untouched and Alden's tool does not advertise them.
+The founder-only issuer is deliberately not present yet, so this source does
+not grant access or complete Codex onboarding. No SQL schema change, activation,
+recording/backfill or held-service restart was performed.
+
+Verification: full root typecheck passes; 47 combined founder/runtime reader
+tests pass with database variables removed. Issuer bodies are exercised in
+a hermetic VM, not against the shared database. System-health verifier exits0
+with two app-route warnings because the application remains held. Gemini
+preflight/source review approve the narrow increment. Independent LCC source
+review and hosted CI/release remain separate.
+
+Usage and boundaries: `docs/central-runtime-record-reads.md`.
+
+CI follow-through: the initial source was independently approved, but hosted
+Unit CI correctly failed because the actor reference lacked definitions for
+the two recognized scopes. The correction adds explicit sealed/reserved
+definitions plus a regression without weakening the existing coverage check.
+The corrected native candidate passes full typecheck and55 isolated
+founder/runtime/reference tests. Exact wording and actual source were reviewed;
+the new combined head is resubmitted for independent review and hosted CI.
+Original approval does not automatically cover the corrected head. No grants,
+document resolver/activation or live service changes are implied.
+
+## 2026-10-27 — Central episode archive candidate
+
+Draft PR #125 implements the first founder-only central episode/story catalog,
+canonical-ID reader and exact-byte Markdown downloads. It reuses existing
+database records, separates linked curated stories from full episodes, pins
+downloads to the displayed SHA-256, and refuses changed bytes with HTTP 409.
+Metadata listing does not load the full transcript. No archive, schema,
+editor, runtime credential capability, or local-file authority was added.
+
+Verification: full typecheck passes; nine isolated real-HTTP tests pass and
+are added to the actual native CI runner. Read-only Neon probes resolve
+Episode 34 and its already-existing story, including their different hashes
+and filenames. System-health verifier exits zero with two acknowledged
+app-route warnings because the application remains held/stopped.
+
+The exact candidate is independently source-approved and ready for review.
+Native required approval and hosted CI/release gates remain separate; no merge,
+publishing, backfill, episode append or listener activation is implied.
+Review follow-through corrects the UTC timestamp conversion with SQL formatting
+that preserves microseconds, plus three host-timezone regressions. The founder's
+forwarded instruction to hide test episodes is implemented by the three
+inventoried IDs in the shared catalog/read selector, including linked stories;
+no title/number heuristic, data deletion or retagging. Thirteen tests and the
+full typecheck pass. SELECT-only checks confirm fixtures remain stored while
+reader queries hide them and still resolve Episode 34 and its story.
+Runtime-scoped central access, governed-document active revision resolution
+and genuine on-air recording proofs remain work within the larger project.
+See `docs/central-episode-reader.md` in the candidate for exact scope and
+verification limits.
+
 ## 2026-10-27 — Episode lookup and listener migration candidates
 
 Independently source-reviewed; **not published, activated, or run against the
@@ -8829,3 +8888,19 @@ No public push, primary-main movement, shared migration, deployment or
 activation. Public-history consent, Windows CI, migration-before-traffic,
 competing0066 ordering and per-hat updated ownership clients remain separate
 release holds.
+
+## Replit broker project-Secret signer — 2026-10-28
+
+Added a separate explicitly selected, read-only broker-key adapter and public-only
+CLI for founder-accepted project-Secret custody. Native store selection is
+unchanged. The fixed LR actor/key, purpose and endpoint are checked before Secret
+access; writes and init refuse owner provisioning. No private key was generated
+or read from a real Secret. Eleven synthetic unit/CLI tests and the full application
+typecheck pass. The focused test is registered in consolidated CI. The custody,
+owner clipboard-to-secure-form step, public fingerprint comparison and separate
+enrollment/revocation boundaries are documented in
+`docs/broker-replit-project-secret.md`. Independent source review/publication
+and owner morning provisioning remain pending; no operational activation.
+The reviewed robustness addition accepts canonical one-line base64 PEM as well
+as multiline PEM, decodes once, and rejects malformed/noncanonical encodings,
+RSA, encrypted PEM, non-UTF-8 bytes and nested encodings with fixed errors.

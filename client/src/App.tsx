@@ -48,6 +48,7 @@ function lazyWithRetry(importFn: () => Promise<any>, retries = 3, delay = 1500) 
 const Landing = lazyWithRetry(() => import("@/pages/Landing"));
 const Onboarding = lazyWithRetry(() => import("@/pages/onboarding"));
 const Dashboard = lazyWithRetry(() => import("@/pages/dashboard"));
+const CentralRecords = lazyWithRetry(() => import("@/pages/CentralRecords"));
 const Chat = lazyWithRetry(() => import("@/pages/chat"));
 const ChatIdeas = lazyWithRetry(() => import("@/pages/chat-ideas"));
 const CulturalTips = lazyWithRetry(() => import("@/pages/cultural-tips"));
@@ -239,6 +240,8 @@ function Router() {
         <Route path="/" component={LanguageHub} />
         <Route path="/dashboard" component={ReviewHub} />
         <Route path="/legacy-dashboard" component={Dashboard} />
+        <Route path="/admin/records/:id" component={CentralRecords} />
+        <Route path="/admin/records" component={CentralRecords} />
         <Route path="/onboarding" component={Onboarding} />
         <Route path="/chat" component={Chat} />
         {/* Voice tutor route aliases - all redirect to /chat */}

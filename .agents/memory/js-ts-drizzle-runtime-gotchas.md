@@ -272,3 +272,59 @@ Node's `assert.rejects()` resolves to `undefined`, not the rejected Error. Inspe
 
 **How to apply:** Exercise the real guard with independently injected leaking implementations, not merely a synthetic string whose `includes()` returns true. Each protected failure path should fail the guard under its own leaking mutant, while the unmodified implementation passes. Restore all mocks and keep these tests independent of real credential stores.
 
+
+## Subprocess working directory and database pool lifetime
+
+Two related runtime lessons are grouped here for discovery; their complete
+source topics remain intact:
+
+- [TSX path-alias resolution and working directory](tsx-path-alias-resolution-cwd.md):
+  launch project TSX scripts from the checkout root when they use project
+  aliases, passing fixture overrides through explicit configuration instead
+  of changing the child process's working directory.
+- [PostgreSQL pool idle timeout and CLI exit](pg-pool-idle-timeout-ci-hang.md):
+  close CLI-owned database connections; otherwise idle timers/sockets can
+  inflate wall time long after test bodies finish. Compare summed test
+  durations with total runtime before diagnosing slow tests.
+
+**Why:** Module discovery and process lifetime depend on ambient runtime
+conditions that otherwise disappear when a passing source test is copied.
+
+**How to apply:** Follow the linked originals for project-script subprocesses
+and one-shot database CLIs. Grouping removes redundant index lines, not source
+knowledge or independently authored topic blocks.
+
+
+## Isolated React SSR verification
+
+For an isolated SSR check of this Vite React UI, use esbuild's automatic JSX
+runtime and one consistent CJS or ESM dependency graph for both the page and
+its Router/QueryClient providers.
+
+**Why:** An independently bundled JSX-preserving TSX entry otherwise falls
+back to classic JSX and fails with `React is not defined`; mixing provider
+imports across transformed CJS and native ESM creates distinct contexts and
+can misleadingly fail with a missing browser `location` during SSR.
+
+**How to apply:** Treat these as verification-harness configuration errors,
+not reasons to change the production component or restart the held app.
+Explicitly configure JSX and consistent provider imports, then run a bounded
+read-only preview. Do not infer browser interaction proof from an SSR image.
+
+
+## HTTP timeout settings versus checking cadence
+
+Do not equate Node HTTP server timeout settings with observed deadline
+enforcement. The connection-checking cadence can be coarser than the
+configured header timeout.
+
+**Why:** A real partial-header TCP probe on Node 20 remained connected past
+six seconds despite a five-second header timeout; the server's default
+checking interval was thirty seconds. Asserting the timeout field alone
+would have passed while missing the operational bound.
+
+**How to apply:** For header deadline changes, test an incomplete header
+over an actual socket, consume responses/end events, and verify timely
+closure or rejection with reasonable scheduler tolerance. Configure a
+compatible checking cadence or another effective deadline mechanism.
+

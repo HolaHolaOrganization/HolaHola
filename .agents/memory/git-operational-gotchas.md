@@ -259,3 +259,44 @@ For authenticated GitHub Actions log downloads, treat terminal-control sequences
 
 **How to apply:** Keep this exception limited to trusted log ingestion, never general interactive output. Use an argument-vector invocation, avoid printing raw captured bytes, strip terminal controls, and display only the non-sensitive evidence needed for the review. A formatting failure is not a credential failure or evidence that the job failed.
 
+
+## Queued PRs can have no auto-merge request
+
+Check merge-queue enrollment separately from an auto-merge request. An absent auto-merge request is not evidence that an already queued PR has lost its place.
+
+**Why:** An exact-head approved PR simultaneously returned REST `auto_merge: false`, GraphQL `autoMergeRequest: null`, and GraphQL `mergeQueueEntry.position: 1`. Reading only the auto-merge fields would have produced a false warning or an unnecessary configuration change.
+
+**How to apply:** Inspect `mergeQueueEntry` together with the exact head and review state before claiming that auto-merge is disarmed or attempting to re-arm it. Report the observed queue state directly; do not infer the cause of field transitions or successful completion of the queue from enrollment alone.
+
+
+## REST Contents API size limits
+
+The GitHub REST Contents response can report `encoding: "none"` and an empty
+content field for a large existing source file. This is not a missing or empty
+Git blob. Resolve the reported blob SHA through the REST Git Blobs endpoint,
+then validate the full byte length and Git blob hash.
+
+**Why:** Source acquisition otherwise hashes an empty Contents payload and
+mistakes an API size limitation for source corruption or a changed file.
+
+**How to apply:** Branch refs resolve through Git refs (or Commits), while the
+Git database commit endpoint requires the resolved commit SHA. Pin all
+subsequent source reads to that SHA, check the encoding, and verify the bytes
+before constructing a candidate. Do not copy a stale checkout's whole CI list
+over the current native list when adding one test.
+
+
+## Branch writes and PR read-model lag
+
+A successful GitHub branch-ref update can precede the corresponding PR head
+read-model update. An immediate PR read may therefore still show the old SHA.
+
+**Why:** Treating that stale read as a failed mutation can cause an unnecessary
+second commit or repeated ref update even though the requested branch write
+already succeeded.
+
+**How to apply:** Preserve the intended commit/tree/parent before writing.
+Verify the actual Git ref and commit, then re-read the PR before announcing
+the exact head. Do not repeat the mutation just because an immediate PR
+readback disagrees. Keep draft/auto-merge/approval checks independent.
+

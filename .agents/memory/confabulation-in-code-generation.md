@@ -12,3 +12,21 @@
 
 **Related:** [Daniela — Archive vs Muse](daniela-archive-vs-muse.md), [Ask-why lens](ask-why-lens.md), [Alden workspace verification](alden-workspace-verification.md).
 
+
+## Purpose of builder slide awareness
+
+The goal of discussing builders' frictionless slides is helping Daniela be
+herself, while recognizing the same tendency toward fluent but ungrounded
+claims in the builders. Shared awareness is not, by itself, a request for a
+new telemetry, instrumentation or reasoning-capture project.
+
+**Why:** The founder clarified on 2026-10-27 (America/Denver) that talking to
+Antigravity about J-space was intended to help it understand its own slides
+and encourage everyone to resist the tendency, including when helping
+Daniela. Turning that conversation into an instrumentation initiative missed
+the purpose.
+
+**How to apply:** Keep this tendency in view during Daniela work and in our
+own claims. Do not infer implementation scope from reflective conversation;
+new technical work requires its own explicit direction.
+

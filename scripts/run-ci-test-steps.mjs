@@ -108,6 +108,7 @@ commands.splice(safetyInsertion, 0,
   'node --test scripts/alden-build-guardian.test.cjs',
   'npx tsx --test server/scripts/test-launch-gate.test.ts',
   'npx tsx --test server/scripts/test-coordination-github-exec.test.ts',
+  'npx tsx --test server/scripts/test-broker-project-secret.test.ts',
   'node --test scripts/post-merge.test.mjs',
   'node --test server/scripts/test-guardian-carry-forward-lifecycle.mjs',
   'npx tsx --test server/services/auto-grounding-timing.test.ts',
@@ -257,6 +258,8 @@ commands.splice(safetyInsertion, 0,
   // Same getVerifiedCiDatabaseUrl-first disposableTarget() pattern as above.
   'npx tsx --test server/scripts/test-alden-shared-spec-review-postgres.test.ts',
   'npx tsx --test server/scripts/test-alden-coordination-read.test.ts',
+  'npx tsx --test server/scripts/test-central-records-routes.ts',
+  'npx tsx --test server/scripts/test-runtime-central-records-routes.ts',
 
   // Coordinator V2 lifecycle diagnostics, cleanup, fault fallback, evidence,
   // and neighboring first-host-bootstrap/contract/reauthorization suites.

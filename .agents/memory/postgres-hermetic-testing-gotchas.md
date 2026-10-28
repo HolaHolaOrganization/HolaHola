@@ -193,3 +193,21 @@ Do not use a JavaScript Date round-trip for exact PostgreSQL timestamp correlati
 
 **How to apply:** Prefer explicit request/reply identifiers or compare timestamps entirely inside PostgreSQL. If an exact timestamp must cross the client boundary, retrieve its full SQL text representation rather than converting it to Date. Before concluding that an asynchronous result is absent, check the correlation predicate's precision. This is separate from `String(date)` losing even milliseconds.
 
+
+## Cleanup postconditions and complete absence proofs
+
+These additional evidence rules remain in their complete original topic:
+[Neon destructive postconditions](neon-destructive-postconditions.md).
+
+- After an approved destructive operation, verify exact allowlist absence and
+  unrelated-row preservation independently; a returned CTE count is not proof.
+- Absence requires a successful, complete, paginated lookup. Failed, malformed
+  or partial results remain unknown, never successful cleanup.
+
+**Why:** A provider response can misreport committed effects, and a failed or
+partial lookup can falsely look like successful absence. These are test and
+verification constraints, not permission to perform destructive cleanup.
+
+**How to apply:** Read the linked source before cleanup verification or tests
+that must distinguish committed state from driver/lookup reporting.
+

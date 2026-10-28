@@ -249,3 +249,19 @@ ambient CLI authentication. Keep minted tokens inside the one trusted child
 process. Never print/cache tokens, substitute another actor, reconnect retired
 OAuth access, or re-enable revoked credentials merely to repair expiry.
 
+
+## Merge queue status is separate from auto-merge fields
+
+Do not interpret a null REST auto_merge or GraphQL autoMergeRequest alone as
+evidence that auto-merge was disarmed or failed. Read the native mergeQueueEntry
+and the PR's actual merged state separately.
+
+**Why:** A live GitHub PR retained its merge-queue entry awaiting queue checks
+after all source-head checks passed, while both auto-merge fields were null.
+Head CI success did not mean queue-result CI had finished or the PR had merged.
+
+**How to apply:** Query the exact head, merged state, mergeQueueEntry state and
+position. Report queued while that entry exists; report merged only from native
+merged evidence. Do not blindly re-arm auto-merge or repeat enqueue because an
+auto-merge field is null.
+

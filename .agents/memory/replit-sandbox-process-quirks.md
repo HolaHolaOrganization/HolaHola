@@ -356,3 +356,21 @@ Treat temporary storage capacity separately from workspace disk capacity when pr
 
 **How to apply:** Check both filesystems before large snapshots. Avoid retaining a compressed archive alongside multiple full extracted copies. Prefer filtered source snapshots or updating one isolated checkout by verified commit deltas. Remove only scratch files created for the current review, never user assets or unrelated temporary work. Reverify the changed Git blobs after switching a checkout to another exact head.
 
+
+## Wrapped npx in stripped environments
+
+When running an exact CI command through Replit's wrapped `npx` in a stripped
+environment, supply a fresh temporary `XDG_CONFIG_HOME` along with `PATH` and
+`HOME`. This is a runner requirement, not an application dependency.
+
+**Why:** The observed Nix `npx` wrapper enables `nounset` and expands
+`${XDG_CONFIG_HOME}` to create its npm global directory before invoking the
+real executable. A PATH/HOME-only environment therefore fails before any
+test executes. The identical CI command passed after adding an isolated
+temporary config directory; no application or dependency change was needed.
+
+**How to apply:** Inspect the resolved wrapper when a hermetic command fails
+before its test runner. Add only the documented non-secret runner variable,
+using a disposable directory. Do not restore the whole ambient environment
+and accidentally expose shared database/API credentials to synthetic tests.
+
