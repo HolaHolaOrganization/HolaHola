@@ -213,6 +213,21 @@ function recordedSuccess(recorded: Awaited<ReturnType<typeof readRecorded>>, ope
   return recorded.outcome.status === 'succeeded' ? recorded.outcome : null;
 }
 
+type PreflightStage = 'read-token' | 'live-check' | 'write-token' | 'reauthorize';
+const MINT_ROUTE = '/app/installations/:id/access_tokens';
+
+/**
+ * One bounded service-log line for a thrown preflight. Only allowlisted
+ * fields: the stage, the envelope's validated actor, operation and id, a
+ * numeric upstream status, and a fixed route for the two token mints. Never
+ * the exception's message or stack, a URL, a header, a body, or a token.
+ */
+export function preflightErrorLine(stage: PreflightStage, envelope: Envelope, error: unknown): string {
+  const status = error instanceof GitHubError && Number.isInteger(error.status) && error.status >= 100 && error.status <= 599 ? ` http=${error.status}` : '';
+  const route = stage === 'read-token' || stage === 'write-token' ? ` route=${MINT_ROUTE}` : '';
+  return `broker: preflight_error stage=${stage} actor=${envelope.actor} operation=${envelope.operation} op=${envelope.operationId}${status}${route}`;
+}
+
 export class Gateway {
   private readonly config: GatewayConfig;
   private readonly now: () => number;
@@ -297,13 +312,24 @@ export class Gateway {
 
     const ctx: Context = { token: '' };
     const marker = markerFor(envelope.operationId, digest);
+    let stage: PreflightStage = 'read-token';
     const preflight = async (): Promise<{ ok: true } | { ok: false; reason: string }> => {
-      const readToken = await this.readTokenFor(envelope.actor, binding).get();
-      const live = await this.liveCheck(envelope, valid, binding, readToken, ctx);
-      if (!live.ok) return live;
-      ctx.token = await this.tokenFor(envelope.actor, binding).get();
-      // Last: full re-authorization after every preparatory await.
-      return this.reauthorize(body, envelope, digest, epoch, binding);
+      try {
+        const readToken = await this.readTokenFor(envelope.actor, binding).get();
+        stage = 'live-check';
+        const live = await this.liveCheck(envelope, valid, binding, readToken, ctx);
+        if (!live.ok) return live;
+        stage = 'write-token';
+        ctx.token = await this.tokenFor(envelope.actor, binding).get();
+        stage = 'reauthorize';
+        // Last: full re-authorization after every preparatory await.
+        return await this.reauthorize(body, envelope, digest, epoch, binding);
+      } catch (error) {
+        // The ledger still records only "preflight_error"; the service log
+        // gets the stage, and nothing from the exception except its status.
+        this.log(preflightErrorLine(stage, envelope, error));
+        throw error;
+      }
     };
 
     const entry: ClaimEntry = {
