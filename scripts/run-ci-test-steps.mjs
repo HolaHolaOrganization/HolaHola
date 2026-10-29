@@ -76,6 +76,7 @@ commands.splice(safetyInsertion, 0,
   'npx tsx --test server/scripts/test-launch-gate.test.ts',
   'npx tsx --test server/scripts/test-coordination-github-exec.test.ts',
   'npx tsx --test server/scripts/agent-feed-client.test.ts',
+  'npx tsx --test server/scripts/lib/antigravity-journal-shipper.test.ts server/scripts/antigravity-journal-shipper.test.ts',
   // Isolated broker (costed plan ff04f70e): own tree, no web-app imports.
   'npx tsx --test broker/test/broker.test.ts broker/test/claims.test.ts broker/test/github.test.ts broker/test/gateway.test.ts broker/test/main.test.ts broker/test/client.test.ts broker/test/target.test.ts broker/test/publication.test.ts broker/test/admission.test.ts broker/test/review-enqueue.test.ts broker/test/reads.test.ts broker/test/preflight-log.test.ts',
   'npx tsx --test broker/test/policy-file.test.ts',
