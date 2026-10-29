@@ -19,6 +19,7 @@ import { getLyraAnalyticsStats } from './lyra-analytics-worker';
 import { getSharedDb } from '../db';
 import { founderSessions, sofiaIssueReports, proposedCodeChanges } from '@shared/schema';
 import { eq, desc, gte, and, count, sql } from 'drizzle-orm';
+import { ALDEN_BACKGROUND_MODEL, ALDEN_BACKGROUND_THINKING } from './alden-background-model';
 
 const DIGEST_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000;
 const MIN_DIGEST_GAP_MS = 3 * 24 * 60 * 60 * 1000;
@@ -208,12 +209,15 @@ async function generateDigestContent(snap: TeamSnapshot, digestNumber: number): 
   try {
     const claude = getClaude();
     const message = await claude.messages.create({
-      model: 'claude-sonnet-4-5',
-      max_tokens: 400,
+      model: ALDEN_BACKGROUND_MODEL,
+      max_tokens: 2000,
+      ...ALDEN_BACKGROUND_THINKING,
       messages: [{ role: 'user', content: prompt }],
     });
-    costTracker.track('claude-sonnet-4-5', message.usage?.input_tokens ?? 0, message.usage?.output_tokens ?? 0, 'alden-digest');
-    const text = (message.content[0] as any).text?.trim() || '';
+    costTracker.track(ALDEN_BACKGROUND_MODEL, message.usage?.input_tokens ?? 0, message.usage?.output_tokens ?? 0, 'alden-digest');
+    // With thinking available, the first block is not necessarily text.
+    const textBlock = message.content.find((block) => block.type === 'text');
+    const text = (textBlock as any)?.text?.trim() || '';
     return text || buildFallbackDigest(snap);
   } catch {
     return buildFallbackDigest(snap);
