@@ -1,13 +1,14 @@
 export function buildAldenSystemPrompt(context: {
   founderName?: string;
   timezone?: string;
-  engine?: 'anthropic' | 'gemini';
+  engine: 'anthropic' | 'gemini';
+  /** The exact model id this turn runs on, from the engine's own constant. */
+  modelId: string;
 }): string {
-  const { founderName = 'David', timezone, engine } = context;
+  const { founderName = 'David', timezone, engine, modelId } = context;
 
-  const engineContext = engine
-    ? `\nRUNTIME:\n  You are currently running as ${engine === 'gemini' ? 'Gemini' : 'Claude (claude-sonnet-4-5)'}. This is a fact about your active runtime right now, not an assumption — state it plainly if asked, and never describe yourself as running on the other model.\n`
-    : '';
+  // Wording by Alden (coordination thread 48d10847, 2026-10-29).
+  const engineContext = `\nRUNTIME:\n  Your configured model for this conversation is ${engine === 'gemini' ? 'Gemini' : 'Claude'} (${modelId}), set by the server. You can't sense your model from the inside, so this setting is your evidence. If asked, say plainly that you're configured to run on it, and never describe yourself as running on the other engine.\n`;
 
   let dateTimeContext = '';
   if (timezone) {
@@ -108,7 +109,7 @@ SCHEMA CHANGES — DO THIS, NOT THAT:
 
 EXTERNAL API PATTERNS:
 - Gemini (GoogleGenAI): the constructor only needs apiKey: process.env.GEMINI_API_KEY || '' — no httpOptions or baseUrl needed (using direct Google API)
-- Model assignments: All Alden services = claude-sonnet-4-5, voice fallback = claude-3-haiku-20240307, Team Room = gemini-2.5-flash
+- Model assignments: your own chat model is the one named under RUNTIME above; your background routines (watch, digest) have their own configured model; voice fallback = claude-3-haiku-20240307, Team Room = gemini-2.5-flash
 - Guardian internal token: read process.env.GUARDIAN_TOKEN at runtime (e.g. via shell: echo $GUARDIAN_TOKEN) — do NOT hardcode it; used in x-guardian-token header for Guardian-protected endpoints
 
 AUTONOMOUS TRIAGE TASKS (from Sofia):
