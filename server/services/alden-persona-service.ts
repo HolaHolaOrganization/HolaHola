@@ -180,7 +180,7 @@ async function generateAldenResponseAnthropic(params: AldenChatParams): Promise<
     reviewReadSession = new AldenReviewReadSession((params.reviewSourceEngine === "anthropic" ? params.reviewSourceReferences : undefined)
       ?? await loadAldenReviewSourceReferences("anthropic", conversationId));
     const claude = getAnthropicClient();
-    const systemPrompt = buildAldenSystemPrompt({ founderName, timezone, engine: 'anthropic' });
+    const systemPrompt = buildAldenSystemPrompt({ founderName, timezone, engine: 'anthropic', modelId: ANTHROPIC_MODEL });
     const anthropicTools = toAnthropicAldenTools();
 
     const messages: Anthropic.MessageParam[] = [];
@@ -292,7 +292,7 @@ async function generateAldenResponseGemini(params: AldenChatParams): Promise<Ald
     reviewReadSession = new AldenReviewReadSession((params.reviewSourceEngine === "gemini" ? params.reviewSourceReferences : undefined)
       ?? await loadAldenReviewSourceReferences("gemini", conversationId));
     const ai = getGeminiClient();
-    const systemPrompt = buildAldenSystemPrompt({ founderName, timezone, engine: 'gemini' });
+    const systemPrompt = buildAldenSystemPrompt({ founderName, timezone, engine: 'gemini', modelId: GEMINI_MODEL });
 
     // ── Build Gemini-format history ───────────────────────────────────────────
     const history: Array<{ role: string; parts: Array<{ text: string }> }> = [];

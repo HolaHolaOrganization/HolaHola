@@ -106,7 +106,19 @@ jobs:
 
       - name: Run unit tests
         run: npm run test:ci:unit
+        
+      # antigravity-journal-shipper runs on LITTLENEMO under Node 24 and requires
+      # built-in `node:sqlite`. Switch to Node 24 after the Node-20 unit suite so
+      # the shipper and its SQLite fallback tests run against their real runtime
+      # contract without altering the deployed application's Node-20 environment.
+      - name: Use Node.js 24 for Antigravity journal shipper tests
+        uses: actions/setup-node@v5
+        with:
+          node-version: "24"
 
+      - name: Run Antigravity journal shipper tests (Node 24 + node:sqlite)
+        run: npx tsx --test server/scripts/lib/antigravity-journal-shipper.test.ts server/scripts/antigravity-journal-shipper.test.ts
+  
   test-guards:
     name: Guard checks
     runs-on: ubuntu-latest
