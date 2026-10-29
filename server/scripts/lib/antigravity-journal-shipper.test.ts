@@ -1,19 +1,31 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { mkdtempSync } from 'node:fs';
 import { rm, writeFile } from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
+  assertNotSummariesDb,
+  decodeProtobufFields,
   extractAntigravityUserRequest,
   extractAntigravityAssistantText,
   parseAntigravityJournal,
+  parseAntigravitySqliteSteps,
+  snapshotAndParseAntigravitySqliteDb,
   ShipperStateStore,
   shipAntigravityExchanges,
   persistJournalEvidence,
   calculateContiguousAcknowledgedStep,
   type ParseResult,
 } from './antigravity-journal-shipper';
+
+const requireSqlite = createRequire(import.meta.url);
+function createTestSqliteDb(dbPath: string): any {
+  const mod = requireSqlite('node:sqlite') as { DatabaseSync: new (path: string) => any };
+  return new mod.DatabaseSync(dbPath);
+}
 
 test('extractAntigravityUserRequest extracts user request byte-exact without stripping internal indentation', () => {
   const raw = `<USER_REQUEST>
@@ -623,3 +635,313 @@ test('dryRun simulation leaves accepted ledger empty, retains pending, and does 
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+// ─── Protobuf Encoding Helpers for Synthetic SQLite Fixture Tests ────────────
+
+function encodeVarint(val: bigint | number): Buffer {
+  let v = BigInt(val);
+  const bytes: number[] = [];
+  const limit = BigInt(0x80);
+  const mask = BigInt(0x7f);
+  const shift = BigInt(7);
+  while (v >= limit) {
+    bytes.push(Number((v & mask) | limit));
+    v >>= shift;
+  }
+  bytes.push(Number(v));
+  return Buffer.from(bytes);
+}
+
+function encodeVarintField(fieldNumber: number, val: bigint | number): Buffer {
+  const tag = encodeVarint((BigInt(fieldNumber) << BigInt(3)) | BigInt(0));
+  return Buffer.concat([tag, encodeVarint(val)]);
+}
+
+function encodeBytesField(fieldNumber: number, payload: Buffer | string): Buffer {
+  const buf = typeof payload === 'string' ? Buffer.from(payload, 'utf8') : payload;
+  const tag = encodeVarint((BigInt(fieldNumber) << BigInt(3)) | BigInt(2));
+  return Buffer.concat([tag, encodeVarint(buf.length), buf]);
+}
+
+function buildStepMetadata(seconds: number, sourceEnum: number): Buffer {
+  const ts = Buffer.concat([encodeVarintField(1, seconds), encodeVarintField(2, 0)]);
+  return Buffer.concat([encodeBytesField(1, ts), encodeVarintField(3, sourceEnum)]);
+}
+
+function buildUserInputPayload(opts: {
+  status?: number;
+  metadata: Buffer;
+  userText?: string;
+  artifactUri?: string;
+  omitF19?: boolean;
+}): Buffer {
+  const status = opts.status ?? 3;
+  const parts: Buffer[] = [
+    encodeVarintField(1, 14),
+    encodeVarintField(4, status),
+    encodeBytesField(5, opts.metadata),
+  ];
+  if (!opts.omitF19) {
+    const f19Parts: Buffer[] = [];
+    if (opts.userText !== undefined) {
+      f19Parts.push(encodeBytesField(2, opts.userText));
+    }
+    if (opts.artifactUri !== undefined) {
+      f19Parts.push(encodeBytesField(7, opts.artifactUri));
+    }
+    parts.push(encodeBytesField(19, Buffer.concat(f19Parts)));
+  }
+  return Buffer.concat(parts);
+}
+
+function buildPlannerResponsePayload(opts: {
+  status?: number;
+  metadata: Buffer;
+  responseText?: string;
+  thinkingText?: string;
+  omitF20?: boolean;
+}): Buffer {
+  const status = opts.status ?? 3;
+  const parts: Buffer[] = [
+    encodeVarintField(1, 15),
+    encodeVarintField(4, status),
+    encodeBytesField(5, opts.metadata),
+  ];
+  if (!opts.omitF20) {
+    const f20Parts: Buffer[] = [];
+    if (opts.responseText !== undefined) {
+      f20Parts.push(encodeBytesField(1, opts.responseText));
+    }
+    if (opts.thinkingText !== undefined) {
+      f20Parts.push(encodeBytesField(3, opts.thinkingText));
+    }
+    parts.push(encodeBytesField(20, Buffer.concat(f20Parts)));
+  }
+  return Buffer.concat(parts);
+}
+
+test('assertNotSummariesDb refuses conversation_summaries.db (Inviolability of the Narrative)', () => {
+  assert.throws(
+    () => assertNotSummariesDb('C:/Users/David/.gemini/antigravity/conversations/conversation_summaries.db'),
+    /forbidden_summaries_db/
+  );
+  assert.doesNotThrow(() =>
+    assertNotSummariesDb('C:/Users/David/.gemini/antigravity/conversations/c9a6e229-61fb-4e4a-983d-61defdc8b7da.db')
+  );
+});
+
+test('parseAntigravityJournal rejects compact JSONL truncation in both USER_INPUT and PLANNER_RESPONSE', () => {
+  const conversationId = 'conv-trunc-test';
+  const lines = [
+    // Turn 1: truncated_fields on USER_INPUT
+    JSON.stringify({
+      step_index: 1,
+      source: 'USER_EXPLICIT',
+      type: 'USER_INPUT',
+      created_at: '2026-10-28T10:00:00Z',
+      truncated_fields: ['content'],
+      content: '<USER_REQUEST>\nHello\n</USER_REQUEST>',
+    }),
+    // Turn 2: literal <truncated N bytes> inside PLANNER_RESPONSE
+    JSON.stringify({
+      step_index: 10,
+      source: 'USER_EXPLICIT',
+      type: 'USER_INPUT',
+      created_at: '2026-10-28T10:01:00Z',
+      content: '<USER_REQUEST>\nGive me a long answer\n</USER_REQUEST>',
+    }),
+    JSON.stringify({
+      step_index: 11,
+      source: 'MODEL',
+      type: 'PLANNER_RESPONSE',
+      content: 'Start of answer\n<truncated 1849 bytes>\nEnd of answer',
+    }),
+    // Turn 3: clean complete turn sealing Turn 2
+    JSON.stringify({
+      step_index: 20,
+      source: 'USER_EXPLICIT',
+      type: 'USER_INPUT',
+      created_at: '2026-10-28T10:02:00Z',
+      content: '<USER_REQUEST>\nClean prompt\n</USER_REQUEST>',
+    }),
+    JSON.stringify({
+      step_index: 21,
+      source: 'MODEL',
+      type: 'PLANNER_RESPONSE',
+      content: 'Clean response',
+    }),
+    JSON.stringify({
+      step_index: 30,
+      source: 'USER_EXPLICIT',
+      type: 'USER_INPUT',
+      created_at: '2026-10-28T10:03:00Z',
+      content: '<USER_REQUEST>\nFinal prompt\n</USER_REQUEST>',
+    }),
+  ];
+
+  const parsed = parseAntigravityJournal(lines, conversationId);
+  assert.equal(parsed.exchanges.length, 1, 'Only clean Turn 20 must be emitted as a complete exchange');
+  assert.equal(parsed.exchanges[0].stepIndex, 20);
+  assert.equal(parsed.unresolvedTurns.length, 2, 'Both truncated turns (1 and 10) must be held in unresolvedTurns');
+  assert.equal(parsed.unresolvedTurns[0].stepIndex, 1);
+  assert.equal(parsed.unresolvedTurns[0].reason, 'compact_jsonl_truncated');
+  assert.equal(parsed.unresolvedTurns[1].stepIndex, 10);
+  assert.equal(parsed.unresolvedTurns[1].reason, 'compact_jsonl_truncated');
+});
+
+test('decodeProtobufFields fails closed on empty, truncated, overflowed, or unsupported wire types', () => {
+  assert.throws(() => decodeProtobufFields(new Uint8Array(0)), /empty_buffer/);
+  // Truncated varint tag
+  assert.throws(() => decodeProtobufFields(Buffer.from([0x80])), /truncated_tag_varint/);
+  // Unsupported wire type 3 (start group)
+  assert.throws(() => decodeProtobufFields(Buffer.from([(1 << 3) | 3])), /unsupported_wire_type_3/);
+  // Length-delimited overflow: claims 50 bytes, only 2 bytes follow
+  assert.throws(
+    () => decodeProtobufFields(Buffer.from([(1 << 3) | 2, 50, 0x61, 0x62])),
+    /length_overflow/
+  );
+});
+
+test('snapshotAndParseAntigravitySqliteDb parses synthetic .db fixtures, preserves bare trailing CR, and fails closed on evicted/corrupt rows', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'shipper-sqlite-fixture-'));
+  try {
+    const dbPath = join(dir, 'test-conv.db');
+    const conversationId = 'test-conv';
+
+    const db = createTestSqliteDb(dbPath);
+    db.exec(`
+      CREATE TABLE steps (
+        idx integer PRIMARY KEY,
+        step_type integer,
+        status integer,
+        has_subtrajectory numeric,
+        metadata blob,
+        error_details blob,
+        permissions blob,
+        task_details blob,
+        render_info blob,
+        step_payload blob,
+        step_format integer
+      );
+    `);
+
+    const insert = db.prepare(
+      'INSERT INTO steps (idx, step_type, status, metadata, step_payload, step_format) VALUES (?, ?, ?, ?, ?, ?)'
+    );
+
+    // 1. Step 0: Evicted USER_INPUT (status = 5, no field 19) -> reason: evicted_step_payload
+    const meta0 = buildStepMetadata(1793200000, 4);
+    insert.run(0, 14, 5, meta0, buildUserInputPayload({ status: 5, metadata: meta0, omitF19: true }), 0);
+
+    // 2. Step 10: Normal USER_INPUT with bare trailing \r and leading/trailing \r\n (LCC seq 83 edge case!)
+    const bareCrUserText = '\r\nLine 1 with indentation\r\nLine 2 ending with bare CR\r';
+    const meta10 = buildStepMetadata(1793200100, 4);
+    insert.run(10, 14, 3, meta10, buildUserInputPayload({ metadata: meta10, userText: bareCrUserText }), 0);
+
+    // 3. Step 11: Tool-call-only PLANNER_RESPONSE (thinking present, no responseText field 1)
+    const meta11 = buildStepMetadata(1793200105, 2);
+    insert.run(11, 15, 3, meta11, buildPlannerResponsePayload({ metadata: meta11, thinkingText: 'internal thought' }), 0);
+
+    // 4. Step 12: Communicative PLANNER_RESPONSE part 1
+    const meta12 = buildStepMetadata(1793200110, 2);
+    insert.run(
+      12,
+      15,
+      3,
+      meta12,
+      buildPlannerResponsePayload({ metadata: meta12, responseText: 'First part of answer.', thinkingText: 't2' }),
+      0
+    );
+
+    // 5. Step 13: Communicative PLANNER_RESPONSE part 2
+    const meta13 = buildStepMetadata(1793200115, 2);
+    insert.run(
+      13,
+      15,
+      3,
+      meta13,
+      buildPlannerResponsePayload({ metadata: meta13, responseText: 'Second part of answer.' }),
+      0
+    );
+
+    // 6. Step 20: Artifact empty-proceed USER_INPUT (field 19.7 URI, no field 19.2) -> seals Step 10 and records empty_user_request
+    const meta20 = buildStepMetadata(1793200200, 4);
+    insert.run(
+      20,
+      14,
+      3,
+      meta20,
+      buildUserInputPayload({ metadata: meta20, artifactUri: 'file:///artifact/plan.md' }),
+      0
+    );
+
+    // 7. Step 30: Malformed protobuf blob in step_payload (valid tag for field 19 wireType 2, length 99, only 2 bytes follow) -> reason: corrupt_protobuf_payload
+    const meta30 = buildStepMetadata(1793200300, 4);
+    insert.run(
+      30,
+      14,
+      3,
+      meta30,
+      Buffer.concat([encodeVarint((BigInt(19) << BigInt(3)) | BigInt(2)), Buffer.from([99, 0x01, 0x02])]),
+      0
+    );
+
+    // 8. Step 40: Unsupported step_format = 1 -> reason: unsupported_step_format
+    const meta40 = buildStepMetadata(1793200400, 4);
+    insert.run(40, 14, 3, meta40, buildUserInputPayload({ metadata: meta40, userText: 'Future format' }), 1);
+
+    // 9. Step 50: Trailing open turn (USER_INPUT + PLANNER_RESPONSE at EOF)
+    const meta50 = buildStepMetadata(1793200500, 4);
+    insert.run(50, 14, 3, meta50, buildUserInputPayload({ metadata: meta50, userText: 'Trailing prompt' }), 0);
+    const meta51 = buildStepMetadata(1793200505, 2);
+    insert.run(
+      51,
+      15,
+      3,
+      meta51,
+      buildPlannerResponsePayload({ metadata: meta51, responseText: 'Trailing response in progress' }),
+      0
+    );
+
+    db.close();
+
+    // Write a synthetic -wal sidecar to verify WAL snapshot SHA-256 capture
+    const walPath = `${dbPath}-wal`;
+    await writeFile(walPath, 'synthetic-wal-bytes');
+    const expectedWalSha = createHash('sha256').update('synthetic-wal-bytes').digest('hex');
+
+    const res = await snapshotAndParseAntigravitySqliteDb(dbPath, conversationId);
+
+    // Snapshot SHA-256 evidence
+    assert.equal(res.sourceSnapshot.conversationId, conversationId);
+    assert.equal(res.sourceSnapshot.pinnedIdeVersion, '2.6.0');
+    assert.ok(/^[0-9a-f]{64}$/.test(res.sourceSnapshot.sourceDbSha256));
+    assert.equal(res.sourceSnapshot.walSha256, expectedWalSha);
+
+    // Completed exchange at Step 10 preserves bare trailing \r and internal \r\n byte-for-byte!
+    assert.equal(res.exchanges.length, 1);
+    assert.equal(res.exchanges[0].stepIndex, 10);
+    assert.equal(res.exchanges[0].userText, bareCrUserText);
+    assert.ok(res.exchanges[0].userText.endsWith('\r'), 'Trailing bare CR must be preserved byte-exact');
+    assert.equal(res.exchanges[0].assistantText, 'First part of answer.\n\nSecond part of answer.');
+
+    // Unresolved turns: Step 0 (evicted_step_payload), Step 20 (empty_user_request), Step 30 (corrupt_protobuf_payload), Step 40 (unsupported_step_format)
+    assert.deepEqual(
+      res.unresolvedTurns.map(u => ({ stepIndex: u.stepIndex, reason: u.reason })),
+      [
+        { stepIndex: 0, reason: 'evicted_step_payload' },
+        { stepIndex: 20, reason: 'empty_user_request' },
+        { stepIndex: 30, reason: 'corrupt_protobuf_payload' },
+        { stepIndex: 40, reason: 'unsupported_step_format' },
+      ]
+    );
+
+    // Trailing turn at Step 50 held open
+    assert.ok(res.openTrailingTurn);
+    assert.equal(res.openTrailingTurn?.stepIndex, 50);
+    assert.equal(res.openTrailingTurn?.assistantTextSoFar, 'Trailing response in progress');
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
