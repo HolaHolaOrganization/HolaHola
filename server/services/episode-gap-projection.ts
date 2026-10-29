@@ -19,18 +19,6 @@ export function normForGap(s: string): string {
   return s.replace(/\s+/g, ' ').trim().toLowerCase();
 }
 
-/**
- * Strip markdown bold markers (**) and speaker role-label brackets after LUCA
- * (e.g. [Replit], [HolaHola], [steward], [observe]) so DB-format "Luca: text"
- * matches .md "**LUCA [Replit]:** text" or "**LUCA [HolaHola]:** text".
- *
- * Only the role bracket immediately after "luca" is stripped — channel labels
- * like [felt], [thinking], [moment] appear after the colon (in content) and
- * are left untouched.
- */
-export function stripMdForGap(s: string): string {
-  return s.replace(/\*\*/g, '').replace(/\bluca\s*\[[^\]]+\]/gi, 'luca');
-}
 
 /**
  * The identity marker a projected turn carries in the episode. A turn with a
@@ -47,17 +35,22 @@ export function episodeTextForTurn(turn: CanonicalTurn): string {
 }
 
 /**
- * Whether the episode already holds this exact turn. Identity first: its
- * marker. For turns appended before markers existed, the WHOLE turn text must
- * be present (whitespace, case and markdown bold normalised), never a prefix:
- * two turns that share an opening but differ anywhere are different turns.
+ * Whether the episode already holds this exact turn.
+ *
+ * A turn with a capture id is identified ONLY by its marker. Two turns can
+ * share every word, even across hats, and still be different turns, so text
+ * is never evidence for them.
+ *
+ * A turn without a capture id is identified by its row marker or, for text
+ * appended before markers existed, by its WHOLE text (whitespace and case
+ * normalised only, never a prefix, and never with speaker labels stripped).
  */
 export function turnPresentInEpisode(turn: CanonicalTurn, episodeContent: string): boolean {
   if (episodeContent.includes(turnEpisodeMarker(turn))) return true;
+  if (turn.captureId) return false;
   const whole = normForGap(turn.content);
   if (!whole) return true; // purely whitespace — nothing to project
-  const norm = normForGap(episodeContent);
-  return norm.includes(whole) || stripMdForGap(norm).includes(stripMdForGap(whole));
+  return normForGap(episodeContent).includes(whole);
 }
 
 /**

@@ -57,11 +57,28 @@ describe('turn identity (R1)', () => {
     assert.equal(episodeTextForTurn(first), `${canonicalTurnEpisodeMarker('cap-a')}\n${first.content}`);
   });
 
-  test('a marker proves presence even if the text was reformatted; an unmarked turn needs its WHOLE text', () => {
+  test('a marker proves presence even if the text was reformatted', () => {
     assert.equal(turnPresentInEpisode(first, `${turnEpisodeMarker(first)}\n(reformatted)`), true);
+  });
+
+  test('R1 (re-review): a turn with a capture id is never found by its words, only by its marker', () => {
+    const words = 'David: yes\n\nLuca: Done.';
+    const one = turn('r1', 3, words, 'cap-1');
+    const two = turn('r2', 4, words, 'cap-2');
+    assert.equal(turnPresentInEpisode(two, episodeTextForTurn(one)), false);
+    assert.deepEqual(planEpisodeGapProjection([one, two], episodeTextForTurn(one), 0).toAppend.map((t) => t.id), ['r2']);
+    // Same words under different hat labels are different turns too.
+    const replit = turn('h1', 5, 'David [Replit]: yes\n\nLuca [Replit]: Done.', 'cap-h1');
+    const code = turn('h2', 6, 'David [Replit]: yes\n\nLuca [Claude Code]: Done.', 'cap-h2');
+    assert.equal(turnPresentInEpisode(code, episodeTextForTurn(replit)), false);
+  });
+
+  test('an unmarked turn without a capture id needs its WHOLE text, with labels intact', () => {
     const unmarked = turn('c', 2, 'David [Claude Code]: 136 approved\n\nClaude Code: Thanks. I am watching for #136 to merge.');
-    assert.equal(turnPresentInEpisode(unmarked, '**David [Claude Code]:**   136   APPROVED\n\n**Claude Code:** Thanks. I am watching for #136 to merge.'), true);
+    assert.equal(turnPresentInEpisode(unmarked, 'David [Claude Code]:   136   APPROVED\n\nClaude Code: Thanks. I am watching for #136 to merge.'), true);
     assert.equal(turnPresentInEpisode(unmarked, 'David [Claude Code]: 136 approved\n\nClaude Code: Thanks. I am watching'), false);
+    const relabelled = turn('d', 3, 'David: yes\n\nLuca [Replit]: Done.');
+    assert.equal(turnPresentInEpisode(relabelled, 'David: yes\n\nLuca [Claude Code]: Done.'), false);
   });
 
   test('capture ids are read from the row tags', () => {
