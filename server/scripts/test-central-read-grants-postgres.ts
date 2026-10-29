@@ -10,6 +10,7 @@ import {
   centralGrantSnapshot, grantCentralRead, revokeCentralRead, exchangeCentralRead,
   resolveCentralReadCredential, CENTRAL_CREDENTIAL_TTL_SECONDS,
 } from "../services/central-read-grants";
+import { runCentralGrantExpiryWarnings } from "../services/central-read-expiry-warnings";
 
 // Check the dedicated opt-in BEFORE inspecting the ambient database. Never
 // substitute the shared database when a disposable target was not supplied.
@@ -67,9 +68,14 @@ before(async () => {
       token_ttl_seconds integer NOT NULL,state varchar(24) NOT NULL DEFAULT 'staged',
       ready_credential_id varchar,created_at timestamp NOT NULL DEFAULT now(),
       ready_at timestamp,completed_at timestamp,rolled_back_at timestamp);
+    CREATE TABLE alden_notifications (
+      id varchar PRIMARY KEY DEFAULT gen_random_uuid(),content text NOT NULL,
+      triggered_by varchar NOT NULL,severity varchar NOT NULL,read boolean NOT NULL DEFAULT false,
+      fingerprint varchar(100),created_at timestamp NOT NULL DEFAULT now());
     CREATE TABLE coordination_gate3_proof_grants (
       id varchar PRIMARY KEY,credential_id varchar NOT NULL,revoked_at timestamp,expires_at timestamp NOT NULL);`);
   await pool.query(readFileSync("migrations/0067_central_read_grants.sql", "utf8"));
+  await pool.query(readFileSync("migrations/0068_central_expiry_warning_dedup.sql", "utf8"));
 });
 after(async () => {
   if (!target) return;
@@ -243,6 +249,114 @@ check("central exchange expiry uses only database timestamps for the grant cap",
     WHERE c.id=$1`, [issued.credentialId]);
   assert.deepEqual(result.rows[0], { bounded_by_grant: true, short_grant_wins: true,
     usable_lifetime: true, bounded_by_ttl: true });
+  assert.equal(issued.expiresAt, (await pool.query(`SELECT to_char(expires_at,
+    'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS value FROM coordination_runtime_credentials WHERE id=$1`,
+    [issued.credentialId])).rows[0].value);
+  assert.equal((await resolveCentralReadCredential(issued.accessToken))?.expiresAt.toISOString(), issued.expiresAt);
+});
+check("one-calendar-year cap uses database time and rejects a replacement without revoking its predecessor", async () => {
+  await runtime("year-cap");
+  const maximum = (await pool.query(`SELECT to_char((now() AT TIME ZONE 'UTC')+interval '1 year',
+    'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS value`)).rows[0].value;
+  const original = await grant("year-cap", { expiresAt: maximum });
+  assert.equal(original.expiresAt, maximum);
+  const tooLong = (await pool.query(`SELECT to_char((now() AT TIME ZONE 'UTC')+interval '1 year 1 day',
+    'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS value`)).rows[0].value;
+  await assert.rejects(grant("year-cap", { expectedGrantId: original.id, expiresAt: tooLong }),
+    /grant_exceeds_one_year/);
+  assert.equal((await pool.query("SELECT revoked_at FROM central_read_grants WHERE id=$1", [original.id])).rows[0].revoked_at, null);
+  const snapshot = await centralGrantSnapshot();
+  assert.equal(snapshot.grants.find(g => g.id === original.id)?.expiresAt, maximum);
+  assert.match(snapshot.maximumExpiresAt, /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/);
+  const bound = await pool.query(`SELECT expires_at <=
+    (now() AT TIME ZONE 'UTC')+interval '1 year' AS valid FROM central_read_grants WHERE id=$1`, [original.id]);
+  assert.equal(bound.rows[0].valid, true);
+});
+check("expiry warning is durable once per grant across concurrent and repeated scans", async () => {
+  await runtime("warning-once");
+  const g = await grant("warning-once");
+  await Promise.all([runCentralGrantExpiryWarnings(), runCentralGrantExpiryWarnings()]);
+  await runCentralGrantExpiryWarnings();
+  const notes = await pool.query("SELECT content,severity,read FROM alden_notifications WHERE fingerprint=$1", [`central_expiry:${g.id}`]);
+  assert.equal(notes.rowCount, 1);
+  assert.equal(notes.rows[0].severity, "warning");
+  assert.equal(notes.rows[0].read, false);
+  assert.match(notes.rows[0].content, /warning-once/);
+  const audits = await pool.query(`SELECT id FROM coordination_credential_audit_events
+    WHERE event_type='central_expiry_warned' AND metadata->>'grantId'=$1`, [g.id]);
+  assert.equal(audits.rowCount, 1);
+  await assert.rejects(pool.query(`INSERT INTO coordination_credential_audit_events
+    (event_type,success,runtime_id,actor,metadata)
+    VALUES ('central_expiry_warned',true,'warning-once','luca-replit',$1::jsonb)`,
+    [JSON.stringify({ grantId: g.id })]), /unique/i);
+});
+check("warning window excludes far-future, expired, revoked and disabled-runtime grants", async () => {
+  const ids = ["warning-far", "warning-expired", "warning-revoked", "warning-disabled"];
+  const grants: string[] = [];
+  for (const id of ids) { await runtime(id); grants.push((await grant(id)).id); }
+  await pool.query("UPDATE central_read_grants SET expires_at=(now() AT TIME ZONE 'UTC')+interval '15 days' WHERE id=$1", [grants[0]]);
+  await pool.query(`UPDATE central_read_grants SET created_at=(now() AT TIME ZONE 'UTC')-interval '2 days',
+    expires_at=(now() AT TIME ZONE 'UTC')-interval '1 day' WHERE id=$1`, [grants[1]]);
+  await revokeCentralRead({ grantId: grants[2], founderId: "fixture-founder" });
+  await pool.query("UPDATE coordination_runtime_registrations SET enabled=false WHERE id='warning-disabled'");
+  await runCentralGrantExpiryWarnings();
+  const count = await pool.query("SELECT count(*)::int AS n FROM alden_notifications WHERE fingerprint=ANY($1)", [grants.map(id => `central_expiry:${id}`)]);
+  assert.equal(count.rows[0].n, 0);
+});
+check("failed warning audit rolls back founder delivery and is retryable", async () => {
+  await runtime("warning-rollback");
+  const g = await grant("warning-rollback");
+  await pool.query(`CREATE FUNCTION reject_warning_audit() RETURNS trigger LANGUAGE plpgsql AS $$
+    BEGIN IF NEW.event_type='central_expiry_warned' AND NEW.runtime_id='warning-rollback'
+    THEN RAISE EXCEPTION 'fixture warning audit rejection'; END IF; RETURN NEW; END $$;
+    CREATE TRIGGER reject_warning_audit BEFORE INSERT ON coordination_credential_audit_events
+    FOR EACH ROW EXECUTE FUNCTION reject_warning_audit();`);
+  try {
+    await assert.rejects(runCentralGrantExpiryWarnings(), (error: any) =>
+      /fixture warning audit rejection/.test(String(error.cause?.message ?? error.message)));
+    assert.equal((await pool.query("SELECT count(*)::int AS n FROM alden_notifications WHERE fingerprint=$1", [`central_expiry:${g.id}`])).rows[0].n, 0);
+  } finally {
+    await pool.query("DROP TRIGGER reject_warning_audit ON coordination_credential_audit_events; DROP FUNCTION reject_warning_audit()");
+  }
+  await runCentralGrantExpiryWarnings();
+  assert.equal((await pool.query("SELECT count(*)::int AS n FROM alden_notifications WHERE fingerprint=$1", [`central_expiry:${g.id}`])).rows[0].n, 1);
+});
+check("failed founder-inbox insert leaves no warning marker and retries safely", async () => {
+  await runtime("warning-delivery-failure");
+  const g = await grant("warning-delivery-failure");
+  await pool.query(`CREATE FUNCTION reject_warning_delivery() RETURNS trigger LANGUAGE plpgsql AS $$
+    BEGIN IF NEW.fingerprint='central_expiry:' || '${g.id}'
+    THEN RAISE EXCEPTION 'fixture inbox rejection'; END IF; RETURN NEW; END $$;
+    CREATE TRIGGER reject_warning_delivery BEFORE INSERT ON alden_notifications
+    FOR EACH ROW EXECUTE FUNCTION reject_warning_delivery();`);
+  try {
+    await assert.rejects(runCentralGrantExpiryWarnings(), (error: any) =>
+      /fixture inbox rejection/.test(String(error.cause?.message ?? error.message)));
+    assert.equal((await pool.query(`SELECT count(*)::int AS n FROM coordination_credential_audit_events
+      WHERE event_type='central_expiry_warned' AND metadata->>'grantId'=$1`, [g.id])).rows[0].n, 0);
+  } finally {
+    await pool.query("DROP TRIGGER reject_warning_delivery ON alden_notifications; DROP FUNCTION reject_warning_delivery()");
+  }
+  await runCentralGrantExpiryWarnings();
+  assert.equal((await pool.query("SELECT count(*)::int AS n FROM alden_notifications WHERE fingerprint=$1", [`central_expiry:${g.id}`])).rows[0].n, 1);
+});
+check("warning scan racing revocation uses the runtime lock and does not notify after revoke", async () => {
+  await runtime("warning-revoke-race");
+  const g = await grant("warning-revoke-race");
+  const lock = await pool.connect();
+  await lock.query("BEGIN");
+  try {
+    await lock.query("SELECT pg_advisory_xact_lock(hashtextextended('warning-revoke-race',0))");
+    const pending = runCentralGrantExpiryWarnings();
+    let settled = false;
+    void pending.then(() => { settled = true; }, () => { settled = true; });
+    await new Promise(resolve => setTimeout(resolve, 50));
+    assert.equal(settled, false);
+    await lock.query("UPDATE central_read_grants SET revoked_at=now() WHERE id=$1", [g.id]);
+    await lock.query("COMMIT");
+    await pending;
+    assert.equal((await pool.query("SELECT count(*)::int AS n FROM alden_notifications WHERE fingerprint=$1", [`central_expiry:${g.id}`])).rows[0].n, 0);
+  } finally { await lock.query("ROLLBACK"); lock.release(); }
 });
 check("a replacement runtime does not inherit grants or central credentials", async () => {
   await runtime("replacement-source");

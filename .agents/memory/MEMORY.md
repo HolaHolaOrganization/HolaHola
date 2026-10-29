@@ -156,3 +156,4 @@
 - [Onboarding scope boundary](onboarding-scope-boundary.md) — Finish approved onboarding corrections independently of optional broker and ownership redesign.
 - [Broker rollout decisions](broker-rollout-decisions.md) — Canonical founder choices on custody, audit retention, a separate temporary sandbox and measurement-based final limits.
 - [Archive extraction destination](archive-extraction-destination.md) — Put tar destination options before member selectors; trailing -C can extract review files into the workspace.
+- [Native Codex participation test](native-codex-participation.md) — Onboarding proves native participation, with recorded assistance, team observation and evidenced readiness—not credentials alone.

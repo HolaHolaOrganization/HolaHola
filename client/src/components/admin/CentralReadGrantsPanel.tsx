@@ -15,10 +15,15 @@ type Decision = { kind: "grant"; runtimeId: string; actor: string; expiresAt: st
   | { kind: "revoke"; grant: Grant };
 type Snapshot = {
   csrfToken: string;
+  maximumExpiresAt: string;
   runtimes: { runtimeId: string; actor: string; displayName: string; enabled: boolean }[];
   grants: Grant[];
 };
 const endpoint = "/api/runtime/central-read/admin";
+function localDateTime(iso: string) {
+  const d = new Date(iso);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}T${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
 async function request(path: string, body?: unknown) {
   const response = await fetch(path, { credentials: "same-origin",
     ...(body ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) } : {}) });
@@ -33,6 +38,9 @@ export function CentralReadGrantsPanel() {
   const [expiresAt, setExpiresAt] = useState("");
   const [confirm, setConfirm] = useState<Decision | null>(null);
   const runtime = query.data?.runtimes.find(r => r.runtimeId === runtimeId);
+  const maximumExpiry = query.data?.maximumExpiresAt;
+  const invalidExpiry = !expiresAt || !Number.isFinite(new Date(expiresAt).getTime())
+    || !maximumExpiry || new Date(expiresAt).getTime() > Date.parse(maximumExpiry);
   const previous = query.data?.grants.find(g => g.runtimeId === runtimeId && !g.revokedAt);
   const mutation = useMutation({
     mutationFn: async (decision: Decision) => {
@@ -61,7 +69,7 @@ export function CentralReadGrantsPanel() {
       {query.data && <>
         <form className="grid gap-4 sm:grid-cols-2" onSubmit={event => {
           event.preventDefault();
-          if (runtime?.enabled && expiresAt && Number.isFinite(new Date(expiresAt).getTime())) {
+          if (runtime?.enabled && !invalidExpiry) {
             // Freeze what the founder reviewed. A background query refresh must
             // never advance expectedGrantId while this confirmation is open.
             setConfirm({ kind: "grant", runtimeId, actor: runtime.actor,
@@ -82,9 +90,12 @@ export function CentralReadGrantsPanel() {
           <div className="space-y-2">
             <Label htmlFor="central-expiry">Grant expires at your local time</Label>
             <Input id="central-expiry" type="datetime-local" required value={expiresAt}
+              max={maximumExpiry ? localDateTime(maximumExpiry) : undefined}
               disabled={mutation.isPending} onChange={event => setExpiresAt(event.target.value)} />
+            <p className="text-sm text-muted-foreground">Maximum: one calendar year from database time. A founder-inbox warning is sent within the final 14 days.</p>
+            {expiresAt && invalidExpiry && <p role="alert" className="text-sm text-destructive">Choose a valid expiry no later than the one-year limit.</p>}
           </div>
-          <Button type="submit" disabled={!runtime?.enabled || !expiresAt || mutation.isPending}>
+          <Button type="submit" disabled={!runtime?.enabled || invalidExpiry || mutation.isPending}>
             Review {previous ? "replacement" : "grant"}
           </Button>
         </form>

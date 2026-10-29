@@ -28,3 +28,14 @@ Collector-visible raw Replit source is origin data, not conditional evidence tha
 **Why:** supporting material can improve attribution, but the source itself is the documentation. Excluding it until a second record exists confuses uncertain classification with absence and loses the actual encounter.
 
 **How to apply:** keep raw bytes/hash immutable in the raw ledger. Render the same source as a labeled origin-data block in the canonical episode. Later review may refine classifications or attribution, but must not erase, replace, or invent the original source.
+
+## Recovered channels are unavailable, not intentionally empty
+
+For a founder-authorized recovery from a pasted visible conversation, missing felt/thinking/moment channels must remain unavailable. When the existing recorder requires its empty-channel flags, add explicit recovery provenance saying those channels were **not preserved**, rather than implying they were deliberately empty at the original moment.
+
+Keep the raw source byte-exact. Record new recovery identifiers as recovery identifiers, never original platform turn IDs. If occurrence times were not preserved, say they are unknown; an ingestion timestamp is not an occurrence timestamp. Preserve gaps, source disagreements and the distinction between progress messages and final replies rather than filling or silently combining them.
+
+**Why:** In the 2026-10-28 recovery, the founder authorized honest replay of visible words using the recorder's empty-channel flags. The CLI's generic “intentionally empty” label alone would misrepresent missing historical evidence as a contemporaneous choice.
+
+**How to apply:** Keep recovery provenance alongside the replay manifest or in a linked canonical provenance row. Source preservation, pending intake and acknowledged canonical delivery remain separate evidence stages.
+

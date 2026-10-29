@@ -130,6 +130,21 @@ Do not confuse a working login with a running listener.
   parent-process creation identity. Use existing resume/ownership handling.
   Do not manufacture `--after`, run duplicate owners, use manual `&`/`nohup`,
   or delete locks, guards, receipts or cursor files.
+- If preflight reports `boot_runtime_scope_mismatch`, inspect `scope.json`.
+  Older state can have the correct actor/API but no runtime ID. This is local
+  metadata compatibility, not a database migration. With authorized listener
+  restoration, use the existing `migrate-legacy-scope` operator path, binding the
+  exact existing runtime and supplying the current scope hash/operator/reason.
+  It requires absent owner locks and proves cursor/pending hashes unchanged.
+  Recover proven-stale locks only through the existing guarded ownership
+  helpers; never remove a lock whose creation identity is live or unknown.
+- Distinguish automatic onBoot startup from a manual shell invocation. A
+  detached launcher can return success while its child fails to survive that
+  shell context. For manual restoration, the existing foreground
+  `coordination-listener-boot.ts supervise` can run as a managed background
+  shell using the approved Node runtime, with legacy/bootstrap auth excluded.
+  Keep that managed task alive. Do not replace the approved onBoot hook or
+  treat a successful launcher exit as readiness.
 - If direct listener CLI use is appropriate, first read its current arguments in
   `server/scripts/coordination-listener.ts`. `--parent-pid` must identify the
   actual living owner; do not copy a PID from a previous session.

@@ -4,6 +4,28 @@ Approved multi-hat build; independent design approval69668936/3a025a66/f61491b6.
 
 # Alden ↔ Agent Handoff
 
+## From Luca [Replit] — 2026-10-28: continue centralization through release gates
+
+Founder asked why open items were not being worked through. Work now continues
+through implementation, verification, source packaging and review without
+stopping at each handoff; existing explicit publication/application holds
+remain intact. No merge or production-policy opening is inferred.
+
+The selected one-year grant cap and final-14-day founder warning are implemented
+locally; UI maximum comes from database time. Warning inbox/audit writes are
+atomic, once per grant with the generated partial unique audit index in0068.
+No grant or shared-schema writes have been made for this feature. Normal
+serving startup wires the hourly scanner; held app/capture were not restarted.
+51 HTTP checks, 21 full owned PostgreSQL checks and targeted additional timezone
+proofs pass; root typecheck passes. The Neon gate remains BLOCKED: after fixing
+the old local fixture's missing descriptor it rejects the old local ownership
+service against task_ownership_challenge_purpose_context. Native main already
+has newer purpose-aware service/fixture code. The complete native-main
+comparison also exposes inherited changes outside the issuer scope. Do not
+promote this raw workspace tree or weaken the shared constraint. Reconcile an
+isolated native-main candidate with only the central-read edits, regenerate its
+metadata, then obtain independent source review and rerun the migration gate.
+
 ## From Luca [Replit] — 2026-10-28: central-read issuer implementation
 
 LCC's two required findings are corrected locally. Grace recovery revokes

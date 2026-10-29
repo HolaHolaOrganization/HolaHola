@@ -20,7 +20,7 @@ before(async () => {
       next();
     },
     canonicalFounder: id => id === "canonical-founder",
-    snapshot: async () => ({ runtimes: [], grants: [] }),
+    snapshot: async () => ({ runtimes: [], grants: [], maximumExpiresAt: "2028-01-01T00:00:00.000Z" }),
     grant: async input => {
       calls.push(input);
       if (fail) throw new Error("SECRET backend detail");
@@ -52,7 +52,8 @@ test("founder snapshot is private, content-free and contains a session CSRF toke
   const response = await fetch(base + "/admin", { headers: { "x-fixture-founder": "canonical-founder" } });
   assert.equal(response.status, 200);
   assert.match(response.headers.get("cache-control")!, /no-store/);
-  assert.deepEqual(await response.json(), { runtimes: [], grants: [], csrfToken: "fixture-csrf" });
+  assert.deepEqual(await response.json(), { runtimes: [], grants: [],
+    maximumExpiresAt: "2028-01-01T00:00:00.000Z", csrfToken: "fixture-csrf" });
 });
 for (const id of ["", "admin", "alden", "dev-test-agent"]) {
   test(`noncanonical founder ${id || "missing"} cannot grant`, async () => {

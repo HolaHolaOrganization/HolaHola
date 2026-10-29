@@ -1,5 +1,35 @@
 # Runtime central record reads
 
+## Grant lifetime and expiry warning (local source, pending release)
+
+The founder selected a maximum of one calendar year and a warning 14 days
+before expiry. Creation and replacement enforce this ceiling using database
+time, with UTC calendar arithmetic; a rejected replacement leaves the existing
+grant active. The admin snapshot supplies the exact database-derived maximum,
+and the UI both bounds its date input and refuses an over-limit confirmation.
+
+After normal HTTP startup, the expiry scanner runs initially and hourly. It
+warns once per enabled runtime's unrevoked, unexpired grant within its final
+14 days, including newly issued short grants. Delivery is to the founder's
+existing `alden_notifications` inbox, not to hats or Team Room. The inbox insert
+and successful audit marker commit together; either failing rolls both back.
+A partial unique audit index deduplicates by grant ID. A nonblocking,
+transaction-scoped scanner lock avoids concurrent scans; short per-grant
+transactions recheck runtime/grant state under the grant/revoke runtime lock.
+Warnings do not renew access. No additional expired-grant notice is implied.
+
+Generated migration `0068_central_expiry_warning_dedup.sql` adds only that
+partial unique index. The shared database has not been migrated. Local proof:
+root typecheck; 51 HTTP checks; 21 full disposable PostgreSQL checks, plus
+targeted proofs under Denver/Kolkata host timezones and a non-UTC database
+timezone. This includes parallel deduplication, both transactional failure
+directions, and a scan/revocation race. The disposable Neon migration gate and
+native-source review remain separate release requirements.
+The current local Neon gate is blocked by ownership-purpose baseline drift:
+native main already has newer service/fixture code. The whole workspace is not
+a promotion candidate; reconcile only owned central-read changes onto native
+main and regenerate migration metadata before approval.
+
 ## Founder-only issuance — local implementation, not released (2026-10-28)
 
 The approved isolated-grant design is now implemented locally. This is not a

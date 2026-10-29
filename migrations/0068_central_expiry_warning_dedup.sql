@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "idx_central_expiry_warning_grant" ON "coordination_credential_audit_events" USING btree (("metadata"->>'grantId')) WHERE "coordination_credential_audit_events"."event_type" = 'central_expiry_warned' AND "coordination_credential_audit_events"."success" = true;

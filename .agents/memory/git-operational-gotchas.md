@@ -300,3 +300,21 @@ Verify the actual Git ref and commit, then re-read the PR before announcing
 the exact head. Do not repeat the mutation just because an immediate PR
 readback disagrees. Keep draft/auto-merge/approval checks independent.
 
+
+## Native baseline versus an inherited workspace
+
+Compare native source against native source before preparing a promotion.
+A local checkpoint can conceal owned changes already present at that checkpoint;
+copying a whole older workspace over current main can undo newer protections.
+
+**Why:** A checkpoint-relative review package omitted required broker changes.
+Expanding it to the complete native-main comparison then exposed a second risk:
+the local ownership implementation was older than the schema and implementation
+already on main. Patching one stale fixture did not resolve that baseline drift.
+
+**How to apply:** Start an isolated candidate from verified current native main,
+transplant only owned changes, and regenerate migration metadata against that
+base. Preserve unrelated workspace authorship. Do not weaken a shared constraint
+or call a local migration-gate failure a new-schema regression before comparing
+the executing service and fixtures to the native baseline.
+

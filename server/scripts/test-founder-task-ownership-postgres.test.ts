@@ -5,6 +5,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { sql } from "drizzle-orm";
 import { canonicalJson } from "../services/task-ownership-service";
+import { PROMOTION_REPOSITORY, promotionContextDigest } from "../services/promotion-candidate";
 
 function disposableTarget(): string | undefined {
   const url = process.env.FOUNDER_TASK_OWNERSHIP_TEST_DATABASE_URL;
@@ -94,13 +95,16 @@ test("PostgreSQL founder-attested ownership protocol is durable and immutable", 
     coordinationActor: actor,
     publicKey,
     keyFingerprint: fingerprint,
-    contextDigest: crypto.createHash("sha256").update(`context-${suffix}`).digest("hex"),
+    promotionDescriptor: { purpose: "cross-tool-promote" as const, repository: PROMOTION_REPOSITORY,
+      branch: "main", candidateCommit: crypto.createHash("sha1").update(`candidate-${suffix}`).digest("hex") },
+    contextDigest: promotionContextDigest({ purpose: "cross-tool-promote", repository: PROMOTION_REPOSITORY,
+      branch: "main", candidateCommit: crypto.createHash("sha1").update(`candidate-${suffix}`).digest("hex") }),
   };
   const sign = (payload: Record<string, unknown>) =>
     crypto.sign(null, Buffer.from(canonicalJson(payload)), keyPair.privateKey).toString("base64url");
 
   // The normal CLI omits contextDigest. Identical concurrent retries must converge.
-  const { contextDigest: _omittedContext, ...withoutContext } = base;
+  const { contextDigest: _omittedContext, promotionDescriptor: _omittedDescriptor, ...withoutContext } = base;
   const concurrentChallenges = await Promise.all([
     ownership.createChallenge({ ...withoutContext, taskRef: `${Number(task) + 10}`, idempotencyKey: `concurrent-${suffix}` }),
     ownership.createChallenge({ ...withoutContext, taskRef: `${Number(task) + 10}`, idempotencyKey: `concurrent-${suffix}` }),
@@ -109,7 +113,12 @@ test("PostgreSQL founder-attested ownership protocol is durable and immutable", 
 
   // Fingerprints are checked against the actual DER key, not an actor-supplied label.
   await codeOf(ownership.createChallenge({ ...base, keyFingerprint: "0".repeat(64), idempotencyKey: `fp-${suffix}` }), "INVALID_KEY_FINGERPRINT");
-  const challenge = await ownership.createChallenge({ ...base, idempotencyKey: `idem-${suffix}` });
+  const challenge = await ownership.createChallenge({ ...base, idempotencyKey: `idem-${suffix}` }).catch((error: any) => {
+    // Drizzle's outer query error hides PostgreSQL's actual fixture/schema
+    // failure; expose only its code/constraint/message, never key material.
+    const cause = error.cause;
+    throw new Error(`Fixture challenge failed: ${cause?.code ?? "unknown"} ${cause?.constraint ?? ""} ${cause?.message ?? "no database detail"}`);
+  });
   const replay = await ownership.createChallenge({ ...base, idempotencyKey: `idem-${suffix}` });
   assert.equal(replay.challengeId, challenge.challengeId);
   await codeOf(ownership.createChallenge({ ...base, artifactSha256: "b".repeat(64), idempotencyKey: `idem-${suffix}` }), "IDEMPOTENCY_CONFLICT");

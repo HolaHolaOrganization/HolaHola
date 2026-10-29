@@ -20,11 +20,12 @@ function fail(status: number, code: string): never { throw new CentralGrantError
 function allowedActor(actor: string): boolean {
   return (CENTRAL_READER_ACTORS as readonly string[]).includes(actor);
 }
+const grantDates = sql`to_char(expires_at,'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS expires_utc,
+  to_char(revoked_at,'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS revoked_utc`;
 function grantView(row: Row) {
   return { id: row.id as string, runtimeId: row.runtime_id as string, actor: row.actor as string,
     scope: row.scope as string, grantedBy: row.granted_by as string,
-    expiresAt: new Date(row.expires_at).toISOString(),
-    revokedAt: row.revoked_at ? new Date(row.revoked_at).toISOString() : null };
+    expiresAt: row.expires_utc as string, revokedAt: row.revoked_utc as string | null };
 }
 async function audit(db: Database, event: string, runtimeId: string, actor: string,
   grantId: string, credentialId?: string, founderId?: string) {
@@ -48,10 +49,14 @@ async function database(): Promise<Database> { return (await import("../db")).ge
 
 export async function centralGrantSnapshot() {
   const db = await database();
+  const [limits] = await rows(db, sql`SELECT to_char(
+    (now() AT TIME ZONE 'UTC') + interval '1 year',
+    'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS maximum_expires_at`);
   const runtimes = await rows(db, sql`SELECT id,actor,display_name,enabled,revoked_at
     FROM coordination_runtime_registrations ORDER BY actor,id`);
-  const grants = await rows(db, sql`SELECT * FROM central_read_grants ORDER BY created_at DESC`);
-  return { runtimes: runtimes.filter(row => allowedActor(row.actor)).map(row => ({
+  const grants = await rows(db, sql`SELECT *,${grantDates} FROM central_read_grants ORDER BY created_at DESC`);
+  return { maximumExpiresAt: limits.maximum_expires_at as string,
+    runtimes: runtimes.filter(row => allowedActor(row.actor)).map(row => ({
     runtimeId: row.id, actor: row.actor, displayName: row.display_name,
     enabled: row.enabled && !row.revoked_at,
   })), grants: grants.map(grantView) };
@@ -70,16 +75,21 @@ export async function grantCentralRead(input: {
     const [previous] = await rows(executor, sql`SELECT * FROM central_read_grants
       WHERE runtime_id=${input.runtimeId} AND revoked_at IS NULL FOR UPDATE`);
     if ((previous?.id ?? null) !== input.expectedGrantId) fail(409, "grant_changed");
-    const [clock] = await rows(executor, sql`SELECT now() AS now`);
-    if (expiry <= new Date(clock.now)) fail(400, "grant_expired");
+    const [clock] = await rows(executor, sql`SELECT
+      ${expiry.toISOString()}::timestamptz > now() AS future,
+      ${expiry.toISOString()}::timestamptz <=
+        (date_trunc('milliseconds',(now() AT TIME ZONE 'UTC') + interval '1 year')
+          AT TIME ZONE 'UTC') AS within_limit`);
+    if (!clock.future) fail(400, "grant_expired");
+    if (!clock.within_limit) fail(400, "grant_exceeds_one_year");
     // The partial unique index includes expired rows: explicitly revoke before
     // regranting. The new insert is the grant/regrant linearization point.
-    if (previous) await executor.execute(sql`UPDATE central_read_grants SET revoked_at=now()
+    if (previous) await executor.execute(sql`UPDATE central_read_grants SET revoked_at=now() AT TIME ZONE 'UTC'
       WHERE id=${previous.id}`);
     const [created] = await rows(executor, sql`INSERT INTO central_read_grants
-      (runtime_id,actor,scope,granted_by,expires_at)
-      VALUES (${input.runtimeId},${runtime.actor},'central-records:read',${input.founderId},${expiry.toISOString()}::timestamp)
-      RETURNING *`);
+      (runtime_id,actor,scope,granted_by,expires_at,created_at)
+      VALUES (${input.runtimeId},${runtime.actor},'central-records:read',${input.founderId},${expiry.toISOString()}::timestamp,now() AT TIME ZONE 'UTC')
+      RETURNING *,${grantDates}`);
     await audit(executor, "central_grant_created", input.runtimeId, runtime.actor, created.id, undefined, input.founderId);
     return grantView(created);
   });
@@ -97,7 +107,7 @@ export async function revokeCentralRead(input: { grantId: string; founderId: str
     if (!grant) fail(404, "grant_not_found");
     // This update is revoke's linearization point. Rows are never deleted.
     const [revoked] = await rows(executor, sql`UPDATE central_read_grants
-      SET revoked_at=coalesce(revoked_at,now()) WHERE id=${grant.id} RETURNING *`);
+      SET revoked_at=coalesce(revoked_at,now() AT TIME ZONE 'UTC') WHERE id=${grant.id} RETURNING *,${grantDates}`);
     await audit(executor, "central_grant_revoked", grant.runtime_id, grant.actor, grant.id, undefined, input.founderId);
     return grantView(revoked);
   });
@@ -115,7 +125,8 @@ export async function exchangeCentralRead(routineToken: string, grantId: string)
     if (!activeRuntime(runtime)) fail(403, "runtime_unavailable");
     const [grant] = await rows(executor, sql`SELECT * FROM central_read_grants
       WHERE id=${grantId} AND runtime_id=${runtime.id} AND actor=${runtime.actor}
-        AND scope='central-records:read' AND revoked_at IS NULL AND expires_at>now() FOR UPDATE`);
+        AND scope='central-records:read' AND revoked_at IS NULL
+        AND (expires_at AT TIME ZONE 'UTC')>now() FOR UPDATE`);
     if (!grant) fail(403, "central_grant_unavailable");
     const [routine] = await rows(executor, sql`SELECT * FROM coordination_runtime_credentials
       WHERE token_hash=${tokenHash} AND runtime_id=${runtime.id} AND actor=${runtime.actor}
@@ -129,15 +140,15 @@ export async function exchangeCentralRead(routineToken: string, grantId: string)
     // Credential insert is exchange's linearization point, under the same grant
     // and runtime locks used by revoke. TTL is based only on database time.
     const [credential] = await rows(executor, sql`INSERT INTO coordination_runtime_credentials
-      (runtime_id,actor,token_hash,capabilities,expires_at,central_grant_id)
+      (runtime_id,actor,token_hash,capabilities,expires_at,central_grant_id,issued_at)
       VALUES (${runtime.id},${runtime.actor},${hash(accessToken)},ARRAY['central-records:read']::text[],
         least((SELECT expires_at FROM central_read_grants WHERE id=${grant.id}),
-          now()+${CENTRAL_CREDENTIAL_TTL_SECONDS}*interval '1 second'),${grant.id})
-      RETURNING id,expires_at`);
+          (now() AT TIME ZONE 'UTC')+${CENTRAL_CREDENTIAL_TTL_SECONDS}*interval '1 second'),${grant.id},now() AT TIME ZONE 'UTC')
+      RETURNING id,to_char(expires_at,'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS expires_utc`);
     await audit(executor, "central_credential_issued", runtime.id, runtime.actor, grant.id, credential.id);
     return { accessToken, tokenType: "Coordination", actor: runtime.actor, runtimeId: runtime.id,
       credentialId: credential.id, grantId: grant.id, capabilities: ["central-records:read"],
-      expiresAt: new Date(credential.expires_at).toISOString() };
+      expiresAt: credential.expires_utc as string };
   });
 }
 
@@ -154,11 +165,13 @@ export async function resolveCentralReadCredential(token: string): Promise<Broke
     if (!activeRuntime(runtime)) return null;
     const [grant] = await rows(executor, sql`SELECT * FROM central_read_grants
       WHERE id=${lookup.central_grant_id} AND runtime_id=${runtime.id} AND actor=${runtime.actor}
-        AND scope='central-records:read' AND revoked_at IS NULL AND expires_at>now() FOR UPDATE`);
+        AND scope='central-records:read' AND revoked_at IS NULL
+        AND (expires_at AT TIME ZONE 'UTC')>now() FOR UPDATE`);
     if (!grant) return null;
-    const [credential] = await rows(executor, sql`SELECT * FROM coordination_runtime_credentials
+    const [credential] = await rows(executor, sql`SELECT *,
+      to_char(expires_at,'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS expires_utc FROM coordination_runtime_credentials
       WHERE token_hash=${tokenHash} AND central_grant_id=${grant.id} AND runtime_id=${runtime.id}
-        AND actor=${runtime.actor} AND revoked_at IS NULL AND expires_at>now()
+        AND actor=${runtime.actor} AND revoked_at IS NULL AND (expires_at AT TIME ZONE 'UTC')>now()
         AND capabilities=ARRAY['central-records:read']::text[] FOR UPDATE`);
     if (!credential) return null;
     // Resolution linearizes at this use mark under grant lock. A request that
@@ -168,7 +181,7 @@ export async function resolveCentralReadCredential(token: string): Promise<Broke
     return { actor: runtime.actor as BrokerCredential["actor"], runtimeId: runtime.id,
       centralGrantId: grant.id,
       credentialId: credential.id, capabilities: ["central-records:read"],
-      expiresAt: new Date(credential.expires_at), standingVerifier: false };
+      expiresAt: new Date(credential.expires_utc as string), standingVerifier: false };
   });
 }
 

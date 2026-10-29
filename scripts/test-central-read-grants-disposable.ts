@@ -21,18 +21,19 @@ async function main() {
     await pool.query(`CREATE DATABASE "${name}"`);
     created = true;
     const cases = [
-      { timezone: "UTC", args: [] as string[] },
-      { timezone: "America/Denver", args: ["--test-name-pattern=central exchange expiry uses only database timestamps"] },
-      { timezone: "Asia/Kolkata", args: ["--test-name-pattern=central exchange expiry uses only database timestamps"] },
+      { timezone: "UTC", databaseTimezone: "UTC", args: [] as string[] },
+      { timezone: "America/Denver", databaseTimezone: "UTC", args: ["--test-name-pattern=central exchange expiry uses only database timestamps|one-calendar-year cap|expiry warning|warning window|failed warning|failed founder-inbox|warning scan racing"] },
+      { timezone: "Asia/Kolkata", databaseTimezone: "UTC", args: ["--test-name-pattern=central exchange expiry uses only database timestamps|one-calendar-year cap|expiry warning|warning window|failed warning|failed founder-inbox|warning scan racing"] },
+      { timezone: "Asia/Kolkata", databaseTimezone: "America/Denver", args: ["--test-name-pattern=central exchange expiry uses only database timestamps|one-calendar-year cap|expiry warning|warning window|failed warning|failed founder-inbox|warning scan racing"] },
     ];
     for (const proof of cases) {
-    console.log(`Central-read PostgreSQL proof: host timezone ${proof.timezone}`);
+    console.log(`Central-read PostgreSQL proof: host timezone ${proof.timezone}; database timezone ${proof.databaseTimezone}`);
     const code = await new Promise<number>((resolve, reject) => {
       const child = spawn(process.execPath, ["--import", "tsx", "--test", "--test-concurrency=1",
         ...proof.args,
         "server/scripts/test-central-read-grants-postgres.ts"], {
         stdio: "inherit", env: { ...process.env, CI: "true", TZ: proof.timezone,
-          PGOPTIONS: "-c TimeZone=UTC", CI_DATABASE_URL: target.toString(),
+          PGOPTIONS: `-c TimeZone=${proof.databaseTimezone}`, CI_DATABASE_URL: target.toString(),
           NEON_SHARED_DATABASE_URL: target.toString(), CENTRAL_READ_DISPOSABLE_TEST_URL: target.toString() },
       });
       child.once("error", reject);

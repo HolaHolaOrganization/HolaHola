@@ -1,3 +1,22 @@
+## 2026-10-28 — Central-read lifetime and warning (local source)
+
+Implemented the founder-selected one-calendar-year maximum and founder-inbox
+warning in the final 14 days. The database supplies the authoritative UTC
+maximum to both mutation validation and the admin input. Warning delivery and
+its unique per-grant audit marker are atomic; repeated/parallel scans,
+revoked/disabled/expired grants, both failure directions and revocation races
+have disposable PostgreSQL proofs. Migration0068 is generated, not applied to
+shared data. 51 HTTP checks and 21 full PostgreSQL checks pass; targeted proofs
+also pass under two non-UTC host zones and a non-UTC database zone. Root
+typecheck passes. The Neon gate exposed a legacy founder-ownership fixture
+missing its required promotion descriptor; corrected only the fixture, not the
+validator, and restarted the gate. The next failure is the older local
+ownership service violating task_ownership_challenge_purpose_context. Native
+main already contains the newer purpose-aware service and fixture. The complete
+native-baseline diff is diagnostic only: an isolated, scoped reconciliation
+is needed before review/promotion. Do not copy this workspace wholesale.
+Native-source review/release remain open.
+
 ## 2026-10-28 — Founder-only central-read issuer (local source)
 
 Required source-review corrections applied: grace recovery's revoke-all is

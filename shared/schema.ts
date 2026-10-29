@@ -8696,6 +8696,8 @@ export const coordinationCredentialAuditEvents = pgTable("coordination_credentia
   index("idx_coordination_credential_audit_runtime").on(table.runtimeId, table.createdAt),
   index("idx_coordination_credential_audit_actor").on(table.actor, table.createdAt),
   index("idx_coordination_credential_audit_failures").on(table.success, table.createdAt),
+  uniqueIndex("idx_central_expiry_warning_grant").on(sql`(${table.metadata}->>'grantId')`)
+    .where(sql`${table.eventType} = 'central_expiry_warned' AND ${table.success} = true`),
 ]);
 
 // Reusable runtime enrollment is deliberately provider-neutral and separate
