@@ -64,6 +64,7 @@ export type ExchangeBootstrapFailureReason =
   | 'bootstrap_already_consumed'
   | 'consumed_bootstrap_digest_conflict';
 export type BrokerCredential = {
+  centralGrantId?: string;
   actor: CoordinationActorId;
   runtimeId: string;
   credentialId: string;
@@ -1008,6 +1009,7 @@ async function attemptGraceBootstrapReexchange(input: {
     .from(coordinationRuntimeCredentials)
     .where(and(
       eq(coordinationRuntimeCredentials.runtimeId, runtimeId),
+      isNull(coordinationRuntimeCredentials.centralGrantId),
       isNotNull(coordinationRuntimeCredentials.lastUsedAt),
     ))
     .limit(1);
@@ -1023,8 +1025,11 @@ async function attemptGraceBootstrapReexchange(input: {
     return { ok: false, reason: 'bootstrap_already_consumed' };
   }
   // Nothing issued for this runtime has ever authenticated a request, so
-  // every still-live row found here is an abandoned dead end, never an
-  // active session -- safe to revoke. This is what closes the race against a
+  // every still-live ordinary row here is an abandoned dead end. Recovery
+  // also revokes central credentials, used or unused: a lost bootstrap/token
+  // must not leave a second read credential alive. The everUsed check above
+  // excludes central use, but this runtime-wide revocation stays inclusive.
+  // This is what closes the race against a
   // concurrent *first* use of one of them: resolveBrokerCredential takes the
   // exact advisory lock this function's caller already holds (see
   // exchangeBootstrapCredential) before marking a never-used credential as
@@ -1039,7 +1044,7 @@ async function attemptGraceBootstrapReexchange(input: {
       eq(coordinationRuntimeCredentials.runtimeId, runtimeId),
       isNull(coordinationRuntimeCredentials.revokedAt),
     ))
-    .returning({ id: coordinationRuntimeCredentials.id });
+    .returning({ id: coordinationRuntimeCredentials.id, centralGrantId: coordinationRuntimeCredentials.centralGrantId });
   await audit({
     eventType: 'bootstrap_grace_reexchange',
     success: true,
@@ -1048,7 +1053,8 @@ async function attemptGraceBootstrapReexchange(input: {
     sourceIp,
     metadata: {
       reason: 'prior_consumption_never_authenticated_a_request',
-      priorUnusedCredentialsRevoked: revoked.length,
+      priorUnusedCredentialsRevoked: revoked.filter(row => row.centralGrantId === null).length,
+      priorCentralCredentialsRevoked: revoked.filter(row => row.centralGrantId !== null).length,
     },
   }, executor);
   const issued = await issueForRegistration(registration, 'issued', sourceIp, undefined, executor);
@@ -1217,6 +1223,11 @@ export async function resolveBrokerCredential(
       )
       .where(eq(coordinationRuntimeCredentials.tokenHash, tokenHash));
     const stored = row?.credential;
+    if (stored?.centralGrantId != null) {
+      await audit({ eventType: 'access_failed', success: false, runtimeId: stored.runtimeId,
+        actor: stored.actor, credentialId: stored.id, reason: 'central_credential_generic_use', sourceIp }, executor);
+      return null;
+    }
     if (!stored || !actorIds.has(stored.actor) || !validCapabilities(stored.capabilities)) {
       await audit({ eventType: 'access_failed', success: false, reason: 'invalid_token', sourceIp }, executor);
       return null;
@@ -1308,6 +1319,7 @@ export async function renewBrokerCredential(
       .set({ revokedAt: new Date() })
       .where(and(
         eq(coordinationRuntimeCredentials.id, credential.credentialId),
+        isNull(coordinationRuntimeCredentials.centralGrantId),
         isNull(coordinationRuntimeCredentials.revokedAt),
         gt(coordinationRuntimeCredentials.expiresAt, new Date()),
       ))
@@ -1645,6 +1657,7 @@ export async function reissueCoordinationRuntimeBootstrap(
       .from(coordinationRuntimeCredentials)
       .where(and(
         eq(coordinationRuntimeCredentials.runtimeId, runtimeId),
+        isNull(coordinationRuntimeCredentials.centralGrantId),
         isNull(coordinationRuntimeCredentials.revokedAt),
         gt(coordinationRuntimeCredentials.expiresAt, new Date()),
       ))
@@ -1853,6 +1866,7 @@ export async function disableCoordinationRuntimeRegistration(
       .from(coordinationRuntimeCredentials)
       .where(and(
         eq(coordinationRuntimeCredentials.runtimeId, runtimeId),
+        isNull(coordinationRuntimeCredentials.centralGrantId),
         // Dormant mode tolerates past use but never a live credential.
         dormantDays === undefined
           ? or(isNotNull(coordinationRuntimeCredentials.lastUsedAt), liveCredential)
@@ -1865,7 +1879,10 @@ export async function disableCoordinationRuntimeRegistration(
         lastUsedAt: sql<Date | null>`max(${coordinationRuntimeCredentials.lastUsedAt})`
           .mapWith(coordinationRuntimeCredentials.lastUsedAt),
       }).from(coordinationRuntimeCredentials)
-        .where(eq(coordinationRuntimeCredentials.runtimeId, runtimeId));
+        .where(and(
+          eq(coordinationRuntimeCredentials.runtimeId, runtimeId),
+          isNull(coordinationRuntimeCredentials.centralGrantId),
+        ));
       lastUsedAt = usage?.lastUsedAt ?? null;
       const cutoff = new Date(checkedAt.getTime() - dormantDays * 24 * 60 * 60 * 1000);
       if (lastUsedAt && lastUsedAt > cutoff) {

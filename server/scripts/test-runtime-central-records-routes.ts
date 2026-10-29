@@ -52,6 +52,7 @@ before(async () => {
       const credential: BrokerCredential = {
         actor: token === "daniela" ? "daniela" : "luca-replit",
         runtimeId: "fixture-runtime", credentialId: "fixture-credential",
+        centralGrantId: token === "unbound" ? undefined : "fixture-grant",
         capabilities: token === "admin" ? ["coordination:runtime:admin"]
           : token === "coordination" ? ["coordination:read"] : ["central-records:read"],
         expiresAt: new Date(Date.now() + 60_000), standingVerifier: false,
@@ -101,7 +102,7 @@ for (const [token, status] of [
   ["invalid", 401], ["revoked", 401], ["no-cap", 403], ["legacy", 403],
   ["daniela", 403], ["mismatch", 403], ["expired", 403], ["invalid-expiry", 403],
   ["empty-runtime", 403], ["empty-id", 403], ["admin", 403], ["coordination", 403],
-  ["auth-down", 503],
+  ["unbound", 403], ["auth-down", 503],
 ] as const) {
   test(`${token} is refused before canonical access`, async () => {
     const beforeRepo = repoCalls, beforeAudit = audits.length;

@@ -14,6 +14,7 @@ import { requireRole, allowRoles, loadAuthenticatedUser, requireFounder, require
 import { registerCoordinationRoutes } from "./routes/coordination-routes";
 import { registerCentralRecordsRoutes } from "./routes/central-records-routes";
 import { registerRuntimeCentralRecordsRoutes } from "./routes/runtime-central-records-routes";
+import { registerCentralReadGrantRoutes } from "./routes/central-read-grant-routes";
 import { lucaChatPostHandler } from "./routes/luca-chat-post-route";
 import { registerMcpCoordinationRoutes } from "./routes/mcp-coordination-route";
 import { registerCoordinationCredentialRoutes } from "./routes/coordination-credential-routes";
@@ -700,6 +701,7 @@ export async function registerRoutes(app: Application): Promise<void> {
   });
   // Read-only and ungrantable until the separately reviewed founder issuer.
   registerRuntimeCentralRecordsRoutes(app);
+  registerCentralReadGrantRoutes(app);
 
   const sourcePromotionError = sourcePromotionConfigurationError();
   if (sourcePromotionError) {

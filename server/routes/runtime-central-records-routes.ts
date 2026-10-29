@@ -1,6 +1,6 @@
 import type { Application, RequestHandler } from "express";
 import { CENTRAL_READER_ACTORS } from "@shared/central-read-policy";
-import { resolveCoordinationCapability } from "../middleware/coordination-auth";
+import { resolveCentralReadCapability } from "../services/central-read-grants";
 import {
   centralEpisodeMetadata, centralEpisodeRead, createCentralEpisodeRepository,
   type CentralEpisodeRepository,
@@ -11,7 +11,7 @@ import {
 
 type Principal = Pick<CentralRecordAccessAudit, "actor" | "runtimeId" | "credentialId">;
 export interface RuntimeCentralRecordsDependencies {
-  resolve?: typeof resolveCoordinationCapability;
+  resolve?: typeof resolveCentralReadCapability;
   repository?: () => Promise<CentralEpisodeRepository>;
   audit?: (event: CentralRecordAccessAudit) => Promise<void>;
 }
@@ -20,7 +20,7 @@ export interface RuntimeCentralRecordsDependencies {
 export function registerRuntimeCentralRecordsRoutes(
   app: Application, options: RuntimeCentralRecordsDependencies = {},
 ): void {
-  const resolve = options.resolve ?? resolveCoordinationCapability;
+  const resolve = options.resolve ?? resolveCentralReadCapability;
   const repository = options.repository ?? createCentralEpisodeRepository;
   const audit = options.audit ?? writeCentralRecordAccessAudit;
   const privateResponse: RequestHandler = (_req, res, next) => {
@@ -51,8 +51,8 @@ export function registerRuntimeCentralRecordsRoutes(
       if (result.authType !== "broker" || !credential
         || credential.actor !== result.actor
         || !CENTRAL_READER_ACTORS.includes(result.actor)
-        || !credential.capabilities.includes("central-records:read")
-        || !credential.runtimeId || !credential.credentialId
+        || credential.capabilities.length !== 1 || credential.capabilities[0] !== "central-records:read"
+        || !credential.runtimeId || !credential.credentialId || !credential.centralGrantId
         || !(credential.expiresAt instanceof Date)
         || !Number.isFinite(credential.expiresAt.getTime())
         || credential.expiresAt.getTime() <= Date.now()) {
