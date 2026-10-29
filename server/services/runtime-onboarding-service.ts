@@ -926,6 +926,7 @@ export async function getRuntimeOnboardingAdminView(): Promise<{
       credentialExpiresAt: sql<Date | null>`(
         select max(c.expires_at) from ${coordinationRuntimeCredentials} c
         where c.runtime_id = ${coordinationRuntimeRegistrations.id}
+          and c.central_grant_id is null
           and c.actor = ${coordinationRuntimeRegistrations.actor}
           and c.revoked_at is null
       )`.mapWith(coordinationRuntimeCredentials.expiresAt),

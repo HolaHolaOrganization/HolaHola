@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { CentralReadGrantsPanel } from "@/components/admin/CentralReadGrantsPanel";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { AlertTriangle, ArrowLeft, Check, Clock3, Loader2, RefreshCw, ShieldCheck, X } from "lucide-react";
@@ -274,6 +275,8 @@ export default function RuntimeOnboarding() {
           Refresh
         </Button>
       </div>
+
+      <CentralReadGrantsPanel />
 
       <Alert>
         <AlertTriangle className="h-4 w-4" />
