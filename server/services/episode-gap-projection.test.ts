@@ -1,21 +1,29 @@
 // Planning for the rolling episode gap projection (2026-10-29 repair): which
 // canonical turns are missing, which are projected automatically, which are a
 // backlog that only a founder-approved backfill may fill, and when to alarm.
+// R1-R3 are Luca [Replit]'s review findings on #138, each pinned below.
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { describe, test } from 'node:test';
 import {
   EPISODE_GAP_ALARM_AFTER_MS,
   type CanonicalTurn,
-  exchangeInMd,
-  normForGap,
+  appendTurnsInOrder,
+  captureIdFromTags,
+  createEpisodeGapAlarmLatch,
+  episodeGapAlarmKey,
+  episodeTextForTurn,
   overdueTurns,
   planEpisodeGapProjection,
   rollingEpisodeFilenameFromTitle,
+  turnEpisodeMarker,
+  turnPresentInEpisode,
 } from './episode-gap-projection';
+import { canonicalTurnEpisodeMarker } from './inner-life-capture';
 
 const T0 = Date.parse('2026-10-29T06:00:00Z');
-const turn = (id: string, minutes: number, content: string): CanonicalTurn => ({ id, createdAtMs: T0 + minutes * 60_000, content });
+const turn = (id: string, minutes: number, content: string, captureId?: string): CanonicalTurn =>
+  ({ id, captureId, createdAtMs: T0 + minutes * 60_000, content });
 
 describe('rolling episode filename', () => {
   test('bare and subtitled "Episode N" titles both map to episode-N.md', () => {
@@ -31,63 +39,114 @@ describe('rolling episode filename', () => {
   });
 });
 
-describe('gap planning', () => {
-  const episode = [
-    'Episode 35 opening prose.',
-    '',
-    'David [Claude Code]: 135 approved',
-    '',
-    'Claude Code: Thanks. #135 will merge automatically, and I am watching main for it.',
-  ].join('\n');
+describe('turn identity (R1)', () => {
+  const prefix = 'David [Replit]: Please continue with the canonical recording review and preserve the existing boundaries.';
+  const first = turn('a', 0, `${prefix}\n\nLuca [Replit]: First answer: still blocked.`, 'cap-a');
+  const second = turn('b', 1, `${prefix}\n\nLuca [Replit]: Second answer: different independent finding.`, 'cap-b');
 
-  test('a turn already in the episode is skipped; absent turns at or after the floor are projected in order', () => {
-    const turns = [
-      turn('c', 30, 'David [Claude Code]: 136 approved\n\nClaude Code: Thanks. I am watching for #136 to merge.'),
-      turn('a', 0, 'David [Claude Code]: 135 approved\n\nClaude Code: Thanks. #135 will merge automatically, and I am watching main for it.'),
-      turn('b', 25, 'David [Claude Code]: anything from lr?\n\nClaude Code: Nothing new from LR yet.'),
-    ];
-    const plan = planEpisodeGapProjection(turns, episode, T0 + 20 * 60_000);
+  test('R1: two complete turns sharing a long opening are different turns', () => {
+    const episode = episodeTextForTurn(first);
+    assert.equal(turnPresentInEpisode(first, episode), true);
+    assert.equal(turnPresentInEpisode(second, episode), false);
+    assert.deepEqual(planEpisodeGapProjection([first, second], episode, 0).toAppend.map((t) => t.id), ['b']);
+  });
+
+  test('the marker is the live route\'s chat-capture marker when a capture id exists, else a row marker', () => {
+    assert.equal(turnEpisodeMarker(first), canonicalTurnEpisodeMarker('cap-a'));
+    assert.equal(turnEpisodeMarker({ id: 'row-9' }), '<!-- canonical-row:row-9 -->');
+    assert.equal(episodeTextForTurn(first), `${canonicalTurnEpisodeMarker('cap-a')}\n${first.content}`);
+  });
+
+  test('a marker proves presence even if the text was reformatted; an unmarked turn needs its WHOLE text', () => {
+    assert.equal(turnPresentInEpisode(first, `${turnEpisodeMarker(first)}\n(reformatted)`), true);
+    const unmarked = turn('c', 2, 'David [Claude Code]: 136 approved\n\nClaude Code: Thanks. I am watching for #136 to merge.');
+    assert.equal(turnPresentInEpisode(unmarked, '**David [Claude Code]:**   136   APPROVED\n\n**Claude Code:** Thanks. I am watching for #136 to merge.'), true);
+    assert.equal(turnPresentInEpisode(unmarked, 'David [Claude Code]: 136 approved\n\nClaude Code: Thanks. I am watching'), false);
+  });
+
+  test('capture ids are read from the row tags', () => {
+    assert.equal(captureIdFromTags(['per-turn', 'capture-id:cc-1-2']), 'cc-1-2');
+    assert.equal(captureIdFromTags(['per-turn']), undefined);
+    assert.equal(captureIdFromTags(null), undefined);
+  });
+});
+
+describe('gap planning', () => {
+  const present = turn('a', 0, 'David [Claude Code]: 135 approved\n\nClaude Code: Thanks.', 'cap-a');
+  const episode = `Episode 35 opening prose.\n${episodeTextForTurn(present)}\n`;
+
+  test('a present turn is skipped; absent turns at or after the floor are projected in order', () => {
+    const plan = planEpisodeGapProjection([
+      turn('c', 30, 'David [Claude Code]: 136 approved\n\nClaude Code: Watching #136.', 'cap-c'),
+      present,
+      turn('b', 25, 'David [Claude Code]: anything from lr?\n\nClaude Code: Nothing new.', 'cap-b'),
+    ], episode, T0 + 20 * 60_000);
     assert.deepEqual(plan.toAppend.map((t) => t.id), ['b', 'c']);
     assert.deepEqual([plan.backlog, plan.held], [[], []]);
   });
 
   test('while an older turn is missing, newer turns are held, never appended out of order', () => {
-    const turns = [
-      turn('old', 10, 'David [Claude Code]: anything from lr?\n\nClaude Code: Nothing new from LR yet.'),
-      turn('new', 30, 'David [Claude Code]: 136 approved\n\nClaude Code: Thanks. I am watching for #136 to merge.'),
-    ];
+    const turns = [turn('old', 10, 'David: old\n\nClaude Code: old reply', 'o'), turn('new', 30, 'David: new\n\nClaude Code: new reply', 'n')];
     const plan = planEpisodeGapProjection(turns, episode, T0 + 20 * 60_000);
-    assert.deepEqual(plan.backlog.map((t) => t.id), ['old']);
-    assert.deepEqual(plan.held.map((t) => t.id), ['new']);
-    assert.deepEqual(plan.toAppend, []);
-    // With a floor below every turn (the founder-approved backfill), all are appended, oldest first.
+    assert.deepEqual([plan.backlog.map((t) => t.id), plan.held.map((t) => t.id), plan.toAppend], [['old'], ['new'], []]);
+    // A floor below every turn (the founder-approved backfill) appends all, oldest first.
     assert.deepEqual(planEpisodeGapProjection(turns, episode, 0).toAppend.map((t) => t.id), ['old', 'new']);
   });
 
-  test('a turn exactly at the floor is projected, not backlog', () => {
-    const plan = planEpisodeGapProjection([turn('x', 20, 'David [Claude Code]: x\n\nClaude Code: y')], episode, T0 + 20 * 60_000);
-    assert.deepEqual(plan.toAppend.map((t) => t.id), ['x']);
-    assert.deepEqual(plan.backlog, []);
-  });
-
-  test('presence ignores whitespace, case and markdown bold, as the boot gap check always has', () => {
-    const md = '**David [Claude Code]:**   136   APPROVED\n\n**Claude Code:** Thanks.';
-    assert.equal(exchangeInMd('David [Claude Code]: 136 approved\n\nClaude Code: Thanks.', normForGap(md)), true);
-    assert.equal(exchangeInMd('David [Claude Code]: 137 approved', normForGap(md)), false);
-  });
-
-  test('equal timestamps keep a stable order by id', () => {
-    const plan = planEpisodeGapProjection([turn('b', 5, 'B text here'), turn('a', 5, 'A text here')], '', 0);
-    assert.deepEqual(plan.toAppend.map((t) => t.id), ['a', 'b']);
+  test('a turn exactly at the floor is projected, not backlog; equal timestamps order by id', () => {
+    assert.deepEqual(planEpisodeGapProjection([turn('x', 20, 'David: x\n\nClaude Code: y', 'x')], episode, T0 + 20 * 60_000).toAppend.map((t) => t.id), ['x']);
+    assert.deepEqual(planEpisodeGapProjection([turn('b', 5, 'B text', 'b'), turn('a', 5, 'A text', 'a2')], '', 0).toAppend.map((t) => t.id), ['a', 'b']);
   });
 });
 
-describe('alarm', () => {
+describe('in-order append (R2)', () => {
+  test('R2: after a failure nothing newer is appended, and the retry appends in order', async () => {
+    const older = turn('older', 1, 'older'), newer = turn('newer', 2, 'newer');
+    const episode: string[] = [];
+    let fail = true;
+    const append = async (t: CanonicalTurn) => {
+      if (t.id === 'older' && fail) { fail = false; throw new Error('transient'); }
+      episode.push(t.id);
+      return true;
+    };
+    const first = await appendTurnsInOrder([older, newer], append);
+    assert.deepEqual([first.appended.map((t) => t.id), first.held.map((t) => t.id)], [[], ['older', 'newer']]);
+    assert.deepEqual(episode, []);
+    const second = await appendTurnsInOrder(first.held, append);
+    assert.deepEqual([second.appended.map((t) => t.id), second.held], [['older', 'newer'], []]);
+    assert.deepEqual(episode, ['older', 'newer']);
+  });
+
+  test('a turn found already present (append returns false) is not counted as appended', async () => {
+    const result = await appendTurnsInOrder([turn('a', 1, 'a')], async () => false);
+    assert.deepEqual([result.appended, result.held], [[], []]);
+  });
+});
+
+describe('alarm (R3)', () => {
   test('only turns absent for more than 15 minutes are overdue', () => {
     const now = T0 + 60 * 60_000;
-    const absent = [turn('old', 0, 'x'), turn('edge', 45, 'y'), turn('fresh', 50, 'z')];
     assert.equal(EPISODE_GAP_ALARM_AFTER_MS, 15 * 60_000);
-    assert.deepEqual(overdueTurns(absent, now).map((t) => t.id), ['old']);
+    assert.deepEqual(overdueTurns([turn('old', 0, 'x'), turn('edge', 45, 'y'), turn('fresh', 50, 'z')], now).map((t) => t.id), ['old']);
+  });
+
+  test('R3: a failed delivery is retried; a delivered gap is not repeated; a closed gap re-arms', async () => {
+    const latch = createEpisodeGapAlarmLatch();
+    const key = episodeGapAlarmKey('episode-35.md', 3, '2026-10-29T06:00:00.000Z');
+    let attempts = 0;
+    const failing = async () => { attempts++; throw new Error('inbox down'); };
+    const working = async () => { attempts++; };
+    assert.equal(await latch.raise(key, failing), 'failed');
+    assert.equal(await latch.raise(key, working), 'delivered');
+    assert.equal(await latch.raise(key, working), 'already-delivered');
+    assert.equal(attempts, 2);
+    assert.equal(await latch.raise(null, working), 'cleared');
+    assert.equal(await latch.raise(key, working), 'delivered');
+  });
+
+  test('the alarm key distinguishes episodes and gaps, not only counts', () => {
+    assert.notEqual(episodeGapAlarmKey('episode-35.md', 3, 'a'), episodeGapAlarmKey('episode-36.md', 3, 'a'));
+    assert.notEqual(episodeGapAlarmKey('episode-35.md', 3, 'a'), episodeGapAlarmKey('episode-35.md', 3, 'b'));
   });
 });
 
@@ -102,11 +161,15 @@ describe('agent-session-autosave wiring', () => {
   test('the poll loop runs the throttled projection pass, which raises the founder alarm', () => {
     assert.match(source, /await checkRollingEpisodeGaps\(\);/);
     assert.match(source, /fingerprint: 'episode_projection_gap'/);
+    assert.match(source, /_episodeGapAlarmLatch\.raise\(key,/);
   });
 
-  test('the rolling filename is bound to the exact rolling row before any append', () => {
+  test('the rolling filename is bound to the exact rolling row; appends are marked, ordered and locked', () => {
     assert.match(source, /episodeIdCache\.set\(filename, row\.id as string\);/);
     assert.match(source, /SELECT content FROM conversation_memories WHERE id = \$\{memoryId\} FOR UPDATE/);
+    assert.match(source, /if \(turnPresentInEpisode\(turn, locked\.content\)\)/);
+    assert.match(source, /\$\{'\\n' \+ episodeTextForTurn\(turn\) \+ '\\n'\}/);
+    assert.match(source, /await appendTurnsInOrder\(plan\.toAppend,/);
   });
 
   test('automatic projection starts at the process floor; older turns are backlog only', () => {

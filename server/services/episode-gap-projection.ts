@@ -12,6 +12,8 @@
  * episode, silently, for days.
  */
 
+import { canonicalTurnEpisodeMarker } from './inner-life-capture';
+
 /** Normalise a string for fuzzy matching: collapse whitespace, lower-case. */
 export function normForGap(s: string): string {
   return s.replace(/\s+/g, ' ').trim().toLowerCase();
@@ -31,28 +33,31 @@ export function stripMdForGap(s: string): string {
 }
 
 /**
- * Return true when exchangeText is present in the normalised episode content.
- *
- * Strategy: normalise the full exchange block (collapse whitespace, lower-case)
- * and search for its first 60 chars in mdNorm.  60 chars is long enough to be
- * unique in any real conversation while being short enough to survive minor
- * line-break differences between the DB row and the episode copy.  Short
- * exchanges (< 60 chars) are matched in full — no minimum-length threshold that
- * would silently skip brief utterances.
- *
- * Falls back to a bold-stripped comparison so DB rows stored as "David: text"
- * still match lines formatted as "**David:** text".
- *
- * NOTE: The identical matcher lives in test-rolling-episode-gap-check.ts.
- * Keep both in sync whenever this logic changes.
+ * The identity marker a projected turn carries in the episode. A turn with a
+ * capture id uses the same marker the live chat-capture route writes, so both
+ * routes agree on identity; a turn without one is identified by its row id.
  */
-export function exchangeInMd(exchangeText: string, mdNorm: string): boolean {
-  const normalised = normForGap(exchangeText);
-  if (!normalised) return true; // purely whitespace — treat as present (skip)
-  const key = normalised.slice(0, 60);
-  if (mdNorm.includes(key)) return true;
-  // Fallback: strip ** so "david: text" matches "**david:** text"
-  return stripMdForGap(mdNorm).includes(stripMdForGap(key));
+export function turnEpisodeMarker(turn: Pick<CanonicalTurn, 'id' | 'captureId'>): string {
+  return turn.captureId ? canonicalTurnEpisodeMarker(turn.captureId) : `<!-- canonical-row:${turn.id} -->`;
+}
+
+/** Exactly what the projection appends for one turn: its marker, then its text. */
+export function episodeTextForTurn(turn: CanonicalTurn): string {
+  return `${turnEpisodeMarker(turn)}\n${turn.content}`;
+}
+
+/**
+ * Whether the episode already holds this exact turn. Identity first: its
+ * marker. For turns appended before markers existed, the WHOLE turn text must
+ * be present (whitespace, case and markdown bold normalised), never a prefix:
+ * two turns that share an opening but differ anywhere are different turns.
+ */
+export function turnPresentInEpisode(turn: CanonicalTurn, episodeContent: string): boolean {
+  if (episodeContent.includes(turnEpisodeMarker(turn))) return true;
+  const whole = normForGap(turn.content);
+  if (!whole) return true; // purely whitespace — nothing to project
+  const norm = normForGap(episodeContent);
+  return norm.includes(whole) || stripMdForGap(norm).includes(stripMdForGap(whole));
 }
 
 /**
@@ -73,8 +78,17 @@ export const EPISODE_PROJECTION_FLOOR_MARGIN_MS = 30 * 60_000;
 
 export interface CanonicalTurn {
   id: string;
+  /** From the row's capture-id:<id> tag, when it has one. */
+  captureId?: string;
   content: string;
   createdAtMs: number;
+}
+
+/** The capture id recorded in a per-turn row's tags, if any. */
+export function captureIdFromTags(tags: readonly string[] | null | undefined): string | undefined {
+  const tag = (tags ?? []).find((t) => t.startsWith('capture-id:'));
+  const id = tag?.slice('capture-id:'.length);
+  return id ? id : undefined;
 }
 
 export interface EpisodeGapPlan {
@@ -95,15 +109,14 @@ export interface EpisodeGapPlan {
 
 /**
  * Decide which canonical turns the rolling episode is missing. A turn already
- * present (by the gap matcher) is skipped; absent turns are split at the
+ * present (turnPresentInEpisode) is skipped; absent turns are split at the
  * floor into automatic projection and reported backlog. While any backlog
  * exists, newer absent turns are held rather than appended out of order.
  */
 export function planEpisodeGapProjection(turns: readonly CanonicalTurn[], episodeContent: string, floorMs: number): EpisodeGapPlan {
-  const norm = normForGap(episodeContent);
   const plan: EpisodeGapPlan = { toAppend: [], backlog: [], held: [] };
   for (const turn of [...turns].sort((a, b) => a.createdAtMs - b.createdAtMs || a.id.localeCompare(b.id))) {
-    if (exchangeInMd(turn.content, norm)) continue;
+    if (turnPresentInEpisode(turn, episodeContent)) continue;
     if (turn.createdAtMs < floorMs) plan.backlog.push(turn);
     else (plan.backlog.length > 0 ? plan.held : plan.toAppend).push(turn);
   }
@@ -116,4 +129,51 @@ export function planEpisodeGapProjection(turns: readonly CanonicalTurn[], episod
  */
 export function overdueTurns(stillAbsent: readonly CanonicalTurn[], nowMs: number): CanonicalTurn[] {
   return stillAbsent.filter((turn) => nowMs - turn.createdAtMs > EPISODE_GAP_ALARM_AFTER_MS);
+}
+
+/**
+ * Append turns strictly in order. On the first failure, stop: that turn and
+ * every later one are returned as held, so a retry can never put a newer turn
+ * before an older one.
+ */
+export async function appendTurnsInOrder(
+  turns: readonly CanonicalTurn[],
+  append: (turn: CanonicalTurn) => Promise<boolean>,
+): Promise<{ appended: CanonicalTurn[]; held: CanonicalTurn[]; error?: unknown }> {
+  const appended: CanonicalTurn[] = [];
+  for (let i = 0; i < turns.length; i++) {
+    try {
+      if (await append(turns[i])) appended.push(turns[i]);
+    } catch (error) {
+      return { appended, held: turns.slice(i), error };
+    }
+  }
+  return { appended, held: [] };
+}
+
+/** One gap's identity for the alarm: episode, overdue count and oldest turn. */
+export function episodeGapAlarmKey(episodeFilename: string | null, overdue: number, oldestOverdueAt: string | null): string {
+  return `${episodeFilename}|${overdue}|${oldestOverdueAt}`;
+}
+
+/**
+ * The alarm's delivery latch. A gap is marked delivered only after its notice
+ * was durably written, so a failed delivery is retried on the next pass; a
+ * closed gap re-arms it.
+ */
+export function createEpisodeGapAlarmLatch() {
+  let delivered: string | null = null;
+  return {
+    async raise(key: string | null, deliver: () => Promise<void>): Promise<'cleared' | 'already-delivered' | 'delivered' | 'failed'> {
+      if (key === null) { delivered = null; return 'cleared'; }
+      if (key === delivered) return 'already-delivered';
+      try {
+        await deliver();
+        delivered = key;
+        return 'delivered';
+      } catch {
+        return 'failed';
+      }
+    },
+  };
 }

@@ -44,11 +44,15 @@ import { getUserDb } from '../db';
 import {
   EPISODE_PROJECTION_FLOOR_MARGIN_MS,
   type CanonicalTurn,
-  exchangeInMd,
-  normForGap,
+  appendTurnsInOrder,
+  captureIdFromTags,
+  createEpisodeGapAlarmLatch,
+  episodeGapAlarmKey,
+  episodeTextForTurn,
   overdueTurns,
   planEpisodeGapProjection,
   rollingEpisodeFilenameFromTitle,
+  turnPresentInEpisode,
 } from './episode-gap-projection';
 import { sql } from 'drizzle-orm';
 import { projectHistoricalEpisodeMirror } from './historical-attribution-mirror-recovery';
@@ -3632,8 +3636,12 @@ const PROCESS_STARTED_AT_MS = Date.now();
 const EPISODE_GAP_PROJECTION_INTERVAL_MS = 5 * 60_000;
 let _lastEpisodeGapProjectionMs = 0;
 let _episodeGapProjectionInFlight = false;
-/** The overdue count last alerted, so one gap raises one founder alert. */
-let _episodeGapAlertedCount = 0;
+/**
+ * Marks a gap (episode, count, oldest turn) delivered only after its founder
+ * notice is durably written, so one gap raises one alert and a failed
+ * delivery is retried on the next pass.
+ */
+const _episodeGapAlarmLatch = createEpisodeGapAlarmLatch();
 
 export interface RollingEpisodeGapReport {
   episodeFilename: string | null;
@@ -3655,16 +3663,16 @@ function rowsOf(result: unknown): any[] {
  * row lock, so concurrent appenders in other processes cannot both append the
  * same turn. Returns the row's content after the decision.
  */
-async function appendTurnToEpisodeRowIfAbsent(memoryId: string, text: string): Promise<{ appended: boolean; content: string }> {
+async function appendTurnToEpisodeRowIfAbsent(memoryId: string, turn: CanonicalTurn): Promise<{ appended: boolean; content: string }> {
   return getUserDb().transaction(async (tx) => {
     const locked = rowsOf(await tx.execute(sql`
       SELECT content FROM conversation_memories WHERE id = ${memoryId} FOR UPDATE
     `))[0];
     if (typeof locked?.content !== 'string') throw new Error(`rolling episode row ${memoryId} has no content`);
-    if (exchangeInMd(text, normForGap(locked.content))) return { appended: false, content: locked.content };
+    if (turnPresentInEpisode(turn, locked.content)) return { appended: false, content: locked.content };
     const updated = rowsOf(await tx.execute(sql`
       UPDATE conversation_memories
-      SET content = content || ${'\n' + text + '\n'}
+      SET content = content || ${'\n' + episodeTextForTurn(turn) + '\n'}
       WHERE id = ${memoryId}
       RETURNING content
     `))[0];
@@ -3698,7 +3706,7 @@ export async function projectRollingEpisodeGaps(
   // Scoped to this episode's own window, so turns from a prior episode are
   // never appended here.
   const turns: CanonicalTurn[] = rowsOf(await db.execute(sql`
-    SELECT id, content, created_at
+    SELECT id, content, created_at, tags
     FROM conversation_memories
     WHERE arc_name = 'david-luca-chat'
       AND 'per-turn' = ANY(tags)
@@ -3706,7 +3714,12 @@ export async function projectRollingEpisodeGaps(
     ORDER BY created_at ASC, id ASC
   `))
     .filter((r) => typeof r.content === 'string' && !isCiSentinelExchange(r.content))
-    .map((r) => ({ id: r.id as string, content: (r.content as string).trim(), createdAtMs: new Date(r.created_at).getTime() }));
+    .map((r) => ({
+      id: r.id as string,
+      captureId: captureIdFromTags(r.tags as string[] | null),
+      content: (r.content as string).trim(),
+      createdAtMs: new Date(r.created_at).getTime(),
+    }));
   report.checked = turns.length;
 
   const plan = planEpisodeGapProjection(turns, episode.content, floorMs);
@@ -3714,19 +3727,21 @@ export async function projectRollingEpisodeGaps(
   report.held = plan.held.length;
   const stillAbsent: CanonicalTurn[] = [...plan.backlog, ...plan.held];
   let content: string | null = null;
-  for (const turn of plan.toAppend) {
-    try {
-      const result = await withEpisodeFileLock(episodeFilename, () => appendTurnToEpisodeRowIfAbsent(memoryId, turn.content));
-      content = result.content;
-      if (result.appended) {
-        report.appended++;
-        console.log(`[AgentAutosave] Episode projection: turn ${turn.id} → ${episodeFilename}`);
-      }
-    } catch (err: any) {
-      stillAbsent.push(turn);
-      console.error(`[AgentAutosave] Episode projection failed for turn ${turn.id}:`, err?.message ?? err);
-      flagDbWriteFailure(`episode-projection:${episodeFilename}`, err?.message ?? String(err));
-    }
+  // Strictly in order: on the first failure that turn and all later ones are
+  // held for the next pass, so a newer turn never lands before an older one.
+  const outcome = await appendTurnsInOrder(plan.toAppend, async (turn) => {
+    const result = await withEpisodeFileLock(episodeFilename, () => appendTurnToEpisodeRowIfAbsent(memoryId, turn));
+    content = result.content;
+    if (result.appended) console.log(`[AgentAutosave] Episode projection: turn ${turn.id} → ${episodeFilename}`);
+    return result.appended;
+  });
+  report.appended = outcome.appended.length;
+  if (outcome.held.length > 0) {
+    stillAbsent.push(...outcome.held);
+    report.held += outcome.held.length;
+    const message = (outcome.error as any)?.message ?? String(outcome.error);
+    console.error(`[AgentAutosave] Episode projection failed for turn ${outcome.held[0].id}; holding ${outcome.held.length} turn(s) in order:`, message);
+    flagDbWriteFailure(`episode-projection:${episodeFilename}`, message);
   }
   if (report.appended > 0 && content !== null) {
     // The row is canonical; the replica is refreshed from its exact content.
@@ -3751,16 +3766,15 @@ export async function projectRollingEpisodeGaps(
  */
 async function raiseEpisodeGapAlarm(report: RollingEpisodeGapReport): Promise<void> {
   if (report.overdue === 0) {
-    _episodeGapAlertedCount = 0;
+    await _episodeGapAlarmLatch.raise(null, async () => {});
     return;
   }
   console.error(
     `[AgentAutosave] EPISODE GAP: ${report.overdue} canonical turn(s) absent from ${report.episodeFilename} ` +
     `for over 15 minutes (oldest ${report.oldestOverdueAt}; ${report.backlog} predate automatic projection).`,
   );
-  if (report.overdue === _episodeGapAlertedCount) return;
-  _episodeGapAlertedCount = report.overdue;
-  try {
+  const key = episodeGapAlarmKey(report.episodeFilename, report.overdue, report.oldestOverdueAt);
+  const result = await _episodeGapAlarmLatch.raise(key, async () => {
     const { aldenNotifications } = await import('@shared/schema');
     await getUserDb().insert(aldenNotifications).values({
       content: [
@@ -3776,8 +3790,9 @@ async function raiseEpisodeGapAlarm(report: RollingEpisodeGapReport): Promise<vo
       read: false,
       fingerprint: 'episode_projection_gap',
     });
-  } catch (err: any) {
-    console.warn('[AgentAutosave] Episode gap founder-inbox notification failed:', err?.message ?? err);
+  });
+  if (result === 'failed') {
+    console.warn('[AgentAutosave] Episode gap founder-inbox notification failed; will retry next pass.');
   }
 }
 
