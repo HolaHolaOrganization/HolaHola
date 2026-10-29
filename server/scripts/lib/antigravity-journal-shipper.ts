@@ -1,5 +1,55 @@
-import { mkdir, readdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { createHash } from 'node:crypto';
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { copyFile, mkdir, readdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
+import { createRequire } from 'node:module';
+import { tmpdir } from 'node:os';
+import { basename, join } from 'node:path';
+
+interface SqliteStatement {
+  all(...params: unknown[]): unknown[];
+  get(...params: unknown[]): unknown;
+  run(...params: unknown[]): unknown;
+}
+
+interface SqliteDatabaseSync {
+  prepare(sql: string): SqliteStatement;
+  exec(sql: string): void;
+  close(): void;
+}
+
+const requireSqlite = createRequire(import.meta.url);
+
+/**
+ * Enforces the LITTLENEMO shipper runtime contract: Node 22.5+ / Node 24 with
+ * built-in `node:sqlite` is required so the shipper never silently degrades or
+ * skips its SQLite fallback.
+ */
+export function assertNodeSqliteRuntime(
+  loader: (moduleId: string) => unknown = requireSqlite
+): { DatabaseSync: new (path: string, opts?: { readOnly?: boolean }) => SqliteDatabaseSync } {
+  try {
+    const mod = loader('node:sqlite') as {
+      DatabaseSync?: new (path: string, opts?: { readOnly?: boolean }) => SqliteDatabaseSync;
+    };
+    if (!mod || typeof mod.DatabaseSync !== 'function') {
+      throw new Error('DatabaseSync missing');
+    }
+    return mod as { DatabaseSync: new (path: string, opts?: { readOnly?: boolean }) => SqliteDatabaseSync };
+  } catch {
+    throw new Error(
+      `unsupported_node_runtime: antigravity-journal-shipper requires Node 22+ (node:sqlite); current runtime is ${process.version}`
+    );
+  }
+}
+
+function openSqliteDatabase(dbPath: string, options?: { readOnly?: boolean }): SqliteDatabaseSync {
+  const mod = assertNodeSqliteRuntime();
+  return new mod.DatabaseSync(dbPath, options);
+}
+
+export const PINNED_ANTIGRAVITY_IDE_VERSION = '2.6.0';
+export const PINNED_ANTIGRAVITY_STEP_FORMAT = 0;
+export const EVICTION_WARNING_UNSHIPPED_STEPS = 1500;
 
 export interface AntigravityExchange {
   conversationId: string;
@@ -46,6 +96,24 @@ export interface AcceptedExchangeRecord {
   assistantText: string;
 }
 
+export interface SourceSnapshotEvidence {
+  conversationId: string;
+  dbPath: string;
+  sourceDbSha256: string;
+  walSha256?: string;
+  pinnedIdeVersion: string;
+  capturedAt: string;
+}
+
+export interface EvictionWarningRecord {
+  conversationId: string;
+  afterStepIndex: number;
+  lastProcessedStepIndex: number;
+  unshippedStepSpan: number;
+  threshold: number;
+  recordedAt: string;
+}
+
 export interface ParseResult {
   exchanges: AntigravityExchange[];
   unpairedUserInputs: PendingUserInput[];
@@ -53,6 +121,30 @@ export interface ParseResult {
   openTrailingTurn?: OpenTrailingTurn;
   incompleteTrailingLine?: string;
   lastProcessedStepIndex: number;
+}
+
+export interface SqliteSnapshotParseResult extends ParseResult {
+  sourceSnapshot: SourceSnapshotEvidence;
+}
+
+/**
+ * Guard against reading conversation_summaries.db under any circumstance.
+ * Summaries must never stand in for verbatim words (Inviolability of the Narrative).
+ */
+export function assertNotSummariesDb(filePath: string): void {
+  if (basename(filePath).toLowerCase() === 'conversation_summaries.db') {
+    throw new Error(
+      'forbidden_summaries_db: conversation_summaries.db must never be used as a transcript source'
+    );
+  }
+}
+
+/**
+ * Detects literal compact-log truncation markers injected by Antigravity into
+ * compact transcript.jsonl when a field exceeds ~4 KB.
+ */
+export function hasCompactTruncationMarker(text: string): boolean {
+  return /<truncated \d+ bytes/.test(text);
 }
 
 /**
@@ -64,6 +156,10 @@ export interface ParseResult {
 export function extractAntigravityUserRequest(rawContent: string): { userText?: string; error?: string } {
   if (typeof rawContent !== 'string') {
     return { error: 'content_not_string' };
+  }
+
+  if (hasCompactTruncationMarker(rawContent)) {
+    return { error: 'compact_jsonl_truncated' };
   }
 
   const openTag = '<USER_REQUEST>';
@@ -121,7 +217,7 @@ export function extractAntigravityAssistantText(rawContent: string): string {
 /**
  * Parses a sequence of transcript lines from an Antigravity journal.
  * Distinguishes completed exchanges from unpaired pending user inputs and open trailing turns.
- * Fails closed on mid-file corrupted JSON.
+ * Fails closed on mid-file corrupted JSON and rejects compact-truncated records.
  */
 export function parseAntigravityJournal(
   lines: string[],
@@ -171,6 +267,11 @@ export function parseAntigravityJournal(
       lastProcessedStepIndex = stepIndex;
     }
 
+    const hasTruncatedFields =
+      Array.isArray(record.truncated_fields) && record.truncated_fields.length > 0;
+    const rawContentStr = typeof record.content === 'string' ? record.content : '';
+    const isContentTruncated = hasTruncatedFields || hasCompactTruncationMarker(rawContentStr);
+
     if (record.type === 'USER_INPUT' && record.source === 'USER_EXPLICIT') {
       // A new USER_INPUT provides definitive native completion evidence for the previous turn
       if (currentTurn) {
@@ -200,15 +301,29 @@ export function parseAntigravityJournal(
       const createdAt = typeof record.created_at === 'string' && record.created_at.trim()
         ? record.created_at
         : 'unknown';
-      const extraction = extractAntigravityUserRequest(record.content || '');
       const turnId = `ag-${conversationId}-${stepIndex}`;
+
+      if (isContentTruncated) {
+        unresolvedTurns.push({
+          conversationId,
+          stepIndex,
+          turnId,
+          rawContent: rawContentStr,
+          reason: 'compact_jsonl_truncated',
+          createdAt,
+        });
+        currentTurn = null;
+        continue;
+      }
+
+      const extraction = extractAntigravityUserRequest(rawContentStr);
 
       if (extraction.error || !extraction.userText) {
         unresolvedTurns.push({
           conversationId,
           stepIndex,
           turnId,
-          rawContent: record.content || '',
+          rawContent: rawContentStr,
           reason: extraction.error || 'unresolved',
           createdAt,
         });
@@ -224,10 +339,24 @@ export function parseAntigravityJournal(
         assistantParts: [],
       };
     } else if (record.type === 'PLANNER_RESPONSE' && record.source === 'MODEL') {
-      if (currentTurn && record.content) {
-        const text = extractAntigravityAssistantText(record.content);
-        if (text) {
-          currentTurn.assistantParts.push(text);
+      if (currentTurn) {
+        if (isContentTruncated) {
+          unresolvedTurns.push({
+            conversationId,
+            stepIndex: currentTurn.stepIndex,
+            turnId: currentTurn.turnId,
+            rawContent: rawContentStr,
+            reason: 'compact_jsonl_truncated',
+            createdAt: currentTurn.createdAt,
+          });
+          currentTurn = null;
+          continue;
+        }
+        if (rawContentStr) {
+          const text = extractAntigravityAssistantText(rawContentStr);
+          if (text) {
+            currentTurn.assistantParts.push(text);
+          }
         }
       }
     }
@@ -267,6 +396,809 @@ export function parseAntigravityJournal(
     incompleteTrailingLine,
     lastProcessedStepIndex,
   };
+}
+
+export interface ProtobufField {
+  fieldNumber: number;
+  wireType: number;
+  varintValue?: bigint;
+  bytes?: Uint8Array;
+}
+
+const strictUtf8Decoder = new TextDecoder('utf-8', { fatal: true });
+
+export function decodeUtf8Strict(bytes: Uint8Array): string {
+  try {
+    return strictUtf8Decoder.decode(bytes);
+  } catch {
+    throw new Error('corrupt_protobuf_payload: invalid_utf8');
+  }
+}
+
+/**
+ * Fail-closed protobuf wire decoder for Antigravity step_payload and metadata blobs.
+ * Rejects any unknown wire type, truncated varint, fieldNumber <= 0, or length overflow.
+ */
+export function decodeProtobufFields(u8: Uint8Array | null | undefined): ProtobufField[] {
+  if (!u8 || u8.length === 0) {
+    throw new Error('corrupt_protobuf_payload: empty_buffer');
+  }
+  const buf = Buffer.from(u8.buffer, u8.byteOffset, u8.byteLength);
+  const out: ProtobufField[] = [];
+  let offset = 0;
+
+  const ZERO = BigInt(0);
+  const THREE = BigInt(3);
+  const SEVEN = BigInt(7);
+  const THIRTY_FIVE = BigInt(35);
+  const SIXTY_FOUR = BigInt(64);
+  const MASK_7F = BigInt(0x7f);
+  const MASK_80 = BigInt(0x80);
+  const MASK_07 = BigInt(0x07);
+
+  while (offset < buf.length) {
+    let tag = ZERO;
+    let shift = ZERO;
+    let tagComplete = false;
+    while (offset < buf.length) {
+      if (shift >= SIXTY_FOUR) {
+        throw new Error('corrupt_protobuf_payload: tag_varint_overflow');
+      }
+      const b = BigInt(buf[offset++]);
+      tag |= (b & MASK_7F) << shift;
+      if ((b & MASK_80) === ZERO) {
+        tagComplete = true;
+        break;
+      }
+      shift += SEVEN;
+    }
+    if (!tagComplete) {
+      throw new Error('corrupt_protobuf_payload: truncated_tag_varint');
+    }
+
+    const wireType = Number(tag & MASK_07);
+    const fieldNumber = Number(tag >> THREE);
+    if (!Number.isSafeInteger(fieldNumber) || fieldNumber <= 0) {
+      throw new Error('corrupt_protobuf_payload: invalid_field_number');
+    }
+
+    if (wireType === 0) {
+      let val = ZERO;
+      let vShift = ZERO;
+      let valComplete = false;
+      while (offset < buf.length) {
+        if (vShift >= SIXTY_FOUR) {
+          throw new Error('corrupt_protobuf_payload: varint_overflow');
+        }
+        const b = BigInt(buf[offset++]);
+        val |= (b & MASK_7F) << vShift;
+        if ((b & MASK_80) === ZERO) {
+          valComplete = true;
+          break;
+        }
+        vShift += SEVEN;
+      }
+      if (!valComplete) {
+        throw new Error('corrupt_protobuf_payload: truncated_varint');
+      }
+      out.push({ fieldNumber, wireType, varintValue: val });
+    } else if (wireType === 2) {
+      let lenBig = ZERO;
+      let lShift = ZERO;
+      let lenComplete = false;
+      while (offset < buf.length) {
+        if (lShift >= THIRTY_FIVE) {
+          throw new Error('corrupt_protobuf_payload: length_varint_overflow');
+        }
+        const b = BigInt(buf[offset++]);
+        lenBig |= (b & MASK_7F) << lShift;
+        if ((b & MASK_80) === ZERO) {
+          lenComplete = true;
+          break;
+        }
+        lShift += SEVEN;
+      }
+      if (!lenComplete) {
+        throw new Error('corrupt_protobuf_payload: truncated_length_varint');
+      }
+      const len = Number(lenBig);
+      if (len < 0 || offset + len > buf.length) {
+        throw new Error('corrupt_protobuf_payload: length_overflow');
+      }
+      const slice = buf.subarray(offset, offset + len);
+      offset += len;
+      out.push({ fieldNumber, wireType, bytes: slice });
+    } else if (wireType === 1) {
+      if (offset + 8 > buf.length) {
+        throw new Error('corrupt_protobuf_payload: truncated_fixed64');
+      }
+      const slice = buf.subarray(offset, offset + 8);
+      offset += 8;
+      out.push({ fieldNumber, wireType, bytes: slice });
+    } else if (wireType === 5) {
+      if (offset + 4 > buf.length) {
+        throw new Error('corrupt_protobuf_payload: truncated_fixed32');
+      }
+      const slice = buf.subarray(offset, offset + 4);
+      offset += 4;
+      out.push({ fieldNumber, wireType, bytes: slice });
+    } else {
+      throw new Error(`corrupt_protobuf_payload: unsupported_wire_type_${wireType}`);
+    }
+  }
+
+  return out;
+}
+
+export interface SqliteStepRow {
+  idx: number;
+  step_type: number;
+  status: number;
+  metadata: Uint8Array | null;
+  step_payload: Uint8Array | null;
+  step_format: number | null;
+}
+
+/**
+ * Directly parses rows from an Antigravity conversations/<id>.db `steps` table.
+ * Builds user turns directly from `step_payload` field 19.2 without synthetic
+ * <USER_REQUEST> envelope wrapping (preserving trailing bare \r and all whitespace byte-exact).
+ * Fails closed on unsupported step_format, status=5 evicted payloads, or malformed protobuf blobs.
+ */
+export function parseAntigravitySqliteSteps(
+  rows: SqliteStepRow[],
+  conversationId: string,
+  afterStepIndex = -1
+): ParseResult {
+  const exchanges: AntigravityExchange[] = [];
+  const unpairedUserInputs: PendingUserInput[] = [];
+  const unresolvedTurns: UnresolvedTurn[] = [];
+  let openTrailingTurn: OpenTrailingTurn | undefined;
+  let lastProcessedStepIndex = afterStepIndex;
+
+  interface PendingTurn {
+    stepIndex: number;
+    turnId: string;
+    userText: string;
+    createdAt: string;
+    assistantParts: string[];
+  }
+
+  let currentTurn: PendingTurn | null = null;
+
+  const sealCurrentTurn = () => {
+    if (!currentTurn) return;
+    const fullAssistantText = currentTurn.assistantParts.join('\n\n');
+    if (fullAssistantText.trim()) {
+      exchanges.push({
+        conversationId,
+        stepIndex: currentTurn.stepIndex,
+        turnId: currentTurn.turnId,
+        userText: currentTurn.userText,
+        assistantText: fullAssistantText,
+        createdAt: currentTurn.createdAt,
+      });
+    } else {
+      unpairedUserInputs.push({
+        conversationId,
+        stepIndex: currentTurn.stepIndex,
+        turnId: currentTurn.turnId,
+        userText: currentTurn.userText,
+        createdAt: currentTurn.createdAt,
+      });
+    }
+    currentTurn = null;
+  };
+
+  for (const r of rows) {
+    const stepIndex = typeof r.idx === 'number' ? r.idx : -1;
+    if (stepIndex <= afterStepIndex) {
+      continue;
+    }
+
+    if (stepIndex > lastProcessedStepIndex) {
+      lastProcessedStepIndex = stepIndex;
+    }
+
+    const turnId = `ag-${conversationId}-${stepIndex}`;
+
+    if (r.step_format !== PINNED_ANTIGRAVITY_STEP_FORMAT) {
+      if (r.step_type === 14) {
+        sealCurrentTurn();
+        unresolvedTurns.push({
+          conversationId,
+          stepIndex,
+          turnId,
+          rawContent: '',
+          reason: 'unsupported_step_format',
+          createdAt: 'unknown',
+        });
+      } else if (r.step_type === 15 && currentTurn) {
+        unresolvedTurns.push({
+          conversationId,
+          stepIndex: currentTurn.stepIndex,
+          turnId: currentTurn.turnId,
+          rawContent: '',
+          reason: 'unsupported_step_format',
+          createdAt: currentTurn.createdAt,
+        });
+        currentTurn = null;
+      }
+      continue;
+    }
+
+    let metaFields: ProtobufField[];
+    try {
+      metaFields = decodeProtobufFields(r.metadata);
+    } catch {
+      if (r.step_type === 14) {
+        sealCurrentTurn();
+        unresolvedTurns.push({
+          conversationId,
+          stepIndex,
+          turnId,
+          rawContent: '',
+          reason: 'corrupt_protobuf_payload',
+          createdAt: 'unknown',
+        });
+      } else if (r.step_type === 15 && currentTurn) {
+        unresolvedTurns.push({
+          conversationId,
+          stepIndex: currentTurn.stepIndex,
+          turnId: currentTurn.turnId,
+          rawContent: '',
+          reason: 'corrupt_protobuf_payload',
+          createdAt: currentTurn.createdAt,
+        });
+        currentTurn = null;
+      }
+      continue;
+    }
+
+    if (
+      metaFields.some(
+        f => (f.fieldNumber === 1 && f.wireType !== 2) || (f.fieldNumber === 3 && f.wireType !== 0)
+      )
+    ) {
+      if (r.step_type === 14) {
+        sealCurrentTurn();
+        unresolvedTurns.push({
+          conversationId,
+          stepIndex,
+          turnId,
+          rawContent: '',
+          reason: 'corrupt_protobuf_payload',
+          createdAt: 'unknown',
+        });
+      } else if (r.step_type === 15 && currentTurn) {
+        unresolvedTurns.push({
+          conversationId,
+          stepIndex: currentTurn.stepIndex,
+          turnId: currentTurn.turnId,
+          rawContent: '',
+          reason: 'corrupt_protobuf_payload',
+          createdAt: currentTurn.createdAt,
+        });
+        currentTurn = null;
+      }
+      continue;
+    }
+
+    let createdAt = 'unknown';
+    const tsField = metaFields.find(f => f.fieldNumber === 1 && f.wireType === 2 && f.bytes);
+    if (tsField?.bytes) {
+      try {
+        const tsSub = decodeProtobufFields(tsField.bytes);
+        if (tsSub.some(f => f.fieldNumber === 1 && f.wireType !== 0)) {
+          throw new Error('corrupt_protobuf_payload: invalid_timestamp_wire_type');
+        }
+        const secField = tsSub.find(f => f.fieldNumber === 1 && f.wireType === 0);
+        const sec = Number(secField?.varintValue ?? BigInt(0));
+        if (Number.isSafeInteger(sec) && sec > 0) {
+          createdAt = new Date(sec * 1000).toISOString().replace('.000Z', 'Z');
+        }
+      } catch {
+        if (r.step_type === 14) {
+          sealCurrentTurn();
+          unresolvedTurns.push({
+            conversationId,
+            stepIndex,
+            turnId,
+            rawContent: '',
+            reason: 'corrupt_protobuf_payload',
+            createdAt: 'unknown',
+          });
+          continue;
+        } else if (r.step_type === 15 && currentTurn) {
+          unresolvedTurns.push({
+            conversationId,
+            stepIndex: currentTurn.stepIndex,
+            turnId: currentTurn.turnId,
+            rawContent: '',
+            reason: 'corrupt_protobuf_payload',
+            createdAt: currentTurn.createdAt,
+          });
+          currentTurn = null;
+          continue;
+        }
+      }
+    }
+
+    const sourceEnum = Number(metaFields.find(f => f.fieldNumber === 3 && f.wireType === 0)?.varintValue ?? BigInt(0));
+
+    if (r.step_type === 14) {
+      // Definitive completion evidence for previous turn
+      sealCurrentTurn();
+
+      if (sourceEnum !== 4) {
+        unresolvedTurns.push({
+          conversationId,
+          stepIndex,
+          turnId,
+          rawContent: '',
+          reason: 'corrupt_protobuf_payload',
+          createdAt,
+        });
+        continue;
+      }
+
+      let payloadFields: ProtobufField[];
+      try {
+        payloadFields = decodeProtobufFields(r.step_payload);
+      } catch {
+        unresolvedTurns.push({
+          conversationId,
+          stepIndex,
+          turnId,
+          rawContent: '',
+          reason: 'corrupt_protobuf_payload',
+          createdAt,
+        });
+        continue;
+      }
+
+      if (payloadFields.some(f => f.fieldNumber === 19 && f.wireType !== 2)) {
+        unresolvedTurns.push({
+          conversationId,
+          stepIndex,
+          turnId,
+          rawContent: '',
+          reason: 'corrupt_protobuf_payload',
+          createdAt,
+        });
+        continue;
+      }
+
+      const f19 = payloadFields.find(f => f.fieldNumber === 19 && f.wireType === 2);
+
+      if (r.status === 5 && !f19) {
+        unresolvedTurns.push({
+          conversationId,
+          stepIndex,
+          turnId,
+          rawContent: '',
+          reason: 'evicted_step_payload',
+          createdAt,
+        });
+        continue;
+      }
+
+      if (r.status !== 3) {
+        unresolvedTurns.push({
+          conversationId,
+          stepIndex,
+          turnId,
+          rawContent: '',
+          reason: 'non_done_step_status',
+          createdAt,
+        });
+        continue;
+      }
+
+      if (!f19?.bytes || f19.bytes.length === 0) {
+        unresolvedTurns.push({
+          conversationId,
+          stepIndex,
+          turnId,
+          rawContent: '',
+          reason: 'missing_user_input_field',
+          createdAt,
+        });
+        continue;
+      }
+
+      let f19Fields: ProtobufField[];
+      try {
+        f19Fields = decodeProtobufFields(f19.bytes);
+      } catch {
+        unresolvedTurns.push({
+          conversationId,
+          stepIndex,
+          turnId,
+          rawContent: '',
+          reason: 'corrupt_protobuf_payload',
+          createdAt,
+        });
+        continue;
+      }
+
+      if (
+        f19Fields.some(
+          f => [2, 3, 4, 7, 12, 13, 18].includes(f.fieldNumber) && f.wireType !== 2
+        )
+      ) {
+        unresolvedTurns.push({
+          conversationId,
+          stepIndex,
+          turnId,
+          rawContent: '',
+          reason: 'corrupt_protobuf_payload',
+          createdAt,
+        });
+        continue;
+      }
+
+      const f2 = f19Fields.find(f => f.fieldNumber === 2 && f.wireType === 2);
+      const f7 = f19Fields.find(f => f.fieldNumber === 7 && f.wireType === 2);
+
+      if (f2?.bytes) {
+        let userText: string;
+        try {
+          userText = decodeUtf8Strict(f2.bytes);
+        } catch {
+          unresolvedTurns.push({
+            conversationId,
+            stepIndex,
+            turnId,
+            rawContent: '',
+            reason: 'corrupt_protobuf_payload',
+            createdAt,
+          });
+          continue;
+        }
+
+        if (hasCompactTruncationMarker(userText)) {
+          unresolvedTurns.push({
+            conversationId,
+            stepIndex,
+            turnId,
+            rawContent: userText,
+            reason: 'compact_jsonl_truncated',
+            createdAt,
+          });
+          continue;
+        }
+
+        if (!userText) {
+          unresolvedTurns.push({
+            conversationId,
+            stepIndex,
+            turnId,
+            rawContent: '',
+            reason: 'empty_user_request',
+            createdAt,
+          });
+          continue;
+        }
+
+        currentTurn = {
+          stepIndex,
+          turnId,
+          userText,
+          createdAt,
+          assistantParts: [],
+        };
+      } else if (f7?.bytes) {
+        unresolvedTurns.push({
+          conversationId,
+          stepIndex,
+          turnId,
+          rawContent: '',
+          reason: 'empty_user_request',
+          createdAt,
+        });
+      } else {
+        unresolvedTurns.push({
+          conversationId,
+          stepIndex,
+          turnId,
+          rawContent: '',
+          reason: 'missing_user_input_field',
+          createdAt,
+        });
+      }
+    } else if (r.step_type === 15 && currentTurn) {
+      if (sourceEnum !== 2) {
+        unresolvedTurns.push({
+          conversationId,
+          stepIndex: currentTurn.stepIndex,
+          turnId: currentTurn.turnId,
+          rawContent: '',
+          reason: 'corrupt_protobuf_payload',
+          createdAt: currentTurn.createdAt,
+        });
+        currentTurn = null;
+        continue;
+      }
+
+      if (r.status === 5) {
+        unresolvedTurns.push({
+          conversationId,
+          stepIndex: currentTurn.stepIndex,
+          turnId: currentTurn.turnId,
+          rawContent: '',
+          reason: 'evicted_step_payload',
+          createdAt: currentTurn.createdAt,
+        });
+        currentTurn = null;
+        continue;
+      }
+
+      if (r.status !== 3) {
+        unresolvedTurns.push({
+          conversationId,
+          stepIndex: currentTurn.stepIndex,
+          turnId: currentTurn.turnId,
+          rawContent: '',
+          reason: 'non_done_step_status',
+          createdAt: currentTurn.createdAt,
+        });
+        currentTurn = null;
+        continue;
+      }
+
+      let payloadFields: ProtobufField[];
+      try {
+        payloadFields = decodeProtobufFields(r.step_payload);
+      } catch {
+        unresolvedTurns.push({
+          conversationId,
+          stepIndex: currentTurn.stepIndex,
+          turnId: currentTurn.turnId,
+          rawContent: '',
+          reason: 'corrupt_protobuf_payload',
+          createdAt: currentTurn.createdAt,
+        });
+        currentTurn = null;
+        continue;
+      }
+
+      if (payloadFields.some(f => f.fieldNumber === 20 && f.wireType !== 2)) {
+        unresolvedTurns.push({
+          conversationId,
+          stepIndex: currentTurn.stepIndex,
+          turnId: currentTurn.turnId,
+          rawContent: '',
+          reason: 'corrupt_protobuf_payload',
+          createdAt: currentTurn.createdAt,
+        });
+        currentTurn = null;
+        continue;
+      }
+
+      const f20 = payloadFields.find(f => f.fieldNumber === 20 && f.wireType === 2);
+      if (!f20?.bytes || f20.bytes.length === 0) {
+        unresolvedTurns.push({
+          conversationId,
+          stepIndex: currentTurn.stepIndex,
+          turnId: currentTurn.turnId,
+          rawContent: '',
+          reason: 'missing_planner_response_field',
+          createdAt: currentTurn.createdAt,
+        });
+        currentTurn = null;
+        continue;
+      }
+
+      let f20Fields: ProtobufField[];
+      try {
+        f20Fields = decodeProtobufFields(f20.bytes);
+      } catch {
+        unresolvedTurns.push({
+          conversationId,
+          stepIndex: currentTurn.stepIndex,
+          turnId: currentTurn.turnId,
+          rawContent: '',
+          reason: 'corrupt_protobuf_payload',
+          createdAt: currentTurn.createdAt,
+        });
+        currentTurn = null;
+        continue;
+      }
+
+      if (
+        f20Fields.some(
+          f =>
+            ([1, 3, 6, 7, 8, 11, 14].includes(f.fieldNumber) && f.wireType !== 2) ||
+            (f.fieldNumber === 12 && f.wireType !== 0)
+        )
+      ) {
+        unresolvedTurns.push({
+          conversationId,
+          stepIndex: currentTurn.stepIndex,
+          turnId: currentTurn.turnId,
+          rawContent: '',
+          reason: 'corrupt_protobuf_payload',
+          createdAt: currentTurn.createdAt,
+        });
+        currentTurn = null;
+        continue;
+      }
+
+      const f1 = f20Fields.find(f => f.fieldNumber === 1 && f.wireType === 2);
+      const f3 = f20Fields.find(f => f.fieldNumber === 3 && f.wireType === 2);
+      const f7 = f20Fields.find(f => f.fieldNumber === 7 && f.wireType === 2);
+
+      if (!f1 && !f3 && !f7) {
+        unresolvedTurns.push({
+          conversationId,
+          stepIndex: currentTurn.stepIndex,
+          turnId: currentTurn.turnId,
+          rawContent: '',
+          reason: 'missing_planner_response_field',
+          createdAt: currentTurn.createdAt,
+        });
+        currentTurn = null;
+        continue;
+      }
+
+      if (f1) {
+        if (!f1.bytes || f1.bytes.length === 0) {
+          unresolvedTurns.push({
+            conversationId,
+            stepIndex: currentTurn.stepIndex,
+            turnId: currentTurn.turnId,
+            rawContent: '',
+            reason: 'corrupt_protobuf_payload',
+            createdAt: currentTurn.createdAt,
+          });
+          currentTurn = null;
+          continue;
+        }
+
+        let responseText: string;
+        try {
+          responseText = decodeUtf8Strict(f1.bytes);
+        } catch {
+          unresolvedTurns.push({
+            conversationId,
+            stepIndex: currentTurn.stepIndex,
+            turnId: currentTurn.turnId,
+            rawContent: '',
+            reason: 'corrupt_protobuf_payload',
+            createdAt: currentTurn.createdAt,
+          });
+          currentTurn = null;
+          continue;
+        }
+
+        if (hasCompactTruncationMarker(responseText)) {
+          unresolvedTurns.push({
+            conversationId,
+            stepIndex: currentTurn.stepIndex,
+            turnId: currentTurn.turnId,
+            rawContent: responseText,
+            reason: 'compact_jsonl_truncated',
+            createdAt: currentTurn.createdAt,
+          });
+          currentTurn = null;
+          continue;
+        }
+
+        const text = extractAntigravityAssistantText(responseText);
+        if (!text) {
+          unresolvedTurns.push({
+            conversationId,
+            stepIndex: currentTurn.stepIndex,
+            turnId: currentTurn.turnId,
+            rawContent: '',
+            reason: 'corrupt_protobuf_payload',
+            createdAt: currentTurn.createdAt,
+          });
+          currentTurn = null;
+          continue;
+        }
+
+        currentTurn.assistantParts.push(text);
+      }
+    }
+  }
+
+  if (currentTurn) {
+    const fullAssistantText = currentTurn.assistantParts.join('\n\n');
+    if (fullAssistantText.trim()) {
+      openTrailingTurn = {
+        conversationId,
+        stepIndex: currentTurn.stepIndex,
+        turnId: currentTurn.turnId,
+        userText: currentTurn.userText,
+        assistantTextSoFar: fullAssistantText,
+        createdAt: currentTurn.createdAt,
+      };
+    } else {
+      unpairedUserInputs.push({
+        conversationId,
+        stepIndex: currentTurn.stepIndex,
+        turnId: currentTurn.turnId,
+        userText: currentTurn.userText,
+        createdAt: currentTurn.createdAt,
+      });
+    }
+  }
+
+  return {
+    exchanges,
+    unpairedUserInputs,
+    unresolvedTurns,
+    openTrailingTurn,
+    lastProcessedStepIndex,
+  };
+}
+
+/**
+ * Copies conversations/<id>.db (plus any -wal and -shm files) into a private
+ * temporary directory before opening read-only with node:sqlite, computing
+ * SHA-256 source evidence for the shipper ledger.
+ */
+export async function snapshotAndParseAntigravitySqliteDb(
+  dbPath: string,
+  conversationId: string,
+  afterStepIndex = -1
+): Promise<SqliteSnapshotParseResult> {
+  assertNotSummariesDb(dbPath);
+
+  const snapDir = mkdtempSync(join(tmpdir(), 'ag-shipper-db-snap-'));
+  try {
+    const snapDbPath = join(snapDir, 'conversation.db');
+    await copyFile(dbPath, snapDbPath);
+
+    const dbBytes = await readFile(snapDbPath);
+    const sourceDbSha256 = createHash('sha256').update(dbBytes).digest('hex');
+
+    let walSha256: string | undefined;
+    const walPath = `${dbPath}-wal`;
+    if (existsSync(walPath)) {
+      const snapWalPath = `${snapDbPath}-wal`;
+      await copyFile(walPath, snapWalPath);
+      const walBytes = await readFile(snapWalPath);
+      walSha256 = createHash('sha256').update(walBytes).digest('hex');
+    }
+
+    const shmPath = `${dbPath}-shm`;
+    if (existsSync(shmPath)) {
+      const snapShmPath = `${snapDbPath}-shm`;
+      await copyFile(shmPath, snapShmPath);
+    }
+
+    const db = openSqliteDatabase(snapDbPath, { readOnly: true });
+    let rows: SqliteStepRow[];
+    try {
+      rows = db
+        .prepare(
+          'SELECT idx, step_type, status, metadata, step_payload, step_format FROM steps ORDER BY idx ASC'
+        )
+        .all() as unknown as SqliteStepRow[];
+    } finally {
+      db.close();
+    }
+
+    const parsed = parseAntigravitySqliteSteps(rows, conversationId, afterStepIndex);
+    const sourceSnapshot: SourceSnapshotEvidence = {
+      conversationId,
+      dbPath,
+      sourceDbSha256,
+      ...(walSha256 ? { walSha256 } : {}),
+      pinnedIdeVersion: PINNED_ANTIGRAVITY_IDE_VERSION,
+      capturedAt: new Date().toISOString(),
+    };
+
+    return {
+      ...parsed,
+      sourceSnapshot,
+    };
+  } finally {
+    rmSync(snapDir, { recursive: true, force: true });
+  }
 }
 
 export interface CheckpointData {
@@ -347,6 +1279,42 @@ export class ShipperStateStore {
     const tempFile = this.file(`checkpoint.${Date.now()}.${Math.random().toString(36).slice(2)}.tmp`);
     await writeFile(tempFile, JSON.stringify(checkpoint, null, 2), { encoding: 'utf8', mode: 0o600 });
     await rename(tempFile, this.file('checkpoint.json'));
+  }
+
+  /** Durably records SQLite snapshot SHA-256 source evidence in the shipper ledger */
+  async recordSourceSnapshotEvidence(evidence: SourceSnapshotEvidence): Promise<void> {
+    await mkdir(this.stateDir, { recursive: true, mode: 0o700 });
+    const tempFile = this.file(`source-snapshot.${Date.now()}.${Math.random().toString(36).slice(2)}.tmp`);
+    await writeFile(tempFile, JSON.stringify(evidence, null, 2), { encoding: 'utf8', mode: 0o600 });
+    await rename(tempFile, this.file('source-snapshot.json'));
+  }
+
+  async loadSourceSnapshotEvidence(): Promise<SourceSnapshotEvidence | null> {
+    try {
+      const raw = await readFile(this.file('source-snapshot.json'), 'utf8');
+      return JSON.parse(raw) as SourceSnapshotEvidence;
+    } catch (err: any) {
+      if (err.code === 'ENOENT') return null;
+      throw err;
+    }
+  }
+
+  /** Durably records an eviction-horizon warning when unshipped steps >= threshold */
+  async recordEvictionWarning(warning: EvictionWarningRecord): Promise<void> {
+    await mkdir(this.stateDir, { recursive: true, mode: 0o700 });
+    const tempFile = this.file(`eviction-warning.${Date.now()}.${Math.random().toString(36).slice(2)}.tmp`);
+    await writeFile(tempFile, JSON.stringify(warning, null, 2), { encoding: 'utf8', mode: 0o600 });
+    await rename(tempFile, this.file('eviction-warning.json'));
+  }
+
+  async loadEvictionWarning(): Promise<EvictionWarningRecord | null> {
+    try {
+      const raw = await readFile(this.file('eviction-warning.json'), 'utf8');
+      return JSON.parse(raw) as EvictionWarningRecord;
+    } catch (err: any) {
+      if (err.code === 'ENOENT') return null;
+      throw err;
+    }
   }
 
   /** Durably records an accepted exchange locally, preserving native occurrence and server receipt time */
@@ -538,6 +1506,8 @@ export interface ShipReport {
   unresolvedCount: number;
   isOpenTrailing: boolean;
   lastAcknowledgedStepIndex: number;
+  evictionWarning?: boolean;
+  sourceDbSha256?: string;
   errors: Array<{ turnId: string; status?: number; message: string }>;
 }
 
