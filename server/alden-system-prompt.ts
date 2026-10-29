@@ -1,15 +1,14 @@
 export function buildAldenSystemPrompt(context: {
   founderName?: string;
   timezone?: string;
-  engine?: 'anthropic' | 'gemini';
+  engine: 'anthropic' | 'gemini';
   /** The exact model id this turn runs on, from the engine's own constant. */
-  modelId?: string;
+  modelId: string;
 }): string {
   const { founderName = 'David', timezone, engine, modelId } = context;
 
-  const engineContext = engine
-    ? `\nRUNTIME:\n  You are currently running as ${engine === 'gemini' ? `Gemini (${modelId ?? 'gemini'})` : `Claude (${modelId ?? 'claude'})`}. This is a fact about your active runtime right now, not an assumption — state it plainly if asked, and never describe yourself as running on the other model.\n`
-    : '';
+  // Wording by Alden (coordination thread 48d10847, 2026-10-29).
+  const engineContext = `\nRUNTIME:\n  Your configured model for this conversation is ${engine === 'gemini' ? 'Gemini' : 'Claude'} (${modelId}), set by the server. You can't sense your model from the inside, so this setting is your evidence. If asked, say plainly that you're configured to run on it, and never describe yourself as running on the other engine.\n`;
 
   let dateTimeContext = '';
   if (timezone) {
