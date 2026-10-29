@@ -22,6 +22,7 @@ import { spawn } from 'child_process';
 import Anthropic from '@anthropic-ai/sdk';
 import { getUserDb } from '../db';
 import { costTracker } from './cost-tracker';
+import { ALDEN_BACKGROUND_MODEL, ALDEN_BACKGROUND_THINKING } from './alden-background-model';
 import { aldenNotifications, buildQueue } from '@shared/schema';
 
 const GUARDIAN_MANIFEST_PATH = '/tmp/alden-guardian-manifest.json';
@@ -99,8 +100,9 @@ async function classifyRepair(
   const client = getAnthropicClient();
 
   const response = await client.messages.create({
-    model: 'claude-sonnet-4-5',
+    model: ALDEN_BACKGROUND_MODEL,
     max_tokens: 512,
+    ...ALDEN_BACKGROUND_THINKING,
     messages: [{
       role: 'user',
       content: `You are Alden, the autonomous repair system for HolaHola (a 24/7 global language learning app). Evaluate whether this issue qualifies for immediate auto-repair without human approval.
@@ -126,8 +128,10 @@ Respond with EXACTLY this JSON (no other text):
     }],
   });
 
-  costTracker.track('claude-sonnet-4-5', response.usage?.input_tokens ?? 0, response.usage?.output_tokens ?? 0, 'alden-auto-repair-classify');
-  const text = response.content[0].type === 'text' ? response.content[0].text.trim() : '';
+  costTracker.track(ALDEN_BACKGROUND_MODEL, response.usage?.input_tokens ?? 0, response.usage?.output_tokens ?? 0, 'alden-auto-repair-classify');
+  // With thinking available, the first block is not necessarily text.
+  const textBlock = response.content.find((block) => block.type === 'text');
+  const text = (textBlock as any)?.text?.trim() || '';
   const match = text.match(/\{[\s\S]*\}/);
   if (!match) return { eligible: false, type: null, confidence: 'low', reason: 'Could not parse LLM response' };
 
@@ -147,8 +151,9 @@ async function generateRepairPlan(
   const repairId = `repair-${Date.now()}`;
 
   const response = await client.messages.create({
-    model: 'claude-sonnet-4-5',
+    model: ALDEN_BACKGROUND_MODEL,
     max_tokens: 2048,
+    ...ALDEN_BACKGROUND_THINKING,
     messages: [{
       role: 'user',
       content: `You are Alden, generating a minimal autonomous code repair for HolaHola.
@@ -177,9 +182,11 @@ Respond with EXACTLY this JSON (no other text):
 }`,
     }],
   });
-  costTracker.track('claude-sonnet-4-5', response.usage?.input_tokens ?? 0, response.usage?.output_tokens ?? 0, 'alden-auto-repair-plan');
+  costTracker.track(ALDEN_BACKGROUND_MODEL, response.usage?.input_tokens ?? 0, response.usage?.output_tokens ?? 0, 'alden-auto-repair-plan');
 
-  const text = response.content[0].type === 'text' ? response.content[0].text.trim() : '';
+  // With thinking available, the first block is not necessarily text.
+  const textBlock = response.content.find((block) => block.type === 'text');
+  const text = (textBlock as any)?.text?.trim() || '';
   const match = text.match(/\{[\s\S]*\}/);
   if (!match) return null;
 
