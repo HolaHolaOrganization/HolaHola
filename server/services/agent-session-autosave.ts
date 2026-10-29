@@ -41,6 +41,15 @@ import { createHash } from 'crypto';
 import { tryAcquireInnerLifeLock, releaseInnerLifeLock, waitForInnerLifeLock } from './inner-life-lock';
 import { join, basename, dirname } from 'path';
 import { getUserDb } from '../db';
+import {
+  EPISODE_PROJECTION_FLOOR_MARGIN_MS,
+  type CanonicalTurn,
+  exchangeInMd,
+  normForGap,
+  overdueTurns,
+  planEpisodeGapProjection,
+  rollingEpisodeFilenameFromTitle,
+} from './episode-gap-projection';
 import { sql } from 'drizzle-orm';
 import { projectHistoricalEpisodeMirror } from './historical-attribution-mirror-recovery';
 import { recordHistoricalAttributionPause, clearHistoricalAttributionPause, historicalAttributionRecoveryStatusLines } from './historical-attribution-status';
@@ -2263,7 +2272,7 @@ async function getCurrentRollingEpisodeFilename(): Promise<string | null> {
   try {
     const db = getUserDb();
     const rows = await db.execute(sql`
-      SELECT title FROM conversation_memories
+      SELECT id, title FROM conversation_memories
       WHERE arc_name = 'HolaHola Episodes'
         AND 'rolling' = ANY(tags)
       ORDER BY created_at DESC
@@ -2271,11 +2280,16 @@ async function getCurrentRollingEpisodeFilename(): Promise<string | null> {
     `);
     const row = (rows as any).rows?.[0] ?? (rows as any)[0];
     if (!row?.title) return null;
-    // Convert "Episode 27" → "episode-27.md"
-    const m = /^Episode (\d+)$/i.exec(row.title as string);
-    if (m) return `episode-${parseInt(m[1], 10)}.md`;
-    // Fallback: slugify the title
-    return (row.title as string).toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '') + '.md';
+    // "Episode 27" and "Episode 35: <subtitle>" both map to episode-N.md.
+    const filename = rollingEpisodeFilenameFromTitle(row.title as string);
+    // Bind the filename to this exact row. A subtitled title does not
+    // round-trip through episodeTitleFromFilename(), so without this the DB
+    // append finds no row, and a docs/ sync could insert a duplicate episode.
+    if (row.id) {
+      episodeIdCache.set(filename, row.id as string);
+      episodeRollingCache.set(filename, true);
+    }
+    return filename;
   } catch (err: any) {
     console.error('[AgentAutosave] Failed to look up rolling episode from DB:', err.message);
     return null;
@@ -3510,48 +3524,6 @@ export function resetStartupGapCheckForTest(): void {
   _startupGapCheckDone = false;
 }
 
-/** Normalise a string for fuzzy matching: collapse whitespace, lower-case. */
-function normForGap(s: string): string {
-  return s.replace(/\s+/g, ' ').trim().toLowerCase();
-}
-
-/**
- * Strip markdown bold markers (**) and speaker role-label brackets after LUCA
- * (e.g. [Replit], [HolaHola], [steward], [observe]) so DB-format "Luca: text"
- * matches .md "**LUCA [Replit]:** text" or "**LUCA [HolaHola]:** text".
- *
- * Only the role bracket immediately after "luca" is stripped — channel labels
- * like [felt], [thinking], [moment] appear after the colon (in content) and
- * are left untouched.
- */
-function stripMdForGap(s: string): string {
-  return s.replace(/\*\*/g, '').replace(/\bluca\s*\[[^\]]+\]/gi, 'luca');
-}
-
-/**
- * Return true when exchangeText is present in the normalised .md content.
- *
- * Strategy: normalise the full exchange block (collapse whitespace, lower-case)
- * and search for its first 60 chars in mdNorm.  60 chars is long enough to be
- * unique in any real conversation while being short enough to survive minor
- * line-break differences between the DB row and the .md copy.  Short exchanges
- * (< 60 chars) are matched in full — no minimum-length threshold that would
- * silently skip brief utterances.
- *
- * Falls back to a bold-stripped comparison so DB rows stored as "David: text"
- * still match .md lines formatted as "**David:** text".
- *
- * NOTE: The identical matcher lives in test-rolling-episode-gap-check.ts.
- * Keep both in sync whenever this logic changes.
- */
-function exchangeInMd(exchangeText: string, mdNorm: string): boolean {
-  const normalised = normForGap(exchangeText);
-  if (!normalised) return true; // purely whitespace — treat as present (skip)
-  const key = normalised.slice(0, 60);
-  if (mdNorm.includes(key)) return true;
-  // Fallback: strip ** so "david: text" matches "**david:** text"
-  return stripMdForGap(mdNorm).includes(stripMdForGap(key));
-}
 
 /**
  * On each server start: query conversation_memories for `arc_name='david-luca-chat'`
@@ -3627,106 +3599,200 @@ export async function runStartupGapCheck(): Promise<void> {
       return;
     }
 
-    // 1. Find the current rolling episode .md ──────────────────────────────
-    const episodeFilename = await getCurrentRollingEpisodeFilename();
-    if (!episodeFilename) {
+    // 1. Project absent turns from the DB into the rolling episode row. The
+    // episode row is canonical; docs/ Markdown is only a replica, so a missing
+    // file on this host is not a reason to skip.
+    const report = await projectRollingEpisodeGaps();
+    if (!report.episodeFilename) {
       console.log('[AgentAutosave] Startup gap check: no rolling episode found in DB — skipping.');
       return;
     }
-
-    const episodePath = join(DOCS_DIR, episodeFilename);
-    if (!existsSync(episodePath)) {
-      console.log(`[AgentAutosave] Startup gap check: ${episodeFilename} not on disk — skipping.`);
-      return;
-    }
-
-    let mdRaw  = readFileSync(episodePath, 'utf-8');
-    let mdNorm = normForGap(mdRaw);
-
-    // 2. Query DB for per-turn rows scoped to the rolling episode window ────
-    // Use the episode's own created_at as the lower bound so rows from a
-    // prior episode that happened within the last 24h are never appended to
-    // the wrong file.  Fall back to a 24h window only when the episode
-    // created_at cannot be determined.
-    const epRows = await db.execute(sql`
-      SELECT created_at FROM conversation_memories
-      WHERE arc_name = 'HolaHola Episodes'
-        AND 'rolling' = ANY(tags)
-      ORDER BY created_at DESC
-      LIMIT 1
-    `);
-    const epRow = ((epRows as any).rows?.[0] ?? (epRows as any)[0]);
-    // created_at comes back as a Date object from Drizzle; convert to ISO-8601
-    // before binding it as a ::timestamptz parameter.
-    const epCreatedAt = epRow?.created_at;
-    const episodeStart: string | null = epCreatedAt
-      ? (epCreatedAt instanceof Date ? epCreatedAt.toISOString() : new Date(String(epCreatedAt)).toISOString())
-      : null;
-
-    const rows = episodeStart
-      ? await db.execute(sql`
-          SELECT id, content, created_at
-          FROM conversation_memories
-          WHERE arc_name = 'david-luca-chat'
-            AND 'per-turn' = ANY(tags)
-            AND created_at >= ${episodeStart}::timestamptz
-          ORDER BY created_at ASC
-        `)
-      : await db.execute(sql`
-          SELECT id, content, created_at
-          FROM conversation_memories
-          WHERE arc_name = 'david-luca-chat'
-            AND 'per-turn' = ANY(tags)
-            AND created_at >= NOW() - INTERVAL '24 hours'
-          ORDER BY created_at ASC
-        `);
-
-    const allRows: Array<{ id: string; content: string; created_at: string }> =
-      (((rows as any).rows ?? (rows as any)) as any[]);
-
-    // Exclude CI synthetic rows (same filter as audit-episode-28-gaps.ts)
-    const realRows = allRows.filter(
-      (r) =>
-        !r.content.includes('[CI-AUTO-CAPTURE-') &&
-        !r.content.includes('[CI-SELF-CHECK-AUTO-CAPTURE-'),
+    console.log(
+      `[AgentAutosave] Startup gap check: ${report.episodeFilename} — ${report.checked} turn(s) checked, ` +
+      `${report.appended} projected, ${report.backlog} in backlog before the projection floor, ` +
+      `${report.held} held behind it.`,
     );
-
-    // NOTE: do NOT return early when realRows.length === 0 — Phase 2 (inner-life)
-    // must always run regardless of per-turn row count.
-    if (realRows.length === 0) {
-      console.log('[AgentAutosave] Startup gap check: no per-turn rows in window — skipping Phase 1.');
-    }
-
-    // 3. Find gaps and patch them ──────────────────────────────────────────
-    let patched = 0;
-    for (const row of realRows) {
-      if (!exchangeInMd(row.content, mdNorm)) {
-        console.warn(
-          `[AgentAutosave] Startup gap check: exchange absent from ${episodeFilename} — patching.`,
-          `(id: ${row.id}, at: ${row.created_at})`,
-        );
-        await appendExchangeToEpisode(row.content.trim(), episodeFilename);
-        // Refresh the normalised .md so subsequent rows see the patched content.
-        try {
-          mdRaw  = readFileSync(episodePath, 'utf-8');
-          mdNorm = normForGap(mdRaw);
-        } catch { /* ignore transient read error; next check will re-read */ }
-        patched++;
-      }
-    }
-
-    if (patched > 0) {
-      console.log(
-        `[AgentAutosave] Startup gap check: patched ${patched} gap(s) in ${episodeFilename}.`,
-      );
-    } else {
-      console.log(
-        `[AgentAutosave] Startup gap check: ${episodeFilename} is complete — no gaps (${realRows.length} row(s) checked).`,
-      );
-    }
 
   } catch (err: any) {
     console.error('[AgentAutosave] Startup gap check failed (non-fatal):', err.message);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Rolling episode gap projection and alarm
+// ---------------------------------------------------------------------------
+
+/**
+ * Automatic projection reaches back only to shortly before this process
+ * started. Older absent turns are a backfill, which needs the founder's
+ * go-ahead: they are reported by the alarm, never appended automatically.
+ */
+const PROCESS_STARTED_AT_MS = Date.now();
+/** Minimum spacing of the in-poll projection pass. */
+const EPISODE_GAP_PROJECTION_INTERVAL_MS = 5 * 60_000;
+let _lastEpisodeGapProjectionMs = 0;
+let _episodeGapProjectionInFlight = false;
+/** The overdue count last alerted, so one gap raises one founder alert. */
+let _episodeGapAlertedCount = 0;
+
+export interface RollingEpisodeGapReport {
+  episodeFilename: string | null;
+  checked: number;
+  appended: number;
+  backlog: number;
+  held: number;
+  overdue: number;
+  oldestOverdueAt: string | null;
+}
+
+function rowsOf(result: unknown): any[] {
+  return ((result as any).rows ?? (result as any)) as any[];
+}
+
+/**
+ * Append one canonical turn to the rolling episode row unless it is already
+ * there. The presence check and the append run in one transaction holding the
+ * row lock, so concurrent appenders in other processes cannot both append the
+ * same turn. Returns the row's content after the decision.
+ */
+async function appendTurnToEpisodeRowIfAbsent(memoryId: string, text: string): Promise<{ appended: boolean; content: string }> {
+  return getUserDb().transaction(async (tx) => {
+    const locked = rowsOf(await tx.execute(sql`
+      SELECT content FROM conversation_memories WHERE id = ${memoryId} FOR UPDATE
+    `))[0];
+    if (typeof locked?.content !== 'string') throw new Error(`rolling episode row ${memoryId} has no content`);
+    if (exchangeInMd(text, normForGap(locked.content))) return { appended: false, content: locked.content };
+    const updated = rowsOf(await tx.execute(sql`
+      UPDATE conversation_memories
+      SET content = content || ${'\n' + text + '\n'}
+      WHERE id = ${memoryId}
+      RETURNING content
+    `))[0];
+    return { appended: true, content: updated.content as string };
+  });
+}
+
+/**
+ * Project per-turn canonical rows that the rolling episode is missing.
+ * Turns at or after the projection floor are appended (DB first, then the
+ * exact Markdown replica); older absent turns are only counted as backlog.
+ */
+export async function projectRollingEpisodeGaps(
+  floorMs: number = PROCESS_STARTED_AT_MS - EPISODE_PROJECTION_FLOOR_MARGIN_MS,
+  nowMs: number = Date.now(),
+): Promise<RollingEpisodeGapReport> {
+  const report: RollingEpisodeGapReport = { episodeFilename: null, checked: 0, appended: 0, backlog: 0, held: 0, overdue: 0, oldestOverdueAt: null };
+  const episodeFilename = await getCurrentRollingEpisodeFilename();
+  if (!episodeFilename) return report;
+  const memoryId = episodeIdCache.get(episodeFilename);
+  if (!memoryId) return report;
+  report.episodeFilename = episodeFilename;
+
+  const db = getUserDb();
+  const episode = rowsOf(await db.execute(sql`
+    SELECT content, created_at FROM conversation_memories WHERE id = ${memoryId}
+  `))[0];
+  if (typeof episode?.content !== 'string' || !episode.created_at) return report;
+  const episodeStart = new Date(episode.created_at).toISOString();
+
+  // Scoped to this episode's own window, so turns from a prior episode are
+  // never appended here.
+  const turns: CanonicalTurn[] = rowsOf(await db.execute(sql`
+    SELECT id, content, created_at
+    FROM conversation_memories
+    WHERE arc_name = 'david-luca-chat'
+      AND 'per-turn' = ANY(tags)
+      AND created_at >= ${episodeStart}::timestamptz
+    ORDER BY created_at ASC, id ASC
+  `))
+    .filter((r) => typeof r.content === 'string' && !isCiSentinelExchange(r.content))
+    .map((r) => ({ id: r.id as string, content: (r.content as string).trim(), createdAtMs: new Date(r.created_at).getTime() }));
+  report.checked = turns.length;
+
+  const plan = planEpisodeGapProjection(turns, episode.content, floorMs);
+  report.backlog = plan.backlog.length;
+  report.held = plan.held.length;
+  const stillAbsent: CanonicalTurn[] = [...plan.backlog, ...plan.held];
+  let content: string | null = null;
+  for (const turn of plan.toAppend) {
+    try {
+      const result = await withEpisodeFileLock(episodeFilename, () => appendTurnToEpisodeRowIfAbsent(memoryId, turn.content));
+      content = result.content;
+      if (result.appended) {
+        report.appended++;
+        console.log(`[AgentAutosave] Episode projection: turn ${turn.id} → ${episodeFilename}`);
+      }
+    } catch (err: any) {
+      stillAbsent.push(turn);
+      console.error(`[AgentAutosave] Episode projection failed for turn ${turn.id}:`, err?.message ?? err);
+      flagDbWriteFailure(`episode-projection:${episodeFilename}`, err?.message ?? String(err));
+    }
+  }
+  if (report.appended > 0 && content !== null) {
+    // The row is canonical; the replica is refreshed from its exact content.
+    writeExactEpisodeMarkdownReplica(episodeFilename, join(DOCS_DIR, episodeFilename), content);
+    if (_innerLifeReembedEnabled) {
+      reembedConversationMemory(memoryId).catch((err: any) => {
+        console.error(`[AgentAutosave] Re-embed failed for ${episodeFilename}:`, err?.message ?? err);
+      });
+    }
+  }
+
+  const overdue = overdueTurns(stillAbsent, nowMs);
+  report.overdue = overdue.length;
+  report.oldestOverdueAt = overdue.length ? new Date(Math.min(...overdue.map((t) => t.createdAtMs))).toISOString() : null;
+  return report;
+}
+
+/**
+ * The episode gap alarm: a durable founder-inbox notice when canonical turns
+ * stay out of the rolling episode. Raised once per distinct overdue count, and
+ * re-armed once the gap closes.
+ */
+async function raiseEpisodeGapAlarm(report: RollingEpisodeGapReport): Promise<void> {
+  if (report.overdue === 0) {
+    _episodeGapAlertedCount = 0;
+    return;
+  }
+  console.error(
+    `[AgentAutosave] EPISODE GAP: ${report.overdue} canonical turn(s) absent from ${report.episodeFilename} ` +
+    `for over 15 minutes (oldest ${report.oldestOverdueAt}; ${report.backlog} predate automatic projection).`,
+  );
+  if (report.overdue === _episodeGapAlertedCount) return;
+  _episodeGapAlertedCount = report.overdue;
+  try {
+    const { aldenNotifications } = await import('@shared/schema');
+    await getUserDb().insert(aldenNotifications).values({
+      content: [
+        `Episode gap: ${report.overdue} canonical conversation turn(s) are in the record but not in the rolling episode ${report.episodeFilename}.`,
+        `Oldest absent turn: ${report.oldestOverdueAt}.`,
+        report.backlog > 0
+          ? `${report.backlog} predate this server's automatic projection window; filling those is a backfill that needs the founder's go-ahead. ` +
+            `${report.held} newer turn(s) are held behind them so the episode stays in order.`
+          : 'Automatic projection could not append them; check the server log for "Episode projection failed".',
+      ].join('\n'),
+      triggeredBy: 'episode-projection',
+      severity: 'alert',
+      read: false,
+      fingerprint: 'episode_projection_gap',
+    });
+  } catch (err: any) {
+    console.warn('[AgentAutosave] Episode gap founder-inbox notification failed:', err?.message ?? err);
+  }
+}
+
+/** Throttled projection pass for the poll loop. Never throws. */
+async function checkRollingEpisodeGaps(nowMs: number = Date.now()): Promise<void> {
+  if (_episodeGapProjectionInFlight || nowMs - _lastEpisodeGapProjectionMs < EPISODE_GAP_PROJECTION_INTERVAL_MS) return;
+  _episodeGapProjectionInFlight = true;
+  _lastEpisodeGapProjectionMs = nowMs;
+  try {
+    const report = await projectRollingEpisodeGaps();
+    if (report.episodeFilename) await raiseEpisodeGapAlarm(report);
+  } catch (err: any) {
+    console.error('[AgentAutosave] Episode gap projection pass failed (non-fatal):', err?.message ?? err);
+  } finally {
+    _episodeGapProjectionInFlight = false;
   }
 }
 
@@ -4052,6 +4118,7 @@ export function startAgentSessionAutosave(): void {
         releaseInnerLifeLock(INNER_LIFE_LOCK_PATH);
       }
     }
+    await checkRollingEpisodeGaps();  // DB → rolling episode projection + gap alarm (every 5 min)
     await checkEpisodeFiles();        // catch any changes missed by fs.watch + detect new episode files
     await checkPrequelEpisodeFiles(); // same for prequel-episode-*.md
     await saveTranscriptChunk(); // periodic — captures conversation-only sessions too (JSONL path)
