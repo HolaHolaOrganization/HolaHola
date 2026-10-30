@@ -1,0 +1,158 @@
+{
+  "format": "holahola-episode-restore-drill",
+  "version": 1,
+  "runId": "drill-1745-34faf5f5-8fe5-4245-80db-6c5ca0c4c436",
+  "taskRef": "1745",
+  "startedAt": "2026-10-30T17:41:56.629Z",
+  "status": "failed",
+  "phase": "finished",
+  "liveExportPerformed": true,
+  "restoreVerified": false,
+  "cleanup": "not-created",
+  "custody": "Only explicit S3 object credentials supplied to exporter; founder retains lock-management control. No bucket settings API used.",
+  "excluded": [
+    "messages",
+    "embeddings",
+    "production restore",
+    "Markdown retirement",
+    "scheduling"
+  ],
+  "baseline": "first-baseline",
+  "canary": {
+    "key": "episode-backups/v1/canaries/drill-1745-34faf5f5-8fe5-4245-80db-6c5ca0c4c436.json",
+    "sha256": "c6ad6323fa52d79741325d09001a5f0efd3215738c0f838be669eb01809c3680",
+    "overwrite": "ObjectLockedByBucketPolicy",
+    "deletion": "ObjectLockedByBucketPolicy"
+  },
+  "sourceEvidence": {
+    "selectionSha256": "6aba38acac772c725439c2487010c454fad9729469bcc9628ec2e44031bac24a",
+    "columns": [
+      {
+        "name": "id",
+        "type": "character varying",
+        "generated": "",
+        "identity": ""
+      },
+      {
+        "name": "recorded_at",
+        "type": "timestamp without time zone",
+        "generated": "",
+        "identity": ""
+      },
+      {
+        "name": "title",
+        "type": "character varying",
+        "generated": "",
+        "identity": ""
+      },
+      {
+        "name": "summary",
+        "type": "text",
+        "generated": "",
+        "identity": ""
+      },
+      {
+        "name": "content",
+        "type": "text",
+        "generated": "",
+        "identity": ""
+      },
+      {
+        "name": "participants",
+        "type": "character varying",
+        "generated": "",
+        "identity": ""
+      },
+      {
+        "name": "tags",
+        "type": "text[]",
+        "generated": "",
+        "identity": ""
+      },
+      {
+        "name": "importance",
+        "type": "integer",
+        "generated": "",
+        "identity": ""
+      },
+      {
+        "name": "created_at",
+        "type": "timestamp without time zone",
+        "generated": "",
+        "identity": ""
+      },
+      {
+        "name": "extends_memory_id",
+        "type": "character varying",
+        "generated": "",
+        "identity": ""
+      },
+      {
+        "name": "theme_tags",
+        "type": "text[]",
+        "generated": "",
+        "identity": ""
+      },
+      {
+        "name": "entry_type",
+        "type": "conversation_memory_entry_type",
+        "generated": "",
+        "identity": ""
+      },
+      {
+        "name": "arc_name",
+        "type": "text",
+        "generated": "",
+        "identity": ""
+      },
+      {
+        "name": "episode_order",
+        "type": "integer",
+        "generated": "",
+        "identity": ""
+      },
+      {
+        "name": "attribution",
+        "type": "jsonb",
+        "generated": "",
+        "identity": ""
+      }
+    ],
+    "constraints": [
+      {
+        "conname": "conversation_memories_pkey",
+        "contype": "p",
+        "definition": "PRIMARY KEY (id)"
+      }
+    ],
+    "triggers": [],
+    "migrationHead": [
+      {
+        "hash": "ad01ee70bb4b57c0a258b75e469796570e4a1e39e9a801ca4dd9c372fd76b44b",
+        "created_at": "1793231604419"
+      }
+    ],
+    "serialization": "UTC; ISO,YMD; postgres intervals; extra_float_digits=3; hex bytea"
+  },
+  "records": 842,
+  "contentBytes": 11532426,
+  "contentInventorySha256": "58be09309dada2bb0d30dedc40dcd6adb986090b0b6307256c3b6b0d0a9a9d48",
+  "reference": {
+    "key": "episode-backups/v1/manifests/drill-1745-34faf5f5-8fe5-4245-80db-6c5ca0c4c436.json",
+    "sha256": "27424cc16cb8e4fb044b836cbda3474c4d607c12cc844759241b2d4a85eecc98"
+  },
+  "manifestStatus": "verified",
+  "failure": {
+    "phase": "branch-create",
+    "category": "Error",
+    "postFailureEvidence": {
+      "ownershipReceiptExpiresAt": "2026-10-30T17:46:14.696Z",
+      "receiptDisplayStatus": "active",
+      "receiptExpiredBeforeBranchBoundary": true,
+      "controlPlaneBranchList": "Only protected production branch present; no drill branch created",
+      "backupOnlyReadbackCompleted": true,
+      "realDatabaseRestorePerformed": false
+    }
+  },
+  "finishedAt": "2026-10-30T17:47:24.438Z"
+}

@@ -30,3 +30,12 @@ This authorizes indefinite protection for the narrow `episode-backups/v1/` prefi
 
 Operational status: the existing Cloudflare credential received HTTP403/code10000 from the read-only R2 lock configuration endpoint. No lock configuration was read or changed. A founder-controlled dashboard step or separately authorized administrative executor is required; do not request or expose an admin credential in chat.
 
+
+## Independent episode backup retention and custody
+
+The founder selected “Until you explicitly unlock them” for episode/story backups on 2026-10-30. Protect only `episode-backups/v1/` indefinitely; never lock the whole application bucket or media prefixes. Lock-management custody stays with the founder, not the exporter. Keep authored Markdown until separately authorized retirement, even after a successful drill.
+
+**Why:** The founder explicitly chose non-expiring protection while retaining control of unlocking. A successful backup is not permission to delete or retire another authentic record.
+
+**How to apply:** Preserve this retention and custody boundary for future backup scheduling and recovery work; any unlocking, deletion policy or Markdown retirement needs separate explicit authorization.
+

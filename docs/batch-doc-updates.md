@@ -1,3 +1,45 @@
+## One-shot episode backup and restore drill — 2026-10-30
+
+Added a standalone, explicitly invoked backup/restore runner. It uses fresh
+founder-approved actor/artifact-bound ownership proof at every mutation
+boundary; no ownership-guard bypass, CI gate reuse, scheduler activation or
+application-server restart.
+
+The runner verifies R2 overwrite/delete lock enforcement with permanent
+synthetic canaries, captures all episode/story arc rows plus tagged stories
+(including hidden rows) in one read-only repeatable-read snapshot, uploads
+immutable content-addressed objects with at most eight independently authorized
+writes in flight, and publishes/read-verifies the manifest last. It preserves
+source schema/migration provenance and an independent manifest receipt in a
+content-free run report. Prior receipts are explicit; listing never chooses a
+last-known-good snapshot.
+
+Recovery uses only backup records in an empty schema-only Neon branch with a
+one-hour crash expiry. The runner records branch creation before readiness
+polling, checks parent/endpoint identity, rejects unexpected schema/trigger/FK
+dependencies, locks and rechecks target emptiness, inserts transactionally,
+compares the entire read-back inventory including exact content/metadata, and
+performs guarded cleanup of only its own branch. Production episode rows and
+Markdown records are never written or retired.
+
+Operator guide: `docs/operations/episode-backup-drill.md`. Actual live outcomes
+and manifest receipts: `docs/operations/episode-backup-drills/`. An export or
+decoder success alone is not reported as a passed database restore.
+
+Live result: complete 842-row / 11,532,426-content-byte export committed and
+full backup-only readback passed. The real restore remains blocked: the
+ten-minute ownership receipt expired before the branch-creation boundary,
+which failed closed. Read-only control-plane inspection found only protected
+production; no drill branch or real database restore was created. The retained
+run report is explicitly failed overall, with the verified manifest receipt
+preserved. Existing approved-receipt renewal is not supported by the current
+CLI; do not silently replace a founder decision or claim completion.
+
+Verification: 32 focused backup/branch tests plus 11 CI-runner tests passed;
+root typecheck passed. System-health verifier exited 0 with zero red failures
+and Summary: 2 warnings, both app-route checks skipped because the local app
+server remains stopped under the existing hold. Direct R2 read checks passed.
+
 ## 2026-10-30 — Phase B backup foundation; live export remains gated
 
 Reviewed and approved PR143 at exact head `8171460d`, independently running

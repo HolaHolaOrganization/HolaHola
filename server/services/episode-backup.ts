@@ -40,6 +40,7 @@ export interface EpisodeBackupManifest {
   status: "verified" | "flagged";
   issues: string[];
   records: InventoryEntry[];
+  sourceEvidence?: Record<string, unknown>;
 }
 
 export const backupHash = (bytes: Buffer): string =>
@@ -150,10 +151,16 @@ export async function exportEpisodeBackup(input: {
   snapshotId: string;
   createdAt: string;
   previous: BackupReference | null;
+  sourceEvidence?: Record<string, unknown>;
+  concurrency?: number;
 }): Promise<{ reference: BackupReference; manifest: EpisodeBackupManifest }> {
   if (!/^[a-zA-Z0-9_-]{1,100}$/.test(input.snapshotId)
     || !Number.isFinite(Date.parse(input.createdAt))) throw new Error("Invalid snapshot identity");
   if (!input.records.length) throw new Error("Refusing empty episode snapshot");
+  const concurrency = input.concurrency ?? 1;
+  if (!Number.isInteger(concurrency) || concurrency < 1 || concurrency > 8) {
+    throw new Error("Backup concurrency must be between 1 and 8");
+  }
   const rows = new Map<string, EpisodeBackupRecord>();
   for (const row of input.records) {
     assertRecord(row);
@@ -176,8 +183,10 @@ export async function exportEpisodeBackup(input: {
     snapshotId: input.snapshotId, createdAt: input.createdAt,
     previous: input.previous, status: issues.length ? "flagged" : "verified",
     issues, records: [],
+    ...(input.sourceEvidence ? { sourceEvidence: input.sourceEvidence } : {}),
   };
-  for (const row of [...rows.values()].sort((a, b) => a.id.localeCompare(b.id))) {
+  const sorted = [...rows.values()].sort((a, b) => a.id.localeCompare(b.id));
+  const upload = async (row: EpisodeBackupRecord) => {
     const bytes = encode(row), content = Buffer.from(row.content, "utf8");
     const objectHash = backupHash(bytes), key = `${PREFIX}/objects/${objectHash}.json`;
     // A content-addressed object may already exist from an earlier snapshot.
@@ -188,7 +197,16 @@ export async function exportEpisodeBackup(input: {
       contentHash: backupHash(content), contentBytes: content.length,
     };
     await readRecord(input.store, entry);
-    manifest.records.push(entry);
+    return entry;
+  };
+  for (let i = 0; i < sorted.length; i += concurrency) {
+    // Drain the entire batch on failure; never publish a manifest while writes
+    // are still running. Order remains stable regardless of network completion.
+    const results = await Promise.allSettled(sorted.slice(i, i + concurrency).map(upload));
+    for (const result of results) {
+      if (result.status === "rejected") throw result.reason;
+      manifest.records.push(result.value);
+    }
   }
   assertManifest(manifest);
   const bytes = encode(manifest);

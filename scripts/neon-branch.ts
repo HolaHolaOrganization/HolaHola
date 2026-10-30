@@ -147,7 +147,7 @@ async function listBranches(): Promise<NeonBranch[]> {
   return data.branches;
 }
 
-async function resolveBranch(nameOrId: string): Promise<NeonBranch> {
+export async function resolveBranch(nameOrId: string): Promise<NeonBranch> {
   const branches = await listBranches();
   const byId = branches.find((b) => b.id === nameOrId);
   if (byId) return byId;
@@ -207,7 +207,7 @@ async function resolveDatabaseAndRole(branchId: string): Promise<{ database: str
   return { database: match.name, role: match.owner_name };
 }
 
-async function fetchConnectionUri(branchId: string, pooled: boolean): Promise<string> {
+export async function fetchConnectionUri(branchId: string, pooled: boolean): Promise<string> {
   const projectId = requireEnv('NEON_PROJECT_ID');
   const { database, role } = await resolveDatabaseAndRole(branchId);
   const params = new URLSearchParams({
@@ -225,6 +225,8 @@ interface CreateBranchOpts {
   parent: string;
   expiresAt?: string;
   schemaOnly: boolean;
+  /** Durable cleanup bookkeeping before readiness polling can fail. */
+  onCreated?: (branch: NeonBranch) => Promise<void>;
 }
 export async function createBranch(opts: CreateBranchOpts & {
   taskRef: string;
@@ -832,6 +834,7 @@ async function createBranchCore(opts: CreateBranchOpts): Promise<NeonBranch> {
       endpoints: [{ type: 'read_write' }],
     }),
   });
+  await opts.onCreated?.(branch);
   await waitUntilReady(branch.id);
   return branch;
 }
