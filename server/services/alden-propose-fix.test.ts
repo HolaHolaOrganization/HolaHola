@@ -350,3 +350,21 @@ test('positive control: the same traps catch the dev pin\'s git process', async 
   }
   assert.deepEqual(calls, ['child_process.execFileSync']);
 });
+
+test('a symlink or submodule entry in the pinned commit is refused (runs last: it moves the fixture HEAD)', () => {
+  const target = execFileSync('git', ['hash-object', '-w', '--stdin'], { cwd: root, input: 'server/a.ts' }).toString().trim();
+  git('update-index', '--add', '--cacheinfo', `120000,${target},server/link.ts`);
+  git('update-index', '--add', '--cacheinfo', `160000,${HEAD},server/sub.ts`);
+  git('commit', '-q', '-m', 'odd entries');
+  // Regular files in the working tree, so only the pinned entry's type differs.
+  fs.writeFileSync(path.join(root, 'server/link.ts'), 'server/a.ts');
+  fs.writeFileSync(path.join(root, 'server/sub.ts'), 'sub\n');
+  try {
+    refuses(() => buildPinnedChange(groupEditsByResolvedPath([edit('server/link.ts', 'server', 'x')], root), pinSourceForRole(root, DEV)), /symlink entry and cannot be pinned/);
+    refuses(() => buildPinnedChange(groupEditsByResolvedPath([edit('server/sub.ts', 'sub', 'x')], root), pinSourceForRole(root, DEV)), /submodule entry and cannot be pinned/);
+  } finally {
+    git('reset', '-q', '--hard', HEAD);
+    fs.rmSync(path.join(root, 'server/link.ts'), { force: true });
+    fs.rmSync(path.join(root, 'server/sub.ts'), { force: true });
+  }
+});
