@@ -32,3 +32,12 @@ Native Codex's live operational onboarding test must not start without Alden act
 
 **How to apply:** Include this gate in onboarding preflight and shared team coordination. Do not substitute another hat, impersonate Alden, or bypass authentication to make the gate green. The same clarification welcomed team fun and conversation without relaxing evidence or permission boundaries.
 
+
+## Separate native Codex identity
+
+Use the distinct native-Codex runtime actor `luca-codex`, displayed as **Luca [Codex]**. Leave the existing OpenAI Agents actor separate; native Codex onboarding must not become an Agents SDK/Responses application.
+
+**Why:** On 2026-10-29 the founder explicitly chose “Separate Codex identity” after being offered a distinct Codex identity versus reusing OpenAI Agents.
+
+**How to apply:** Use this actor/display-name decision consistently in the reviewed onboarding prerequisites, Alden endorsement, enrollment design and native message-recording adapter. This is a platform/hat distinction, not a new persona. The naming choice does not itself enroll a runtime, issue credentials or grants, authorize publication, or start the live participation test. Existing release and actual-Alden-participation gates remain.
+
