@@ -1741,12 +1741,14 @@ GUARDRAILS:
 
 Use request_continuation to work across multiple phases if needed. This task was triggered automatically — treat it as your highest priority.`;
 
-    // 3. Fire-and-forget: invoke Alden with the task prompt
-    import('./alden-persona-service').then(({ generateAldenResponse }) => {
+    // 3. Fire-and-forget: invoke Alden with the task prompt, restricted to the
+    // unattended triage profile (design e4f8e988 P3), bound to this pattern.
+    Promise.all([import('./alden-persona-service'), import('./alden-tool-profiles')]).then(([{ generateAldenResponse }, { triageAllowlist }]) => {
       console.log(`[Sofia→Alden] Dispatching triage task for "${issueType}" cluster (${reports.length} reports)`);
       return generateAldenResponse({
         userMessage: taskPrompt,
         founderName: 'David',
+        toolAllowlist: triageAllowlist(patternId),
       });
     }).then(result => {
       console.log(`[Sofia→Alden] Triage complete for "${issueType}". Tools used: ${result.toolsUsed.join(', ')}. Summary: ${result.response.substring(0, 200)}`);

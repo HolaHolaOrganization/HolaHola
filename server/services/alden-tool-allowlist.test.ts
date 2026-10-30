@@ -57,7 +57,7 @@ describe('wiring in both engines', () => {
 
   test('executeAldenTool checks the allowlist before its tool switch', () => {
     const start = functions.indexOf('export async function executeAldenTool(');
-    const gate = functions.indexOf('aldenToolRefusal(toolName, context?.toolAllowlist)', start);
+    const gate = functions.indexOf('aldenToolRefusal(toolName, context?.toolAllowlist, args)', start);
     const sw = functions.indexOf('switch (toolName)', start);
     assert.ok(start > 0 && gate > start && gate < sw);
   });

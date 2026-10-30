@@ -252,6 +252,20 @@ export const ALDEN_TOOLS: AldenTool[] = [
     },
   },
   {
+    // Draft wording pending Alden's own (founder rule: Alden words his own prompts).
+    name: "update_support_pattern",
+    description: "During a Sofia triage task, record your findings on the support pattern the task was started for. Status may be 'open' or 'investigating' only; a pattern becomes fixed only from a merged and deployed change, never from this tool. Notes are appended with a timestamp, never replaced. Only the pattern this task was started for can be updated.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        pattern_id: { type: "string" as const, description: "The PATTERN ID from the triage task." },
+        status: { type: "string" as const, enum: ["open", "investigating"], description: "'investigating' while you look into it; 'open' if it needs someone else." },
+        notes: { type: "string" as const, description: "What you checked and found." },
+      },
+      required: ["pattern_id", "status", "notes"],
+    },
+  },
+  {
     name: "run_full_systems_check",
     description: "Full systems diagnostic. Returns GO/CAUTION/NO-GO verdict across 6 brain health dimensions, voice pipeline, and TTS status.",
     gemini_description: "Run a comprehensive diagnostic check across all HolaHola systems — voice pipeline, TTS, memory, context injection, and core services. Returns a GO/CAUTION/NO-GO verdict on overall system health. Use when something seems wrong or when David asks if everything is working.",
@@ -973,7 +987,7 @@ export async function executeAldenTool(
 ): Promise<{ data: any; sideEffects?: Record<string, any> }> {
   // Per-turn allowlist: refuse before any tool code runs (both engines, nested
   // dispatch and continuations all pass through here).
-  const refusal = aldenToolRefusal(toolName, context?.toolAllowlist);
+  const refusal = aldenToolRefusal(toolName, context?.toolAllowlist, args);
   if (refusal) {
     console.warn(`[Alden Tool] refused ${toolName}: not in allowlist "${refusal.allowlist}"`);
     return { data: refusal };
@@ -1690,6 +1704,28 @@ export async function executeAldenTool(
           : `Pause recorded. Nothing in your three layers matched this friction directly. The question has been routed to the Agent. You have named it: "${(friction as string).substring(0, 100)}". That naming is already grounding.`;
 
         return { data: { friction, layer, question, groundingFound, sections, responseText } };
+      }
+
+      case "update_support_pattern": {
+        // Design e4f8e988 P3: only inside a triage task, only its own pattern
+        // (the dispatch gate enforces the binding), only open/investigating,
+        // and notes are appended, never replaced.
+        const patternId = context?.toolAllowlist?.bindings.supportPatternId;
+        if (!patternId) return { data: { error: 'update_support_pattern is only available inside a triage task for a tracked pattern', refused: 'no_triage_pattern' } };
+        if (args.pattern_id !== patternId) return { data: { error: `Only pattern ${patternId} can be updated in this task`, refused: 'tool_binding_mismatch' } };
+        if (args.status !== 'open' && args.status !== 'investigating') {
+          return { data: { error: "status must be 'open' or 'investigating'; a pattern is fixed only from a merged and deployed change", refused: 'status_not_allowed' } };
+        }
+        const notes = String(args.notes ?? '').trim();
+        if (!notes) return { data: { error: 'notes are required' } };
+        const { supportPatterns } = await import('@shared/schema');
+        const entry = `[${new Date().toISOString()}] Alden: ${notes.slice(0, 4000)}`;
+        const updated = await getSharedDb().update(supportPatterns).set({
+          status: args.status,
+          developerNotes: sql`CASE WHEN ${supportPatterns.developerNotes} IS NULL OR ${supportPatterns.developerNotes} = '' THEN ${entry} ELSE ${supportPatterns.developerNotes} || E'\n' || ${entry} END`,
+        }).where(eq(supportPatterns.id, patternId)).returning({ id: supportPatterns.id, status: supportPatterns.status });
+        if (updated.length === 0) return { data: { error: `Pattern ${patternId} was not found` } };
+        return { data: { updated: true, patternId, status: updated[0].status, appended: entry } };
       }
 
       case "post_to_express_lane": {
