@@ -24,6 +24,7 @@ import { getUserDb } from '../db';
 import { costTracker } from './cost-tracker';
 import { ALDEN_BACKGROUND_MODEL, ALDEN_BACKGROUND_THINKING } from './alden-background-model';
 import { aldenNotifications, buildQueue } from '@shared/schema';
+import { aldenWriteBoundary } from './alden-write-boundary';
 
 const GUARDIAN_MANIFEST_PATH = '/tmp/alden-guardian-manifest.json';
 const REPAIR_LOG_PATH = path.join(process.cwd(), '.local/alden-repairs.md');
@@ -334,6 +335,20 @@ export async function attemptAutoRepair(
     }
 
     console.log(`[AutoRepair] Plan: ${plan.changes.length} file(s) — ${plan.explanation.substring(0, 80)}`);
+
+    // Production write boundary: outside `dev` the plan is queued for review;
+    // no manifest or file is written and no guardian is spawned.
+    const boundary = aldenWriteBoundary();
+    if (!boundary.allowed) {
+      const planText = plan.changes.map(c => `• ${c.filePath}: ${c.description}`).join('\n');
+      await queueAsProposal(issueDescription, `${boundary.reason}. Proposed repair (${classification.type}): ${plan.explanation}\n${planText}`);
+      await writeNotification(
+        `Auto-repair proposed, not applied (${boundary.role}): ${plan.explanation}\n\nThe plan is queued for review. Nothing was written.`,
+        'info',
+      );
+      console.log(`[AutoRepair] Not applied (${boundary.role}); queued for review.`);
+      return false;
+    }
 
     const changeList = plan.changes
       .map(c => `• ${path.basename(c.filePath)}: ${c.description}`)

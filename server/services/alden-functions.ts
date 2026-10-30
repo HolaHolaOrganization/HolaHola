@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { aldenToolRefusal, type AldenToolAllowlist } from './alden-tool-allowlist';
+import { aldenWriteToolRefusal } from './alden-write-boundary';
 import { getSharedDb } from "../neon-db";
 import { getUserDb, getMonitoringDb } from "../db";
 import { 
@@ -39,7 +40,7 @@ import { computeHealthStatus } from "./voice-health-monitor";
 import { founderCollabService } from "./founder-collaboration-service";
 import * as fs from "fs";
 import * as path from "path";
-import { execSync, spawn } from "child_process";
+import { execFileSync, execSync, spawn } from "child_process";
 import { randomUUID } from "crypto";
 import { aldenActivity } from "./alden-activity-emitter";
 import { getMonitoringSnapshots, analyzePatterns } from "./monitoring-service";
@@ -946,6 +947,12 @@ export async function executeAldenTool(
   if (refusal) {
     console.warn(`[Alden Tool] refused ${toolName}: not in allowlist "${refusal.allowlist}"`);
     return { data: refusal };
+  }
+  // Production write boundary: file writes and shell only on a `dev` instance.
+  const writeRefusal = aldenWriteToolRefusal(toolName);
+  if (writeRefusal) {
+    console.warn(`[Alden Tool] refused ${toolName}: ${writeRefusal.refused}`);
+    return { data: writeRefusal };
   }
   try {
     switch (toolName) {
@@ -3436,23 +3443,22 @@ function runCodeSearch(
   opts: CodeSearchExecOptions,
 ): { output: string; usedFallback: boolean; bounded: boolean } {
   if (rgAvailable()) {
-    const rgParts: string[] = ['rg', '--line-number', '--with-filename', '--glob=!node_modules/**', '--glob=!dist/**', '--glob=!.git/**'];
-    if (!opts.caseSensitive) rgParts.push('-i');
-    if (opts.glob) rgParts.push(`--glob=${opts.glob}`);
+    // An argument array, never a shell command line: the model-supplied pattern,
+    // glob and directory reach rg verbatim (file_glob used to be unquoted).
+    const rgArgs: string[] = ['--line-number', '--with-filename', '--glob=!node_modules/**', '--glob=!dist/**', '--glob=!.git/**'];
+    if (!opts.caseSensitive) rgArgs.push('-i');
+    if (opts.glob) rgArgs.push(`--glob=${opts.glob}`);
     if (opts.contextLines > 0) {
-      rgParts.push(`-C ${opts.contextLines}`);
+      rgArgs.push('-C', String(opts.contextLines));
     } else {
-      rgParts.push('--no-heading', ...(opts.rgExtraArgs ?? ['--max-count=3']));
+      rgArgs.push('--no-heading', ...(opts.rgExtraArgs ?? ['--max-count=3']));
     }
-    const safePattern = pattern.replace(/'/g, `'\\''`);
-    const safeDir = searchDir.replace(/'/g, `'\\''`);
-    rgParts.push(`-e '${safePattern}'`, `'${safeDir}'`);
+    rgArgs.push('-e', pattern, '--', searchDir);
     try {
-      const output = execSync(rgParts.join(' '), {
+      const output = execFileSync('rg', rgArgs, {
         cwd: WORKSPACE_ROOT,
         maxBuffer: opts.maxBuffer,
         timeout: opts.timeoutMs,
-        shell: '/bin/sh',
       }).toString();
       return { output, usedFallback: false, bounded: false };
     } catch (e: any) {

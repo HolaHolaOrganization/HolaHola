@@ -17,6 +17,7 @@ import { eq, and, desc, gte } from 'drizzle-orm';
 import { founderCollabService } from './founder-collaboration-service';
 import { postToActiveTeamRoom } from './team-room-proactive-poster';
 import { SourceControlService } from './source-control-service';
+import { aldenWriteBoundary } from './alden-write-boundary';
 
 const FOUNDER_ID = '49847136';
 const ALDEN_SESSION_TITLE = 'Alden Platform Management';
@@ -194,13 +195,14 @@ async function postReviewDecision(
   change: { id: string; findingTitle: string; filePath: string; lineStart: number; lineEnd: number; beforeCode: string; afterCode: string },
   result: ReviewResult,
   applied: boolean,
-  githubSynced: boolean
+  githubSynced: boolean,
+  notAppliedReason?: string,
 ): Promise<void> {
   const sessionId = await getOrCreateAldenSession();
 
   const icon = result.decision === 'approve' ? '✓' : result.decision === 'revise' ? '↩' : '⚠';
   const label = result.decision === 'approve'
-    ? applied ? 'APPROVED + APPLIED' : 'APPROVED (apply failed)'
+    ? applied ? 'APPROVED + APPLIED' : notAppliedReason ? 'APPROVED (not applied)' : 'APPROVED (apply failed)'
     : result.decision === 'revise' ? 'REVISION REQUESTED'
     : 'ESCALATED TO DAVID';
 
@@ -215,6 +217,10 @@ async function postReviewDecision(
 
   if (result.decision === 'revise' && result.revisionGuidance) {
     lines.push(``, `**Revision needed:** ${result.revisionGuidance}`);
+  }
+
+  if (result.decision === 'approve' && notAppliedReason) {
+    lines.push(``, `**Not applied:** ${notAppliedReason}`);
   }
 
   if (result.decision === 'approve' && applied) {
@@ -302,6 +308,23 @@ export async function runReviewQueue(): Promise<CodeReviewSummary> {
       summary.approved++;
       let applied = false;
       let githubSynced = false;
+
+      // Production write boundary: outside `dev` an approval is recorded but never
+      // applied or synced. Production keeps it `approved`; an unknown role escalates.
+      const boundary = aldenWriteBoundary();
+      if (!boundary.allowed) {
+        const note = `Not applied: ${boundary.reason}.`;
+        await db.update(proposedCodeChanges).set({
+          status: boundary.role === 'unknown' ? 'escalated' : 'approved',
+          reviewerNotes: note,
+          aldenDecisionReason: result.reason,
+          reviewedAt: new Date(),
+          appliedAt: null,
+          githubSynced: false,
+        }).where(eq(proposedCodeChanges.id, change.id));
+        await postReviewDecision(change, result, false, false, note);
+        continue;
+      }
 
       applied = applyPatch(change.filePath, change.lineStart, change.lineEnd, change.afterCode);
 
