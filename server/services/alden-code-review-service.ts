@@ -11,6 +11,7 @@ import * as fs from 'fs';
 import Anthropic from '@anthropic-ai/sdk';
 import { getSharedDb } from '../db';
 import { costTracker } from './cost-tracker';
+import { ALDEN_BACKGROUND_MODEL, ALDEN_BACKGROUND_THINKING } from './alden-background-model';
 import { proposedCodeChanges, editorInsights, founderSessions } from '@shared/schema';
 import { eq, and, desc, gte } from 'drizzle-orm';
 import { founderCollabService } from './founder-collaboration-service';
@@ -120,14 +121,17 @@ Review this proposed change. Check:
 Be direct and specific. If revising, explain exactly what should be different. If escalating, explain what makes it beyond autonomous approval.`;
 
   const response = await client.messages.create({
-    model: 'claude-sonnet-4-5',
+    model: ALDEN_BACKGROUND_MODEL,
     max_tokens: 1024,
+    ...ALDEN_BACKGROUND_THINKING,
     system: `You are Alden, HolaHola's platform architect. You review code changes from the AI team with architectural judgment. Respond ONLY with a JSON object: { "decision": "approve"|"revise"|"escalate", "reason": "...", "revisionGuidance": "..." (if revise), "escalationSummary": "..." (if escalate) }`,
     messages: [{ role: 'user', content: prompt }],
   });
-  costTracker.track('claude-sonnet-4-5', response.usage?.input_tokens ?? 0, response.usage?.output_tokens ?? 0, 'alden-code-review');
+  costTracker.track(ALDEN_BACKGROUND_MODEL, response.usage?.input_tokens ?? 0, response.usage?.output_tokens ?? 0, 'alden-code-review');
 
-  const raw = response.content[0].type === 'text' ? response.content[0].text : '';
+  // With thinking available, the first block is not necessarily text.
+  const textBlock = response.content.find((block) => block.type === 'text');
+  const raw = (textBlock as any)?.text || '';
   const jsonMatch = raw.match(/\{[\s\S]*\}/);
   if (!jsonMatch) throw new Error(`Claude returned unparseable response: ${raw.substring(0, 200)}`);
 
