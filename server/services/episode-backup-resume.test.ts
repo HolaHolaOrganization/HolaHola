@@ -1,8 +1,20 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { readFile } from "node:fs/promises";
-import { backupHash, exportEpisodeBackup, verifyRestoredEpisodeInventory } from "./episode-backup";
+import { backupHash, exportEpisodeBackup, restoreEpisodeBackup, verifyRestoredEpisodeInventory } from "./episode-backup";
 import { resumeArguments, validateResumeReport, verifyResumeBackup } from "./episode-backup-resume";
+import { assertEpisodeRestoreBranch } from "./episode-backup-branch";
+
+test("detached Neon schema-only branch requires exact identity, expiry, origin and protected/default denials", () => {
+  const expected = { id: "br-synthetic", name: "restore-900003-synthetic", parentId: "br-source", expiresAt: "2026-10-30T19:00:00.500Z" };
+  const branch = { id: expected.id, name: expected.name, default: false, protected: false, init_source: "parent-schema", expires_at: "2026-10-30T19:00:00Z" };
+  assert.doesNotThrow(() => assertEpisodeRestoreBranch(branch, expected));
+  for (const patch of [
+    { id: "br-other" }, { name: "production" }, { parent_id: "br-wrong" },
+    { default: true }, { protected: true }, { init_source: "parent-data" },
+    { expires_at: undefined }, { expires_at: "2026-10-30T20:00:00Z" },
+  ]) assert.throws(() => assertEpisodeRestoreBranch({ ...branch, ...patch }, expected));
+});
 
 async function fixture() {
   const objects = new Map<string, Buffer>();
@@ -75,6 +87,28 @@ test("corrupted backup object blocks restore before target creation", async () =
   const key = [...f.objects.keys()].find(k => k.includes("/objects/"))!;
   f.objects.set(key, Buffer.from('{"content":"tampered"}'));
   await assert.rejects(verifyResumeBackup(f.store, f.prior, "900003", f.anchor), /verification/);
+});
+test("parallel readback preserves manifest order, drains failures and bounds active requests", async () => {
+  const objects = new Map<string, Buffer>();
+  const store = { read: async (k: string) => objects.get(k)!, putNew: async (k: string, b: Buffer) => { objects.set(k, b); } };
+  const records = Array.from({ length: 11 }, (_, i) => ({ id: `r${String(i).padStart(2, "0")}`, content: `${i}` }));
+  const exported = await exportEpisodeBackup({ store, records, snapshotId: "parallel-read", createdAt: new Date().toISOString(), previous: null });
+  let active = 0, peak = 0, fail = false;
+  const read = async (key: string) => {
+    active++; peak = Math.max(peak, active);
+    try {
+      await new Promise(resolve => setTimeout(resolve, 2));
+      if (fail && key.includes("/objects/")) throw new Error("synthetic read failure");
+      return store.read(key);
+    } finally { active--; }
+  };
+  const parallel = { ...store, read };
+  assert.deepEqual(await restoreEpisodeBackup(parallel, exported.reference, 8), records);
+  assert.ok(peak > 1 && peak <= 8);
+  fail = true;
+  await assert.rejects(restoreEpisodeBackup(parallel, exported.reference, 8), /synthetic read failure/);
+  assert.equal(active, 0);
+  await assert.rejects(restoreEpisodeBackup(store, exported.reference, 9), /concurrency/);
 });
 test("arguments require explicit new approval and independent anchor; no export modes", () => {
   const valid = [

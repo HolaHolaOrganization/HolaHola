@@ -59,6 +59,18 @@ unchanged HEAD in a private baseline checkout. System health has zero red
 failures and two warnings for intentionally held app routes. A new real
 founder request is pending; actual restore is not yet performed or claimed.
 
+Live resume exposed Neon’s detached schema-only response (`parent-schema`,
+no persistent parent link). No data was inserted; the created branch was
+removed through explicit fresh-proof-gated operator cleanup and absence
+confirmed. Corrected both entrypoints to bind creation-request provenance
+and positively verify detached identity/expiry while retaining distinct
+endpoint, complete schema and empty-target requirements. Added bounded
+parallel backup-only readback and failure-draining coverage; live preflight
+verified the original 842 rows in 19.2 seconds. Latest focused result:
+52 passing backup/branch tests and passing typecheck. A later attempt stopped
+at the remaining-time gate before branch creation. A fresh founder request
+is pending; real PostgreSQL restore still not completed or claimed.
+
 Verification: 32 focused backup/branch tests plus 11 CI-runner tests passed;
 root typecheck passed. System-health verifier exited 0 with zero red failures
 and Summary: 2 warnings, both app-route checks skipped because the local app

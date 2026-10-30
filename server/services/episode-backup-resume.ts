@@ -50,7 +50,7 @@ export async function verifyResumeBackup(store: EpisodeBackupStore, prior: any, 
       JSON.stringify(evidence) !== JSON.stringify(prior.sourceEvidence)) {
     throw new Error("Verified manifest schema evidence does not match retained export evidence");
   }
-  const records = await restoreEpisodeBackup(store, anchor);
+  const records = await restoreEpisodeBackup(store, anchor, 8);
   const contentBytes = records.reduce((n, r) => n + Buffer.byteLength(r.content), 0);
   const inventory = backupHash(Buffer.from(JSON.stringify(records.map(r => ({
     id: r.id, bytes: Buffer.byteLength(r.content), sha256: backupHash(Buffer.from(r.content)),

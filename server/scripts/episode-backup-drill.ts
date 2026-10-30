@@ -14,6 +14,7 @@ import { captureEpisodeBackup, assertIsolatedEpisodeTarget, restoreEpisodeBackup
 import { createEpisodeBackupOwnership } from "../services/episode-backup-ownership";
 import { TaskOwnershipHttpClient } from "../services/task-ownership-client";
 import { ownershipEndpoint } from "../services/task-ownership-attempt";
+import { assertEpisodeRestoreBranch } from "../services/episode-backup-branch";
 
 export function drillArguments(args: string[]) {
   const values: Record<string, string> = {};
@@ -70,6 +71,8 @@ async function main() {
   let client: S3Client | undefined;
   let ownedBranch: Awaited<ReturnType<typeof createBranch>> | undefined;
   let guard: ReturnType<typeof createEpisodeBackupOwnership> | undefined;
+  let expectedParentId: string | undefined;
+  let expectedExpiry: string | undefined;
   try {
     guard = createEpisodeBackupOwnership({
       taskRef, actor: "luca-replit", receiptId: args["--receipt-id"],
@@ -134,12 +137,21 @@ async function main() {
     report.phase = "backup-only-readback";
     await save(); // independent receipt survives later restore/cleanup failure
     if (exported.manifest.status !== "verified") throw new Error("Flagged snapshot; last-known-good unchanged");
-    const backupRecords = await restoreEpisodeBackup(store, exported.reference);
+    const backupRecords = await restoreEpisodeBackup(store, exported.reference, 8);
+    const parent = await resolveBranch("production");
+    expectedParentId = parent.id;
+    const parentUrl = new URL(await fetchConnectionUri(parent.id, true));
+    const sourceHost = new URL(sourceUrl).hostname.replace(/-pooler(?=\.)/, "");
+    if (parentUrl.hostname.replace(/-pooler(?=\.)/, "") !== sourceHost) {
+      throw new Error("Disposable branch parent does not match the source endpoint");
+    }
+    expectedExpiry = new Date(Date.now() + 60 * 60_000).toISOString();
+    report.creationRequest = { name: runId, parentId: parent.id, schemaOnly: true, expiresAt: expectedExpiry };
     report.phase = "branch-create";
     await save();
     ownedBranch = await createBranch({
-      name: runId, parent: "production", schemaOnly: true,
-      expiresAt: new Date(Date.now() + 60 * 60_000).toISOString(), taskRef, probeOwnership: guard.probe,
+      name: runId, parent: parent.id, schemaOnly: true,
+      expiresAt: expectedExpiry, taskRef, probeOwnership: guard.probe,
       onCreated: async branch => {
         ownedBranch = branch;
         report.branch = { id: branch.id, name: branch.name, parentId: branch.parent_id };
@@ -150,12 +162,7 @@ async function main() {
     report.branch = { id: ownedBranch.id, name: ownedBranch.name, parentId: ownedBranch.parent_id };
     report.cleanup = "pending";
     await save(); // no connection URI ever enters a report or log
-    if (!ownedBranch.parent_id || ownedBranch.default || ownedBranch.protected) throw new Error("Unexpected branch identity");
-    const parentUrl = new URL(await fetchConnectionUri(ownedBranch.parent_id, true));
-    const sourceHost = new URL(sourceUrl).hostname.replace(/-pooler(?=\.)/, "");
-    if (parentUrl.hostname.replace(/-pooler(?=\.)/, "") !== sourceHost) {
-      throw new Error("Disposable branch parent does not match the source endpoint");
-    }
+    assertEpisodeRestoreBranch(ownedBranch, { id: ownedBranch.id, name: runId, parentId: expectedParentId, expiresAt: expectedExpiry });
     const targetUrl = await fetchConnectionUri(ownedBranch.id, false);
     assertIsolatedEpisodeTarget(sourceUrl, targetUrl);
     report.phase = "restore";
@@ -175,13 +182,11 @@ async function main() {
   } finally {
     if (ownedBranch && guard) {
       report.phase = "cleanup";
-      await save();
+      try { await save(); } catch { report.reportWriteFailed = true; }
       try {
         const current = await resolveBranch(ownedBranch.id);
-        if (current.id !== ownedBranch.id || current.name !== runId
-            || current.parent_id !== ownedBranch.parent_id || current.default || current.protected) {
-          throw new Error("Cleanup branch identity changed");
-        }
+        if (!expectedParentId || !expectedExpiry) throw new Error("Missing branch creation identity");
+        assertEpisodeRestoreBranch(current, { id: ownedBranch.id, name: runId, parentId: expectedParentId, expiresAt: expectedExpiry });
         await deleteBranchByNameOrId(ownedBranch.id, false, taskRef, guard.probe);
         report.cleanup = "deleted";
       } catch {

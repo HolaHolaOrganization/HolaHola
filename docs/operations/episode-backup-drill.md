@@ -88,6 +88,16 @@ Source capture includes every episode/story arc row and tagged story, including 
 
 The schema-only Neon branch receives a one-hour expiry as a crash backstop. Creation is recorded before readiness polling. The runner confirms its parent matches the shared source endpoint, verifies that its own endpoint differs, rejects unexpected triggers/generated columns or foreign-key dependencies, and proves the entire restore table is empty. The transaction locks and rechecks emptiness before inserting, then verifies the entire read-back inventory with exact content and metadata. It never truncates, upserts, disables constraints or fetches missing live dependencies.
 
+Neon schema-only copies are detached: the provider returns
+`init_source=parent-schema` without a persistent `parent_id`. Source-parent
+provenance is checked before creation and recorded in the creation request;
+do not mistake the omitted graph link for an invalid restore target. Identity
+still requires the exact returned ID/name, schema-only source, requested
+one-hour expiry and explicit nondefault/nonprotected status. Any present
+parent must match. Distinct endpoint, matching schema and empty-table checks
+remain mandatory. Backup-only GETs use bounded parallelism (up to eight),
+retain manifest order and drain each batch before reporting failure.
+
 ## Failure handling
 
 An uploaded object without a committed manifest is an orphan, **not a backup**. A flagged snapshot is not promoted to last-known-good. A verified export is not a passed restore drill. A passed restore without confirmed branch cleanup is not an overall passed run.

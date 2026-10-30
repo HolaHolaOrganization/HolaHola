@@ -14,6 +14,7 @@ import { assertEpisodeBackupSchema, assertIsolatedEpisodeTarget, restoreEpisodeB
 import { resumeArguments, validateResumeReport, verifyResumeBackup } from "../services/episode-backup-resume";
 import { TaskOwnershipHttpClient } from "../services/task-ownership-client";
 import { ownershipEndpoint } from "../services/task-ownership-attempt";
+import { assertEpisodeRestoreBranch } from "../services/episode-backup-branch";
 
 const required = (name: string) => {
   const value = process.env[name];
@@ -59,6 +60,7 @@ export async function main(args: string[]) {
   let guard: ReturnType<typeof createEpisodeBackupOwnership> | undefined;
   let branchAttempted = false;
   let expectedParentId: string | undefined;
+  let expectedExpiry: string | undefined;
   try {
     const ownership = new TaskOwnershipHttpClient(
       ownershipEndpoint(options["--app-url"]), required("COORDINATION_LUCA_REPLIT_TOKEN"),
@@ -110,11 +112,13 @@ export async function main(args: string[]) {
     // Minimum start budgets, not a worst-case runtime guarantee. Fresh proofs
     // still gate writes/cleanup; the one-hour Neon expiry is the crash backstop.
     await guard.requireRemainingMs(5 * 60_000);
+    expectedExpiry = new Date(Date.now() + 60 * 60_000).toISOString();
+    report.creationRequest = { name: runId, parentId: parent.id, schemaOnly: true, expiresAt: expectedExpiry };
     await phase("branch-create");
     branchAttempted = true;
     branch = await createBranch({
       name: runId, parent: parent.id, schemaOnly: true, taskRef, probeOwnership: guard.probe,
-      expiresAt: new Date(Date.now() + 60 * 60_000).toISOString(),
+      expiresAt: expectedExpiry,
       onCreated: async created => {
         branch = created;
         report.branch = { id: created.id, name: created.name, parentId: created.parent_id };
@@ -122,7 +126,7 @@ export async function main(args: string[]) {
         await phase("branch-created");
       },
     });
-    if (branch.parent_id !== expectedParentId || branch.default || branch.protected) throw new Error("Unexpected branch identity");
+    assertEpisodeRestoreBranch(branch, { id: branch.id, name: runId, parentId: expectedParentId, expiresAt: expectedExpiry });
     const targetUrl = await fetchConnectionUri(branch.id, false);
     assertIsolatedEpisodeTarget(sourceUrl, targetUrl);
     await guard.requireRemainingMs(3 * 60_000);
@@ -143,11 +147,11 @@ export async function main(args: string[]) {
     if (branchAttempted && !branch) {
       try {
         const candidates = (await listBranches()).filter(b => b.name === runId);
-        if (candidates.length > 1 || candidates.some(b =>
-          b.parent_id !== expectedParentId || b.default || b.protected)) {
+        if (candidates.length > 1 || !expectedParentId || !expectedExpiry) {
           throw new Error("Ambiguous branch identity after create failure");
         }
         if (candidates.length === 1) {
+          assertEpisodeRestoreBranch(candidates[0], { id: candidates[0].id, name: runId, parentId: expectedParentId, expiresAt: expectedExpiry });
           branch = candidates[0];
           report.branch = { id: branch.id, name: branch.name, parentId: branch.parent_id };
           report.cleanup = "pending";
@@ -165,8 +169,8 @@ export async function main(args: string[]) {
       catch { report.reportWriteFailed = true; }
       try {
         const current = await resolveBranch(branch.id);
-        if (current.id !== branch.id || current.name !== runId || current.parent_id !== expectedParentId ||
-            current.default || current.protected) throw new Error("Cleanup branch identity changed");
+        if (!expectedParentId || !expectedExpiry) throw new Error("Missing branch creation identity");
+        assertEpisodeRestoreBranch(current, { id: branch.id, name: runId, parentId: expectedParentId, expiresAt: expectedExpiry });
         await deleteBranchByNameOrId(branch.id, false, taskRef, guard.probe);
         if ((await listBranches()).some(b => b.id === branch!.id || b.name === runId)) {
           throw new Error("Deleted branch still appears in control plane");

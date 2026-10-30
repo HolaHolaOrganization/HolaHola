@@ -129,12 +129,20 @@ async function readRecord(
  * transactionally, then compares the entire resulting inventory.
  */
 export async function restoreEpisodeBackup(
-  store: EpisodeBackupStore, reference: BackupReference,
+  store: EpisodeBackupStore, reference: BackupReference, concurrency = 1,
 ): Promise<EpisodeBackupRecord[]> {
+  if (!Number.isSafeInteger(concurrency) || concurrency < 1 || concurrency > 8) {
+    throw new Error("Backup read concurrency must be between one and eight");
+  }
   const manifest = await readBackupManifest(store, reference);
   if (manifest.status !== "verified") throw new Error("Flagged snapshot is not last-known-good");
   const records: EpisodeBackupRecord[] = [];
-  for (const entry of manifest.records) records.push(await readRecord(store, entry));
+  for (let offset = 0; offset < manifest.records.length; offset += concurrency) {
+    const batch = await Promise.allSettled(manifest.records.slice(offset, offset + concurrency).map(entry => readRecord(store, entry)));
+    const failed = batch.find(result => result.status === "rejected");
+    if (failed?.status === "rejected") throw failed.reason;
+    for (const result of batch) if (result.status === "fulfilled") records.push(result.value);
+  }
   return records;
 }
 

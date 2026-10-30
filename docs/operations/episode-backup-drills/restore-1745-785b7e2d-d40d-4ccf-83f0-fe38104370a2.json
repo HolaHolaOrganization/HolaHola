@@ -1,0 +1,203 @@
+{
+  "format": "holahola-episode-restore-drill",
+  "version": 1,
+  "mode": "restore-resume",
+  "taskRef": "1745",
+  "runId": "restore-1745-785b7e2d-d40d-4ccf-83f0-fe38104370a2",
+  "startedAt": "2026-10-30T18:36:48.857Z",
+  "status": "failed",
+  "phase": "finished",
+  "phases": [
+    {
+      "phase": "backup-only-readback",
+      "at": "2026-10-30T18:36:50.511Z"
+    },
+    {
+      "phase": "schema-preflight",
+      "at": "2026-10-30T18:38:22.163Z"
+    },
+    {
+      "phase": "branch-create",
+      "at": "2026-10-30T18:38:23.629Z"
+    },
+    {
+      "phase": "branch-created",
+      "at": "2026-10-30T18:38:24.982Z"
+    },
+    {
+      "phase": "cleanup",
+      "at": "2026-10-30T18:38:27.177Z"
+    },
+    {
+      "phase": "finished",
+      "at": "2026-10-30T18:38:27.307Z"
+    }
+  ],
+  "resumedFrom": {
+    "runId": "drill-1745-34faf5f5-8fe5-4245-80db-6c5ca0c4c436",
+    "path": "docs/operations/episode-backup-drills/drill-1745-34faf5f5-8fe5-4245-80db-6c5ca0c4c436.json",
+    "sha256": "a8f58253650e5001d3817cebb98a320513f162b2f010289955a060b8fadcbc09"
+  },
+  "approval": {
+    "challengeId": "902cec74-8731-465b-bba5-56add09f77ce",
+    "receiptId": "c56fb75d-8a33-4a69-9e52-bf355f2e2eb1"
+  },
+  "reference": {
+    "key": "episode-backups/v1/manifests/drill-1745-34faf5f5-8fe5-4245-80db-6c5ca0c4c436.json",
+    "sha256": "27424cc16cb8e4fb044b836cbda3474c4d607c12cc844759241b2d4a85eecc98"
+  },
+  "liveExportPerformed": false,
+  "sourceRecaptured": false,
+  "restoreVerified": false,
+  "schemaEvidenceRechecked": true,
+  "cleanup": "failed-needs-operator",
+  "operatorCleanup": {
+    "branchId": "br-young-shape-ah25cn1m",
+    "outcome": "deleted",
+    "absenceConfirmedAt": "2026-10-30T18:39:07.254Z",
+    "receiptId": "c56fb75d-8a33-4a69-9e52-bf355f2e2eb1",
+    "reason": "Neon parent-schema copies are detached; exact captured ID/name/init_source/expiry and nondefault/nonprotected identity verified before fresh-proof-gated deletion"
+  },
+  "canary": {
+    "rerun": false,
+    "original": {
+      "key": "episode-backups/v1/canaries/drill-1745-34faf5f5-8fe5-4245-80db-6c5ca0c4c436.json",
+      "sha256": "c6ad6323fa52d79741325d09001a5f0efd3215738c0f838be669eb01809c3680",
+      "overwrite": "ObjectLockedByBucketPolicy",
+      "deletion": "ObjectLockedByBucketPolicy"
+    }
+  },
+  "originalReadbackEvidence": "Inferred from failed branch-create boundary in original runner; independently repeated below.",
+  "excluded": [
+    "S3 writes",
+    "source row recapture",
+    "production restore",
+    "Markdown retirement",
+    "scheduling"
+  ],
+  "backupOnlyReadbackCompleted": true,
+  "records": 842,
+  "contentBytes": 11532426,
+  "contentInventorySha256": "58be09309dada2bb0d30dedc40dcd6adb986090b0b6307256c3b6b0d0a9a9d48",
+  "manifestStatus": "verified",
+  "sourceEvidence": {
+    "selectionSha256": "6aba38acac772c725439c2487010c454fad9729469bcc9628ec2e44031bac24a",
+    "columns": [
+      {
+        "name": "id",
+        "type": "character varying",
+        "generated": "",
+        "identity": ""
+      },
+      {
+        "name": "recorded_at",
+        "type": "timestamp without time zone",
+        "generated": "",
+        "identity": ""
+      },
+      {
+        "name": "title",
+        "type": "character varying",
+        "generated": "",
+        "identity": ""
+      },
+      {
+        "name": "summary",
+        "type": "text",
+        "generated": "",
+        "identity": ""
+      },
+      {
+        "name": "content",
+        "type": "text",
+        "generated": "",
+        "identity": ""
+      },
+      {
+        "name": "participants",
+        "type": "character varying",
+        "generated": "",
+        "identity": ""
+      },
+      {
+        "name": "tags",
+        "type": "text[]",
+        "generated": "",
+        "identity": ""
+      },
+      {
+        "name": "importance",
+        "type": "integer",
+        "generated": "",
+        "identity": ""
+      },
+      {
+        "name": "created_at",
+        "type": "timestamp without time zone",
+        "generated": "",
+        "identity": ""
+      },
+      {
+        "name": "extends_memory_id",
+        "type": "character varying",
+        "generated": "",
+        "identity": ""
+      },
+      {
+        "name": "theme_tags",
+        "type": "text[]",
+        "generated": "",
+        "identity": ""
+      },
+      {
+        "name": "entry_type",
+        "type": "conversation_memory_entry_type",
+        "generated": "",
+        "identity": ""
+      },
+      {
+        "name": "arc_name",
+        "type": "text",
+        "generated": "",
+        "identity": ""
+      },
+      {
+        "name": "episode_order",
+        "type": "integer",
+        "generated": "",
+        "identity": ""
+      },
+      {
+        "name": "attribution",
+        "type": "jsonb",
+        "generated": "",
+        "identity": ""
+      }
+    ],
+    "constraints": [
+      {
+        "conname": "conversation_memories_pkey",
+        "contype": "p",
+        "definition": "PRIMARY KEY (id)"
+      }
+    ],
+    "triggers": [],
+    "migrationHead": [
+      {
+        "hash": "ad01ee70bb4b57c0a258b75e469796570e4a1e39e9a801ca4dd9c372fd76b44b",
+        "created_at": "1793231604419"
+      }
+    ],
+    "serialization": "UTC; ISO,YMD; postgres intervals; extra_float_digits=3; hex bytea"
+  },
+  "originalBranchAbsent": true,
+  "branch": {
+    "id": "br-young-shape-ah25cn1m",
+    "name": "restore-1745-785b7e2d-d40d-4ccf-83f0-fe38104370a2"
+  },
+  "failure": {
+    "phase": "branch-created",
+    "category": "Error"
+  },
+  "finishedAt": "2026-10-30T18:38:27.307Z"
+}

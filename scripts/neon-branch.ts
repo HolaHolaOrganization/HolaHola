@@ -132,6 +132,8 @@ interface NeonBranch {
   default: boolean;
   protected: boolean;
   current_state: 'init' | 'creating' | 'ready' | 'archived' | string;
+  init_source?: string;
+  expires_at?: string;
 }
 
 interface NeonDatabase {

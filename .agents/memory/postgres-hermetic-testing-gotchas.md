@@ -211,3 +211,22 @@ verification constraints, not permission to perform destructive cleanup.
 **How to apply:** Read the linked source before cleanup verification or tests
 that must distinguish committed state from driver/lookup reporting.
 
+
+## Detached Neon schema-only copies
+
+Neon schema-only copies can be detached immediately: an explicitly selected
+parent is a schema source, not necessarily a persistent parent-child graph
+relationship. The live control plane reports the copy as `parent-schema`
+while omitting its parent link.
+
+**Why:** A live isolated restore attempt rejected the omitted parent as an
+identity failure even though the provider had successfully made the requested
+schema-only copy. The same incorrect assumption also blocked automatic
+cleanup; separately verified, fresh-proof-gated cleanup removed the exact
+owned branch.
+
+**How to apply:** Preserve source provenance from the creation request.
+Verify detached schema-only identity and isolation positively; do not infer
+production identity or ancestry from a missing parent alone. Keep the empty
+target, complete schema and non-production endpoint requirements.
+
