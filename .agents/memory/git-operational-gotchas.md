@@ -318,3 +318,20 @@ base. Preserve unrelated workspace authorship. Do not weaken a shared constraint
 or call a local migration-gate failure a new-schema regression before comparing
 the executing service and fixtures to the native baseline.
 
+
+## Source-only isolated review transport
+
+Use a separate temporary, blob-filtered Git repository and sparse checkout for
+exact-head source reviews when the main checkout does not contain the commits.
+Keep the main worktree and its Git configuration unchanged.
+
+**Why:** An unfiltered shallow fetch still transfers large tracked binary
+assets and can spend hundreds of megabytes before making source available.
+Shallow history alone does not limit blob size. A filtered fetch followed by
+a source-only checkout completed with a small fraction of that transfer.
+
+**How to apply:** Fetch with `--filter=blob:none` and sparse-check out only
+needed source/configuration directories. Use the established own-actor
+authentication wrapper for lazy blob hydration too. Never change Git trust or
+persist credentials merely to obtain review sources.
+
