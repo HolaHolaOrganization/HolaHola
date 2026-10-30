@@ -157,3 +157,4 @@
 - [Broker rollout decisions](broker-rollout-decisions.md) — Canonical founder choices on custody, audit retention, a separate temporary sandbox and measurement-based final limits.
 - [Archive extraction destination](archive-extraction-destination.md) — Put tar destination options before member selectors; trailing -C can extract review files into the workspace.
 - [Native Codex participation test](native-codex-participation.md) — Onboarding proves native participation, with recorded assistance, team observation and evidenced readiness—not credentials alone.
+- [Neon history policy](neon-history-policy.md) — Founder increased history from two to seven days at no charge; independent S3 backup remains required.
