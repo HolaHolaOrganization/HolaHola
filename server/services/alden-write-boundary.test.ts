@@ -4,12 +4,31 @@
 import assert from 'node:assert/strict';
 import childProcess from 'node:child_process';
 import fs from 'node:fs';
+import { syncBuiltinESMExports } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, describe, mock, test } from 'node:test';
+import { after, afterEach, describe, mock, test } from 'node:test';
 import { ALDEN_WRITE_TOOLS, aldenWriteBoundary, aldenWriteToolRefusal } from './alden-write-boundary';
 
 const ROLE = 'HOLAHOLA_INSTANCE_ROLE';
+
+// Importing the review service pulls in modules that start module-level
+// intervals (voice diagnostics, production telemetry, sync auth, session
+// compass). They play no part here; unref them in this file so node --test can
+// exit. The services' own interval behaviour is unchanged.
+const realSetInterval = globalThis.setInterval;
+globalThis.setInterval = ((...args: Parameters<typeof setInterval>) => realSetInterval(...args).unref()) as typeof setInterval;
+
+// The services open the shared pool on import; close it so node --test can exit
+// (see .agents/memory/pg-pool-idle-timeout-ci-hang.md).
+after(async () => {
+  const { closeDbConnections } = await import('../db');
+  await closeDbConnections();
+});
+
+// Fixture target for the write paths: outside the repository, so even a broken
+// trap could never touch source.
+const OUTSIDE_REPO = path.join(os.tmpdir(), 'alden-write-boundary-fixture', 'target.ts');
 
 function withRole<T>(role: string | undefined, fn: () => Promise<T>): Promise<T> {
   const before = process.env[ROLE];
@@ -17,6 +36,33 @@ function withRole<T>(role: string | undefined, fn: () => Promise<T>): Promise<T>
   return fn().finally(() => {
     if (before === undefined) delete process.env[ROLE]; else process.env[ROLE] = before;
   });
+}
+
+// Every source-write, rename, delete, process and git-sync primitive, trapped so
+// any call fails the test (a later restore cannot hide a write).
+async function trapWritePrimitives(): Promise<string[]> {
+  const { SourceControlService } = await import('./source-control-service');
+  const calls: string[] = [];
+  const trap = (name: string) => () => { calls.push(name); throw new Error(`${name} must not run`); };
+  for (const name of ['writeFileSync', 'writeFile', 'appendFileSync', 'renameSync', 'rename', 'copyFileSync', 'unlinkSync', 'unlink', 'rmSync'] as const) {
+    mock.method(fs, name, trap(`fs.${name}`));
+  }
+  for (const name of ['writeFile', 'rename', 'copyFile', 'unlink', 'rm'] as const) {
+    mock.method(fs.promises, name, trap(`fs.promises.${name}`));
+  }
+  for (const name of ['spawn', 'spawnSync', 'exec', 'execSync', 'execFile', 'execFileSync', 'fork'] as const) {
+    mock.method(childProcess, name, trap(`child_process.${name}`));
+  }
+  mock.method(SourceControlService.prototype, 'sync', trap('SourceControlService.sync'));
+  // The services import fs and child_process as ES modules; their named
+  // bindings see a mock only after this sync.
+  syncBuiltinESMExports();
+  return calls;
+}
+
+function restoreWritePrimitives(): void {
+  mock.restoreAll();
+  syncBuiltinESMExports();
 }
 
 describe('the boundary itself', () => {
@@ -42,19 +88,12 @@ describe('the boundary itself', () => {
 });
 
 describe('enforcement in executeAldenTool', () => {
-  afterEach(() => mock.restoreAll());
+  afterEach(restoreWritePrimitives);
 
   for (const role of ['production', undefined]) {
     test(`write tools are refused before any write primitive runs (role ${role ?? 'missing'})`, async () => {
       const { executeAldenTool } = await import('./alden-functions');
-      const calls: string[] = [];
-      const trap = (name: string) => () => { calls.push(name); throw new Error(`${name} must not run`); };
-      mock.method(fs, 'writeFileSync', trap('fs.writeFileSync'));
-      mock.method(fs, 'mkdirSync', trap('fs.mkdirSync'));
-      mock.method(childProcess, 'execSync', trap('execSync'));
-      mock.method(childProcess, 'execFileSync', trap('execFileSync'));
-      mock.method(childProcess, 'spawn', trap('spawn'));
-      mock.method(childProcess, 'spawnSync', trap('spawnSync'));
+      const calls = await trapWritePrimitives();
       await withRole(role, async () => {
         for (const tool of ALDEN_WRITE_TOOLS) {
           const result = await executeAldenTool(tool, {
@@ -111,34 +150,109 @@ describe('code search runs rg without a shell', () => {
   });
 });
 
-describe('the other write paths check the boundary first', () => {
-  const repair = fs.readFileSync(new URL('./alden-auto-repair.ts', import.meta.url), 'utf8');
-  const review = fs.readFileSync(new URL('./alden-code-review-service.ts', import.meta.url), 'utf8');
+describe('the review queue, driven through runReviewQueue itself', () => {
+  afterEach(restoreWritePrimitives);
 
-  test('auto-repair queues the plan outside dev, before any manifest, guardian or file write', () => {
-    const start = repair.indexOf('export async function attemptAutoRepair(');
-    const gate = repair.indexOf('const boundary = aldenWriteBoundary();', start);
-    const branch = repair.slice(gate, repair.indexOf('return false;', gate));
-    assert.ok(start > 0 && gate > start);
-    assert.match(branch, /^const boundary = aldenWriteBoundary\(\);\s+if \(!boundary\.allowed\) \{/);
-    assert.match(branch, /await queueAsProposal\(issueDescription,/);
-    for (const write of ['fs.writeFileSync(GUARDIAN_MANIFEST_PATH', 'spawn(process.execPath', 'fs.writeFileSync(change.filePath', 'Auto-repair initiated']) {
-      const at = repair.indexOf(write, start);
-      assert.ok(at > gate, `${write} comes after the boundary`);
+  function fakeQueue(filePath: string) {
+    const change = {
+      id: 'change-1', findingTitle: 'test finding', filePath, lineStart: 1, lineEnd: 1,
+      beforeCode: 'a', afterCode: 'b', status: 'pending_review',
+    } as any;
+    const updates: Record<string, unknown>[] = [];
+    const decisions: unknown[][] = [];
+    const db = {
+      select: () => ({ from: () => ({ where: () => ({ orderBy: async () => [change] }) }) }),
+      update: () => ({ set: (values: Record<string, unknown>) => ({ where: async () => { updates.push(values); } }) }),
+    } as any;
+    const deps = {
+      db,
+      loadMemory: async () => '',
+      review: async () => ({ decision: 'approve' as const, reason: 'looks right' }),
+      postDecision: async (...args: unknown[]) => { decisions.push(args); },
+    };
+    return { deps, updates, decisions };
+  }
+
+  for (const [role, status] of [['production', 'approved'], [undefined, 'escalated']] as const) {
+    test(`an approval under role ${role ?? 'missing'} is recorded ${status}, never applied or synced`, async () => {
+      const { runReviewQueue } = await import('./alden-code-review-service');
+      const { deps, updates, decisions } = fakeQueue(OUTSIDE_REPO);
+      const calls = await trapWritePrimitives();
+      const summary = await withRole(role, () => runReviewQueue(deps));
+      assert.deepEqual(calls, []);
+      assert.equal(summary.applied, 0);
+      assert.equal(summary.githubSynced, 0);
+      assert.equal(updates.length, 1);
+      assert.equal(updates[0].status, status);
+      assert.equal(updates[0].appliedAt, null);
+      assert.equal(updates[0].githubSynced, false);
+      assert.match(String(updates[0].reviewerNotes), /^Not applied: /);
+      assert.equal(decisions.length, 1);
+      assert.equal(decisions[0][2], false, 'reported as not applied');
+      assert.match(String(decisions[0][4]), /^Not applied: /);
+    });
+  }
+
+  test('positive control: under dev the same approval reaches the trapped file write', async () => {
+    const { runReviewQueue } = await import('./alden-code-review-service');
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'alden-review-'));
+    const file = path.join(dir, 'target.ts');
+    fs.writeFileSync(file, 'a\n');
+    const { deps, updates } = fakeQueue(file);
+    try {
+      const calls = await trapWritePrimitives();
+      await withRole('dev', () => runReviewQueue(deps));
+      restoreWritePrimitives();
+      assert.deepEqual(calls, ['fs.writeFileSync']);
+      assert.equal(updates[0].status, 'approved', 'the trapped write failed, so nothing was applied');
+    } finally {
+      restoreWritePrimitives();
+      fs.rmSync(dir, { recursive: true, force: true });
     }
   });
+});
 
-  test('the review queue never applies or syncs outside dev; unknown escalates', () => {
-    const start = review.indexOf('export async function runReviewQueue(');
-    const gate = review.indexOf('const boundary = aldenWriteBoundary();', start);
-    const branchEnd = review.indexOf('continue;', gate);
-    const branch = review.slice(gate, branchEnd);
-    assert.ok(start > 0 && gate > start && branchEnd > gate);
-    assert.match(branch, /^const boundary = aldenWriteBoundary\(\);\s+if \(!boundary\.allowed\) \{/);
-    assert.ok(review.indexOf('applyPatch(change.filePath', start) > branchEnd);
-    assert.ok(review.indexOf("requestSourceControlSync('alden-code-review')", start) > branchEnd);
-    assert.match(branch, /status: boundary\.role === 'unknown' \? 'escalated' : 'approved'/);
-    assert.doesNotMatch(branch, /'applied'|applyPatch|requestSourceControlSync/);
-    assert.match(branch, /appliedAt: null,\s+githubSynced: false/);
+describe('auto-repair, driven through attemptAutoRepair itself', () => {
+  afterEach(restoreWritePrimitives);
+
+  function fakeRepair(filePath: string) {
+    const proposals: string[][] = [];
+    const notices: string[][] = [];
+    const deps = {
+      classify: async () => ({ eligible: true, type: 'null_guard' as const, confidence: 'high' as const, reason: 'clear null guard' }),
+      plan: async () => ({
+        repairId: 'repair-1', issueDescription: 'issue', repairType: 'null_guard' as const, explanation: 'add a guard',
+        changes: [{ filePath, originalContent: 'a\n', newContent: 'b\n', description: 'guard' }],
+      }),
+      queueProposal: async (...args: string[]) => { proposals.push(args); },
+      notify: async (...args: string[]) => { notices.push(args); },
+    };
+    return { deps, proposals, notices };
+  }
+
+  for (const role of ['production', undefined]) {
+    test(`under role ${role ?? 'missing'} the plan is queued; no manifest, guardian or file write`, async () => {
+      const { attemptAutoRepair } = await import('./alden-auto-repair');
+      const { deps, proposals, notices } = fakeRepair(OUTSIDE_REPO);
+      const calls = await trapWritePrimitives();
+      const initiated = await withRole(role, () => attemptAutoRepair('issue', '', deps));
+      assert.deepEqual(calls, []);
+      assert.equal(initiated, false);
+      assert.equal(proposals.length, 1);
+      assert.match(proposals[0][1], /add a guard/);
+      assert.equal(notices.length, 1);
+      assert.match(notices[0][0], /^Auto-repair proposed, not applied/);
+    });
+  }
+
+  test('positive control: under dev the same plan reaches the trapped manifest write', async () => {
+    const { attemptAutoRepair } = await import('./alden-auto-repair');
+    const { deps, proposals } = fakeRepair(OUTSIDE_REPO);
+    const calls = await trapWritePrimitives();
+    const initiated = await withRole('dev', () => attemptAutoRepair('issue', '', deps));
+    restoreWritePrimitives();
+    assert.deepEqual(calls, ['fs.writeFileSync']);
+    assert.equal(initiated, false);
+    assert.equal(proposals.length, 0);
   });
 });

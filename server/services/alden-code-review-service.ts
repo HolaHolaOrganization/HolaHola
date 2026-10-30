@@ -33,7 +33,7 @@ function getClient(): Anthropic {
 
 type ReviewDecision = 'approve' | 'revise' | 'escalate';
 
-interface ReviewResult {
+export interface ReviewResult {
   decision: ReviewDecision;
   reason: string;
   revisionGuidance?: string;
@@ -267,8 +267,22 @@ export interface CodeReviewSummary {
   failed: number;
 }
 
-export async function runReviewQueue(): Promise<CodeReviewSummary> {
-  const db = getSharedDb();
+/**
+ * External I/O the queue depends on, injectable so tests can drive the real
+ * entry point. Source writes and git sync are deliberately not injectable.
+ */
+export interface ReviewQueueDeps {
+  db: ReturnType<typeof getSharedDb>;
+  loadMemory: () => Promise<string>;
+  review: (change: typeof proposedCodeChanges.$inferSelect, memory: string) => Promise<ReviewResult>;
+  postDecision: typeof postReviewDecision;
+}
+
+export async function runReviewQueue(deps: Partial<ReviewQueueDeps> = {}): Promise<CodeReviewSummary> {
+  const db = deps.db ?? getSharedDb();
+  const loadMemory = deps.loadMemory ?? loadAldenMemory;
+  const review = deps.review ?? reviewWithClaude;
+  const postDecision = deps.postDecision ?? postReviewDecision;
   const summary: CodeReviewSummary = { total: 0, approved: 0, applied: 0, githubSynced: 0, revised: 0, escalated: 0, failed: 0 };
 
   const pending = await db
@@ -285,14 +299,14 @@ export async function runReviewQueue(): Promise<CodeReviewSummary> {
   console.log(`[AldenReview] Reviewing ${pending.length} proposed change(s)...`);
   summary.total = pending.length;
 
-  const memory = await loadAldenMemory();
+  const memory = await loadMemory();
 
   for (const change of pending) {
     console.log(`[AldenReview] Reviewing: "${change.findingTitle}"`);
     let result: ReviewResult;
 
     try {
-      result = await reviewWithClaude(change, memory);
+      result = await review(change, memory);
     } catch (err: any) {
       console.error(`[AldenReview] Claude review failed for "${change.findingTitle}":`, err.message);
       await db.update(proposedCodeChanges)
@@ -322,7 +336,7 @@ export async function runReviewQueue(): Promise<CodeReviewSummary> {
           appliedAt: null,
           githubSynced: false,
         }).where(eq(proposedCodeChanges.id, change.id));
-        await postReviewDecision(change, result, false, false, note);
+        await postDecision(change, result, false, false, note);
         continue;
       }
 
@@ -345,7 +359,7 @@ export async function runReviewQueue(): Promise<CodeReviewSummary> {
         githubSynced,
       }).where(eq(proposedCodeChanges.id, change.id));
 
-      await postReviewDecision(change, result, applied, githubSynced);
+      await postDecision(change, result, applied, githubSynced);
 
     } else if (result.decision === 'revise') {
       summary.revised++;
@@ -356,7 +370,7 @@ export async function runReviewQueue(): Promise<CodeReviewSummary> {
         reviewedAt: new Date(),
       }).where(eq(proposedCodeChanges.id, change.id));
 
-      await postReviewDecision(change, result, false, false);
+      await postDecision(change, result, false, false);
 
     } else {
       summary.escalated++;
@@ -367,7 +381,7 @@ export async function runReviewQueue(): Promise<CodeReviewSummary> {
         reviewedAt: new Date(),
       }).where(eq(proposedCodeChanges.id, change.id));
 
-      await postReviewDecision(change, result, false, false);
+      await postDecision(change, result, false, false);
     }
   }
 
