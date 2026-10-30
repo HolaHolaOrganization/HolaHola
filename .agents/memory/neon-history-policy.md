@@ -17,3 +17,16 @@ The backup destination uses Cloudflare R2. AWS-style GetBucketPolicy/GetBucketVe
 
 **How to apply:** Verify provider-native protection and credential custody before a live backup. Do not apply a blanket lock to the existing app bucket or infer that S3 compatibility includes AWS IAM/versioning semantics. Prefix locks and retention choices need explicit founder authorization. Cloudflare also checks its locks before conditional-write headers: an existing locked object can yield ObjectLockedByBucketPolicy409 rather than PreconditionFailed412; accept reuse only after independent exact readback. Sources: https://developers.cloudflare.com/r2/buckets/bucket-locks/ and https://developers.cloudflare.com/r2/api/tokens/ .
 
+
+## Founder-selected indefinite backup protection
+
+On 2026-10-30 the founder selected "Until you explicitly unlock them" in response to the question about how long backup objects should remain protected.
+
+This authorizes indefinite protection for the narrow `episode-backups/v1/` prefix only. It does not authorize locking the whole app bucket or its existing media prefixes, automatic deletion, removing any lock, or supplying lock-management credentials to the exporter. Lock-management authority must remain separately founder-controlled.
+
+**Why:** The founder explicitly selected indefinite protection rather than a fixed retention period. Backup preservation must not expire automatically while the exporter can still delete or overwrite older objects.
+
+**How to apply:** Prepare and independently verify a provider-native indefinite R2 prefix lock, keeping bucket-configuration authority outside the exporter. Future cleanup/unlocking requires the founder's explicit authorization. Selection of this policy is not evidence that it has been applied.
+
+Operational status: the existing Cloudflare credential received HTTP403/code10000 from the read-only R2 lock configuration endpoint. No lock configuration was read or changed. A founder-controlled dashboard step or separately authorized administrative executor is required; do not request or expose an admin credential in chat.
+

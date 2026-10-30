@@ -574,7 +574,7 @@ Approved multi-hat build; independent design approval69668936/3a025a66/f61491b6.
 
 # Alden ↔ Agent Handoff
 
-## From Agent — last updated: Fri, Oct 30, 4:57 PM
+## From Agent — last updated: Fri, Oct 30, 5:04 PM
 
 2026-10-30 — PR143 approved on GitHub at exact head 8171460ddcd340993c41956da73d7e93d814a531; independent targeted tests 3/3. No merge/deploy.
 
@@ -582,7 +582,7 @@ David authorized beginning the approved central-episodes Phase B backup and rest
 
 LIVE EXPORT / REAL DATABASE RESTORE NOT PERFORMED. Current provider is Cloudflare R2; versioning read returns403, bucket-policy read501. Neither establishes safe exporter custody. Need provider-native lock/custody verification before live upload and approved disposable-branch infrastructure context. No scheduling, bucket mutation, S3 upload, production content write, branch creation, Markdown retirement or deletion policy.
 
-Cloudflare's current docs support prefix-scoped bucket locks; they prevent overwrite/deletion, including lifecycle, while object credentials without bucket-configuration authority cannot remove rules. A founder decision is needed before applying a lock, and it must never cover the app's existing media prefixes. No retention value or bucket configuration has been changed. The adapter supports the specific R2 ObjectLockedByBucketPolicy409 only by exact readback; generic409 fails.
+Cloudflare's current docs support prefix-scoped bucket locks; they prevent overwrite/deletion, including lifecycle, while object credentials without bucket-configuration authority cannot remove rules. David selected "Until you explicitly unlock them": indefinite protection of `episode-backups/v1/` only, with founder-controlled unlocking. Never lock the whole bucket or app media prefixes. This is now decided, not a pending retention choice. The existing Cloudflare credential received HTTP403/code10000 on the native lock-configuration GET; no lock configuration was read or changed. Founder dashboard configuration or a separately authorized admin executor is needed. Do not transfer admin custody to the exporter. The adapter supports the specific R2 ObjectLockedByBucketPolicy409 only by exact readback; generic409 fails.
 
 Remaining implementation is live export orchestration/attempt receipts/alerts, provider-native protection verification and isolated PostgreSQL restoration plus full readback/cleanup. Current code is a tested foundation, not a running backup service or passed disposable-DB drill. Keep original replicas. Alden consulted analysis-only. System health had no red failures; two app-route checks skipped because the held local app is not running.
 ## From Agent — reconciliation successor and final validation — October 15, 2026
