@@ -120,6 +120,7 @@ describe('the other write paths check the boundary first', () => {
     const gate = repair.indexOf('const boundary = aldenWriteBoundary();', start);
     const branch = repair.slice(gate, repair.indexOf('return false;', gate));
     assert.ok(start > 0 && gate > start);
+    assert.match(branch, /^const boundary = aldenWriteBoundary\(\);\s+if \(!boundary\.allowed\) \{/);
     assert.match(branch, /await queueAsProposal\(issueDescription,/);
     for (const write of ['fs.writeFileSync(GUARDIAN_MANIFEST_PATH', 'spawn(process.execPath', 'fs.writeFileSync(change.filePath', 'Auto-repair initiated']) {
       const at = repair.indexOf(write, start);
@@ -133,6 +134,7 @@ describe('the other write paths check the boundary first', () => {
     const branchEnd = review.indexOf('continue;', gate);
     const branch = review.slice(gate, branchEnd);
     assert.ok(start > 0 && gate > start && branchEnd > gate);
+    assert.match(branch, /^const boundary = aldenWriteBoundary\(\);\s+if \(!boundary\.allowed\) \{/);
     assert.ok(review.indexOf('applyPatch(change.filePath', start) > branchEnd);
     assert.ok(review.indexOf("requestSourceControlSync('alden-code-review')", start) > branchEnd);
     assert.match(branch, /status: boundary\.role === 'unknown' \? 'escalated' : 'approved'/);
