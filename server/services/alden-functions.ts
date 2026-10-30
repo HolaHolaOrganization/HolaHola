@@ -1,4 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { aldenToolRefusal, type AldenToolAllowlist } from './alden-tool-allowlist';
 import { getSharedDb } from "../neon-db";
 import { getUserDb, getMonitoringDb } from "../db";
 import { 
@@ -937,8 +938,15 @@ export function toAnthropicAldenTools(
 export async function executeAldenTool(
   toolName: string,
   args: Record<string, any>,
-  context?: { conversationId?: string; engine?: 'anthropic' | 'gemini'; reviewReadSession?: AldenReviewReadSession }
+  context?: { conversationId?: string; engine?: 'anthropic' | 'gemini'; reviewReadSession?: AldenReviewReadSession; toolAllowlist?: AldenToolAllowlist }
 ): Promise<{ data: any; sideEffects?: Record<string, any> }> {
+  // Per-turn allowlist: refuse before any tool code runs (both engines, nested
+  // dispatch and continuations all pass through here).
+  const refusal = aldenToolRefusal(toolName, context?.toolAllowlist);
+  if (refusal) {
+    console.warn(`[Alden Tool] refused ${toolName}: not in allowlist "${refusal.allowlist}"`);
+    return { data: refusal };
+  }
   try {
     switch (toolName) {
       case "get_system_health": {
@@ -2719,7 +2727,8 @@ export async function executeAldenTool(
         const speaker = args.speaker || 'Alden';
 
         // Re-use get_ai_cost_report logic inline to get the formatted text
-        const reportResult = await executeAldenTool('get_ai_cost_report', { hours, env });
+        // Nested dispatch carries this turn's context, so an allowlist applies here too.
+        const reportResult = await executeAldenTool('get_ai_cost_report', { hours, env }, context);
         const reportData   = reportResult.data as any;
         const reportText   = reportData?.text as string;
         if (!reportText) return { data: { error: 'Failed to generate cost report' } };
