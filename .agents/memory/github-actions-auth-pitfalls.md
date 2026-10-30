@@ -265,3 +265,12 @@ position. Report queued while that entry exists; report merged only from native
 merged evidence. Do not blindly re-arm auto-merge or repeat enqueue because an
 auto-merge field is null.
 
+
+## Repository transfer redirects and REST mutations
+
+Resolve the live canonical GitHub repository name before REST mutations. A successful GET through an old owner/name does not prove a POST will follow its redirect.
+
+**Why:** After repository transfer, gh api GET requests followed the old repository path, but posting a review to that same path returned HTTP 307 without creating a review. Posting to the full_name returned by repository discovery succeeded.
+
+**How to apply:** Query repository metadata for full_name (or use its stable repository ID), use the canonical destination for writes, and verify the returned mutation record before claiming success. Do not treat a redirect response as a completed action.
+
