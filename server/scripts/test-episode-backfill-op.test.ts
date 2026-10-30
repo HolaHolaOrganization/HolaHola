@@ -1,128 +1,217 @@
 // Founder-approved episode backfill (scripts/data-ops/backfill-episode-turns.ts):
-// receipt rules, per-entry decisions, and the locked, ordered, fail-closed apply.
+// receipt rules, the whole-batch plan (appendable tail, source identity), the
+// single-transaction apply, and the verified embedding outcome. Synthetic data;
+// the real-PostgreSQL locking proof is server/services/episode-backfill-postgres.test.ts.
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
-import { applyBackfill, describe as describeCounts, type BackfillPool } from '../../scripts/data-ops/backfill-episode-turns';
 import {
-  EPISODE_BACKFILL_RECEIPT_KIND, decideEntry, episodeBackfillReceiptProblem, sha256,
-  type EpisodeBackfillEntry, type EpisodeBackfillReceipt,
+  applyBackfill, describe as describeOutcome, ensureEmbeddings, runBackfill, type BackfillPool, type EmbeddingDeps,
+} from '../../scripts/data-ops/backfill-episode-turns';
+import {
+  EPISODE_BACKFILL_RECEIPT_KIND, PER_TURN_ARC, PER_TURN_TAG, embeddingCoverage, episodeBackfillReceiptProblem,
+  planBackfill, sha256, type EpisodeBackfillEntry, type EpisodeBackfillReceipt, type SourceRow,
 } from '../services/episode-backfill';
-import { episodeTextForTurn, turnEpisodeMarker } from '../services/episode-gap-projection';
+import { episodeTextForTurn } from '../services/episode-gap-projection';
 
 const EP = 'episode-35';
 const TITLE = "Episode 35: Alden's Entry into the Record";
-const turns: Record<string, string> = {
-  a: 'David [Claude Code]: first\n\nClaude Code: one',
-  b: 'David [Claude Code]: second\n\nClaude Code: two',
-  c: 'David [Claude Code]: third\n\nClaude Code: three',
+const at = (day: number, minute = 0) => `2026-10-${String(day).padStart(2, '0')} 00:${String(minute).padStart(2, '0')}:00.000000`;
+const src = (id: string, day: number, captureId: string | null = `cap-${id}`, extra: Partial<SourceRow> = {}): SourceRow => ({
+  id, content: `David [Claude Code]: turn ${id}\n\nClaude Code: reply ${id}`, createdAt: at(day),
+  arcName: PER_TURN_ARC, tags: [PER_TURN_TAG, ...(captureId ? [`capture-id:${captureId}`] : [])], ...extra,
+});
+const entryOf = (row: SourceRow): EpisodeBackfillEntry => {
+  const tag = (row.tags ?? []).find((t) => t.startsWith('capture-id:'));
+  return { rowId: row.id, captureId: tag ? tag.slice('capture-id:'.length) : null, createdAt: row.createdAt, contentSha256: sha256(row.content) };
 };
-const entry = (id: string, minute: number, captureId: string | null = `cap-${id}`): EpisodeBackfillEntry =>
-  ({ rowId: id, captureId, createdAt: new Date(Date.UTC(2026, 9, 26, 0, minute)).toISOString(), contentSha256: sha256(turns[id]) });
-const receiptOf = (entries: EpisodeBackfillEntry[]): EpisodeBackfillReceipt =>
-  ({ kind: EPISODE_BACKFILL_RECEIPT_KIND, episodeId: EP, episodeTitle: TITLE, entries, listSha256: sha256(JSON.stringify(entries)) });
+const receiptOf = (rows: SourceRow[]): EpisodeBackfillReceipt => {
+  const entries = rows.map(entryOf);
+  return { kind: EPISODE_BACKFILL_RECEIPT_KIND, episodeId: EP, episodeTitle: TITLE, entries, listSha256: sha256(JSON.stringify(entries)) };
+};
+const projected = (row: SourceRow) => '\n' + episodeTextForTurn({ id: row.id, captureId: entryOf(row).captureId ?? undefined, content: row.content, createdAtMs: 0 }) + '\n';
+const mapOf = (rows: SourceRow[]) => new Map(rows.map((r) => [r.id, r]));
 
-/** In-memory stand-in for the two tables and the transaction protocol. */
-function fakePool(episodeContent: string, rows: Record<string, string | undefined> = turns) {
-  const db = { episode: { title: TITLE, content: episodeContent }, rows: { ...rows } as Record<string, string | undefined> };
-  const log: string[] = [];
-  let pending: string | null = null;
-  const pool: BackfillPool = {
-    async connect() {
-      return {
-        async query(sql: string, params: unknown[] = []) {
-          log.push(sql.split(' ')[0] + (sql.includes('FOR UPDATE') ? ' FOR UPDATE' : ''));
-          if (sql === 'BEGIN') { pending = null; return { rows: [] }; }
-          if (sql === 'COMMIT') { if (pending !== null) db.episode.content = pending; pending = null; return { rows: [] }; }
-          if (sql === 'ROLLBACK') { pending = null; return { rows: [] }; }
-          if (sql.includes('FOR UPDATE')) return { rows: params[0] === EP ? [{ ...db.episode, content: pending ?? db.episode.content }] : [] };
-          if (sql.startsWith('SELECT content')) { const c = db.rows[params[0] as string]; return { rows: c === undefined ? [] : [{ content: c }] }; }
-          if (sql.startsWith('UPDATE')) { pending = (pending ?? db.episode.content) + (params[1] as string); return { rows: [] }; }
-          throw new Error(`unexpected sql ${sql}`);
-        },
-        release() {},
-      };
-    },
-  };
-  return { pool, db, log };
-}
+const A = src('a', 25), B = src('b', 26), C = src('c', 27);
 
 describe('receipt rules', () => {
-  test('a well-formed receipt passes; a tampered list, repeat, bad hash or disorder is refused', () => {
-    const good = receiptOf([entry('a', 1), entry('b', 2)]);
+  test('a well-formed receipt passes; tampering, repeats, bad hashes, bad times and disorder are refused', () => {
+    const good = receiptOf([A, B]);
     assert.equal(episodeBackfillReceiptProblem(good), null);
     assert.match(episodeBackfillReceiptProblem({ ...good, listSha256: '0'.repeat(64) })!, /list hash/);
-    assert.match(episodeBackfillReceiptProblem(receiptOf([entry('a', 1), entry('a', 2)]))!, /repeated/);
-    assert.match(episodeBackfillReceiptProblem(receiptOf([{ ...entry('a', 1), contentSha256: 'x' }]))!, /content hash/);
-    assert.match(episodeBackfillReceiptProblem(receiptOf([entry('b', 2), entry('a', 1)]))!, /out of order/);
+    assert.match(episodeBackfillReceiptProblem(receiptOf([A, { ...A }]))!, /repeated/);
+    const badTime = { ...entryOf(A), createdAt: '2026-10-25T00:00:00Z' };
+    assert.match(episodeBackfillReceiptProblem({ ...good, entries: [badTime], listSha256: sha256(JSON.stringify([badTime])) })!, /valid time/);
+    assert.match(episodeBackfillReceiptProblem(receiptOf([B, A]))!, /out of order/);
     assert.match(episodeBackfillReceiptProblem({ ...good, kind: 'other' })!, /kind/);
     assert.match(episodeBackfillReceiptProblem(receiptOf([]))!, /no entries/);
   });
 });
 
-describe('per-entry decision', () => {
-  test('an absent turn is appended with exactly the projection framing', () => {
-    const e = entry('a', 1);
-    const out = decideEntry(e, { content: turns.a }, 'opening');
-    assert.equal(out.status, 'append');
-    assert.equal((out as any).text, '\n' + episodeTextForTurn({ id: 'a', captureId: 'cap-a', content: turns.a, createdAtMs: 0 }) + '\n');
-    assert.ok((out as any).text.includes(turnEpisodeMarker({ id: 'a', captureId: 'cap-a' })));
+describe('whole-batch plan', () => {
+  test('all missing: appends every turn oldest first with the projection framing, as one text', () => {
+    const plan = planBackfill(receiptOf([A, B]), mapOf([A, B]), [], 'opening');
+    assert.deepEqual(plan, { status: 'append', text: projected(A) + projected(B), appending: 2, alreadyPresent: 0 });
   });
 
-  test('a present turn, a missing row and a changed row are never appended', () => {
-    const e = entry('a', 1);
-    assert.equal(decideEntry(e, { content: turns.a }, `x\n${episodeTextForTurn({ id: 'a', captureId: 'cap-a', content: turns.a, createdAtMs: 0 })}`).status, 'present');
-    assert.equal(decideEntry(e, null, 'x').status, 'missing-row');
-    assert.equal(decideEntry(e, { content: turns.a + ' edited' }, 'x').status, 'drifted');
+  test('a present prefix (a re-run after partial success) appends only the rest; all present is complete', () => {
+    const plan = planBackfill(receiptOf([A, B]), mapOf([A, B]), [], 'opening' + projected(A));
+    assert.deepEqual(plan, { status: 'append', text: projected(B), appending: 1, alreadyPresent: 1 });
+    assert.deepEqual(planBackfill(receiptOf([A, B]), mapOf([A, B]), [], 'opening' + projected(A) + projected(B)), { status: 'complete', alreadyPresent: 2 });
+  });
+
+  test('LR P1: a newer canonical turn already in the episode refuses the batch (no older-after-newer append)', () => {
+    const plan = planBackfill(receiptOf([B]), mapOf([B]), [C], 'opening' + projected(C));
+    assert.equal(plan.status, 'refused');
+    assert.match((plan as any).reason, /newer canonical turn is already in the episode/);
+    assert.equal((plan as any).rowId, 'c');
+  });
+
+  test('a later receipt turn present while an earlier one is not is an interior gap', () => {
+    const plan = planBackfill(receiptOf([A, B]), mapOf([A, B]), [], 'opening' + projected(B));
+    assert.match((plan as any).reason, /later receipt turn is present/);
+  });
+
+  test('newer turns that are absent, or not canonical per-turn rows, do not refuse', () => {
+    const notPerTurn = src('n', 28, null, { arcName: 'other-arc' });
+    assert.equal(planBackfill(receiptOf([A]), mapOf([A]), [C, notPerTurn], 'opening' + projected(notPerTurn)).status, 'append');
+  });
+
+  test('LR P2: metadata-only drift (capture id, time, membership) refuses, as does content or a missing row', () => {
+    const receipt = receiptOf([A]);
+    const cases: [SourceRow | undefined, RegExp][] = [
+      [{ ...A, tags: [PER_TURN_TAG, 'capture-id:replacement'] }, /capture id changed/],
+      [{ ...A, createdAt: at(25, 9) }, /time changed/],
+      [{ ...A, tags: ['capture-id:cap-a'] }, /no longer a canonical per-turn row/],
+      [{ ...A, arcName: 'elsewhere' }, /no longer a canonical per-turn row/],
+      [{ ...A, content: A.content + ' edited' }, /content changed/],
+      [undefined, /missing/],
+    ];
+    for (const [row, reason] of cases) {
+      const plan = planBackfill(receipt, row ? mapOf([row]) : new Map(), [], 'opening');
+      assert.equal(plan.status, 'refused');
+      assert.match((plan as any).reason, reason);
+    }
   });
 });
 
-describe('locked, ordered, fail-closed apply', () => {
-  test('appends every absent turn oldest first, each in its own locked transaction', async () => {
-    const { pool, db, log } = fakePool('opening');
-    const counts = await applyBackfill(pool, receiptOf([entry('a', 1), entry('b', 2), entry('c', 3)]));
-    assert.deepEqual(counts, { appended: 3, present: 0, stoppedAt: null, stopReason: null });
-    assert.ok(db.episode.content.indexOf('one') < db.episode.content.indexOf('two'));
-    assert.ok(db.episode.content.indexOf('two') < db.episode.content.indexOf('three'));
-    assert.equal(log.filter((l) => l === 'SELECT FOR UPDATE').length, 3);
-    assert.equal(log.filter((l) => l === 'COMMIT').length, 3);
+/** Two tables and the transaction protocol, in memory. Records every statement. */
+function fakePool(episodeContent: string, rows: SourceRow[], newer: SourceRow[] = []) {
+  const db = { episode: { title: TITLE, content: episodeContent, summary: null as string | null } };
+  const log: string[] = [];
+  let pending: string | null = null;
+  const run = async (sql: string, params: unknown[] = []) => {
+    log.push(sql.trim().split(/\s+/).slice(0, 2).join(' ') + (sql.includes('FOR UPDATE') ? ' FOR UPDATE' : sql.includes('FOR SHARE') ? ' FOR SHARE' : ''));
+    if (sql === 'BEGIN') { pending = null; return { rows: [] }; }
+    if (sql === 'COMMIT') { if (pending !== null) db.episode.content = pending; pending = null; return { rows: [] }; }
+    if (sql === 'ROLLBACK') { pending = null; return { rows: [] }; }
+    if (sql.includes('FOR UPDATE')) return { rows: params[0] === EP ? [{ title: db.episode.title, content: db.episode.content }] : [] };
+    if (sql.includes('FOR SHARE')) return { rows: rows.filter((r) => (params[0] as string[]).includes(r.id)).map((r) => ({ id: r.id, content: r.content, created_at: r.createdAt, arc_name: r.arcName, tags: r.tags })) };
+    if (sql.includes('arc_name = $1')) return { rows: newer.map((r) => ({ id: r.id, content: r.content, created_at: r.createdAt, arc_name: r.arcName, tags: r.tags })) };
+    if (sql.startsWith('UPDATE')) { pending = db.episode.content + (params[1] as string); return { rows: [] }; }
+    if (sql.startsWith('SELECT id, title, summary, content')) return { rows: [{ id: EP, title: db.episode.title, summary: db.episode.summary, content: db.episode.content }] };
+    throw new Error(`unexpected sql ${sql}`);
+  };
+  const pool: BackfillPool = { async connect() { return { query: run, release() {} }; }, query: run };
+  return { pool, db, log };
+}
+
+describe('single-transaction apply', () => {
+  test('appends the whole batch in one UPDATE inside one locked transaction', async () => {
+    const { pool, db, log } = fakePool('opening', [A, B, C]);
+    assert.deepEqual(await applyBackfill(pool, receiptOf([A, B, C])), { status: 'appended', appended: 3, alreadyPresent: 0 });
+    assert.equal(db.episode.content, 'opening' + projected(A) + projected(B) + projected(C));
+    assert.deepEqual(log.filter((l) => /^(BEGIN|COMMIT|ROLLBACK|UPDATE)/.test(l) || l.includes('FOR')),
+      ['BEGIN', 'SELECT title, FOR UPDATE', 'SELECT id, FOR SHARE', 'UPDATE conversation_memories', 'COMMIT']);
   });
 
-  test('a second run appends nothing (idempotent)', async () => {
-    const { pool, db } = fakePool('opening');
-    const receipt = receiptOf([entry('a', 1), entry('b', 2)]);
-    await applyBackfill(pool, receipt);
-    const after = db.episode.content;
-    const again = await applyBackfill(pool, receipt);
-    assert.deepEqual([again.appended, again.present, again.stoppedAt], [0, 2, null]);
-    assert.equal(db.episode.content, after);
+  test('a re-run writes nothing and rolls back; a refusal writes nothing', async () => {
+    const ok = fakePool('opening', [A, B]);
+    await applyBackfill(ok.pool, receiptOf([A, B]));
+    const done = ok.db.episode.content;
+    assert.deepEqual(await applyBackfill(ok.pool, receiptOf([A, B])), { status: 'complete', alreadyPresent: 2 });
+    assert.equal(ok.db.episode.content, done);
+    assert.ok(!ok.log.slice(ok.log.lastIndexOf('BEGIN')).some((l) => l.startsWith('UPDATE')));
+
+    const drifted = fakePool('opening', [A, { ...B, tags: [PER_TURN_TAG, 'capture-id:replacement'] }]);
+    const out = await applyBackfill(drifted.pool, receiptOf([A, B]));
+    assert.equal(out.status, 'refused');
+    assert.equal(drifted.db.episode.content, 'opening');
+    assert.equal(drifted.log.at(-1), 'ROLLBACK');
   });
 
-  test('a changed row stops the run: nothing after it is appended, and nothing is forced', async () => {
-    const { pool, db } = fakePool('opening', { ...turns, b: turns.b + ' edited later' });
-    const counts = await applyBackfill(pool, receiptOf([entry('a', 1), entry('b', 2), entry('c', 3)]));
-    assert.deepEqual(counts, { appended: 1, present: 0, stoppedAt: 'b', stopReason: 'drifted' });
-    assert.ok(db.episode.content.includes('one'));
-    assert.ok(!db.episode.content.includes('two') && !db.episode.content.includes('three'));
+  test('LR P1 through the executor: a newer turn already present refuses before writing', async () => {
+    const { pool, db } = fakePool('opening' + projected(C), [B], [C]);
+    const out = await applyBackfill(pool, receiptOf([B]));
+    assert.equal(out.status, 'refused');
+    assert.equal(db.episode.content, 'opening' + projected(C));
   });
 
-  test('a missing row or a renamed episode also stops before writing', async () => {
-    const missing = fakePool('opening', { a: turns.a, b: undefined, c: turns.c });
-    assert.equal((await applyBackfill(missing.pool, receiptOf([entry('a', 1), entry('b', 2), entry('c', 3)]))).stopReason, 'missing-row');
-    const renamed = fakePool('opening');
+  test('a renamed episode refuses; a malformed receipt is refused before any connection', async () => {
+    const renamed = fakePool('opening', [A]);
     renamed.db.episode.title = 'Episode 36';
-    const c = await applyBackfill(renamed.pool, receiptOf([entry('a', 1)]));
-    assert.deepEqual([c.appended, c.stopReason], [0, 'episode title differs from the receipt']);
-    assert.equal(renamed.db.episode.content, 'opening');
+    assert.deepEqual(await applyBackfill(renamed.pool, receiptOf([A])), { status: 'refused', reason: 'episode title differs from the receipt' });
+    const bad = fakePool('opening', [A]);
+    await assert.rejects(applyBackfill(bad.pool, { ...receiptOf([A]), listSha256: '0'.repeat(64) }), /receipt refused/);
+    assert.equal(bad.log.length, 0);
+  });
+});
+
+describe('verified embedding outcome (LR P2)', () => {
+  const expected = [{ memoryType: 'conversation_memory', memoryId: EP, contentHash: 'h-full' }, { memoryType: 'conversation_chunk', memoryId: `${EP}:chunk:0`, contentHash: 'h-0' }];
+  const deps = (stored: any[], opts: { configured?: boolean; onReembed?: () => void; throws?: boolean } = {}) => {
+    let calls = 0;
+    const d: EmbeddingDeps = {
+      configured: () => opts.configured ?? true,
+      expected: async () => expected,
+      stored: async () => stored.map((s) => ({ ...s })),
+      reembed: async () => { calls++; if (opts.throws) throw new Error('provider down'); opts.onReembed?.(); },
+    };
+    return { d, calls: () => calls };
+  };
+  const pool = () => fakePool('opening', []).pool;
+
+  test('already current: no re-embed call', async () => {
+    const x = deps(expected.map((e) => ({ ...e })));
+    assert.equal(await ensureEmbeddings(pool(), EP, x.d), 'already current');
+    assert.equal(x.calls(), 0);
   });
 
-  test('a malformed receipt is refused before any connection is opened', async () => {
-    const { pool, log } = fakePool('opening');
-    await assert.rejects(applyBackfill(pool, { ...receiptOf([entry('a', 1)]), listSha256: '0'.repeat(64) }), /receipt refused/);
-    assert.equal(log.length, 0);
+  test('no embedding configuration: blocked, nothing called', async () => {
+    const x = deps([], { configured: false });
+    assert.match(await ensureEmbeddings(pool(), EP, x.d), /^blocked: no embedding configuration \(missing 2, stale 0, extra 0\)/);
+    assert.equal(x.calls(), 0);
   });
 
-  test('the detail line names a stop and the re-embed outcome', () => {
-    assert.match(describeCounts({ appended: 1, present: 0, stoppedAt: 'b', stopReason: 'drifted' }, 3, 'skipped'), /STOPPED at b \(drifted\)/);
-    assert.match(describeCounts({ appended: 3, present: 0, stoppedAt: null, stopReason: null }, 3, 'done'), /appended 3, already present 0 of 3; re-embed: done/);
+  test('a resolved re-embed that changed nothing is FAILED, not done', async () => {
+    const x = deps([{ ...expected[0], contentHash: 'old' }]);
+    assert.match(await ensureEmbeddings(pool(), EP, x.d), /^failed: re-embed resolved but embeddings are not current \(missing 1, stale 1, extra 0\)/);
+    assert.equal(x.calls(), 1);
+  });
+
+  test('a re-embed that makes every arm current is updated; one that throws is failed', async () => {
+    const stored: any[] = [{ ...expected[0], contentHash: 'old' }, { memoryType: 'conversation_chunk', memoryId: `${EP}:chunk:7`, contentHash: 'orphan' }];
+    const x = deps(stored, { onReembed: () => { stored.splice(0, stored.length, ...expected.map((e) => ({ ...e }))); } });
+    assert.equal(await ensureEmbeddings(pool(), EP, x.d), 'updated (verified current)');
+    assert.match(await ensureEmbeddings(pool(), EP, deps([], { throws: true }).d), /^failed: re-embed threw: provider down/);
+  });
+
+  test('coverage counts missing, stale and leftover chunk arms', () => {
+    assert.deepEqual(embeddingCoverage(expected, [{ ...expected[0], contentHash: 'x' }, { memoryType: 'conversation_chunk', memoryId: `${EP}:chunk:9`, contentHash: 'y' }], `${EP}:chunk:`),
+      { current: false, missing: 1, stale: 1, extra: 1 });
+  });
+
+  test('runBackfill: a refused batch never touches embeddings; a completed one reports both', async () => {
+    const refused = fakePool('opening', [{ ...A, content: 'changed' }]);
+    const r1 = await runBackfill(refused.pool, receiptOf([A]), deps([]).d);
+    assert.equal(r1.applied, false);
+    assert.match(r1.detail, /REFUSED, nothing written: source row content changed .*embeddings: not checked \(backfill refused\)/);
+    const ok = fakePool('opening', [A]);
+    const r2 = await runBackfill(ok.pool, receiptOf([A]), deps([], { configured: false }).d);
+    assert.equal(r2.applied, true);
+    assert.match(r2.detail, /appended 1, already present 0 of 1; embeddings: blocked/);
+  });
+
+  test('the detail line for a complete re-run', () => {
+    assert.equal(describeOutcome({ status: 'complete', alreadyPresent: 3 }, 3, 'already current'), 'episode backfill: nothing to append, all 3 present; embeddings: already current');
   });
 });
