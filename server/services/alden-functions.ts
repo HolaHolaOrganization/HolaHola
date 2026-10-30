@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { aldenToolRefusal, type AldenToolAllowlist } from './alden-tool-allowlist';
 import { aldenWriteToolRefusal } from './alden-write-boundary';
+import { aldenReadablePath, aldenSearchRoots, classifyAldenReadPath, resolveAldenReadPath, secretContentReason, secretPathReason } from './alden-read-policy';
 import { getSharedDb } from "../neon-db";
 import { getUserDb, getMonitoringDb } from "../db";
 import { 
@@ -2108,15 +2109,19 @@ export async function executeAldenTool(
       }
 
       case "read_file": {
-        const filePath = safePath(args.path);
-        if (!fs.existsSync(filePath)) {
-          return { data: { error: `File not found: ${args.path}` } };
+        const decision = resolveAldenReadPath(args.path, WORKSPACE_ROOT);
+        if (!decision.ok) {
+          return { data: { error: `Cannot read ${args.path}: ${decision.reason}`, refused: 'read_path_refused' } };
         }
-        const stat = fs.statSync(filePath);
-        if (stat.isDirectory()) {
+        if (decision.kind === 'root' || decision.kind === 'ancestor' || fs.statSync(decision.abs).isDirectory()) {
           return { data: { error: `${args.path} is a directory — use list_directory instead` } };
         }
-        const allLines = fs.readFileSync(filePath, 'utf-8').split('\n');
+        const text = fs.readFileSync(decision.abs, 'utf-8');
+        const secret = secretContentReason(text);
+        if (secret) {
+          return { data: { error: `Cannot read ${args.path}: it contains what looks like a credential (${secret})`, refused: 'secret_content' } };
+        }
+        const allLines = text.split('\n');
         const totalLines = allLines.length;
         const startLine = Math.max(1, args.start_line || 1);
         const endLine = Math.min(totalLines, args.end_line || startLine + 199);
@@ -2137,7 +2142,7 @@ export async function executeAldenTool(
 
       case "search_code": {
         const pattern = args.pattern as string;
-        const searchDir = args.directory ? safePath(args.directory) : WORKSPACE_ROOT;
+        const searchDir = args.directory as string | undefined;
         const glob = args.file_glob as string | undefined;
         const caseSensitive = Boolean(args.case_sensitive);
         const contextLines = typeof args.context_lines === 'number' ? Math.min(args.context_lines, 50) : 0;
@@ -2208,7 +2213,7 @@ export async function executeAldenTool(
         const capped = searches.slice(0, 6);
 
         const runOneSearch = (spec: typeof capped[0]) => {
-          const searchDir = spec.directory ? safePath(spec.directory) : WORKSPACE_ROOT;
+          const searchDir = spec.directory;
           const contextLines = typeof spec.context_lines === 'number' ? Math.min(spec.context_lines, 50) : 0;
           let search: { output: string; usedFallback: boolean; bounded: boolean };
           try {
@@ -2249,12 +2254,20 @@ export async function executeAldenTool(
       }
 
       case "list_directory": {
-        const dirPath = safePath(args.path || '.');
-        if (!fs.existsSync(dirPath)) {
-          return { data: { error: `Directory not found: ${args.path}` } };
+        const decision = resolveAldenReadPath(args.path || '.', WORKSPACE_ROOT);
+        if (!decision.ok) {
+          return { data: { error: `Cannot list ${args.path || '.'}: ${decision.reason}`, refused: 'read_path_refused' } };
         }
-        const entries = fs.readdirSync(dirPath, { withFileTypes: true });
-        const dirs = entries.filter(e => e.isDirectory() && !e.name.startsWith('.')).map(e => e.name + '/').sort();
+        if (decision.kind === 'file' || !fs.statSync(decision.abs).isDirectory()) {
+          return { data: { error: `${args.path} is a file — use read_file instead` } };
+        }
+        // Entries are filtered by the same policy; symlinks are not listed or followed.
+        const entries = fs.readdirSync(decision.abs, { withFileTypes: true }).filter((e) => {
+          if (e.isSymbolicLink()) return false;
+          const childRel = decision.rel ? `${decision.rel}/${e.name}` : e.name;
+          return !secretPathReason(childRel) && classifyAldenReadPath(childRel) !== null;
+        });
+        const dirs = entries.filter(e => e.isDirectory()).map(e => e.name + '/').sort();
         const files = entries.filter(e => e.isFile()).map(e => e.name).sort();
         return {
           data: {
@@ -3295,6 +3308,10 @@ interface FallbackSearchOptions {
   caseSensitive?: boolean;
   contextLines?: number;
   maxMatches: number;
+  /** Read-policy filter on the workspace-relative (posix) path. */
+  isReadable: (rel: string) => boolean;
+  /** Search only this entry of searchDir (a single top-level file). */
+  onlyName?: string;
 }
 
 /**
@@ -3337,6 +3354,7 @@ function fallbackCodeSearch(
     }
     for (const entry of entries) {
       if (bounded || matchCount >= opts.maxMatches) return;
+      if (opts.onlyName !== undefined && entry.name !== opts.onlyName) continue;
       if (
         Date.now() - startedAt > FALLBACK_MAX_MS ||
         filesScanned > FALLBACK_MAX_FILES_SCANNED ||
@@ -3347,8 +3365,9 @@ function fallbackCodeSearch(
       }
       if (entry.isSymbolicLink()) continue;
       const fullPath = path.join(dir, entry.name);
+      const entryRel = path.relative(WORKSPACE_ROOT, fullPath).split(path.sep).join('/');
       if (entry.isDirectory()) {
-        if (FALLBACK_EXCLUDED_DIRS.has(entry.name)) continue;
+        if (FALLBACK_EXCLUDED_DIRS.has(entry.name) || secretPathReason(entryRel)) continue;
         walk(fullPath, depth + 1);
         continue;
       }
@@ -3356,6 +3375,7 @@ function fallbackCodeSearch(
       const ext = path.extname(entry.name).toLowerCase();
       if (FALLBACK_EXCLUDED_EXTENSIONS.has(ext)) continue;
       if (globMatcher && !globMatcher.test(entry.name)) continue;
+      if (!opts.isReadable(entryRel)) continue;
       filesScanned++;
       let stat: fs.Stats;
       try {
@@ -3373,7 +3393,7 @@ function fallbackCodeSearch(
       }
       if (content.includes('\u0000')) continue; // skip binary-looking files
       const lines = content.split('\n');
-      const relPath = fullPath.startsWith(WORKSPACE_ROOT + '/') ? fullPath.slice(WORKSPACE_ROOT.length + 1) : fullPath;
+      const relPath = entryRel;
       let lastEmittedLine = -1;
       for (let i = 0; i < lines.length; i++) {
         if (matchCount >= opts.maxMatches) break;
@@ -3439,28 +3459,38 @@ const FALLBACK_MAX_DEPTH = 12;
  */
 function runCodeSearch(
   pattern: string,
-  searchDir: string,
+  directory: string | undefined,
   opts: CodeSearchExecOptions,
 ): { output: string; usedFallback: boolean; bounded: boolean } {
+  // Read confinement (design e4f8e988 P2): the directory is resolved under the
+  // read policy, the search runs only over the readable roots beneath it, and
+  // every result path is filtered again, by path and by content.
+  const decision = resolveAldenReadPath(directory ?? '.', WORKSPACE_ROOT);
+  if (!decision.ok) throw new Error(`Search refused: ${decision.reason}`);
+  const roots = aldenSearchRoots(decision, WORKSPACE_ROOT);
+  if (roots.length === 0) return { output: '', usedFallback: false, bounded: false };
+  const readable = new Map<string, boolean>();
+  const isReadable = (rel: string) => aldenReadablePath(rel, WORKSPACE_ROOT, readable);
   if (rgAvailable()) {
     // An argument array, never a shell command line: the model-supplied pattern,
     // glob and directory reach rg verbatim (file_glob used to be unquoted).
-    const rgArgs: string[] = ['--line-number', '--with-filename', '--glob=!node_modules/**', '--glob=!dist/**', '--glob=!.git/**'];
+    // --json gives each result's exact path for the filter.
+    const rgArgs: string[] = ['--json', '--hidden', '--glob=!node_modules/**', '--glob=!dist/**', '--glob=!.git/**', '--glob=!.env*'];
     if (!opts.caseSensitive) rgArgs.push('-i');
     if (opts.glob) rgArgs.push(`--glob=${opts.glob}`);
     if (opts.contextLines > 0) {
       rgArgs.push('-C', String(opts.contextLines));
     } else {
-      rgArgs.push('--no-heading', ...(opts.rgExtraArgs ?? ['--max-count=3']));
+      rgArgs.push(...(opts.rgExtraArgs ?? ['--max-count=3']));
     }
-    rgArgs.push('-e', pattern, '--', searchDir);
+    rgArgs.push('-e', pattern, '--', ...roots);
     try {
-      const output = execFileSync('rg', rgArgs, {
+      const json = execFileSync('rg', rgArgs, {
         cwd: WORKSPACE_ROOT,
-        maxBuffer: opts.maxBuffer,
+        maxBuffer: opts.maxBuffer * 4,
         timeout: opts.timeoutMs,
       }).toString();
-      return { output, usedFallback: false, bounded: false };
+      return { output: renderRgJson(json, opts.contextLines > 0, isReadable), usedFallback: false, bounded: false };
     } catch (e: any) {
       if (e.status === 1) return { output: '', usedFallback: false, bounded: false };
       if (e.status === 127 || e.code === 'ENOENT') {
@@ -3472,13 +3502,52 @@ function runCodeSearch(
       }
     }
   }
-  const result = fallbackCodeSearch(pattern, searchDir, {
-    glob: opts.glob,
-    caseSensitive: opts.caseSensitive,
-    contextLines: opts.contextLines,
-    maxMatches: opts.maxMatches,
-  });
-  return { output: result.output, usedFallback: true, bounded: result.bounded };
+  let output = '';
+  let bounded = false;
+  for (const root of roots) {
+    // A top-level file root is searched as the one named entry of its directory.
+    const isFileRoot = fs.statSync(path.join(WORKSPACE_ROOT, root)).isFile();
+    const result = fallbackCodeSearch(pattern, path.join(WORKSPACE_ROOT, isFileRoot ? path.dirname(root) : root), {
+      glob: opts.glob,
+      caseSensitive: opts.caseSensitive,
+      contextLines: opts.contextLines,
+      maxMatches: opts.maxMatches,
+      isReadable,
+      onlyName: isFileRoot ? path.basename(root) : undefined,
+    });
+    if (result.output) output += (output && opts.contextLines > 0 ? '\n--\n' : output ? '\n' : '') + result.output;
+    bounded ||= result.bounded;
+  }
+  return { output, usedFallback: true, bounded };
+}
+
+/**
+ * Render rg --json events as rg's plain text (`path:line:text` for matches,
+ * `path-line-text` for context, `--` between groups in context mode), keeping
+ * only results whose path passes the read policy.
+ */
+export function renderRgJson(json: string, withContext: boolean, isReadable: (rel: string) => boolean): string {
+  const out: string[] = [];
+  let lastPath = '';
+  let lastLine = -1;
+  for (const raw of json.split('\n')) {
+    if (!raw) continue;
+    let event: any;
+    try { event = JSON.parse(raw); } catch { continue; }
+    if (event.type !== 'match' && event.type !== 'context') continue;
+    const file = event.data?.path?.text;
+    const text = event.data?.lines?.text;
+    const line = event.data?.line_number;
+    if (typeof file !== 'string' || typeof text !== 'string' || typeof line !== 'number') continue;
+    const rel = file.split('\\').join('/').replace(/^\.\//, '');
+    if (!isReadable(rel)) continue;
+    if (withContext && out.length > 0 && (rel !== lastPath || line > lastLine + 1)) out.push('--');
+    const sep = event.type === 'match' ? ':' : '-';
+    out.push(`${rel}${sep}${line}${sep}${text.replace(/\r?\n$/, '')}`);
+    lastPath = rel;
+    lastLine = line;
+  }
+  return out.join('\n');
 }
 
 const FALLBACK_MAX_FILES_SCANNED = 20_000;

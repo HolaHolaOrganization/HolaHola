@@ -141,12 +141,12 @@ describe('code search runs rg without a shell', () => {
   test('runCodeSearch uses execFileSync with an argument array and no shell', () => {
     const src = fs.readFileSync(new URL('./alden-functions.ts', import.meta.url), 'utf8');
     const start = src.indexOf('function runCodeSearch(');
-    const end = src.indexOf('fallbackCodeSearch(pattern, searchDir', start);
+    const end = src.indexOf('const result = fallbackCodeSearch(', start);
     const body = src.slice(start, end);
     assert.ok(start > 0 && end > start);
     assert.match(body, /execFileSync\('rg', rgArgs, \{/);
     assert.doesNotMatch(body, /execSync\(|shell:/);
-    assert.match(body, /rgArgs\.push\('-e', pattern, '--', searchDir\)/);
+    assert.match(body, /rgArgs\.push\('-e', pattern, '--', \.\.\.roots\)/);
   });
 });
 
