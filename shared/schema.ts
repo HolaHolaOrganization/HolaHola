@@ -11858,6 +11858,10 @@ export const proposedChangeStatusEnum = pgEnum('proposed_change_status', [
   'rejected',
   'revised',
   'escalated',
+  // Gated-fixes design e4f8e988 P0b: outside a dev instance an approval is
+  // stored as a pinned, pending proposal, or blocked when no pin is possible.
+  'approved_pending_review',
+  'review_blocked',
 ]);
 
 export const proposedCodeChanges = pgTable("proposed_code_changes", {
@@ -11887,6 +11891,9 @@ export const proposedCodeChanges = pgTable("proposed_code_changes", {
   appliedAt: timestamp("applied_at"),
   githubSynced: boolean("github_synced").default(false),
   githubCommitHash: varchar("github_commit_hash"),
+
+  // The pending build_queue proposal an approval was stored as (P0b).
+  buildQueueId: varchar("build_queue_id").references(() => buildQueue.id),
 
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
@@ -12439,7 +12446,32 @@ export const buildQueue = pgTable("build_queue", {
   reviewedAt: timestamp("reviewed_at"),
   executedAt: timestamp("executed_at"),
   result: text("result"),
-});
+
+  // Alden's propose_fix (gated-fixes design e4f8e988 P1). Only a `high`
+  // confidence proposal carries a pinned diff; `low`/`medium` are
+  // description-only and never eligible for PR conversion.
+  confidence: varchar("confidence"),
+  pinKind: varchar("pin_kind"),
+  pinCommit: varchar("pin_commit"),
+  pinSourceDigest: text("pin_source_digest"),
+  // [{ path, beforeSha256, gitMode?, objectType? }] for every touched file.
+  pinFiles: jsonb("pin_files"),
+  patternId: varchar("pattern_id"),
+  // Durable first, then notify: the notice and review-thread post are retried
+  // from this state and never duplicate or lose the proposal.
+  notifyState: varchar("notify_state"),
+  notifyError: text("notify_error"),
+  notifyAttempts: integer("notify_attempts").notNull().default(0),
+}, (table) => [
+  check("build_queue_confidence_valid", sql`${table.confidence} IS NULL OR ${table.confidence} IN ('low', 'medium', 'high')`),
+  check("build_queue_pin_kind_valid", sql`${table.pinKind} IS NULL OR ${table.pinKind} IN ('release', 'dev-head')`),
+  check("build_queue_pin_complete", sql`(${table.pinKind} IS NULL) = (${table.pinCommit} IS NULL) AND (${table.pinKind} IS NULL) = (${table.pinFiles} IS NULL)`),
+  check("build_queue_pin_has_diff", sql`${table.pinKind} IS NULL OR ${table.diff} IS NOT NULL`),
+  check("build_queue_pin_commit_sha", sql`${table.pinCommit} IS NULL OR ${table.pinCommit} ~ '^[0-9a-f]{40}$'`),
+  check("build_queue_release_pin_digest", sql`${table.pinKind} IS DISTINCT FROM 'release' OR ${table.pinSourceDigest} IS NOT NULL`),
+  check("build_queue_pin_requires_high", sql`${table.pinKind} IS NULL OR ${table.confidence} = 'high'`),
+  check("build_queue_notify_state_valid", sql`${table.notifyState} IS NULL OR ${table.notifyState} IN ('pending', 'delivered', 'failed')`),
+]);
 
 export const insertBuildQueueSchema = createInsertSchema(buildQueue).omit({
   id: true, proposedAt: true, reviewedAt: true, executedAt: true,
