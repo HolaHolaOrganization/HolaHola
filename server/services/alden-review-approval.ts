@@ -75,8 +75,8 @@ export function planApproval(change: ReviewedChange, root: string, env: NodeJS.P
     const [rel] = [...groups.keys()];
     const original = source.read(rel).bytes.toString('utf8');
     const edit = reviewedChangeAsEdit(rel, original, change);
-    const pinned = buildPinnedChange(new Map([[rel, [{ path: rel, ...edit }]]]), source);
     if (source.kind === 'dev-head') return { kind: 'apply', rel, pinCommit: source.commit };
+    const pinned = buildPinnedChange(new Map([[rel, [{ path: rel, ...edit }]]]), source);
     return { kind: 'store', change: pinned, source, recheckSource: () => pinSourceForRole(root, env) };
   } catch (err: any) {
     // Fail closed: anything that prevents an exact pin blocks the approval.
