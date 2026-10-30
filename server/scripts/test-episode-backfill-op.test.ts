@@ -66,6 +66,16 @@ describe('whole-batch plan', () => {
     assert.equal((plan as any).rowId, 'c');
   });
 
+  test('LR re-review: a newer turn with the SAME timestamp and a later id also refuses', () => {
+    const tiedA = src('id-0001', 26), tiedB = src('id-0002', 26);
+    const plan = planBackfill(receiptOf([tiedA]), mapOf([tiedA]), [tiedB], 'opening' + projected(tiedB));
+    assert.equal(plan.status, 'refused');
+    assert.equal((plan as any).rowId, 'id-0002');
+    // The same timestamp with an EARLIER id is older, so it does not refuse.
+    const earlier = src('id-0000', 26);
+    assert.equal(planBackfill(receiptOf([tiedA]), mapOf([tiedA]), [earlier], 'opening' + projected(earlier)).status, 'append');
+  });
+
   test('a later receipt turn present while an earlier one is not is an interior gap', () => {
     const plan = planBackfill(receiptOf([A, B]), mapOf([A, B]), [], 'opening' + projected(B));
     assert.match((plan as any).reason, /later receipt turn is present/);
@@ -144,6 +154,14 @@ describe('single-transaction apply', () => {
     const out = await applyBackfill(pool, receiptOf([B]));
     assert.equal(out.status, 'refused');
     assert.equal(db.episode.content, 'opening' + projected(C));
+  });
+
+  test('LR re-review through the executor: a tied-timestamp newer turn already present refuses', async () => {
+    const tiedA = src('id-0001', 26), tiedB = src('id-0002', 26);
+    const { pool, db } = fakePool('opening' + projected(tiedB), [tiedA], [tiedB]);
+    const out = await applyBackfill(pool, receiptOf([tiedA]));
+    assert.deepEqual([out.status, (out as any).rowId], ['refused', 'id-0002']);
+    assert.equal(db.episode.content, 'opening' + projected(tiedB));
   });
 
   test('a renamed episode refuses; a malformed receipt is refused before any connection', async () => {

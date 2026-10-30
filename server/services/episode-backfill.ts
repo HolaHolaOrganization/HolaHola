@@ -106,7 +106,9 @@ export type BackfillPlan =
  *    while an earlier one is absent is an interior gap);
  *  - no canonical turn outside the receipt and newer than the oldest absent
  *    entry may already be in the episode (it would end up before older text).
- * `newer` are canonical per-turn rows created after the oldest absent entry.
+ *    "Newer" is the receipt order: created_at text, then row id, so a turn
+ *    with the same timestamp and a later id counts as newer.
+ * `newer` are canonical per-turn rows at or after the oldest receipt entry.
  */
 export function planBackfill(
   receipt: EpisodeBackfillReceipt,
@@ -128,9 +130,11 @@ export function planBackfill(
     return { status: 'refused', reason: 'interior gap: a later receipt turn is present while an earlier one is not', rowId: receipt.entries[laterPresent].rowId };
   }
   const listed = new Set(receipt.entries.map((e) => e.rowId));
-  const oldestAbsent = receipt.entries[firstAbsent].createdAt;
+  const oldestAbsent = receipt.entries[firstAbsent];
+  const isAfterOldestAbsent = (row: SourceRow) =>
+    row.createdAt > oldestAbsent.createdAt || (row.createdAt === oldestAbsent.createdAt && row.id > oldestAbsent.rowId);
   for (const row of newer) {
-    if (listed.has(row.id) || !isPerTurn(row) || row.createdAt <= oldestAbsent) continue;
+    if (listed.has(row.id) || !isPerTurn(row) || !isAfterOldestAbsent(row)) continue;
     if (turnPresentInEpisode(turnOf(row), episodeContent)) {
       return { status: 'refused', reason: 'interior gap: a newer canonical turn is already in the episode', rowId: row.id };
     }

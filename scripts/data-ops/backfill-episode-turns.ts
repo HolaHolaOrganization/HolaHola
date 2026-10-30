@@ -14,7 +14,8 @@
  *   - each listed source row is locked FOR SHARE and must still match its
  *     entry: content hash, capture id, created_at and canonical membership;
  *   - the receipt must fill an appendable tail: no canonical turn newer than
- *     the oldest missing one may already be in the episode;
+ *     the oldest missing one (by created_at, then id) may already be in the
+ *     episode;
  *   - all missing turns are appended in one UPDATE, or nothing is.
  * Already-present turns are skipped, so a re-run after success writes nothing.
  * A refusal is reported (never forced) and does not fail the deploy.
@@ -75,7 +76,7 @@ export async function applyBackfill(pool: BackfillPool, receipt: EpisodeBackfill
       )).rows.map((r) => [r.id as string, toSource(r)]));
       const newer = (await client.query(
         `SELECT ${SOURCE_COLUMNS} FROM conversation_memories
-          WHERE arc_name = $1 AND $2 = ANY(tags) AND ${CREATED_AT_SQL} > $3`,
+          WHERE arc_name = $1 AND $2 = ANY(tags) AND ${CREATED_AT_SQL} >= $3`,
         [PER_TURN_ARC, PER_TURN_TAG, receipt.entries[0].createdAt],
       )).rows.map(toSource);
       const plan = planBackfill(receipt, sources, newer, episode.content);

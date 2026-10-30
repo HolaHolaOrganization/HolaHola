@@ -122,4 +122,25 @@ test('episode backfill: batch lock, source share lock, newer-turn refusal and re
   const refused = await applyBackfill(pool, receiptOf(ep3.id, ep3.title, [older.entry]));
   assert.equal(refused.status, 'refused');
   assert.equal(await read(ep3.id), before4);
+
+  // 5. Equal timestamps: a present turn at the SAME created_at with a later id still refuses the batch.
+  const tieTime = 6;
+  const tiedIds = [randomUUID(), randomUUID()].sort();
+  const insertTied = async (id: string, label: string) => {
+    const captureId = `bf-${run}-${label}`;
+    const content = `David [Claude Code]: backfill ${run} ${label}\n\nClaude Code: reply ${run} ${label}`;
+    await pool.query(
+      `insert into conversation_memories (id, title, summary, content, tags, arc_name, created_at) values ($1, $2, $2, $3, $4, $5, $6::timestamp)`,
+      [id, `backfill test ${label}`, content, [PER_TURN_TAG, `capture-id:${captureId}`], PER_TURN_ARC, time(tieTime)],
+    );
+    return { id, entry: { rowId: id, captureId, createdAt: time(tieTime), contentSha256: sha256(content) } as EpisodeBackfillEntry };
+  };
+  const tiedOlder = await insertTied(tiedIds[0], 'tie-a');
+  const tiedNewer = await insertTied(tiedIds[1], 'tie-b');
+  const ep4 = await insertEpisode('# Synthetic episode four\n');
+  assert.equal((await applyBackfill(pool, receiptOf(ep4.id, ep4.title, [tiedNewer.entry]))).status, 'appended');
+  const before5 = await read(ep4.id);
+  const tiedRefusal = await applyBackfill(pool, receiptOf(ep4.id, ep4.title, [tiedOlder.entry]));
+  assert.deepEqual([tiedRefusal.status, (tiedRefusal as any).rowId], ['refused', tiedNewer.id]);
+  assert.equal(await read(ep4.id), before5);
 });

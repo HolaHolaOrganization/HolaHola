@@ -13,7 +13,8 @@
  *     --episode-id <id> --until "YYYY-MM-DD HH:MM:SS" > scripts/data-ops/backfill-episode-turns.receipt.json
  *
  * --until and all times are naive UTC, compared as Postgres text, never
- * through a local-time Date conversion.
+ * through a local-time Date conversion. Ties order by id in code-unit order
+ * (COLLATE "C"), the same order the receipt validator and planner use.
  */
 import pg from 'pg';
 import { captureIdFromTags, turnPresentInEpisode } from '../services/episode-gap-projection';
@@ -46,7 +47,7 @@ async function main(): Promise<void> {
       `SELECT id, content, ${CREATED_AT_SQL} AS created_at, tags FROM conversation_memories
         WHERE arc_name = $1 AND $2 = ANY(tags)
           AND ${CREATED_AT_SQL} >= $3 AND created_at <= $4::timestamp
-        ORDER BY created_at ASC, id ASC`,
+        ORDER BY created_at ASC, id COLLATE "C" ASC`,
       [PER_TURN_ARC, PER_TURN_TAG, episode.created_at, until],
     )).rows;
     const entries: EpisodeBackfillEntry[] = [];
