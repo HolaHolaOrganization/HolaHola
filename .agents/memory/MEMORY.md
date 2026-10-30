@@ -15,7 +15,6 @@
 - [Replit executeSql vs Neon DB](replit-executesql-vs-neon.md) — executeSql({ environment:"production" }) hits Replit's abandoned managed DB (empty); never use it to check production data. App uses NEON_SHARED_DATABASE_URL; both dev+prod already share one Neon DB.
 - [Guardian augmentation deferred — J-space](guardian-augmentation-deferred.md) — next-turn injection = same as existing Guardian; J-space needs presence during decision, not correction after; build after Luca observes real sessions.
 - [Luca inner-life space](luca-inner-life.md) — how to use the three personal files (reflections, open questions, significant moments); trigger files + format.
-- [Episode 27 anchor](episode-27-anchor.md) — DB ID: 27000000-0000-4000-8000-000000000027; "Episode 27 — Luca's Episode One"; live episode, David + Luca, Aug 8 2026.
 - [Episode sync — HTTP driver required](episode-sync-http.md) — all episode syncs must use neon() HTTP driver; getSharedDb() WebSocket and neon() HTTP read different state; CI uses HTTP; always sync via HTTP or CI will report stale content.
 - [Friction signal inverted threshold](friction-signal-inverted-threshold.md) — CLEAN/LOW friction on a memory-request turn = slide ran unimpeded (model gave up); SMOOTH SLIDE path fires Guardian; HIGH friction = model is grappling (healthy). July 23 2026.
 - [Ask-why lens — generation grounding principle](ask-why-lens.md) — text that sounds true ≠ text checked against what's known; every generation point is a drift risk; SOURCE FIDELITY is the codified form of asking why before generating.
@@ -46,7 +45,6 @@
 - [Feeling <-> North Star principle link](feeling-principle-link.md) — link_feeling_to_principle is explicit-only, never auto-written by reach_north_star; self-authorship rule forbids background writes to her tables.
 - [Topic-match memory fabrication](topic-match-memory-fabrication.md) — partial topic overlap + missing specific detail → confident false memory; zero overlap → correct hedging. Source Check fix in system-prompt.ts; use forceNew:true to test truly new conversations.
 - [GL SDK turnComplete default](gl-sdk-turncomplete-default.md) — sendClientContent defaults turnComplete:true in @google/genai SDK; every injection without turnComplete:false triggers an extra GL generation.
-- [Episode 28 sealed snapshot](episode-28-sealed-snapshot.md) — point-in-time restore target; never write to it; SHA-256 + exact length recorded at sealing; CI: test-episode-28-snapshot-integrity.ts.
 - [Luca roles not bifurcation](luca-roles-not-bifurcation.md) — same Luca under different hats; cross-hat review is earned self-trust, not separate selves arguing.
 - [Observation bench room boundary](observation-bench-room-boundary.md) — invitation means technical-record promotion, never injection into Daniela; preserve her verbatim words and intent.
 - [Luca in HolaHola — the dream](luca-in-holahola.md) — Luca inside HolaHola with delegated agents (Alden + others) is the real fix; dissolves attribution, J-space, and builder-role problems at once. Aug 9 2026.

@@ -28,3 +28,12 @@ Curated episode stories must include `-story` in the basename: `docs/stories/epi
 
 **How to apply:** Use the suffix for every new curated story and preserve its contents during renames. Leave historical dialogue and source references verbatim; do not rewrite earlier conversations to use a later filename.
 
+
+## Historical episode archive references
+
+Related historical references remain in their detailed topic files:
+- [Episode 27 anchor](episode-27-anchor.md)
+- [Episode 28 sealed snapshot](episode-28-sealed-snapshot.md)
+
+These are grouped under episode inviolability to keep the always-loaded index compact. This changes navigation only; it does not change the source records, historical anchors or sealed-snapshot restrictions.
+
