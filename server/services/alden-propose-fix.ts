@@ -76,7 +76,7 @@ export function parseEdits(value: unknown): ProposeFixEdit[] {
  * group the edits by resolved path, and enforce the file limit on the
  * resolved paths (not on what the model wrote).
  */
-export function groupEditsByResolvedPath(edits: ProposeFixEdit[], root: string): Map<string, ProposeFixEdit[]> {
+export function groupEditsByResolvedPath(edits: ProposeFixEdit[], root: string, options: { blocklist?: boolean } = {}): Map<string, ProposeFixEdit[]> {
   const groups = new Map<string, ProposeFixEdit[]>();
   for (const edit of edits) {
     const decision = resolveAldenReadPath(edit.path, root);
@@ -86,7 +86,7 @@ export function groupEditsByResolvedPath(edits: ProposeFixEdit[], root: string):
     if (ALDEN_READ_ONLY_DIRS.some((dir) => rel === dir || rel.startsWith(`${dir}/`))) {
       throw new ProposeFixRefusal(`${rel} is in a read-only directory and can never be an edit target`);
     }
-    if (PROPOSE_FIX_BLOCKED_PATTERNS.some((p) => `/${rel}`.includes(p))) {
+    if (options.blocklist !== false && PROPOSE_FIX_BLOCKED_PATTERNS.some((p) => `/${rel}`.includes(p))) {
       throw new ProposeFixRefusal(`${rel} is on the blocklist; describe the change with queue_build_proposal instead`);
     }
     const list = groups.get(rel) ?? [];
@@ -307,4 +307,39 @@ export function recheckPin(pin: ProposalPin, source: PinSource): void {
 /** The description-only text for a low or medium proposal: no pinned diff. */
 export function describeUnpinnedEdits(edits: ProposeFixEdit[]): string {
   return edits.map((edit, i) => `Edit ${i + 1} (${edit.path}):\n  find:\n${edit.find}\n  replace:\n${edit.replace}`).join('\n\n');
+}
+
+/**
+ * PR conversion check (P1 "At PR conversion"): only a high-confidence pinned
+ * proposal is eligible; each file's bytes at the pinned commit must still hash
+ * to its before-hash, each find must still be unique, and the result must hash
+ * to the recorded after-hash. Any mismatch is a stale base; nothing re-targets.
+ */
+export function verifyProposalForConversion(
+  proposal: { confidence: string | null; pinKind: string | null; pinCommit: string | null; pinFiles: unknown },
+  readAtCommit: (commit: string, rel: string) => Buffer,
+): Array<{ path: string; content: string }> {
+  if (proposal.confidence !== 'high' || !proposal.pinKind || !proposal.pinCommit || !Array.isArray(proposal.pinFiles)) {
+    throw new ProposeFixRefusal('not eligible for PR conversion: only a high-confidence pinned proposal can be converted');
+  }
+  return (proposal.pinFiles as PinnedFile[]).map((file) => {
+    if (!file || typeof file.path !== 'string' || !Array.isArray(file.edits) || file.edits.length === 0) {
+      throw new ProposeFixRefusal('not eligible for PR conversion: the pinned files carry no edits');
+    }
+    const bytes = readAtCommit(proposal.pinCommit!, file.path);
+    if (sha256(bytes) !== file.beforeSha256) throw new ProposeFixRefusal(`stale base: ${file.path} at ${proposal.pinCommit} does not match the pinned before-hash`);
+    const { after } = applyEditsToOriginal(file.path, decodeUtf8(file.path, bytes), file.edits.map((e) => ({ path: file.path, ...e })));
+    if (sha256(after) !== file.afterSha256) throw new ProposeFixRefusal(`stale base: ${file.path} no longer produces the pinned after-hash`);
+    return { path: file.path, content: after };
+  });
+}
+
+/** Whether a commit is reachable from a remote-tracking branch (published), after the caller's fetch. */
+export function isCommitPublished(root: string, commit: string): boolean {
+  if (!/^[0-9a-f]{40}$/.test(commit)) return false;
+  try {
+    return git(root, ['branch', '-r', '--contains', commit]).toString('utf8').trim().length > 0;
+  } catch {
+    return false;
+  }
 }

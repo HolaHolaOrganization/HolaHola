@@ -75,24 +75,8 @@ export async function proposeFix(args: ProposeFixArgs, deps: ProposeFixDeps): Pr
   if (confidence === 'high') {
     const groups = groupEditsByResolvedPath(edits, deps.root);
     change = buildPinnedChange(groups, pinSource());
-    const pinned = change;
-    row = await db.transaction(async (tx) => {
-      // Re-verify the pin from a fresh source inside the request, before the row commits.
-      recheckPin(pinned.pin, pinSource());
-      const [inserted] = await tx.insert(buildQueue).values({
-        proposedBy: 'alden', title, isSafeZone: false, status: 'pending', priority: 5,
-        description: describe({ rationale, evidence, verify, confidence }),
-        filesAffected: pinned.pin.files.map((f) => f.path),
-        diff: pinned.diff,
-        confidence,
-        pinKind: pinned.pin.kind,
-        pinCommit: pinned.pin.commit,
-        pinSourceDigest: pinned.pin.sourceDigest,
-        pinFiles: pinned.pin.files,
-        patternId,
-        notifyState: 'pending',
-      }).returning();
-      return inserted;
+    row = await insertPinnedProposal(db, {
+      title, description: describe({ rationale, evidence, verify, confidence }), change, patternId, recheckSource: pinSource,
     });
   } else {
     // low / medium: one description-only proposal, no pinned diff, never convertible.
@@ -109,6 +93,38 @@ export async function proposeFix(args: ProposeFixArgs, deps: ProposeFixDeps): Pr
   await notifyStoredProposal(row, { db, notify: deps.notify });
   const [current] = await db.select().from(buildQueue).where(eq(buildQueue.id, row.id));
   return { row: current ?? row, change };
+}
+
+/**
+ * Insert one high-confidence, pinned, pending proposal (the route propose_fix
+ * and the code-review queue share). The pin is re-verified from a fresh source
+ * inside the transaction, before the row commits.
+ */
+export async function insertPinnedProposal(db: Db, input: {
+  title: string;
+  description: string;
+  change: PinnedChange;
+  patternId: string | null;
+  recheckSource: () => PinSource;
+}): Promise<Row> {
+  const { change } = input;
+  return db.transaction(async (tx) => {
+    recheckPin(change.pin, input.recheckSource());
+    const [inserted] = await tx.insert(buildQueue).values({
+      proposedBy: 'alden', title: input.title, isSafeZone: false, status: 'pending', priority: 5,
+      description: input.description,
+      filesAffected: change.pin.files.map((f) => f.path),
+      diff: change.diff,
+      confidence: 'high',
+      pinKind: change.pin.kind,
+      pinCommit: change.pin.commit,
+      pinSourceDigest: change.pin.sourceDigest,
+      pinFiles: change.pin.files,
+      patternId: input.patternId,
+      notifyState: 'pending',
+    }).returning();
+    return inserted;
+  });
 }
 
 /** The review-thread post and the founder notice for a stored proposal. Idempotent by proposal id. */

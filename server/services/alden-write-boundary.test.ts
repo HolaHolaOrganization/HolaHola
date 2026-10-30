@@ -150,67 +150,8 @@ describe('code search runs rg without a shell', () => {
   });
 });
 
-describe('the review queue, driven through runReviewQueue itself', () => {
-  afterEach(restoreWritePrimitives);
-
-  function fakeQueue(filePath: string) {
-    const change = {
-      id: 'change-1', findingTitle: 'test finding', filePath, lineStart: 1, lineEnd: 1,
-      beforeCode: 'a', afterCode: 'b', status: 'pending_review',
-    } as any;
-    const updates: Record<string, unknown>[] = [];
-    const decisions: unknown[][] = [];
-    const db = {
-      select: () => ({ from: () => ({ where: () => ({ orderBy: async () => [change] }) }) }),
-      update: () => ({ set: (values: Record<string, unknown>) => ({ where: async () => { updates.push(values); } }) }),
-    } as any;
-    const deps = {
-      db,
-      loadMemory: async () => '',
-      review: async () => ({ decision: 'approve' as const, reason: 'looks right' }),
-      postDecision: async (...args: unknown[]) => { decisions.push(args); },
-    };
-    return { deps, updates, decisions };
-  }
-
-  for (const [role, status] of [['production', 'approved'], [undefined, 'escalated']] as const) {
-    test(`an approval under role ${role ?? 'missing'} is recorded ${status}, never applied or synced`, async () => {
-      const { runReviewQueue } = await import('./alden-code-review-service');
-      const { deps, updates, decisions } = fakeQueue(OUTSIDE_REPO);
-      const calls = await trapWritePrimitives();
-      const summary = await withRole(role, () => runReviewQueue(deps));
-      assert.deepEqual(calls, []);
-      assert.equal(summary.applied, 0);
-      assert.equal(summary.githubSynced, 0);
-      assert.equal(updates.length, 1);
-      assert.equal(updates[0].status, status);
-      assert.equal(updates[0].appliedAt, null);
-      assert.equal(updates[0].githubSynced, false);
-      assert.match(String(updates[0].reviewerNotes), /^Not applied: /);
-      assert.equal(decisions.length, 1);
-      assert.equal(decisions[0][2], false, 'reported as not applied');
-      assert.match(String(decisions[0][4]), /^Not applied: /);
-    });
-  }
-
-  test('positive control: under dev the same approval reaches the trapped file write', async () => {
-    const { runReviewQueue } = await import('./alden-code-review-service');
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'alden-review-'));
-    const file = path.join(dir, 'target.ts');
-    fs.writeFileSync(file, 'a\n');
-    const { deps, updates } = fakeQueue(file);
-    try {
-      const calls = await trapWritePrimitives();
-      await withRole('dev', () => runReviewQueue(deps));
-      restoreWritePrimitives();
-      assert.deepEqual(calls, ['fs.writeFileSync']);
-      assert.equal(updates[0].status, 'approved', 'the trapped write failed, so nothing was applied');
-    } finally {
-      restoreWritePrimitives();
-      fs.rmSync(dir, { recursive: true, force: true });
-    }
-  });
-});
+// runReviewQueue itself (P0b) is driven in alden-review-approval.test.ts against
+// a pinned fixture workspace.
 
 describe('auto-repair, driven through attemptAutoRepair itself', () => {
   afterEach(restoreWritePrimitives);
