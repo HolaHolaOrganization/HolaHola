@@ -1097,6 +1097,12 @@ const listeningPromise = new Promise<void>((resolve, reject) => {
       );
     }, 115000));
 
+    // Normal serving startup only; role-gated because the DB is shared.
+    backgroundTasks.run('central-read-expiry-warnings', () => setTimeout(async () => {
+      const { startCentralGrantExpiryWarnings } = await import('./services/central-read-expiry-warnings');
+      startCentralGrantExpiryWarnings();
+    }, 120000));
+
     // +108s: Shadow Auditor Stale-Session Reaper — suspends any active pedagogical
     // loops whose GL sessions closed without a clean stop() call (e.g., tab closed,
     // network drop). Runs every 30 minutes. Loops are marked 'suspended' so they
