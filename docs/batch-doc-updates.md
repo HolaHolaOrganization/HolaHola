@@ -1,5 +1,18 @@
 ## One-shot episode backup and restore drill — 2026-10-30
 
+**Final live result, 19:23Z: PASSED.** After fresh founder approval,
+restore-only run `restore-1745-7ac1a442-472e-4069-8c0d-372aa1ace546`
+read the original independently pinned R2 backup, restored all 842 records
+and 11,532,426 content bytes into an empty isolated schema-only Neon target,
+and verified exact complete JSON content and metadata. Inventory digest:
+`58be09309dada2bb0d30dedc40dcd6adb986090b0b6307256c3b6b0d0a9a9d48`.
+The owned temporary branch was deleted and absence confirmed. Durable report:
+`docs/operations/episode-backup-drills/restore-1745-7ac1a442-472e-4069-8c0d-372aa1ace546.json`.
+No production episode writes, source recapture, S3 writes, scheduling,
+lock changes, Markdown retirement or server restart occurred in this resume.
+Earlier failed reports and the chronological implementation notes below are
+preserved; their pending/blocked descriptions are historical, not current.
+
 Added a standalone, explicitly invoked backup/restore runner. It uses fresh
 founder-approved actor/artifact-bound ownership proof at every mutation
 boundary; no ownership-guard bypass, CI gate reuse, scheduler activation or

@@ -2,6 +2,23 @@
 
 This is a one-shot operator procedure, not a scheduled service. It never restores the shared database or retires Markdown records. The application does not import or activate the runner.
 
+## Completed live drill — 2026-10-30
+
+The founder-approved restore-only run completed at 19:23:01.628Z. All **842
+records / 11,532,426 content bytes**, including complete metadata, were restored
+from the original verified R2 backup into an empty disposable Neon target and
+read back for exact comparison. The owned branch was deleted and its absence
+confirmed. Production episode content and existing Markdown replicas were not
+changed. Earlier failed reports remain intact.
+
+Successful report:
+`docs/operations/episode-backup-drills/restore-1745-7ac1a442-472e-4069-8c0d-372aa1ace546.json`.
+Manifest: `episode-backups/v1/manifests/drill-1745-34faf5f5-8fe5-4245-80db-6c5ca0c4c436.json`.
+Independent manifest SHA256:
+`27424cc16cb8e4fb044b836cbda3474c4d607c12cc844759241b2d4a85eecc98`.
+Inventory SHA256:
+`58be09309dada2bb0d30dedc40dcd6adb986090b0b6307256c3b6b0d0a9a9d48`.
+
 ## Authorization and custody
 
 Use the real assigned task artifact and its founder-approved ownership receipt. The runner verifies a new server nonce and local key signature at each S3 write, canary mutation, branch creation/deletion and database restore boundary. A prior successful proof is not cached authority. Approval expiry/revocation stops further mutations.
