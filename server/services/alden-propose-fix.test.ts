@@ -133,7 +133,7 @@ describe('pins', () => {
     const change = buildPinnedChange(groupEditsByResolvedPath([edit('server/a.ts', 'a 2\n', 'two\n')], root), source);
     assert.deepEqual(change.pin.files, [{
       path: 'server/a.ts', beforeSha256: sha(FILES['server/a.ts']), afterSha256: sha(FILES['server/a.ts'].replace('a 2\n', 'two\n')),
-      gitMode: '100644', objectType: 'blob',
+      edits: [{ find: 'a 2\n', replace: 'two\n' }], gitMode: '100644', objectType: 'blob',
     }]);
     assert.match(change.diff, /^--- a\/server\/a\.ts\n\+\+\+ b\/server\/a\.ts\n@@ -1,5 \+1,5 @@/);
     fs.appendFileSync(path.join(root, 'server/b.ts'), 'dirty\n');
