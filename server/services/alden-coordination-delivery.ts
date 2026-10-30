@@ -19,16 +19,20 @@ export interface AldenCoordinationDelivery {
   message: string;
 }
 
+/**
+ * Alden's own wording for each notes-copy state (coordination thread 48d10847,
+ * seq 13 and seq 27), copied verbatim. `<recipient>` is replaced with the
+ * recipient's actor id. Do not reword without his review.
+ */
+export const ALDEN_DELIVERY_WORDING = {
+  none: "Recorded in <recipient>'s coordination inbox. Comments don't get a separate notes copy; that's expected.",
+  pending: "Recorded in <recipient>'s coordination inbox. A notes copy is queued and hasn't been sent yet; the inbox record already counts as delivered.",
+  delivered: "Recorded in <recipient>'s coordination inbox, and a copy was sent to their notes inbox.",
+  failed: "Recorded in <recipient>'s coordination inbox. The notes copy failed. The ledger record is intact.",
+} as const;
+
 export function aldenCoordinationDelivery(recipient: string, mirror: NotesMirrorState): AldenCoordinationDelivery {
-  const base = `Recorded for ${recipient}'s coordination inbox; ${recipient} reads it there.`;
-  switch (mirror) {
-    case 'pending':
-      return { recipient, inbox: 'recorded', notesMirror: 'pending', message: `${base} A notes-inbox copy for ${recipient} is also queued.` };
-    case 'delivered':
-      return { recipient, inbox: 'recorded', notesMirror: 'delivered', message: `${base} A notes-inbox copy for ${recipient} was also delivered.` };
-    case 'failed':
-      return { recipient, inbox: 'recorded', notesMirror: 'failed', message: `${base} The separate notes-inbox copy for ${recipient} failed; the coordination inbox entry still stands.` };
-    default:
-      return { recipient, inbox: 'recorded', notesMirror: 'none', message: `${base} No separate notes-inbox copy is made for this event, which is expected.` };
-  }
+  const notesMirror = mirror === 'not_applicable' ? 'none' : mirror;
+  const message = ALDEN_DELIVERY_WORDING[notesMirror].split('<recipient>').join(recipient);
+  return { recipient, inbox: 'recorded', notesMirror, message };
 }

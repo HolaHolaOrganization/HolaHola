@@ -7,21 +7,26 @@ import { describe, test } from 'node:test';
 import { aldenCoordinationDelivery } from './alden-coordination-delivery';
 
 describe('aldenCoordinationDelivery', () => {
-  test('a plain comment: recorded for the inbox, no mirror, and it says that is expected', () => {
-    const d = aldenCoordinationDelivery('luca-claude-code', 'not_applicable');
-    assert.deepEqual([d.recipient, d.inbox, d.notesMirror], ['luca-claude-code', 'recorded', 'none']);
-    assert.match(d.message, /coordination inbox; luca-claude-code reads it there/);
-    assert.match(d.message, /which is expected/);
-    assert.doesNotMatch(d.message, /not_applicable|was requested/);
+  test("Alden's wording is used verbatim for every state, with the recipient filled in", () => {
+    const cases = [
+      ['not_applicable', 'none', "Recorded in luca-claude-code's coordination inbox. Comments don't get a separate notes copy; that's expected."],
+      ['pending', 'pending', "Recorded in luca-claude-code's coordination inbox. A notes copy is queued and hasn't been sent yet; the inbox record already counts as delivered."],
+      ['delivered', 'delivered', "Recorded in luca-claude-code's coordination inbox, and a copy was sent to their notes inbox."],
+      ['failed', 'failed', "Recorded in luca-claude-code's coordination inbox. The notes copy failed. The ledger record is intact."],
+    ] as const;
+    for (const [mirror, notesMirror, message] of cases) {
+      const d = aldenCoordinationDelivery('luca-claude-code', mirror);
+      assert.deepEqual(d, { recipient: 'luca-claude-code', inbox: 'recorded', notesMirror, message });
+    }
   });
 
-  test('mirror states are reported as the mirror, never as the inbox entry', () => {
-    assert.equal(aldenCoordinationDelivery('luca-replit', 'pending').notesMirror, 'pending');
-    assert.equal(aldenCoordinationDelivery('luca-replit', 'delivered').notesMirror, 'delivered');
-    const failed = aldenCoordinationDelivery('luca-replit', 'failed');
-    assert.equal(failed.notesMirror, 'failed');
-    assert.equal(failed.inbox, 'recorded');
-    assert.match(failed.message, /coordination inbox entry still stands/);
+  test('every state says the inbox record stands; none reads as undelivered or asks for a resend', () => {
+    for (const mirror of ['not_applicable', 'pending', 'delivered', 'failed'] as const) {
+      const d = aldenCoordinationDelivery('luca-replit', mirror);
+      assert.equal(d.inbox, 'recorded');
+      assert.match(d.message, /^Recorded in luca-replit's coordination inbox/);
+      assert.doesNotMatch(d.message, /not_applicable|<recipient>|resend/);
+    }
   });
 });
 
