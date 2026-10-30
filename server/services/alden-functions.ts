@@ -617,6 +617,35 @@ export const ALDEN_TOOLS: AldenTool[] = [
     },
   },
   {
+    // Draft wording pending Alden's own (founder rule: Alden words his own prompts).
+    name: "propose_fix",
+    description: "Propose an exact code fix for review. Nothing is written: the change is checked, pinned to the source it was checked against, and stored as a pending build-queue proposal that a reviewer can turn into a pull request. Each edit is {path, find, replace}; find must occur exactly once in the file, edits to one file must not overlap, and at most 3 files may change. Read-only folders (.agents/memory, .agents/skills, .github/workflows) and blocklisted files cannot be targets. Set confidence honestly: only 'high' carries a pinned diff; 'low' or 'medium' store a description-only proposal.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        edits: {
+          type: "array" as const,
+          description: "The exact replacements. Several may name the same path.",
+          items: {
+            type: "object" as const,
+            properties: {
+              path: { type: "string" as const, description: "Workspace-relative file path." },
+              find: { type: "string" as const, description: "Exact text that occurs once in the file." },
+              replace: { type: "string" as const, description: "The replacement text." },
+            },
+            required: ["path", "find", "replace"],
+          },
+        },
+        rationale: { type: "string" as const, description: "What is wrong and why this change fixes it." },
+        evidence: { type: "string" as const, description: "What you observed: errors, logs, code you read." },
+        verify: { type: "string" as const, description: "How a reviewer can confirm the fix works." },
+        confidence: { type: "string" as const, enum: ["low", "medium", "high"], description: "Your own assessment of how certain this fix is." },
+        pattern_id: { type: "string" as const, description: "The support pattern this fix addresses, if any." },
+      },
+      required: ["edits", "rationale", "evidence", "verify", "confidence"],
+    },
+  },
+  {
     name: "queue_build_proposal",
     description: "Add a proposal to the build queue for async review by David or the Agent. Use when you identify a fix or improvement that is outside your auto-repair safe zone — schema changes, route changes, auth, billing, or anything requiring complex judgment. Include a full diff if you have one. The proposal is queued, not executed.",
     input_schema: {
@@ -2780,6 +2809,28 @@ export async function executeAldenTool(
             reportSummary: `Combined total: $${(reportData?.combined?.totalCostUsd ?? 0).toFixed(4)} over last ${hours}h`,
           },
         };
+      }
+
+      case 'propose_fix': {
+        const { proposeFix } = await import('./alden-propose-fix-service');
+        try {
+          const { row } = await proposeFix(args as any, { root: WORKSPACE_ROOT });
+          return {
+            data: {
+              proposed: true,
+              id: row.id,
+              confidence: row.confidence,
+              pin: row.pinKind ? { kind: row.pinKind, commit: row.pinCommit } : null,
+              files: row.filesAffected,
+              notifyState: row.notifyState,
+              note: row.pinKind
+                ? 'Stored as a pending, pinned proposal for review. Nothing was written.'
+                : 'Stored as a description-only proposal (confidence below high). Nothing was written.',
+            },
+          };
+        } catch (err: any) {
+          return { data: { error: `Fix not proposed: ${err?.message ?? err}`, refused: 'propose_fix_refused' } };
+        }
       }
 
       case 'queue_build_proposal': {
