@@ -36,7 +36,8 @@ export const PROPOSE_FIX_BLOCKED_PATTERNS: readonly string[] = Object.freeze([
 ]);
 
 export interface ProposeFixEdit { path: string; find: string; replace: string }
-export interface PinnedFile { path: string; beforeSha256: string; afterSha256: string; gitMode?: string; objectType?: string }
+/** One pinned file. The edits are kept so PR conversion can re-verify each find against the pinned bytes. */
+export interface PinnedFile { path: string; beforeSha256: string; afterSha256: string; edits: Array<{ find: string; replace: string }>; gitMode?: string; objectType?: string }
 export interface ProposalPin {
   kind: 'release' | 'dev-head';
   commit: string;
@@ -285,7 +286,11 @@ export function buildPinnedChange(groups: Map<string, ProposeFixEdit[]>, source:
     const { bytes, gitMode, objectType } = source.read(rel);
     const original = decodeUtf8(rel, bytes);
     const { after } = applyEditsToOriginal(rel, original, edits);
-    files.push({ path: rel, beforeSha256: sha256(bytes), afterSha256: sha256(after), ...(gitMode ? { gitMode, objectType } : {}) });
+    files.push({
+      path: rel, beforeSha256: sha256(bytes), afterSha256: sha256(after),
+      edits: edits.map(({ find, replace }) => ({ find, replace })),
+      ...(gitMode ? { gitMode, objectType } : {}),
+    });
     diffs.push(unifiedDiff(rel, original, after));
   }
   return { pin: { kind: source.kind, commit: source.commit, sourceDigest: source.sourceDigest, files }, diff: diffs.join('\n') };

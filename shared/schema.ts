@@ -12454,7 +12454,7 @@ export const buildQueue = pgTable("build_queue", {
   pinKind: varchar("pin_kind"),
   pinCommit: varchar("pin_commit"),
   pinSourceDigest: text("pin_source_digest"),
-  // [{ path, beforeSha256, gitMode?, objectType? }] for every touched file.
+  // [{ path, beforeSha256, afterSha256, edits[{find, replace}], gitMode?, objectType? }] per touched file.
   pinFiles: jsonb("pin_files"),
   patternId: varchar("pattern_id"),
   // Durable first, then notify: the notice and review-thread post are retried
