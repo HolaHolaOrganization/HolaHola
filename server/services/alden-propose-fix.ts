@@ -21,7 +21,7 @@ import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { ALDEN_READ_ONLY_DIRS, resolveAldenReadPath } from './alden-read-policy';
+import { ALDEN_READ_ONLY_DIRS, classifyAldenReadPath, resolveAldenReadPath, secretPathReason } from './alden-read-policy';
 import { loadReleaseIdentity } from './release-identity';
 import { resolveInstanceRole } from './instance-role';
 
@@ -310,35 +310,110 @@ export function describeUnpinnedEdits(edits: ProposeFixEdit[]): string {
 }
 
 /**
+ * A stored pin-file path, validated again at conversion: normalized posix,
+ * relative, inside Alden's readable root, not a read-only directory, not a
+ * secret path. Stored JSON is never trusted as already checked.
+ */
+export function assertConvertiblePath(rel: unknown): string {
+  if (typeof rel !== 'string' || !rel || rel.includes('\\') || rel.includes('\0')) throw new ProposeFixRefusal('not eligible for PR conversion: malformed pinned path');
+  if (path.posix.isAbsolute(rel) || path.win32.isAbsolute(rel)) throw new ProposeFixRefusal(`not eligible for PR conversion: ${rel} is absolute`);
+  if (path.posix.normalize(rel) !== rel || rel.split('/').some((s) => s === '' || s === '.' || s === '..')) {
+    throw new ProposeFixRefusal(`not eligible for PR conversion: ${rel} is not a normalized workspace path`);
+  }
+  const kind = classifyAldenReadPath(rel);
+  if (kind !== 'dir' && kind !== 'file') throw new ProposeFixRefusal(`not eligible for PR conversion: ${rel} is outside Alden's readable root`);
+  if (ALDEN_READ_ONLY_DIRS.some((dir) => rel === dir || rel.startsWith(`${dir}/`))) throw new ProposeFixRefusal(`not eligible for PR conversion: ${rel} is in a read-only directory`);
+  const secret = secretPathReason(rel);
+  if (secret) throw new ProposeFixRefusal(`not eligible for PR conversion: ${rel}: ${secret}`);
+  return rel;
+}
+
+const SHA256_HEX = /^[0-9a-f]{64}$/;
+
+export interface GitEntry { bytes: Buffer; gitMode: string; objectType: string }
+
+/** A path's entry at a commit: its mode, object type and bytes. */
+export function gitEntryAt(root: string, commit: string, rel: string): GitEntry {
+  const entry = git(root, ['ls-tree', commit, '--', rel]).toString('utf8').trim();
+  const match = /^(\d{6}) (\w+) [0-9a-f]{40}\t(.+)$/.exec(entry);
+  if (!match || match[3] !== rel) throw new ProposeFixRefusal(`stale base: ${rel} is not in ${commit}`);
+  return { gitMode: match[1], objectType: match[2], bytes: match[2] === 'blob' ? git(root, ['show', `${commit}:${rel}`]) : Buffer.alloc(0) };
+}
+
+/**
  * PR conversion check (P1 "At PR conversion"): only a high-confidence pinned
- * proposal is eligible; each file's bytes at the pinned commit must still hash
- * to its before-hash, each find must still be unique, and the result must hash
- * to the recorded after-hash. Any mismatch is a stale base; nothing re-targets.
+ * proposal with a well-formed file list is eligible; every path is validated
+ * again; each entry at the pinned commit must be a regular blob whose bytes
+ * still hash to the before-hash, each find must still be unique, and the
+ * result must hash to the recorded after-hash. Any mismatch is a stale base;
+ * nothing re-targets.
  */
 export function verifyProposalForConversion(
   proposal: { confidence: string | null; pinKind: string | null; pinCommit: string | null; pinFiles: unknown },
-  readAtCommit: (commit: string, rel: string) => Buffer,
+  readEntry: (commit: string, rel: string) => GitEntry,
 ): Array<{ path: string; content: string }> {
-  if (proposal.confidence !== 'high' || !proposal.pinKind || !proposal.pinCommit || !Array.isArray(proposal.pinFiles)) {
+  if (proposal.confidence !== 'high' || !proposal.pinKind || !proposal.pinCommit || !/^[0-9a-f]{40}$/.test(proposal.pinCommit) || !Array.isArray(proposal.pinFiles)) {
     throw new ProposeFixRefusal('not eligible for PR conversion: only a high-confidence pinned proposal can be converted');
   }
-  return (proposal.pinFiles as PinnedFile[]).map((file) => {
-    if (!file || typeof file.path !== 'string' || !Array.isArray(file.edits) || file.edits.length === 0) {
+  const files = proposal.pinFiles as unknown[];
+  if (files.length === 0 || files.length > PROPOSE_FIX_MAX_FILES) throw new ProposeFixRefusal('not eligible for PR conversion: the pinned file list is empty or too long');
+  const seen = new Set<string>();
+  const checked = files.map((raw) => {
+    const file = raw as Partial<PinnedFile> | null;
+    if (!file || typeof file !== 'object') throw new ProposeFixRefusal('not eligible for PR conversion: malformed pinned file');
+    const rel = assertConvertiblePath(file.path);
+    if (seen.has(rel)) throw new ProposeFixRefusal(`not eligible for PR conversion: ${rel} is listed twice`);
+    seen.add(rel);
+    if (!SHA256_HEX.test(String(file.beforeSha256)) || !SHA256_HEX.test(String(file.afterSha256))) throw new ProposeFixRefusal(`not eligible for PR conversion: ${rel} has malformed hashes`);
+    if (!Array.isArray(file.edits) || file.edits.length === 0 || file.edits.some((e) => !e || typeof e.find !== 'string' || !e.find || typeof e.replace !== 'string')) {
       throw new ProposeFixRefusal('not eligible for PR conversion: the pinned files carry no edits');
     }
-    const bytes = readAtCommit(proposal.pinCommit!, file.path);
-    if (sha256(bytes) !== file.beforeSha256) throw new ProposeFixRefusal(`stale base: ${file.path} at ${proposal.pinCommit} does not match the pinned before-hash`);
-    const { after } = applyEditsToOriginal(file.path, decodeUtf8(file.path, bytes), file.edits.map((e) => ({ path: file.path, ...e })));
-    if (sha256(after) !== file.afterSha256) throw new ProposeFixRefusal(`stale base: ${file.path} no longer produces the pinned after-hash`);
-    return { path: file.path, content: after };
+    return { rel, beforeSha256: file.beforeSha256!, afterSha256: file.afterSha256!, edits: file.edits };
+  });
+  return checked.map((file) => {
+    const entry = readEntry(proposal.pinCommit!, file.rel);
+    if (entry.objectType !== 'blob' || (entry.gitMode !== '100644' && entry.gitMode !== '100755')) {
+      throw new ProposeFixRefusal(`not eligible for PR conversion: ${file.rel} is not a regular file at ${proposal.pinCommit}`);
+    }
+    if (sha256(entry.bytes) !== file.beforeSha256) throw new ProposeFixRefusal(`stale base: ${file.rel} at ${proposal.pinCommit} does not match the pinned before-hash`);
+    const { after } = applyEditsToOriginal(file.rel, decodeUtf8(file.rel, entry.bytes), file.edits.map((e) => ({ path: file.rel, ...e })));
+    if (sha256(after) !== file.afterSha256) throw new ProposeFixRefusal(`stale base: ${file.rel} no longer produces the pinned after-hash`);
+    return { path: file.rel, content: after };
   });
 }
 
-/** Whether a commit is reachable from a remote-tracking branch (published), after the caller's fetch. */
-export function isCommitPublished(root: string, commit: string): boolean {
-  if (!/^[0-9a-f]{40}$/.test(commit)) return false;
+/**
+ * The conversion write sink. Every target is checked before anything is
+ * written: the path is validated again, no component under the worktree and
+ * not the target itself may be a symlink, the target must already be a
+ * regular file, and its real path must be exactly inside the worktree.
+ */
+export function writeConvertedFiles(worktree: string, files: Array<{ path: string; content: string }>): void {
+  const realWorktree = fs.realpathSync(worktree);
+  const targets = files.map((file) => {
+    const rel = assertConvertiblePath(file.path);
+    let current = realWorktree;
+    for (const segment of rel.split('/')) {
+      current = path.join(current, segment);
+      const stat = fs.lstatSync(current, { throwIfNoEntry: false });
+      if (!stat) throw new ProposeFixRefusal(`refusing to write ${rel}: ${path.relative(realWorktree, current)} does not exist in the worktree`);
+      if (stat.isSymbolicLink()) throw new ProposeFixRefusal(`refusing to write ${rel}: ${path.relative(realWorktree, current)} is a symlink`);
+    }
+    if (!fs.lstatSync(current).isFile()) throw new ProposeFixRefusal(`refusing to write ${rel}: not a regular file`);
+    if (fs.realpathSync(current) !== path.join(realWorktree, ...rel.split('/'))) throw new ProposeFixRefusal(`refusing to write ${rel}: it resolves outside the worktree`);
+    return { abs: current, content: file.content };
+  });
+  for (const target of targets) fs.writeFileSync(target.abs, target.content);
+}
+
+/**
+ * Whether a commit is contained in a branch of the selected remote, after the
+ * caller's `git fetch --prune <remote>`. Other remotes' refs never count.
+ */
+export function isCommitPublished(root: string, commit: string, remote: string): boolean {
+  if (!/^[0-9a-f]{40}$/.test(commit) || !/^[A-Za-z0-9._-]+$/.test(remote)) return false;
   try {
-    return git(root, ['branch', '-r', '--contains', commit]).toString('utf8').trim().length > 0;
+    return git(root, ['for-each-ref', '--contains', commit, '--format=%(refname)', `refs/remotes/${remote}/`]).toString('utf8').trim().length > 0;
   } catch {
     return false;
   }

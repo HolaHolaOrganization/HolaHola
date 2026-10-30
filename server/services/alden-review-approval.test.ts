@@ -59,10 +59,13 @@ const ENV = {
   unknown: { HOLAHOLA_INSTANCE_ROLE: 'staging' },
 } as Record<string, NodeJS.ProcessEnv>;
 
+/** The trapped calls with their first two arguments (path, data), for asserting the exact write. */
+const trappedArgs: Array<{ name: string; args: unknown[] }> = [];
 async function trap(options: { processes: boolean }): Promise<string[]> {
   const { SourceControlService } = await import('./source-control-service');
   const calls: string[] = [];
-  const fail = (name: string) => () => { calls.push(name); throw new Error(`${name} must not run`); };
+  trappedArgs.length = 0;
+  const fail = (name: string) => (...args: unknown[]) => { calls.push(name); trappedArgs.push({ name, args: args.slice(0, 2) }); throw new Error(`${name} must not run`); };
   for (const name of ['writeFileSync', 'writeFile', 'appendFileSync', 'renameSync', 'rename', 'copyFileSync', 'unlinkSync', 'unlink', 'rmSync'] as const) mock.method(fs, name, fail(`fs.${name}`));
   for (const name of ['writeFile', 'rename', 'copyFile', 'unlink', 'rm'] as const) mock.method(fs.promises, name, fail(`fs.promises.${name}`));
   if (options.processes) {
@@ -168,13 +171,17 @@ describe('runReviewQueue approvals by role', () => {
     assert.match(String(two.updates[0].reviewerNotes), /could not be stored: stale base/);
   });
 
-  test('positive control: dev with a clean pin reaches the trapped file write', async () => {
+  test('positive control: dev writes the pinned bytes to the planned root path, never a cwd-relative one', async () => {
     const { runReviewQueue } = await import('./alden-code-review-service');
+    // The test runs with a different cwd (the repository); a cwd-relative sink would target its server/routes.ts.
+    assert.notEqual(fs.realpathSync(process.cwd()), fs.realpathSync(root));
     const { deps, updates, stored } = harness(reviewed('server/routes.ts', 12, 12, 'twelve'), ENV.dev);
     const calls = await trap({ processes: false });
     await runReviewQueue(deps);
     restore();
     assert.deepEqual(calls, ['fs.writeFileSync']);
+    assert.equal(trappedArgs[0].args[0], fs.realpathSync(path.join(root, 'server', 'routes.ts')), 'the exact planned path');
+    assert.equal(trappedArgs[0].args[1], FILES['server/routes.ts'].replace('route 12\n', 'twelve\n'), 'the exact pinned bytes');
     assert.equal(stored.length, 0);
     assert.equal(updates[0].status, 'approved', 'the trapped write failed, so nothing was applied');
     assert.match(String(updates[0].reviewerNotes), new RegExp(`Pinned to dev-head ${HEAD}`));
@@ -235,5 +242,40 @@ describe('reviewedChangeAsEdit', () => {
     assert.throws(() => reviewedChangeAsEdit('f', FILES['server/repeat.ts'], { lineStart: 30, lineEnd: 30, beforeCode: '}', afterCode: '};' } as any), /not unique/);
     assert.throws(() => reviewedChangeAsEdit('f', 'a\nb\n', { lineStart: 1, lineEnd: 1, beforeCode: 'z', afterCode: 'y' } as any), /stale base/);
     assert.throws(() => reviewedChangeAsEdit('f', 'a\nb\n', { lineStart: 5, lineEnd: 6, beforeCode: '', afterCode: 'y' } as any), /outside the pinned file/);
+  });
+});
+
+describe('the dev apply sink re-checks the target immediately before writing', () => {
+  test('a target changed, or replaced by a symlink, after planning is not written', async (t) => {
+    const { planApproval, applyPinnedApproval } = await import('./alden-review-approval');
+    const target = path.join(root, 'server', 'routes.ts');
+    const plan = planApproval(reviewed('server/routes.ts', 20, 20, 'twenty'), root, ENV.dev);
+    assert.equal(plan.kind, 'apply');
+    if (plan.kind !== 'apply') return;
+    fs.appendFileSync(target, 'raced\n');
+    try {
+      const raced = fs.readFileSync(target, 'utf8');
+      assert.equal(applyPinnedApproval(plan), false);
+      assert.equal(fs.readFileSync(target, 'utf8'), raced, 'unchanged');
+    } finally {
+      git('checkout', '--', 'server/routes.ts');
+    }
+    const outside = path.join(base, 'outside-sentinel.ts');
+    fs.writeFileSync(outside, FILES['server/routes.ts']);
+    fs.rmSync(target);
+    try {
+      fs.symlinkSync(outside, target, 'file');
+    } catch {
+      t.diagnostic('file symlinks unavailable here; the symlink half is skipped');
+      git('checkout', '--', 'server/routes.ts');
+      return;
+    }
+    try {
+      assert.equal(applyPinnedApproval(plan), false);
+      assert.equal(fs.readFileSync(outside, 'utf8'), FILES['server/routes.ts'], 'the outside sentinel is untouched');
+    } finally {
+      fs.rmSync(target, { force: true });
+      git('checkout', '--', 'server/routes.ts');
+    }
   });
 });

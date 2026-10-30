@@ -18,7 +18,7 @@ import { founderCollabService } from './founder-collaboration-service';
 import { postToActiveTeamRoom } from './team-room-proactive-poster';
 import { SourceControlService } from './source-control-service';
 import { aldenWriteBoundary } from './alden-write-boundary';
-import { planApproval } from './alden-review-approval';
+import { applyPinnedApproval, planApproval } from './alden-review-approval';
 import { insertPinnedProposal, notifyStoredProposal } from './alden-propose-fix-service';
 import { workspaceResolution } from './workspace-root';
 
@@ -146,22 +146,6 @@ Be direct and specific. If revising, explain exactly what should be different. I
     revisionGuidance: parsed.revisionGuidance,
     escalationSummary: parsed.escalationSummary,
   };
-}
-
-function applyPatch(filePath: string, lineStart: number, lineEnd: number, afterCode: string): boolean {
-  try {
-    const raw = fs.readFileSync(filePath, 'utf-8');
-    const lines = raw.split('\n');
-    const before = lines.slice(0, lineStart - 1);
-    const after = lines.slice(lineEnd);
-    const newLines = [...before, ...afterCode.split('\n'), ...after];
-    fs.writeFileSync(filePath, newLines.join('\n'), 'utf-8');
-    console.log(`[AldenReview] Applied patch to ${filePath}:${lineStart}-${lineEnd}`);
-    return true;
-  } catch (err: any) {
-    console.error(`[AldenReview] File write failed for ${filePath}:`, err.message);
-    return false;
-  }
 }
 
 async function requestSourceControlSync(actor: string): Promise<{ success: boolean; output: string }> {
@@ -413,7 +397,7 @@ export async function runReviewQueue(deps: Partial<ReviewQueueDeps> = {}): Promi
         continue;
       }
 
-      applied = applyPatch(change.filePath, change.lineStart, change.lineEnd, change.afterCode);
+      applied = applyPinnedApproval(plan);
 
       if (applied) {
         summary.applied++;

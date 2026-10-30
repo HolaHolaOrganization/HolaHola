@@ -19,7 +19,7 @@ import path from 'node:path';
 import { eq } from 'drizzle-orm';
 import { buildQueue } from '@shared/schema';
 import { getUserDb, closeDbConnections } from '../db';
-import { isCommitPublished, verifyProposalForConversion } from '../services/alden-propose-fix';
+import { gitEntryAt, isCommitPublished, verifyProposalForConversion, writeConvertedFiles } from '../services/alden-propose-fix';
 
 function option(name: string): string | undefined {
   const i = process.argv.indexOf(`--${name}`);
@@ -40,14 +40,16 @@ async function main(): Promise<void> {
   if (!row) throw new Error(`no build_queue row ${id}`);
   if (row.proposedBy !== 'alden' || row.status !== 'pending') throw new Error(`refusing: ${id} is not a pending Alden proposal (${row.proposedBy}, ${row.status})`);
 
-  git(['fetch', '--quiet', remote]);
-  if (!row.pinCommit || !isCommitPublished(root, row.pinCommit)) {
+  if (!/^[A-Za-z0-9._-]+$/.test(remote)) throw new Error(`refusing: invalid remote name ${remote}`);
+  // --prune drops deleted branches, so stale remote refs are not publication evidence.
+  git(['fetch', '--quiet', '--prune', remote]);
+  if (!row.pinCommit || !isCommitPublished(root, row.pinCommit, remote)) {
     throw new Error(`pin not published: ${row.pinCommit ?? '(none)'} is not on any ${remote} branch; a local dev commit must be pushed and reviewed first`);
   }
-  const files = verifyProposalForConversion(row, (commit, rel) => git(['show', `${commit}:${rel}`]));
+  const files = verifyProposalForConversion(row, (commit, rel) => gitEntryAt(root, commit, rel));
 
   git(['worktree', 'add', '--quiet', '--detach', target, row.pinCommit]);
-  for (const file of files) fs.writeFileSync(path.join(target, file.path), file.content);
+  writeConvertedFiles(target, files);
   console.log(JSON.stringify({
     converted: id,
     pinKind: row.pinKind,
