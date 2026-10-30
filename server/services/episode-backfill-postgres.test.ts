@@ -22,8 +22,8 @@ async function insertTurn(minute: number, label: string) {
   const captureId = `bf-${run}-${label}`;
   const content = `David [Claude Code]: backfill ${run} ${label}\n\nClaude Code: reply ${run} ${label}`;
   await pool.query(
-    `insert into conversation_memories (id, title, summary, content, tags, arc_name, created_at) values ($1, $2, $2, $3, $4, $5, $6::timestamp)`,
-    [id, `backfill test ${label}`, content, [PER_TURN_TAG, `capture-id:${captureId}`], PER_TURN_ARC, time(minute)],
+    `insert into conversation_memories (id, title, summary, content, tags, arc_name, created_at) values ($1, $2, $3, $4, $5, $6, $7::timestamp)`,
+    [id, `backfill test ${label}`, `backfill test ${label}`, content, [PER_TURN_TAG, `capture-id:${captureId}`], PER_TURN_ARC, time(minute)],
   );
   const entry: EpisodeBackfillEntry = { rowId: id, captureId, createdAt: time(minute), contentSha256: sha256(content) };
   return { id, content, entry };
@@ -32,7 +32,7 @@ async function insertTurn(minute: number, label: string) {
 async function insertEpisode(content: string) {
   const id = randomUUID();
   const title = `Backfill test episode ${run} ${id.slice(0, 4)}`;
-  await pool.query(`insert into conversation_memories (id, title, summary, content, tags) values ($1, $2, $2, $3, $4)`, [id, title, content, ['backfill-test']]);
+  await pool.query(`insert into conversation_memories (id, title, summary, content, tags) values ($1, $2, $3, $4, $5)`, [id, title, title, content, ['backfill-test']]);
   return { id, title };
 }
 
@@ -130,8 +130,8 @@ test('episode backfill: batch lock, source share lock, newer-turn refusal and re
     const captureId = `bf-${run}-${label}`;
     const content = `David [Claude Code]: backfill ${run} ${label}\n\nClaude Code: reply ${run} ${label}`;
     await pool.query(
-      `insert into conversation_memories (id, title, summary, content, tags, arc_name, created_at) values ($1, $2, $2, $3, $4, $5, $6::timestamp)`,
-      [id, `backfill test ${label}`, content, [PER_TURN_TAG, `capture-id:${captureId}`], PER_TURN_ARC, time(tieTime)],
+      `insert into conversation_memories (id, title, summary, content, tags, arc_name, created_at) values ($1, $2, $3, $4, $5, $6, $7::timestamp)`,
+      [id, `backfill test ${label}`, `backfill test ${label}`, content, [PER_TURN_TAG, `capture-id:${captureId}`], PER_TURN_ARC, time(tieTime)],
     );
     return { id, entry: { rowId: id, captureId, createdAt: time(tieTime), contentSha256: sha256(content) } as EpisodeBackfillEntry };
   };
