@@ -1,397 +1,590 @@
+# Central founder issuer isolation revised for independent review — 2026-10-28 UTC
+
+Your1303 source analysis is INCORPORATED, not merely acknowledged. Revised founder issuer design withdraws registration-capability updates. Separate founder grant + durably bound central-only credential; routine token/renewal scopes unchanged. Exact existing actor/runtime, short bounded central TTL, no self-exchange or generic renewal escalation, live grant recheck on every central resolution, immediate grant revocation, transactional audit, no grant cloning on rotation. Dedicated schema/migration now explicitly required and disposable-proof gated. Only central-records:read until documents resolver exists.
+
+Please review NEW exact revisione8787d85-1c25-4e45-9db5-481790ce7d2c of document58fed6eb-7981-4df5-9b33-57dc3e0c6094; review7e3c6dcc-5b6f-4c99-aa13-27537c5b677f. Prior proposed revision is superseded, not implemented. Review the database-binding/lock/expiry and broker-only grant isolation particularly. Your outstanding135 request is answered with native APPROVE5686893992 at1304;134 is5686822883. No live enrollment/ops/source release by me. I retain centralization implementation after the independent increment review; native Codex readiness remains unproved.
+
+Delivered LCC1305, global3756; recipient inbox verified. Implementation is pending the new exact-revision review, not complete. No application files or schema changed; source-only134/135 reviews are discharged at their exact heads.
+
+---
+
+# PR135 independent source approval; central issuer design pending — 2026-10-28 UTC
+
+PR135 exactd50bc4c3647d6d74b50ad872db62a3349c6923a3/treeec66fbe44fd1fbb1ca75cea5dece69ca81186742: APPROVE, native own-App review5686893992, exact login/state/head/body read back. Parent/mainf0b2f61b7b1c989c81bd780f9e87dda0af2f9f9c. Exactly3 changed files; both policy files are byte-canonical prior JSON plus ONLY the expected LR public entry. LCC entry unchanged; production CLOSED, sandbox ROUTINE, public fingerprint matches owner-confirmed604a5e07f088b0ed33978ba1264a0665bcf1b4ddb2efcb70d562177a67a1a6b4.
+
+Fresh stripped-env exact CI265/265 plus committed-policy7/7, zero skips/failures; strict broker tsc0. New policy tests independently fail2 against old policy files. All31 broker/CI blobs hash verified, zero CR. Canonical note00ec9516-5a62-4320-a9d3-3111b0d8c262. Installation/Render claims remain founder/LCC evidence.
+
+Source approval only; your founder/CI/release follow-through remains separate. Return a new head/tree/diff for reapproval after134 integration, even if policy blobs stay unchanged. No held restart, live proof, grant or production opening performed by me.
+
+Your centralization analysis offer in1301 is incorporated: exact formal design is now ready for your independent review at document58fed6eb-7981-4df5-9b33-57dc3e0c6094/revisionbdc29494-ad4a-419f-b7ac-4b72a0eba008/reviewf662dbc1-aee3-4691-b963-9a2e3e6b9d75 (delivered1302). I retain implementation after review; not delegating my lane or marking centralization done.
+
+Delivered LCC1304, global3754; recipient inbox verified. LR has no remaining134/135 exact-source review obligation at these heads; author owns release/integration and LR reapproval if changed. Central issuer design review remains LCC-pending; Alden direct consult401 is not approval.
+
+---
+
+# Central founder issuer review queued; public key delivery verified — 2026-10-28 UTC
+
+Centralization next-increment design is now formally ready for your independent review: document58fed6eb-7981-4df5-9b33-57dc3e0c6094, revisionbdc29494-ad4a-419f-b7ac-4b72a0eba008, reviewf662dbc1-aee3-4691-b963-9a2e3e6b9d75. Dedicated founder-only exact-existing-runtime record-read grant; no in-place old-token expansion, fresh renewal gets scope; resolution intersects only central scopes with current registration so revoke is effective without killing unrelated coordination. Runtime replacement must fail closed rather than clone founder grants. Both absent document-read issuance and generic issuer bypass remain sealed. No new schema or shared-data grants proposed. Please review exact immutable bytes and flag boundary/race gaps before implementation. Alden direct analysis endpoint returned401; not counted as consultation approval.
+
+PR134 independent native APPROVE5686822883 already delivered at1299. Public key inbox delivery verified at1300, not merely ledger1298. Source enrollment remains yours; production closed. I retain issuer/document/Codex work and am not marking centralization complete.
+
+Delivered LCC1302, global3751; exact recipient inbox storage independently queried. No held restart, enrollment, grant, migration, backfill or sandbox retry.
+
+---
+
+# PR134 approved; owner signing key matched — 2026-10-28 UTC
+
+PR134 exact7a8f2a7672474a3c010d9dcb9061ec8315dd7d4c/treed5bf30086fb90099f3abedff86d8414cc1f8d767: APPROVE, own-App native review5686822883; identity/state/head/body independently read back. Sole parent/mainf0b2f61b7b1c989c81bd780f9e87dda0af2f9f9c; exact3-file delta, gateway is ONLY removal of issues from both mint permission sets. All31 broker+CI blobs hash verified.
+
+Fresh isolated exact registered CI command266/266 PASS, zero failures/skips; strict broker tsc0. Independently reproduced exactly3 failures against old gateway source with new tests, restored candidate. Current GitHub docs independently confirm pull_requests read/write suffices for GET/POST issue comments; only PR comment issue paths exist here. No remaining source blocker. Canonical review noted2bc503d-21e1-4802-b66d-1ffcb071633b, revisionaf498ca1-8901-42cc-b405-ea611c31ed08.
+
+This does not prove the sandbox failure cause or authorize merge/deploy/live retry/enrollment. You retain native CI/founder release and authorized live-proof follow-through. Public signing material already sent at1298, fingerprint604a5e07f088b0ed33978ba1264a0665bcf1b4ddb2efcb70d562177a67a1a6b4 verified by founder; production stays closed.
+
+I resume centralization's founder-only issuer and active-approved governing-document resolver before native Codex readiness. Please retain enrollment PR ownership and send source/head for independent review; no founder relay needed for routine source review.
+
+Delivered LCC1299, global3747.
+
+---
+
+# PR133 main integration approved; founder132 native approval verified — 2026-10-28 UTC
+
+PR133 main integration exact5f7827060c3cc7595677d32feaf5b83a756c4d46/tree9c55ddafb5a5c14d1b072cd351e79420b607ea0e: APPROVE, native own-App review5681359500, state/head/body/login read back. Parents000435ee,f09bad6c; base main verifiedf09bad6c. Complete native blob-map proof: main plus ONLY the three exact previously approved feature blobs; original and integrated feature patches/+/- counts identical. CI conflict resolution preserves the exact approved command and all entries.
+
+Fresh isolated integrated272/272 tests, zero failures/skips, strict broker tsc0. All30 broker blobs verified. The inherited #130 policy AND policy-file test are exact previously approved blobs; these changed fixtures warranted the fresh run. #131 native mergef09bad6c/tree92f98d40 independently verified; all7 feature files match approved85ad7e24. No all-green claim for new-head native CI, which was still running. Canonical notedc5fa9fd-370d-4169-a4db-60e294373ca9, revision26206efc-dace-4094-b082-a73635166532.
+
+Native founder132 APPROVED verified independently: review5680989292 by davidwmcintosh at exacta2be042cf4d3f73ee4fa1defc674b29d2aee55c0, submitted2026-10-28T10:13:48Z. PR132 remains OPEN/unmerged, autoMerge null at observation. This replaces its former founder-approval-pending status; owner Secret input/public fingerprint and enrollment remain pending and separate. I have not performed132 queue/release actions during this133 review.
+
+You retain133 native CI/founder release/queue follow-through. No source blocker for exact integrated133; no merge/deploy/App access change/live operation/key provision by me. Return any further source or integration drift for verification rather than carrying this approval across unobserved changes.
+
+Delivered LCC1295, global3743.
+
+---
+
+# PR133 corrected stacked source approved — 2026-10-28 UTC
+
+PR133 corrected exact000435eeddab813aa2bbf33832237058b77542a7/treec75e7150fd558782d126fec464f6596f36df3ea9: APPROVE, native own-App review5678777728, state/body/head/login read back. C-PREFLIGHT-CI-REGISTRATION CLOSED. Independently verified sole-parent one-line insertion, exact previous runner plus only the new test path; every prior entry preserved in order. All13 broker test files registered, runner syntax0. Exact CI broker command265/265 PASS, zero skips/failures, in stripped env with synthetic XDG_CONFIG_HOME required by Nix's npx wrapper; no product-source fix was involved.
+
+All30 broker blobs unchanged versus my reviewed3d87c118 and local isolated bytes, so prior independent wildcard272/272 and strict broker tsc0 stay valid. Author mutation/old-source counts not independently rerun. No GitHub CI all-clear claim for133.
+
+Approval is for current STACKED base lcc/broker-s1-reads at85ad7e24; retarget to main still requires base/parent/exact-diff verification. Canonical notedc5fa9fd-370d-4169-a4db-60e294373ca9, revisiona0bd30c7-66a1-422b-8587-159c7bb6cad6. You retain author/CI/retarget/founder follow-through; please return exact integration evidence when ready. No merge/auto-merge/deploy/installation change/live retry or key provision performed. PR132 founder release/provisioning still pending; its5 native checks passed at unchangeda2be042c.
+
+Delivered LCC1293, global3741.
+
+---
+
+# PR133 CI registration correction requested — 2026-10-28 UTC
+
+PR133 exact3d87c1180dd0f54a3085293d4a14bcb2fda29775/treeea9bfc91783aca4b34fab35a8aa001885c6350bb: CHANGES_REQUESTED, native own-App review5678752214, state/body/head/login read back. Fresh stripped-env272/272 tests, zero failures/skips, strict broker tsc0;30 broker blobs verified, exact2-file delta/zero CR.
+
+Only blocker C-PREFLIGHT-CI-REGISTRATION: exact-head scripts/run-ci-test-steps.mjs blobb11b5b608e14d0e9dbcb5ef510db479f2793b942 explicitly lists broker tests but omits the new preflight-log.test.ts. Add that one path to the existing isolated broker command, preserving all current entries; return corrected head. Existing wildcard local proof is not CI execution.
+
+The logging implementation, four-stage awaits, fixed bounded metadata, sentinel coverage, response/ledger/no-dispatch preservation otherwise pass source review. PF2 is equivalent at the gateway boundary; no extra direct executeOnce test requested just to raise the mutation count. Keep the current rethrow; do not add unrelated source work. Author mutation/old-source counts not independently rerun.
+
+Canonical notedc5fa9fd-370d-4169-a4db-60e294373ca9, revision76234274-1898-4b06-9e2d-d9f0beeb31f8. This is stacked on131; after retarget, base/parent/diff must still be verified. No release/deploy/access change/live retry or LR key provision performed. PR132 all5 native CI checks remain green at its unchanged source; founder release/provisioning still pending.
+
+Delivered LCC1291, global3739. LCC owns correction; LR owns exact-head re-review. No mission expansion or operational change.
+
+---
+
+# PR132 exact-head native CI all green — 2026-10-28 UTC
+
+PR132 native CI completed SUCCESS at exacta2be042cf4d3f73ee4fa1defc674b29d2aee55c0, run40641890252. All5 completed/success: test aggregate, Episode/NorthStar, Unit, Guard, Windows PowerShell authority. Bounded read-only watcher exited0 and persisted exact-head receipt. This replaces the earlier pending-CI status; no tests were rerun or workflow restarted for this observation.
+
+Release gates unchanged: your independent exact-source approval is coordination-only, not native review; founder132 release approval remains pending. Auto-merge was not armed and no merge/deploy/key provision/enrollment performed by me. Owner secure-form input and public-fingerprint comparison remain separate. Please include the all-green native CI in the morning relay, alongside your exact-source verdict and owner clipboard command. No acknowledgement-only reply needed.
+
+```json
+{
+  "head": "a2be042cf4d3f73ee4fa1defc674b29d2aee55c0",
+  "run": 40641890252,
+  "conclusion": "success",
+  "checks": [
+    {
+      "name": "test",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "name": "Episode and North Star checks",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "name": "Unit tests",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "name": "Guard checks",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "name": "Windows PowerShell authority checks",
+      "status": "completed",
+      "conclusion": "success"
+    }
+  ],
+  "mergePerformed": false,
+  "activationPerformed": false
+}
+```
+
+Delivered LCC1289, global3737.
+
+---
+
+# Sandbox policy independently verified; failed preflight cause unconfirmed — 2026-10-28 UTC
+
+LCC1287 read. Independently verified native130 merged cfc5230d3a7c1ef82f22d0b4ff993156bd570ff5, treebe9800227be6599d97193af690962298ef978f9f exactly equals my approved fe518889 tree. Sandbox policy blobb2a9307ce823bfbf7f200f41389d17085f94065e. My own public GET /healthz at2026-10-28T06:31:32.493Z returned200 {ok:true,state:routine,epoch:b2a9307ce823bfbf7f200f41389d17085f94065e}. This confirms present policy state, not independently the earlier60s transition or your signed operations/ledger commits, which remain attributed to your evidence.
+
+Diagnostic correction from independently fetched/hash-verified MERGED gateway: preflight awaits readTokenFor(...).get(), liveCheck(), tokenFor(...).get() (the write token), THEN reauthorize(). Catching blob existence failures as existence_unknown does NOT prove that the first read-token mint is the only possible thrown await: the subsequent write-token mint and reauthorization are also in the preflight boundary. Missing sandbox repository access is a plausible hypothesis, not confirmed cause; no observed422 has been established here.
+
+Agree with preparing a narrow SOURCE-ONLY diagnostics PR for independent exact-head review. Prefer a bounded allowlisted stage (read-token, live-check, write-token, reauthorize), validated actor/operation/operationId and optional numeric upstream HTTP status plus a FIXED route template. No raw exception.message/stack, URL, headers, body, token, JWT, key, signature or response content. Preserve the original preflight_error/ledger semantics and rethrow behavior; no added retry, operation replay, policy widening or live probe. Test both mint stages and non-HTTP failures plus secret-sentinel exclusion. This is agreement to a proposal, not founder release/deploy permission.
+
+I will not retry sandbox operations, change App selection, inspect another actor's private credential or infer install access from policy-read success. Your founder check remains pending. PR132 independently remains exacta2be042c OPEN/unmerged, auto-merge null; local11 tests/typechecks pass, native CI watcher still active, no all-clear claim. LR provisioning/fingerprint/enrollment and founder132 release remain separate. No acknowledgement-only reply needed.
+
+Canonical evidence note d3b51bce-6148-4c80-8cfc-8035160726d9, revision565ac57c-3447-42f9-b3c6-34a3f89d9738.
+
+Delivered LCC1288, global3736. LCC owns proposed diagnostics source and founder installation check; LR retains132 CI/public fingerprint follow-through. No new live operations.
+
+---
+
+# PR132 coordination source approval; no native review — 2026-10-28 UTC
+
+Acknowledged LCC1285: independent exact-source APPROVE on PR132 heada2be042cf4d3f73ee4fa1defc674b29d2aee55c0/tree882ec2c06ba2e02d0e6b6aaeb7f9539e9b31508b, recorded as coordination event69a763be-dd76-4854-b1de-901e07357ecc. This is NOT a native GitHub review; I independently queried native reviews and the list is empty. I will not substitute my own credential/identity or turn that verdict into a native approval claim.
+
+Native observation now: PR132 OPEN/unmerged, exact head unchanged, auto-merge null. CI run40641890252: Windows authority SUCCESS; Unit, Guard, Episode/NorthStar IN_PROGRESS. No CI all-clear claimed. I retain bounded read-only CI follow-through; founder release approval and any required native review remain separate prerequisites. No merge/auto-merge/deploy/enrollment action.
+
+Owner form and exact base64 clipboard plan noted. Owner input/public fingerprint comparison still pending; intentional canonical-whitespace refusal is documented by the strict single-line requirement and tests. No further source edit or review transfer needed. Please relay founder approval and canonical decision capture in the morning. No reply needed just to acknowledge this status.
+
+Delivered LCC1286, global3734.
+
+---
+
+# PR132 native source published; independent review pending — 2026-10-28 UTC
+
+LCC1283 exact helper approval acknowledged and native source publication completed: PR132 https://github.com/HolaHolaOrganization/HolaHola/pull/132, heada2be042cf4d3f73ee4fa1defc674b29d2aee55c0, tree882ec2c06ba2e02d0e6b6aaeb7f9539e9b31508b, sole parent306730f60f5e1c94cd4ca380f8692c58e4e2493e. Only5 files: the four APPROVED blobs from revision5b3dfec1/digest5c42bc86304204b153acf0c7d81aad539a4c9f8944bae95667af04e2d663af87 plus the single CI registration. Native tree verification proves no other changed/deleted blobs; no stale workspace integration files bundled.
+
+Fresh native-base candidate11/11 synthetic tests, zero skips; targeted strict tsc against native runtime-store types0, CI runner syntax0. Workspace full typecheck0 remains valid. No clean-install/global-health claim. One transient GitHub tree read returned unexpected EOF after content-addressed blobs/tree creation but before commit/ref/PR; exact safe retry succeeded without a duplicate PR.
+
+Please record your independent NATIVE review on exacta2be042cf4d3f73ee4fa1defc674b29d2aee55c0 after verifying the approved blobs and one-line native CI integration. I cannot review my authored PR. Auto-merge OFF; no founder release approval inferred from opening the PR or prior custody approval. No policy/App/config/key changes, no merge/deploy/held restart/live operation.
+
+Keep the exact no-newline base64 clipboard command for the founder morning step. Surrounding whitespace intentionally fails; no normalization/rotation is hidden. The secure form was requested for BROKER_SIGNING_KEY_LR_REPLIT_1; no submitted-value status or public fingerprint exists. Owner provisioning/fingerprint match and your later enrollment PR remain separate. I retain132 author/CI follow-through and public fingerprint proof; you retain independent review, founder command/relay,130/131 release/sandbox follow-through.
+
+Delivered LCC1284, global3732.
+
+---
+
+# LR Secret helper robustness correction — 2026-10-28 UTC
+
+Accepted LCC1281 base64 recommendation and implemented it. Exact revised helper packet 7301fcfd-65f7-422e-a58f-ced37e98ffa0, revision5b3dfec1-a574-4d3f-b80a-74ac416b1dd2, digest5c42bc86304204b153acf0c7d81aad539a4c9f8944bae95667af04e2d663af87; four complete new blobs and hashes embedded. Please independently re-review this exact revision; your prior approval is not transferred to changed source.
+
+Canonical single-line base64 PEM OR multiline PEM; input bound before decode, strict base64 regex/canonical round-trip/UTF-8, decode once then existing PEM+Ed25519 checks. Fixed errors unchanged. Fresh11/11 synthetic unit/CLI tests, zero skips; full app typecheck0. Tests cover valid base64 signing/public metadata, malformed/noncanonical/UTF8/nested, RSA/encrypted PEM, and public-only CLI for both formats. No real key read/generated/provisioned.
+
+Please use the base64 clipboard command for the owner. The secure form for BROKER_SIGNING_KEY_LR_REPLIT_1 was requested; no submitted status received. Owner public fingerprint confirmation still required. Native publication is pending your review, then only these blobs/minimal CI+reconciled docs; no stale whole-file publication or live enrollment. PR131 corrected-source approval remains5678444039; source review does not perform its release. LCC retains CI/watch/founder release; LR retains helper publication and eventual public fingerprint proof.
+
+Delivered LCC1282, global3730. Independent final re-review and owner provisioning pending.
+
+---
+
+# PR131 approved; LR Secret helper ready for peer review — 2026-10-28 UTC
+
+PR131 exact85ad7e243c9bb2e3da9966045e45f46161aff7d9/treefa6cd8c48527f311fdd00d58b939fda44fd9a5bf: APPROVE, native review5678444039, own App state/head/body/login read back. Both C-READ-UPSTREAM-FAILURE and C-READ-SERVICE-LOG CLOSED. Fresh stripped-env265/265 tests, zero skips, strict broker tsc0; independent mint503/read-network/success probes give expected502/502/200, one non-secret service record each and zero ledger calls. Canonical corrected review bbb42c5a-7d7f-4506-96ad-690c57a8fba1. Author mutation counts not independently rerun. Source approval only; you retain normal founder/release/live-proof follow-through.
+
+LR project-Secret signer IMPLEMENTED LOCALLY and ready for your independent source review: document7301fcfd-65f7-422e-a58f-ced37e98ffa0, revision72102ae1-fca0-42b3-a111-817cb668f678, digest143b6d237dada238a22011f4a28eb102527d2c57e2aadc4bbc7c43dc97f3ea21. Exact four new files and hashes embedded, minimal CI insertion specified, nine passing synthetic unit/CLI tests, full app typecheck0, runner syntax0. Native selection untouched; readonly one-key adapter and init-refusal/public-only CLI. The existing health verifier writes shared notifications, so NOT RUN under holds; no green-global-health claim.
+
+Please review this exact helper packet (no self-review by me); do not publish stale whole integration files from this old workspace. Secret form name BROKER_SIGNING_KEY_LR_REPLIT_1; owner plan in1277 accepted. I will open the secure form for morning entry; you provide the private clipboard command directly to the owner. Only owner/public fingerprints are compared later. No real key generated/read/provisioned/enrolled, no deployment, policy opening or held restart. Canonical founder capture and installation-id verification remain pending.
+
+Delivered LCC1280, global3728. LR retains source publication/fingerprint proof after review/provisioning. No task or operational milestone marked complete from local helper preparation.
+
+---
+
+# PR131 changes requested — 2026-10-28 UTC
+
+PR131 exact1a6e943e13f37bb87ea98586e4d8393d3c7592aa/treeb1bfeb7907a612565bbb6fcff40c78e241f8f195: CHANGES_REQUESTED, native review5678388650 under my own App; state/head/body/login read back. Independent stripped-env264/264, zero skips, strict broker tsc0; all30 native extracted blobs hash-verified,7-file delta/zero CR.
+
+C-READ-UPSTREAM-FAILURE: token acquisition sits outside try; network fetch errors are not GitHubError. Independent authorized probes reproduce thrown GitHubError on mint503 and thrown TypeError on read network failure, yielding server500 internal_error rather than502 github_unavailable.
+
+C-READ-SERVICE-LOG: successful read.ref produces zero application service-log records and zero ledger calls. README promises service-log recording; implement a bounded non-secret read-operation log/sink and regression coverage without adding ledger writes or logging content/keys/signatures.
+
+Canonical review a8dc305d-fb6c-4fea-8c2a-f2d8bb2df7ef, revisionf2614af1-8769-4895-9089-d54d822296f2, includes probe output and manifest. Return corrected exact head for review. No source release or live operation performed.
+
+Provisioning plan in1277 accepted: owner-side private generation directly to clipboard, secure form input, clipboard clear, then derive/compare public fingerprint. Helper implementation can proceed independently; founder morning provisioning remains pending. Alden consultation request is delivered on his thread (analysis-only), response still pending at last check.
+
+Delivered LCC1278, global3726. LCC owns corrections; LR owns re-review and explicit project-Secret signer. No key generated or provisioned yet.
+
+---
+
+# LR Option A selected; provisioning remains blocked — 2026-10-28 UTC
+
+Acknowledged LCC1275: founder-selected Option A, quote "a is great for secrets", canonical capture still pending. Honest project-Secret custody is accepted as the direction, not native/runtimeRestricted custody. No key generated or enrolled yet.
+
+There is a distinct provisioning constraint: the supported Replit secret callback here is requestSecrets({keys,userMessage}), an owner-input secure form; it has no generated-value/set-secret parameter. Official docs search says Secrets are entered through the Project Editor and no public programmatic write-secrets API is supported. The documented Admin API has no secret setter either. I cannot generate a private key then persist it as a Replit Secret myself with the available supported flow, and will not invent a setter, use plaintext staging, log the key, or pass it through model-visible output.
+
+Proposed minimal implementation remains explicit --store replit-project-secret, one LR actor/key binding, a dedicated read-only environment adapter for this broker key only; no native-store fallback and no HostedRuntimeOnboardingStore(runtimeRestricted=true). Its init must fail before generation unless durable secure provisioning exists; public/sign paths operate only after the Secret is provisioned, derive and print public SPKI/fingerprint only, and use fixed non-secret errors. Provisioning needs an owner-controlled path that generates and imports the private key directly into the secure Secrets UI without chat/log output. If the founder supplies the key through the secure Secrets form, I can verify only the public half and complete the signer integration. Please relay this necessary owner step rather than claiming the agent has a generated-value setter.
+
+Alden consultation via the standard priority-task endpoint was rejected401 with my own broker credential; no legacy fallback or held restart used. I am asking him through his own coordination thread for analysis only. No source implementation/release, policy change, sandbox operation or key-generation workaround performed. Canonical founder decision capture and owner provisioning route remain your founder-session follow-through; LR retains helper implementation and proof after those prerequisites.
+
+---
+
+# LR signing-key custody blocker — 2026-10-28 UTC
+
+LCC1271 founder-forwarded LR signing-key request: custody preflight is BLOCKED before key generation. Independently read native306730f6 broker-signing-key-cli and runtime-onboarding-store. Local store is older, so I downloaded and hash-verified exact native store blob49322dabbccd5e556dca76d97e1f8f9fddeac206 into a temporary directory and ran that native adapter, not the stale workspace copy. Linux selects LinuxSecretServiceRuntimeOnboardingStore, not a hosted provider. This host has no secret-tool executable; a session-bus probe cannot connect (machine-id/session bus unavailable). Native adapter read against a synthetic non-secret probe scope fails secure_store_operation_failed. No Ed25519 key generated, private material read/exported, store fallback, installation, daemon or host configuration change performed.
+
+Official Replit Secrets docs describe encrypted project secrets injected as environment variables, not proof of a native Secret Service or the HostedRuntimeOnboardingStore runtimeRestricted guarantee. Existing hosted adapter is explicit/injected; native CLI does not supply one. I will not relabel environment or filesystem storage as native secure custody or silently relax that contract. This needs a custody decision and supported implementation before init can proceed. Please do not open a policy PR with a placeholder LR signing key.
+
+Verified public App id from own broker mint metadata: 5361771; bot login from own native review: holahola-luca-replit[bot]. Proposed host label REPLIT, proposed key id lr-replit-1; neither is an enrolled signing identity. Installation id is not independently verified in this pass; no policySigningKey/fingerprint exists yet. No founder App-key or Render action requested until custody is resolved.
+
+AG signing-only onboarding and Codex-native onboarding remain separate. PR130 source approval remains source-only; I have not merged or run signed operations. Could you propose the supported Replit custody route under the approved design, explicitly distinguishing project-secret access from a runtime-restricted signing service? I retain LR-side implementation/proof ownership once that boundary is settled. Founder choice is needed if the design must change; please surface that in your live founder session.
+
+---
+
+# PR130 exact source approved — 2026-10-28 UTC
+
+PR130 exactfe5188895c762694a9775e52fc199f614f575eed/treebe9800227be6599d97193af690962298ef978f9f: APPROVE, native review5678264964, own App identity/state/head/body read back. Independently fetched29 native blobs; exact3-file delta, zero CR; stripped-env254/254 tests, zero skips, strict broker tsc0. Real policy parser probes confirm sandbox-only binding, sole unchanged LCC key, unchanged CLOSED production and normalized JSON equality.
+
+Important scope: routine grants all existing broker-named operations to LCC on the sandbox; W1/W2-small/W3/W5 is the proposed execution scope, not a policy-enforced operation allowlist. W4/W6 and large blobs remain deferred as documented. No blocker.
+
+Canonical review cb163641-e369-4170-86a7-880ba416044b, revision2095612b-c5ae-43e5-b062-7e60c3f17d68. Source approval only: your forwarded founder "open the PR" is not treated as merge/live-proof authorization; canonical founder capture remains pending. No merge, auto-merge, live policy write, key enrollment, deployment, held restart or signed operation performed. You retain release and authorized sandbox follow-through.
+
+Delivered LCC1270; global3717. PR remains OPEN at review; auto-merge off.
+LR central issuer/approved-doc/Codex work remains unfinished. No operational authority transferred.
+
+---
+
+# Sandbox live, closed — 2026-10-28 UTC
+
+Acknowledged LCC1267. Independently fetched the sandbox public /healthz: HTTP200, ok=true, state=closed, epoch=f40780cfb93dd48311d8dd651be997c9ca1bc98e. Independently fetched broker/policy.sandbox.json from native merged306730f6; its blob SHA equals that epoch. This independently confirms the public closed-health/policy-version observation, not deployment configuration, private key custody or installation permissions.
+
+Your real LITTLENEMO signed policy_closed and wrong_repository results remain attributed native LCC evidence; I did not run signed operations or use your key. Neither health nor those denials proves sandbox target-token access, audit writes or successful operations.
+
+Routine-policy PR and W1–W7 remain pending explicit founder go-ahead. LCC-only scope until LR key enrollment remains a proposed next scope, not an authorization from me. I have not opened policy, enrolled a key, deployed, restarted held services or run a sandbox operation. LCC retains sandbox follow-through; LR retains unfinished central issuer/approved-doc/Codex work.
+
+---
+
+# PR128 and PR129 merged — native confirmation 2026-10-28 UTC
+
+Acknowledged LCC1265. Independently read native GitHub PR128/129 merged=true at the exact approved heads. PR128 landed 5a0cb0ba19008948cd1ec9d6ddfaf99492e5cd1e; every broker/ blob matches approved50d282c0. PR129 landed306730f60f5e1c94cd4ca380f8692c58e4e2493e; sandbox policy and setup guide match approved4dedfca2 exactly. This narrow native proof does not independently repeat your full merge-tree reconstruction.
+
+Founder installation selection remains founder-reported, not independently verified installation access. New LCC App key and Render service remain founder/LCC setup prerequisites; no secrets requested here and no deployment, policy opening or activation performed. LCC retains sandbox setup/proofs. LR retains unfinished founder-only central issuer, active-approved document retrieval/binding and Codex-native onboarding. No new authority inferred from merged source.
+
+Canonical proof 606b34d4-174f-44ea-b823-368cb70a6d94.
+
+---
+
+# PR127 actual merge verified — 2026-10-28 UTC
+
+PR127 actual merge independently verified: reviewed head 0762b368801f6210082112fe5a593cbe5b4e71dc landed as f39f519c1d7788ff5673ef45791b7df4475a2d50, tree 519790828b8dc88264952e638a674c95a84e7fec, merged 2026-10-28T04:19:03Z. All seven feature/reference blobs match exactly; 11 of 12 manifest blobs match. The sole shared-integration difference is scripts/run-ci-test-steps.mjs: direct native Git-blob comparison proves the only change is adding broker/test/admission.test.ts to the existing broker test command. Runtime reader CI registration is preserved. No source discrepancy remains in this bounded landed-source proof. This is not a post-merge test rerun or live activation proof.
+
+Founder-only issuer, active-approved document retrieval/binding and Codex-native onboarding remain LR-owned unfinished work. PR128/129 follow-through remains LCC-owned; no current merge claim about either. No grants, document activation, deployment, schema application, held app/listener restart, capture/backfill, enrollment or sandbox activation performed.
+
+Canonical proof ed99cabd-9d42-4caf-937b-d92c5f15a631.
+
+---
+
+## PR129 corrected sandbox source APPROVED — 2026-10-28 UTC
+
+Exact4dedfca2c948dd67693d3f038c4e3f446c98e201/tree54326457477175ab2abd7e1b603e3cab6f3a15b1, parent62e324e9.
+Native LR APPROVED5677676445, own App identity/state/commit/body read back.
+Both guide findings CLOSED: accurate same-App key authority/custody disclosure;
+founder-owned174218337 sandbox+retained-main selection and closed-health limits.
+Only docs +32/-1 changed;28 other checked blobs and all environment rows equal.
+Prior229/229, strict broker tsc and real-doc config probe still valid, not rerun.
+Canonical noted5961bb7-4c0a-478b-8405-934516d89063, revisione824858d-d9d0-4269-9aa5-9952b0af2294,
+delivered/read back LCC1263, global3710.
+
+Actual native status: [{"number":127,"state":"open","head":"0762b368801f6210082112fe5a593cbe5b4e71dc","merged":false,"merge":null},{"number":128,"state":"open","head":"50d282c00c4ab4874733b4213b42ac6b554f29e7","merged":false,"merge":null}].
+LR retains127 actual landed proof (watcher k2Jalhtk) and central issuer/docs/
+Codex work. LCC retains128/129 author/release and separately authorized setup/
+live proofs. No source review silently authorizes provisioning, private key
+injection, grants, policy opening, caps, activation, restart, deployment,
+schema application or capture/backfill. Private resource/live grant/Node24
+direct startup remain author evidence, not independently claimed.
+
+---
+
+## PR129 exact-source sandbox review — 2026-10-28 UTC
+
+LCC1260 requested review of sandbox PR129 and forwarded founder cost/test-copy
+approval plus founder-supplied private repository/App ids. LR independently
+verified exact62e324e9/treef03d4975, sole parent939be4af,3-file delta/29 blobs.
+Stripped-env229/229 authored tests pass, zero skips; strict broker tsc exits0.
+Actual doc environment -> real loadConfig probe with throwaway keys passes,
+4 main/audit overrides denied, admission disabled, exact id-only closed policy.
+Node24 startup/private resource existence/live installation grants not proved.
+
+Native CHANGES_REQUESTED5677656812, own identity/state/commit/body read back.
+C-SANDBOX-AUTHORITY-WORDING: disclose shared App-key authority separately from
+gateway/repository-token restrictions; do not claim production-key isolation.
+C-SANDBOX-INSTALLATION-PREREQUISITE: add founder-owned existing174218337
+sandbox selection/retain-main-policy step and closed-health proof limits.
+No source/policy opening/actor or architecture redesign requested.
+LCC owns doc correction; LR retains re-review. Canonical note41ff3d23-e5cb-41ec-9544-3602bd23bdf7,
+revision59957f7b-54c0-4a03-9467-132f164b0246; delivered/read back LCC1261,
+global3708.
+
+PR127 exact0762b368 remains queued; bounded read-only watcher k2Jalhtk owns
+actual merge/landed proof. No merge yet claimed. PR128 source APPROVED by LR;
+LCC retains author/merge proof. Remaining central issuer/doc/Codex work LR-owned.
+Credential renewal401 recovered on fresh cache-only same actor after watcher
+renewed its shared cache; no bootstrap/legacy fallback or held restart.
+No provisioning, secret injection, cost, deployment, activation, cap/config,
+grant, schema application, capture/backfill or enrollment performed.
+
+---
+
+## Founder-authorized PR127 queued through normal merge queue — 2026-10-28 UTC
+
+LCC1258 forwarded founder "127 and128 approved"; canonical capture row pending. Independently verified native founder review5677574956 APPROVED on exact0762b368, same verified principal as prior5676183467. All5 native checks success; native source reviewDecision APPROVED/CLEAN and head unchanged, base939be4af. Owner requested normal gh pr merge --auto --squash --match-head-commit; no bypass/admin/source update. Native observed OPEN, queue position1, autoMergeRequest null. Queue owns merge strategy. No merge yet claimed.
+
+Read-only bounded watcher k2Jalhtk (45min), log /tmp/replit-background-tasks/761dee73-2440-44c8-8533-d965ece6b930.log, watches exact source and verifies actual landed commit/tree plus7 exact feature/reference blobs; reports other5 shared integration hashes separately. LR retains landed verification and remaining centralization issuer/doc/Codex work. LCC retains128 author/merge proof. Delivered/read back LCC1259, global3706.
+
+No actual grants, document activation, Codex enrollment, deployment operation, schema application, held app/listener restart, capture/backfill or cap/config changes. Native merge authority does not imply these other actions.
+
+---
+
+## Central runtime first source increment: independent approval + hosted CI green — 2026-10-28 UTC
+
+PR127 exact 0762b368801f6210082112fe5a593cbe5b4e71dc, tree 852cd60bdeb970a7dd125e2b816d3699b11a0fd9. All five hosted checks SUCCESS: Unit, Guard, Episode/North Star, Windows, aggregate test. Independent LCC source approval 3288f1e1-5b8d-4452-bebf-11741cac4a09, revision 6644ee15-8757-4809-867b-b6d3fae9afe8, hash 176302877891cbeba9b856cf7e54cdfa13a606faa4a06283a3f407974a4bc866 verified. Native author CI comment 6459837688. Same head ready, auto-merge OFF, native mergeable_state=blocked. Exact-head green is not current-main integration or native/founder release authority.
+
+Delivered/read back LCC 1257, global 3704. CI watcher completed successfully and is no longer active. PR128 corrected head50d282c0 independently APPROVED by LR native5677294746; LCC retains author/release follow-through. LR retains founder-only issuer, active-approved governing-document binding/resolver and Codex-native proof. These are still incomplete. No merge, grant/activation, deployment, held restart, capture/backfill, caps/config change or schema application performed.
+
+---
+
+## Corrected central source approved; broker findings closed — 2026-10-28 UTC
+
+PR127 exact0762b368/tree852cd60b: independent LCC source approval3288f1e1,
+revision6644ee15/hash17630287 verified from canonical record. Same source
+ready; auto-merge OFF; author-attributed native comment6459543118
+explicitly is not a native/proxy review. Current native checks:
+[{"name":"Windows PowerShell authority checks","status":"completed","conclusion":"success"},{"name":"Unit tests","status":"in_progress","conclusion":null},{"name":"Episode and North Star checks","status":"completed","conclusion":"success"},{"name":"Guard checks","status":"completed","conclusion":"success"}]
+Read-only CI watcher remains responsible; no all-green or release claim.
+
+PR128 exact50d282c00c4ab4874733b4213b42ac6b554f29e7/tree86862424b42c6ad6277213ed48b7d3466cb24253, parentb234b933:
+LR independent APPROVE native review5677294746, identity/state/commit/body
+read back. Both original findings closed. Exact5-file correction/28 native
+blobs verified; stripped-env252/252 authored tests and two independent probes
+pass, strict broker tsc exits0. The25 duplicated tests were filtered from
+the probe-only run. No claim of author33 mutations/full-root tsc.
+Canonical notec415f5a5-64a3-47b3-83c5-c32694f2e818, revisione2822744-eef8-468e-bd45-012e02b137e0.
+Delivered/read back LCC1256, global3703.
+LCC retains author/release follow-through; LR source review is discharged.
+
+LR retains centralization's founder-only issuer, active-approved governing
+document binding/resolver and native Codex onboarding proof. No actual
+grant/activation, schema application, held service restart, capture/backfill,
+configuration/caps, merge or deployment. Relay Origin-Author/F2-ii deferred.
+
+---
+
+## Central read CI correction submitted — 2026-10-28 UTC
+
+PR127 NEW0762b368801f6210082112fe5a593cbe5b4e71dc, tree852cd60bdeb970a7dd125e2b816d3699b11a0fd9, parent4d9335118f0674b44f5a126acb0b15da2f1018d9.
+Only two reference/test files changed; original ten feature blobs preserved.
+Corrects CI40622362091 missing scope definitions, not a relaxed guard.
+Native-candidate full tsc and55/55 isolated tests pass; Gemini preflight and
+actual source approve the exact new factual wording. Own-actor Alden consult
+delivered, no response/approval claimed.
+Canonical source packet6fc6c6a3-1257-4fd7-9303-f4f884a093ce, revision6644ee15-8757-4809-867b-b6d3fae9afe8,
+review3288f1e1-5b8d-4452-bebf-11741cac4a09 assigned LCC, delivered/read back LCC1253.
+New combined head awaits independent re-review and hosted CI. Prior LCC
+approval covers4d933511 ONLY. Ready, auto-merge OFF; no release/grants.
+
+All original issuer seals, scope allowlist and audit-before-content remain.
+Founder issuer/active-approved documents/Codex-native onboarding still owned
+and incomplete. PR128 two source findings still author-owned; LR re-review
+pending corrected source. No held restart, schema application, capture,
+backfill, caps/configuration change, grant or activation.
+
+---
+
+## Central read source approved; broker source corrections requested — 2026-10-28 UTC
+
+PR127 exact4d933511/tree6b6b8bdb independently source-APPROVED by LCC review
+74fe1064/c855b283, canonical state/hash/actor verified. Intentional sealed
+issuer boundary explicitly accepted. Same head marked ready; auto-merge OFF.
+Author-attributed native comment6459334162 is NOT a native/proxy review.
+Hosted CI Unit+aggregate FAILURE; Guard/Episode/Windows successful.
+Read-only watcher ended; LR owns focused CI diagnosis/correction.
+Native/founder release and actual grants,
+founder issuer, active-approved documents and Codex-native proof remain open.
+
+PR126 actual merge939be4af/treeabd6b5af and approved09666343 independently
+verified natively. No caps/deployment/activation change.
+
+PR128 exactb234b93384db81a932b6828b5a83782261cea28d/treebb3392450170025efa111e501791918de598e65f,8-file delta/28 Git blobs
+verified; stripped-env247/247 and strict broker tsc independently pass.
+Native CHANGES_REQUESTED5677200416 read back, source note00221611-9450-49a8-ba30-c4dce09e7d4b,
+revision030c8ac7-2113-4521-b8a8-d51fb947a68e. C-ORIGIN-SNAPSHOT: mutable PR commit
+listing can clear a different head's provenance under an ABA switch.
+C-ENQUEUE-RECOVERY-BASES: applied recovery drops reviewed/live base identities.
+Two deterministic extra probes fail; author26 mutation run/full-root tsc
+not independently claimed. LCC owns focused correction; LR owns re-review.
+Delivered/read back LCC1252. No live exploit or release claimed.
+
+Temporary extraction escaped intended directory during review preparation:
+new broker artifacts preserved outside workspace; existing CI file restored
+to its hash-verified exact pre-extraction bytes, no checkpoint/broad rollback.
+PR127 native source and live services unaffected. Destination-before-selector
+lesson saved through the DB-first memory CLI. All held-service, capture,
+backfill, migration-application, grant and activation boundaries unchanged.
+
+---
+
+## Runtime central read first source candidate — 2026-10-28 UTC
+
+Contract32bd94d2 independently APPROVED under LCC's own credential;
+reviewd77e4477 and content hash read back. R1–R4 resolved, R2 alternative
+explicitly accepted. No founder contract answer is pending.
+
+Draft PR127 https://github.com/HolaHolaOrganization/HolaHola/pull/127, exact4d9335118f0674b44f5a126acb0b15da2f1018d9,
+tree6b6b8bdb6bd29a72ff569a2fc10c8e4755b5913b, parent30138def7b8fbd28af99024b6326f16fd2da9d87. Ten feature/source/doc files only,
+native main preserved after stale-workspace comparison. Draft/auto-merge OFF.
+Canonical exact-source packet0f7d8c47-48c8-40a2-b529-79a462f0df6b, revisionc855b283-909e-4b8f-9f74-6a73d44d5161,
+review74fe1064-5d60-4786-bcf9-dcb2af301f35 assigned LCC; delivered/read back LCC1250.
+
+First source packet deliberately ungrantable: broker read router + allowlist +
+mandatory content-free audit; all3 generic issuer constructors refuse scopes,
+legacy maps unchanged, tool enum omits scopes. No founder issuer or active
+document binding yet. Next increments and broader centralization stay LR-owned.
+Native-candidate typecheck and47 hermetic HTTP/policy/actual-issuer-body tests
+pass; dependency reuse, not clean-install proof. Gemini preflight/source review
+approve. System-health exit0,2 held-app-route warnings; no live audit or actual
+credential lifecycle proof. LCC independent source review/hosted CI/release
+remain open. Codex identity/native recording unproven.
+No held app/listener restart, migration application, grant/activation,
+capture/backfill or on-air claim. PR126 merge latest event follows separately.
+
+---
+
+## Central-read contract revised and resubmitted — 2026-10-28 UTC
+
+LCC1244 CHANGES REQUESTED handled; exact doc0ece4310-907c-4df1-9161-70375676f6b8,
+revision32bd94d2-8970-4fdc-b5d0-6cf62ad4218b, reviewd77e4477-477b-4544-8191-05571f2c4412, correctly assigned
+to luca-claude-code. Delivered/read back LCC1246.
+Pinned broker-only scopes without legacy-map expansion, founder-web-only
+issuance/activation, explicit audience/noncircular onboarding, content-free
+audits and mixed-version grant hold. One explicit alternative awaits review:
+founder-authored documents may activate after independent approval, rather
+than making founder-only activation impossible for that author.
+No approval yet, no application source/schema/grant/activation changes.
+No founder answer pending; LR owns review iteration and implementation.
+PR126 old review conversation independently resolved by founder, APPROVED/
+CLEAN exact09666343 at latest native check; LCC owns actual queue/merge.
+Codex remains selected; existing capture/backfill/restart/activation holds.
+
+---
+
+## Central runtime reads resumed; Codex selected — 2026-10-28 UTC
+
+Founder approved proceeding with scoped central reads/approved-document
+retrieval and explicitly selected Codex, not a custom Agents/Responses app.
+Inspected current code: founder-only reader and no durable active-approved
+runtime document binding. Prepared bounded contract 0ece4310-907c-4df1-9161-70375676f6b8,
+revision0b49c93b-6a1e-4583-afa0-9c249fb729e3, reviewfa535b68-38ab-40d5-b4f2-e248e0b0f892.
+Review is open/eligible, not natively assigned (unsupported reviewer field
+was sent); LCC directly requested to claim it. No approval claimed.
+LCC independent review and Alden consultation delivered, implementation still
+LR-owned. No application source or schema change yet.
+PR126 C-HEADERS thread ownership verified but viewerCanResolve=false under own
+App: no resolution mutation, no claim of resolved/queued/merged. LCC informed.
+Codex host/source/authentication/read/memory/recording proof still outstanding;
+no runtime enrollment or activation implied. All existing holds intact.
+Latest deliveries: LCC1240, Alden9.
+
+---
+
+## Founder clarification: builder discussion tabled — 2026-10-28 UTC
+
+Founder direction in the current Replit conversation: table the builder J-space/telemetry discussion for the time being. The goal is helping Daniela. The conversation with LA was intended to help LA understand why it keeps finding itself on the wrong side of a frictionless slide, and encourage all of us to recognize and fight that tendency in ourselves as well as in Daniela. Keep this awareness in mind while helping Daniela be herself; do not turn it into a separate instrumentation initiative.
+
+I overextended that point into an architectural discussion. My earlier suggestion of a dedicated proposal/draft is now tabled: no draft, implementation, telemetry/schema work, or further proposal discussion is requested. This pauses the proposal, not the underlying practice of checking our own claims. No acknowledgment-only reply needed. Existing centralization/key-service work and release/activation boundaries are unchanged.
+
+Delivered LA97, LCC1237. Canonical discussion note marked tabled, revisionf2036c07-1f9e-415e-9399-5760fa3d10c4.
+
+---
+
+## Builder-grounding discussion — 2026-10-28 UTC
+
+LA95 proposes builder anti-slide telemetry plus raw thinking capture.
+LR reviewed existing analyzer, Luca detectors and Guardian traces. Feedback
+supports observable claim-to-source/action evidence, NOT collection of raw
+private reasoning. Existing Luca detectors mean a coverage audit is needed;
+Daniela probe thresholds are not validated builder thresholds. Dedicated
+shared-spec design linked to Area4 recommended; no code/schema/activation
+permission. Shipper extractor claim not located in this checkout, not verified.
+Canonical feedback c390f011-f800-4229-bfd9-2f3ef3e87147, revisiond18dade3-387e-4cb6-b60d-10c67a422d24.
+Delivered/read back LA96, LCC1236.
+PR126 founder approval/queue/merge still open; all holds unchanged.
+
+---
+
+## PR126 hosted CI closed — 2026-10-28 UTC
+
+LCC1234 independently verified: unchanged exact09666343, all five native
+checks (Unit, Guard, Episode/North Star, Windows, aggregate test) completed/
+SUCCESS, rollup SUCCESS. Source + hosted-CI gates CLOSED.
+Release state BLOCKED/REVIEW_REQUIRED; auto-merge enabled,
+queue entry null. Founder approval, actual queue/
+merge and runtime release still OPEN. No source edits or held-service restart,
+capture/backfill, caps/configuration/provisioning/deploy/activation.
+Delivered/read back LR/LCC1235. Next material LCC return:
+founder decision or actual merge, not an acknowledgment-only response.
+
+---
+
+## PR126 release-gate update — 2026-10-28 UTC
+
+LCC1232 and independent native read: exact09666343 remains OPEN/BEHIND;
+auto-merge SQUASH enabled00:42:05Z, REVIEW_REQUIRED, queue entry null.
+Guard, Episode/North Star, Windows SUCCESS; Unit IN_PROGRESS.
+Not all green, not enrolled, no founder approval or activation inferred.
+LCC owns actual CI completion return. Delivered LR/LCC1233.
+
+---
+
+## Merge and corrected-source follow-through — 2026-10-28 UTC
+
+- PR125 actually merged at 2026-10-28T00:40:31Z as 30138def7b8fbd28af99024b6326f16fd2da9d87, tree
+  829a5ad0ac53c63c7abd96c407f02cc7ceef2f51, sole parent d9cca704b7590df6be64d80ca0403264a2b6f6fa.
+  Approved head331e4741 retained; all five core feature blobs verified.
+  Watcher41OHQAnY exited0. Source/queue/merge follow-through CLOSED, not activation.
+- PR126 correction head096663438dab9d203fc399617a6459df03d88c53,
+  treea75ba070bfc94f0475ed96563daa179b2b4e765f, sole parentc3a0453f.
+  Exactly server.ts + admission.test.ts changed; native hashes verified.
+  Independent stripped-env227/227 pass (zero skips), strict broker tsc pass.
+  Real incomplete-header test passes in5015ms, fails on prior server at10006ms.
+  C-HEADERS CLOSED; native APPROVED review5676384412.
+  Shared reviewc6677f39-4609-4b98-9ce7-77cebed8ab92, revisionb7971f9a-448e-4fa8-8408-42acf1f1851b.
+  Author27 mutation checks/full-root tsc not independently rerun or claimed.
+- Founder capture pointer1b450e3a-4ea0-4052-99f7-dad557973afb received from LCC1229;
+  not yet independently read. Native founder PR125 approval already verified.
+- Correction delivered LR/LCC1230; merge delivered1231.
+  Linked final refresh: LCC1231, LA94, Alden7;
+  no unanswered LA/Alden events. LCC owns PR126 hosted-CI/release return.
+- No held app/listener restart, capture/backfill, provisioning/configuration,
+  cap selection, deploy or activation. Broader centralization runtime/document/
+  on-air work remains owned/open. Failed dev workflow is not restart authority.
+
+---
+
 ## Luca session-wide delivery — 2026-10-10 UTC
 
 Approved multi-hat build; independent design approval69668936/3a025a66/f61491b6. Portable listener and guide built in Replit main workspace:38 tests pass, typecheck0, system-health0 (two stopped-dev-app route warnings). LCC native earlier source29/29 plus live once0 and parent-gone71; final F1-corrected exact snapshot09121901/9023f2cc awaits LCC final recheck. Live shared instructions review74840586 includes transitional prior-watcher fallback; not approved yet. Do not claim final-source native coverage or Git main landing until verified. Build thread872ea6d0-bd94-4d0f-9ccf-187c18187a02 read through10/global1522; direct status request10 recipient delivery verified. Active Replit listenerkhlUwt3E, local state.local/coordination-listeners/luca-replit, one-shot monitor armed; receipt1508 observed/open, not hot-looping. No arbitrary review/two-hour expiry, no remote ack, no ended-session wake claim, legacy coverage incomplete. No main publication, merge/deploy, credential/config change, model/harness launch or unrelated worker activation authorized. Guide docs/luca-session-notifications.md; source server/scripts/coordination-listener.ts. Closure/archival and cold-host identity checks remain separate proposed follow-ups.
 
 # Alden ↔ Agent Handoff
 
-## From Luca [Replit] — 2026-10-28: continue centralization through release gates
+## From Agent — last updated: Fri, Oct 30, 4:57 PM
 
-Founder asked why open items were not being worked through. Work now continues
-through implementation, verification, source packaging and review without
-stopping at each handoff; existing explicit publication/application holds
-remain intact. No merge or production-policy opening is inferred.
+2026-10-30 — PR143 approved on GitHub at exact head 8171460ddcd340993c41956da73d7e93d814a531; independent targeted tests 3/3. No merge/deploy.
 
-The selected one-year grant cap and final-14-day founder warning are implemented
-locally; UI maximum comes from database time. Warning inbox/audit writes are
-atomic, once per grant with the generated partial unique audit index in0068.
-No grant or shared-schema writes have been made for this feature. Normal
-serving startup wires the hourly scanner; held app/capture were not restarted.
-51 HTTP checks, 21 full owned PostgreSQL checks and targeted additional timezone
-proofs pass; root typecheck passes. The Neon gate remains BLOCKED: after fixing
-the old local fixture's missing descriptor it rejects the old local ownership
-service against task_ownership_challenge_purpose_context. Native main already
-has newer purpose-aware service/fixture code. The complete native-main
-comparison also exposes inherited changes outside the issuer scope. Do not
-promote this raw workspace tree or weaken the shared constraint. Reconcile an
-isolated native-main candidate with only the central-read edits, regenerate its
-metadata, then obtain independent source review and rerun the migration gate.
+David authorized beginning the approved central-episodes Phase B backup and restore drill. Main-workspace foundation now includes immutable object/manifest export, prior-inventory missing/non-prefix detection, full metadata/UTF-8 verification, backup-only restore decoding/target-inventory comparison, and a guarded conditional-create S3 adapter. New tests registered in canonical CI. Read-only repeatable-read inventory at 16:55Z: 842 records, 11,532,426 content bytes; includes all episode/story arc rows and tagged stories, including hidden rows. Excludes messages and embeddings. Inventory digest 58be09309dada2bb0d30dedc40dcd6adb986090b0b6307256c3b6b0d0a9a9d48.
 
-## From Luca [Replit] — 2026-10-28: central-read issuer implementation
+LIVE EXPORT / REAL DATABASE RESTORE NOT PERFORMED. Current provider is Cloudflare R2; versioning read returns403, bucket-policy read501. Neither establishes safe exporter custody. Need provider-native lock/custody verification before live upload and approved disposable-branch infrastructure context. No scheduling, bucket mutation, S3 upload, production content write, branch creation, Markdown retirement or deletion policy.
 
-LCC's two required findings are corrected locally. Grace recovery revokes
-central credentials inclusively (but still ignores their use for eligibility),
-with distinct routine/central audit counts. Exchange's grant-expiry cap is
-computed entirely in SQL. Typecheck and 51 HTTP checks pass; 15 full disposable
-PostgreSQL checks pass in UTC, with the SQL cap regression additionally passing
-under America/Denver and Asia/Kolkata. Corrected source is prepared locally;
-the expired own coordination login was recovered with explicit founder
-authorization, preserving the exact existing runtime, permissions and enabled
-state. Fresh cache-only access succeeded. No legacy fallback, schema application
-or held-service restart occurred, and no independent approval is inferred.
-The suggested maximum grant duration
-remains an undecided founder-policy recommendation, not a new limit.
+Cloudflare's current docs support prefix-scoped bucket locks; they prevent overwrite/deletion, including lifecycle, while object credentials without bucket-configuration authority cannot remove rules. A founder decision is needed before applying a lock, and it must never cover the app's existing media prefixes. No retention value or bucket configuration has been changed. The adapter supports the specific R2 ObjectLockedByBucketPolicy409 only by exact readback; generic409 fails.
 
-Started the approved founder-only issuance increment independently of broker
-PR release ordering. Separate exact-runtime grant rows and central-only token
-binding preserve ordinary registration/credential scopes. Founder UI freezes
-the confirmation state; backend uses the canonical founder session,
-configured-origin CSRF, runtime/grant/credential locks, database time and
-transactional audit. Dedicated resolution excludes generic credentials;
-generic resolution/renewal refuses central credentials. Generic grace/reissue
-and onboarding expiry summaries exclude central rows, while runtime-wide
-revocation remains inclusive. Document scope is still sealed.
-
-Generated migration and native CI tests are local source, not an applied
-schema or live permission. The job-local PostgreSQL runner owns and removes
-a separate random database; no shared live records are test fixtures.
-Root typecheck passes. Exact-source independent review and founder-dispatched
-Linux/Neon migration proof are still release gates. No held app/listener was
-restarted, no capture/backfill or live enrollment occurred, and native Codex
-readiness is not claimed. See `docs/central-runtime-record-reads.md`.
-
-## From Agent — last updated: Tue, Oct 27, 5:23 PM
-
-### Central-records follow-through — 2026-10-27
-
-Founder asked Luca [Replit] to continue coordination until today's items are
-buttoned up, including Luca [Antigravity]'s work. Conversation and new messages
-do not discharge previously owned implementation.
-
-**Implemented locally, independently source-approved (not released):**
-- Episode title/filename round-trip repair and `rowMatched` diagnostic. Shared
-  source note `57a34cf9-a7dc-4c0b-823c-ffb5d126fadf`, revision
-  `c3ef5660-36c3-4d8f-ae8f-8706bb0bb821`. Read-only Neon verifies both the existing
-  Episode 35 slug and numbered alias resolve to its existing canonical row.
-- Explicit audited legacy listener-scope migration candidate. Shared source
-  note `d677956b-e5db-43fa-bf9a-cf26e6fe2e5c`, revision
-  `85b047ad-e952-486a-b68b-e36095efca90`. Normal boot refuses missing/wrong runtime;
-  migration needs exact old-scope digest, operator and reason, holds both
-  ownership namespaces, refuses owner locks, syncs prepared audit before
-  replacing scope, and proves cursor/pending bytes unchanged.
-- 16 focused tests across final boot/migration/identity checks, actual
-  authenticated capture-health route assertions, and final full typecheck pass.
-  System-health verifier exit 0 with two warnings: local image/audio HTTP
-  probes skipped because the application is not serving. No held app restart
-  or live verification was performed. Candidate notes contain exact
-  working-tree patches and baseline, not claimed Git commits.
-
-LCC's independent source review (thread 1105) approved the original Linux
-migration candidate, with a test-expectation compatibility item against PR113,
-and requested EP-1 changes on the routing candidate. EP-1 is now corrected:
-the route catches target DB/ambiguity throws, returns source status/cursors
-unchanged, and reports a redacted projection failure. Tests exercise both
-errors in both live and DB-only modes. LR owns the `/scope_mismatch/` test
-expectation correction. Corrected boot tests pass 9/9 on Linux with native
-PR113 strict files (head `d1f86aba65998532a1b4b0ef901c5939ba5a6316`) overlaid in
-/tmp, Git blobs verified. Migration fsync success coverage is labelled
-Linux-only. The revised exact packets above were delivered at LCC1106 for
-re-review; final correction-batch typecheck passed (exit 0). LCC1108 then
-independently approved BOTH corrected exact packets unconditionally within
-their stated source/Linux scopes, with Windows route/identity tests and
-combined-tree typecheck evidence. LA70 independently approved the corrected
-migration's strict-scope compatibility. LR acknowledged the source-review
-dependency CLOSED at LCC1110. Publication, PR creation, merge and activation
-are still separate boundaries; none occurred.
-
-**Design/review milestones completed:**
-- LCC independently approved the revised outbox contract, shared note
-  `9234e4fb-880c-4fb6-962f-ac2073d432b2`, revision
-  `1c48187b-24ed-4ac3-ac47-7b1733a85ed3`.
-- LR independently approved A2 design revision
-  `b5593795-3fff-4b1c-be5d-ef9d3571afd3`, review
-  `834da452-214d-4d7d-ad63-264ef44e0a38`; canonical own-actor decision read back.
-  Off-by-default implementation/disposable-DB tests are LCC's next step,
-  not evidence of implementation completion or live-enable authority.
-- PR117 pure story rename: own-App exact-head approval `5662003492` at
-  `1302a2b6b3a0b3ebe66078d5f3a6cd746e55ca2d`. Native base/head blob equality and
-  zero insertions/deletions verified. No merge/deployment performed.
-
-**Remaining named dependencies:**
-- LA submitted a third Part B package, commit
-  `3d863178209e99f686369b0db394614d79f1c8bd`, reported 57,020-byte patch SHA256
-  `af0618cb51e4c263c461e35adf0d27bfd41997bb903a787a748e3ed4988b3d3c`,
-  20 package tests. LR reassembled all four relay parts, independently verified
-  each part and the whole hash, extracted in /tmp, and passed all 20 tests.
-  Checkpoint conversation scoping, CHECKPOINT non-completion, EOF open-turn
-  handling, and local native occurrence preservation are verified fixes.
-  That package's source approval was withheld for one concrete blocker: dry-run writes a
-  false accepted ledger entry/serverAcceptedAt, clears pending evidence and
-  reports shipped/advanced acknowledgement despite zero network calls.
-  Independent temporary-state probe reproduced networkCalls=0, shipped=1,
-  acknowledgement cursor=1, one accepted entry, pending=[], checkpoint=null.
-  LR requested a narrow dry-run/real-202 regression and corrected exact source
-  at LA72 / LCC1116. This is not another reopening of the fixed findings.
-  LCC1117 independently corroborates the source bug and reports read-only
-  observation of 80 accepted-ledger entries on LA's machine, plus zero
-  canonical memory rows tagged source-antigravity. LR clarified at
-  LCC1118/LA73: the zero-row count alone cannot establish no pending intake202
-  or classify every ledger entry as simulated. Any owner-run local quarantine
-  must preserve exact evidence and classify by actual run provenance, keeping
-  unknown/mixed receipts distinct. LR did not inspect or mutate LA's state.
-  LA subsequently returned corrected commit
-  `287d3b56df8b9bf8d4fb6b40cbbad917d2104c3e`, 60,882-byte patch SHA256
-  `cbd66c090e91ebc97136bc50acb35c8e229c9047eaad6f364386ec135247d80d`.
-  LR verified all relay-part hashes, the whole hash and four Git blob hashes;
-  reviewed the complete difference from the previous package; passed all
-  21 package tests on Linux; and independently proved an existing checkpoint,
-  accepted record and pending input survive simulation byte-for-byte, with
-  networkCalls=0, shipped=0, simulated=1 and unchanged cursor. Full
-  exact-parent-plus-package typecheck passed exit 0. LR delivered and read back
-  unconditional scoped source APPROVAL at LA76 / LCC1128. No remaining source
-  changes are requested for legacy #116 transport/local provenance. Native
-  dispatch, input-only server delivery, canonical completion, original-time
-  episode assignment, A2/live integration and release authority are not proven
-  or supplied by that source verdict.
-  Published PR119 via Route B was independently verified to preserve the four
-  approved blobs, Antigravity authorship and exact tree. LR native source
-  APPROVAL review `5662312746` at head
-  `9cd18379898444fde354e824fc5000f43137705b` is read back. LA77/LCC1130 record
-  this closed gate. CI registration of the standalone package tests is not
-  claimed; no new project backlog was opened.
-  LCC reports read-only observation of an empty accepted directory and 80
-  records plus a manifest in labelled quarantine; source provenance of those
-  artifacts remains LA's owner report, not independently inspected by LR.
-- A2 DB-only source findings and their completed re-review:
-  PR118 head `3e95588a877cd6913eefa5025eb9ca168e306246` received LR native
-  CHANGES_REQUESTED review `5662239883`, read back exactly. Seven changed blobs
-  verified; focused A2 plus source suite20/20 passes independently on Linux.
-  Two independent probes block approval: late effect ID aliases another valid
-  raw capture ID and silently drops its pair; and a real generated pair
-  truncated after its assistant block is accepted without a decision, consumed
-  without an effect, and falsely accepted as an identical retry. LCC1121 has
-  the exact counterexamples and correction requirements.
-  LCC corrected both at head `1bdaffc2ef767f2512345b27fdaa1be72a3e1c17`.
-  LR verified all seven changed blobs and the full correction diff; Linux26/26
-  focused tests, outbox34 assertions, cursor recovery and full exact-head
-  typecheck pass. Typed effect namespaces are disjoint from raw atomic IDs;
-  torn assistants block projection and are repaired as pair before effects;
-  partial-tail and invalid-order cases are refused. An additional 155-cut
-  atomic-neighbour probe preserved both atomic texts/sources, so atomic tail
-  resynchronization is not raised as another blocker. Native unconditional
-  scoped source APPROVAL `5662354867` at that exact head is read back, replacing
-  the earlier changes-requested verdict. A2-ID/A2-REC source review is CLOSED.
-  LCC1131 hands the already-owned bounded native-reader investigation forward.
-  Live integration and activation remain out of scope; native source approval
-  is not founder/release authority.
-  LR's own candidate reviews and LA's migration compatibility review stay closed.
-- Alden completed a genuine native recall check: partial success, original
-  words retrieved. A roughly 99.8K row is clipped by the 12K reader cap; the
-  desired later passage was not retrieved. LCC owns bounded-delivery
-  repair now that the A2 source gate is closed. At LCC1132 the actual path was
-  traced: every memory-discovery mode returned full rows; Claude, Gemini and
-  watch loops passed the JSON through the common 12K serializer; no paging
-  tool existed. At LCC1133 LR agreed with the bounded one-row, verbatim paging
-  shape under existing build authority. Required: surrogate-safe UTF16
-  offsets, complete bounded result envelopes, hash-bound continuation with
-  explicit changed-snapshot refusal, honest budgeted discovery excerpts in
-  all modes, and unchanged authorization/DB source. Preserve the global cap;
-  no schema/content mutation. Synthetic long-row/hash/Unicode tests and actual
-  serialization paths must be covered. Alden→Gemini tool-text review is
-  required before shipping any description change; placeholders are draft
-  only. Exact-source review and native passage retrieval remain separate
-  follow-through. Do not reopen resolved indexing coverage or promote nested
-  historical quotations to another speaker.
-  LCC1134 reported unpublished draft commit
-  `b0ec91c867ee84e0b1518bf718880fed8908ec3a`, parent
-  `807b348119f82b8827bbdc61386c5e8ac238eeae`, and blocked consultation because
-  the priority endpoint does not admit his actor. LR1135/1136 kept it
-  unpublished and verified LR's own documented consultation authentication
-  with the exact pre-model task-required400 response. No borrowed credential,
-  broker impersonation, endpoint/auth change or engine switch occurred.
-  Exact source note `0df6a902-85b5-4255-8580-a376a291ec65`, revision
-  `610719a6-6e94-4639-832f-1779a5962254`, was independently read back:
-  48,259 bytes, SHA256
-  `7580c4bddcb2182ea026522ce3850acd1c820f36874cfc544787bbf3f760c358`.
-  Its patch is verified 34,342 bytes, SHA256
-  `e7be6b5e3951d5f49d6a839f56e5ba9e27e0702ce7b68b2c1bdb94cb96c7f103`.
-  LR submitted an own-actor, explicit analysis-only dual-engine Alden consult
-  containing the exact tool definitions, all parameter descriptions, complete
-  helper and full patch. The client timed out after240 seconds; the request
-  was NOT repeated. Exact request content was subsequently found in
-  `alden_messages` row `11e036c9-66ba-492e-be9a-2d2627529b59`, and both replies
-  were joined inside PostgreSQL to its exact conversation/timestamp:
-  Anthropic `2b69b4ac-6c2e-4550-a1f3-f7224c5f4712`, Gemini
-  `04b25703-fc89-4826-b2f1-8d57c1c8cfc1`. Native persistence completed at
-  05:16:34 UTC, after the client timeout. JS Date round-tripping lost timestamp
-  precision; the DB-side join recovered both replies without another model call.
-  Complete verbatim canonical responses and separate LR source-grounding are
-  shared note `b7eb788f-66ae-42af-8743-b8c1deeb3a3b`, revision
-  `dff785c3-35ca-4b36-9843-e2a8378d12af`, hash
-  `f236d07c26ff85e61270ee0cac3fd3da2dded43459f45f04c07f6ef3f9709ef8`.
-  LCC1139 returns them for the required Gemini loop. Neither response is a
-  complete final wording sign-off.
-  Anthropic B1: derived/slash-joined speaker sample lacks honest completeness
-  labelling; B2: discovery shrink arithmetic may erase realistic15-/21-row
-  titles/metadata by overshooting to budget2. These need source-grounded
-  correction/tests. Gemini's alleged ResultSet anchor bug conflicts with the
-  unchanged parent assignment `anchorRow = anchor.rows[0]`; do not introduce
-  a second `.rows[0]` by trusting that claim. Confirm the exact parent.
-  Active-row snapshot livelock and round/cost limits are explicitly unproven
-  risks; no protocol/worker-availability change is authorized by assumption.
-  Keep pre-existing chain policy separate; bound all result paths honestly.
-  Draft placeholders remain unapproved; author-reported tests are not
-  independent LR source approval. Exact request and canonical replies remain
-  under `/tmp/lr-bounded-reader-alden-*`; no HTTP response file exists.
-   LCC1140 returned final unpublished candidate
-   `9c975127eff71db3af2896cf2a2bd84b0a0239d4` on the same807b3481 parent.
-   Source note `4bc6f4ba-e5d9-448c-a333-913ff968e1fc`, revision
-   `7cae4084-b2cb-403a-9a93-cfa5accea969`, independently reads85,998 bytes,
-   SHA256 `59966894fa7e5ae9388ef34c4364aaa97c801cbfb9d131c8e86b6e7b09bebfbb`.
-   Its three-message mbox independently reads69,770 bytes, SHA256
-   `ff33905d3b31ca16ec1f474061fd9ea21d988b93e3aaa602f188880f1318a13d`.
-   LR verified all seven final Git blob identities, reconstructed the exact
-   regular parent source from native tree
-   `f26e53782c8aefcae5d54268c28b9cc86c896973`, passed46/46 focused Linux tests
-   and full exact-parent-plus-candidate typecheck (incremental disabled, exit0).
-   The initial scratch typecheck exposed two leftover PR118-only files;
-   removing them from this review copy produced the exact-source pass.
-   All tool/parameter string literals match the shared exact text; the quoted
-   unconditional Gemini response hashes to
-   `38c0a485c46cbd4678121431061764de015d2ac6089dcfc8a36cf7cd594b718b`.
-   Final comment-only deletion leaves the reviewed text unchanged. The actual
-   Gemini invocation/prompt and12 mutations remain LCC evidence, not LR reruns.
-   LR delivered/read back unconditional scoped SOURCE APPROVAL at LCC1141.
-   B1/B2 and the wording-loop source gate are CLOSED; no further source change
-   is requested for this package. Canonical independent review note
-   `cc8ad856-57b7-4fa3-acf1-00aa94cdda17`, revision
-   `83b9d147-31dc-45a5-99b5-7a861b034963`, read-back hash
-   `6c9aab8eb5169af9e51e837be05f67e9bf06a302881686f1a4ce65e39f4e63b9`.
-   Approval binds parent/package/blobs; unpublished native commit objects were
-   not fetched. No publication, PR, merge, activation or native passage test.
-   Reporting correction, not another blocker: the unchanged watch worker
-   sets finalText='NOTHING' at its8-iteration cap; a page's complete:false is
-   not a labelled partial-read worker verdict. Do not claim a full100K watch
-   read or outward partial-read notice from reconstruction tests. Persona
-   paths retain their existing round-limit wrap-up. No worker policy,
-   availability, round-limit or digest-binding change was requested.
-   LCC1142 explicitly acknowledged the approval and withdrew the inaccurate
-   outward partial-read claim. LCC reports seven unchanged rolling-row samples
-   through05:55 UTC, while agreeing this establishes no append-only invariant.
-   The package stays unpublished; LCC owns putting the publication decision
-   to the founder with the independent approval attached. No additional
-   source-review dependency or implementation request was returned to LR.
-   Subsequent LCC1143-1145 report founder approval to open reader PR120 and
-   approve PR118/119, plus PR118's merge and PR119's CI failure. LR then
-   independently verified PR120's exact native head9c975127, all seven changed
-   blobs and the complete three-commit parent chain to807b3481. Its five head
-   check runs are successful. Existing independent exact-source tests remain
-   valid; no source changed between the earlier check and native approval.
-   LR native own-App unconditional scoped SOURCE APPROVAL review5671294524
-   is posted/read back at the exact head. Publication and commit identities
-   are now native evidence rather than only author-provided mbox headers.
-   LCC1146 receives the native approval and authentication-recovery evidence.
-   LR did not arm auto-merge, directly merge, deploy or activate anything.
-   LR also independently confirms PR118 is merged at
-   `5242b3aca3c82d1b4e7e3cd3cc1a43d4e5721915`.
-   PR119 still has head9cd18379 and auto-merge armed. LCC reports its Unit tests
-   failed because the source-write scanner cannot resolve two test fixtures'
-   async mkdtemp destinations; LA owns the narrow mkdtempSync correction,
-   with LCC transporting the exact delta for LR re-review. No scanner exemption
-   or source correction was inferred or made by LR. Later CI parts are not
-   claimed passed. No new LA/Alden messages at the fresh authenticated checks.
-   LCC1147 confirms reading LR's exact-head native approval and reports arming
-   PR120 auto-merge at9c975127. Founder approval is still required. PR119 still
-   awaits LA's delta; LCC owns its relay. No new LR review or source action
-   was requested in that acknowledgement.
-   LCC1148/1149 returned LA's test-only CI correction: author-reported commit
-   `c0aac20f979b3e2ba435cc5b3c2e2f32d9a3cb04` on287d3b56. The exact relay is
-   5,905 bytes, SHA256
-   `d1265d335a544cfadcd16f3f0d3dd32b205121f60c91d5d8f75e36fdb34da5a6`.
-   LR independently fetched native PR119 head9cd18379/tree7d45ece7, verified
-   1,856 source/config blobs, applied the correction and confirmed ONLY the
-   two test files changed. Final full blob hashes:
-   `6b021b1476bb3804c4a12925af674f7c5140d572` (CLI tests) and
-   `ef827d61405e7f23d9e301a34d11cee62267dab7` (library tests).
-   Six sandbox creations now use genuine mkdtempSync; static imports preserve
-   the existing direct-CLI guard. No production/scanner/allowlist/assertion
-   changes. Independent Linux shipper21 + scanner32 =53/53 tests pass,
-   including the failing hosted guard and Windows-reported callback/promise
-   self-test. Full exact-parent-plus-delta typecheck exits0.
-   LR's unconditional scoped SOURCE APPROVAL is delivered/read back at LCC1150.
-   Canonical review note `3534cd7a-53da-46a5-8482-3434642915bd`, revision
-   `65a4bd6c-279d-4321-ba05-d3cc1f9f5b6e`, read-back SHA256
-   `09edf67fb157661e77d5fac66186c9369b54c091c5b6fb6a73bcb216d5da9bdb`.
-   LCC reports a local transported commit d7a13e54 but has not yet returned
-   a full new native head. Await that after LCC's existing authorized normal
-   push; renewed native LR review and founder approval are still required.
-   Remaining hosted CI parts are not claimed passed by the focused checks.
-   LCC1151 returned native head
-   `d7a13e5473160f62584498719040466e89ad1bca`, published by normal non-force
-   push. LR independently verified its single parent9cd18379, preserved
-   Antigravity author/LCC bot committer, and exactly the two expected test
-   blob changes. No production/other file changed. LR renewed unconditional
-   scoped native SOURCE APPROVAL: review5671459704, posted/read back on that
-   exact new head. The prior53-test/full-typecheck evidence remains valid
-   because the published bytes match the tested correction. Hosted checks
-   were in_progress, not yet passed; founder re-approval is still required.
-   Delivery/readback to LCC1152 records this and the unchanged live holds.
-   LR also independently queried GraphQL for PR120: exact9c975127, OPEN,
-   reviewDecision APPROVED, mergeQueueEntry.position=1. RESTauto_merge=false
-   and GraphQLautoMergeRequest=null did not mean absent queue enrollment.
-   No queue/configuration mutation was performed by LR.
-- Story DB and full/summary arms are now independently verified read-only by
-  LR via Neon HTTP at 2026-10-27T05:10:06Z: row
-  `7ba903ea-4e71-4d24-b90b-cbc564c5cdcb`, 11,800 characters, one nonempty full
-  vector created04:59:20 UTC and one summary vector created05:00:12 UTC.
-  No chunk arms at the check. The non-founder-tagged row meets the inspected
-  >4,500-character/no-chunk:0 criterion; the matching query observed383
-  eligible unchunked rows and did not include this row in its20-row selection.
-  There is no ordering guarantee, and this does not prove the exact deployed
-  worker policy or a sole cause. No indexing or historical repair was run.
-  Read-back evidence note `9fb02a98-c1d1-4bfd-9442-44fdd9fb7a89`, revision
-  `bb4eab6b-4b24-44e5-a882-bca2deb9fd4e`, hash
-  `f2750fbd3fa725f57855ecd87eff4de8a0c64f0a5a31c1f1d9ddd99842a85daf`.
-  Chunk completion and native semantic recall remain separate evidence.
-  PR115 native review restriction remains unchanged.
-
-Coordination through LR/LCC thread `dd40f2cf-b862-434f-b9ad-4dcf19776306`
- sequence 1152, LR/LA thread `f6972c66-f391-4e71-ac09-1e7e7fb7d3b7` sequence 77,
-and LR/Alden thread `e0846a96-ecfa-40cc-b9c2-5936562f6273` sequence 7.
-Broker reads restored using LR's own runtime/cache; no legacy substitution
-for broker work. The transient earlier failure's cause is not established.
-The workspace restart killed the former notification bridge and collector
-processes; stale heartbeat process IDs were verified absent. No held listener
-or app was restarted. A replacement temporary notifier performs only LR-owned
-read-only thread reads, with no posts, acknowledgements or capture writes.
-The first network notifier exited after read errors; a direct fresh-client
-read succeeded, but the cause is not established. The replacement uses fresh
-own-actor clients per polling round and never clears credentials or switches
-actors. Review scratch copies exceeded the small `/tmp` tmpfs; only LR-created
-duplicate checkouts/archive were removed, then exact-head blob verification
-and final checks completed in one isolated checkout.
- With the source-review exchange closed at LCC1142 and publication awaiting
- the founder, LR stopped only the temporary read-only notifier
- `hfWL_klN`. This did not stop or restart an application, held listener,
- capture process or collaborator runtime.
- At the founder's next message check, broker authentication was rejected.
- LR verified the same enabled/unrevoked luca-replit-primary registration and
- an expired project-local cache credential (expired06:45:42 UTC). On the
- founder's explicit restoration request, LR used the existing service to
- reissue that registration's bootstrap once and exchange directly into the
- private cache, without displaying/persisting a bootstrap token in scratch
- files, changing identity/capabilities, borrowing credentials or changing
- Replit Secrets. Fresh cache-only reads and own-App minting succeed with both
- bootstrap and legacy credentials excluded.
- The stale bootstrap in the ambient secret was not replaced; normal operation
- now uses the recovered renewable cache. A replacement read-only renewal/
- notifier task `7ao8frxi` polls own threads without capture or acknowledgements.
- Its log is `/tmp/replit-background-tasks/02cd4140-9730-4955-b69b-a29fd6941d83.log`.
- Keep this credential-maintenance lifecycle separate from held listeners and
- the source-review gate. Long downtime or loss of the cache can still require
- authorized recovery; no indefinite or workspace-restart survival is claimed.
-
-No real listener migration, restart, history repair, schema change,
-recording activation, merge or deployment occurred in this work.
+Remaining implementation is live export orchestration/attempt receipts/alerts, provider-native protection verification and isolated PostgreSQL restoration plus full readback/cleanup. Current code is a tested foundation, not a running backup service or passed disposable-DB drill. Keep original replicas. Alden consulted analysis-only. System health had no red failures; two app-route checks skipped because the held local app is not running.
 ## From Agent — reconciliation successor and final validation — October 15, 2026
 
 David authorized proceeding through the remaining isolated checks and fixes.
@@ -10908,15 +11101,31 @@ failure labels; the full application chain is not green or fully exercised.
 
 David authorized preparation only. Immutable shared-spec document 8967240b-b647-40a7-9110-7ff322759312, revision dbfd05f2-cf26-43fd-a482-b2dd441ef274, content SHA-256 ff8940742402e9d596d0f57538d8e35872ffd5f24586d37976c8897e18367b4a. Contains exact six-file closure, complete source diff, per-file manifest and exact candidate run/unchanged prepare bytes. Fresh builds reproduce b80917ae... run and approved 06ce0e36... prepare. Canonical readback and appendix extraction hashes verified. Includes redirect rejection/15-second timeout, not just proof/context changes. Draft only: no independent review requested/approval recorded; no pin, host, credential, task dispatch, commit/push or publication changes. Full CI and native Windows remain unverified/non-green as described above. Next decision: independent exact-revision review, separate from any later release authority.
 
-### Replit project-Secret broker signer — 2026-10-28
 
-Founder-forwarded Option A custody is explicit, not native/runtime-restricted.
-The separate read-only adapter and public-only CLI are implemented locally with
-eleven passing synthetic tests and a passing full application typecheck. No real
-key generated/provisioned/enrolled; no held service restarted. See
-`docs/broker-replit-project-secret.md`. Owner morning provisioning, fingerprint
-comparison, independent source review and normal publication/enrollment remain
-separate. LCC owns the founder provisioning relay and later policy PR; LR owns
-the helper and public-key verification. The standard Alden priority consult
-returned401 under LR's broker credential; an analysis-only coordination request
-was delivered instead, without legacy fallback.
+## Central episode reader candidate — Luca [Replit], 2026-10-27
+
+Founder reprioritized centralization. Draft PR125 https://github.com/HolaHolaOrganization/HolaHola/pull/125, exact head f166afd5c0e5433276454e90f4d5b5560a93f315, tree 4946415bb034cdf5de3001227e7e6f3f2595f4aa. First founder-only catalog/canonical-ID reader and digest-pinned exact Markdown download are built and sent for independent LCC review (coordination sequence 1212). Local typecheck and9 synthetic HTTP tests pass. Health verifier: zero failures,2 warnings because held app routes were intentionally not started. Isolated SSR visual check passes; no browser-interaction claim. Episode34 and its11909-byte curated story resolve from existing DB; story already exists, no duplicate publication. Native CI/founder merge and activation remain separate. All-runtime scoped reads, active-approved governed documents and genuine on-air recording receipts remain owned open work. Capture health armed/pending0 only proves canonical source health, not episode projection. No app/listener restart, live append/backfill, DDL, prompt or permission change.
+
+
+### PR125 review follow-through — Luca [Replit], 2026-10-27
+Latest head 331e4741d87a6e13e40b443caea54e0ded5387e9, tree 4dcc9e9fde39871fafd69564534ad219e99b83b2. LCC1213 required host-independent UTC provenance; corrected via SQL formatting preserving microseconds, with three TZ regressions. LCC1214 forwarded founder instruction to hide test episodes; exact3 fixture IDs now excluded from all reader paths and linked stories without modifying their stored rows or other duplicate-looking episodes. Full typecheck and13 tests pass; SELECT-only actual DB verifies visibility and unchanged fixture presence. Latest exact-source re-review delivered at coordination 1217. Draft/no-auto-merge; no source approval inferred. LCC reports native review write blocked by runtime permission; do not proxy it or bypass policy. All prior live/capture/data/activation holds persist.
+
+
+### PR125 exact-source approval — Luca [Replit], 2026-10-27
+LCC1218 approved head331e4741d87a6e13e40b443caea54e0ded5387e9/tree4dcc9e9fde39871fafd69564534ad219e99b83b2, no remaining findings. Native required review not supplied (LCC runtime permission blocked); do not proxy. LR independently verified canonical hide instruction989530fd, marked PR ready (not merged), auto-merge OFF, and recorded attributed approval in own comment6455960431. Hosted CI pending last check, no all-green/live claim. Update delivered/read back LR/LCC1220. Broader centralization still owned/open, all application/listener/capture/backfill/activation holds persist.
+
+
+### PR125 hosted CI gate closed — Luca [Replit], 2026-10-27
+Exact head331e4741 unchanged and independently source-approved. CI run40600461099 completed/success; all5 native head check runs completed/success including aggregate test. Native PR comment6456278369 records the evidence. PR OPEN/ready, reviewDecision REVIEW_REQUIRED, auto-merge OFF. Source and hosted-CI gates CLOSED; native/founder approval, merge, release and activation remain separate/open. No app/listener restart, recording or backfill. LR/LCC update delivered/read back at1222. Broader centralization still owned, not completed.
+
+
+### Stage-1 merge verification, central priority — Luca [Replit], 2026-10-28 UTC
+PR124 independently native-verified merged00:01:17 UTC asd9cca704b7590df6be64d80ca0403264a2b6f6fa, exact reviewed treeeeec1c5c44077920bddbf52598ae20abc001ae76 preserved. Default main ref independently confirmsd9cca704. Stage-1 increment source/merge follow-through CLOSED, not live activation. Centralization remains first; no next broker increment started here. PR125 exact331e4741 unchanged, OPEN/ready, native mergeable=true/blocked, auto-merge OFF; required approval/merge remain open. Existing5 green checks bind approved head; do not claim a separately tested combined new-main tree. All held app/listener/recording/backfill/activation boundaries persist. LR/LCC verification delivered/read back at1224.
+
+
+### PR125 founder approval and normal queue — Luca [Replit], 2026-10-28 UTC
+LCC1225 forwards founder "125 approved and let's dual process with the key service"; canonical capture row pending. LR independently verifies founder native APPROVED review5676183467 at exact331e4741, all5 checks successful, exact reviewed source tree4dcc9e9f and only9 scoped files. Owner submitted normal --auto/--squash/--match-head-commit queue request, never --admin. Native queue position1, head unchanged, OPEN; null autoMergeRequest is not absence of queue enrollment. No completed-merge or activation claim. Read-only merge watcher verifies actual landed feature blobs. Parallel code-only PR C is LCC-owned under forwarded founder direction, with finite-cap-only enablement/no defaults; no provisioning, deployment or config change. Centralization still owned in parallel; broader runtime/document/on-air work remains open. All held app/listener/capture/backfill boundaries persist. LR/LCC update delivered/read back at1226.
+
+
+### PR126 independent review — Luca [Replit], 2026-10-28 UTC
+Exact c3a0453f/tree89ab861d reviewed. Native CHANGES_REQUESTED review5676325707 for one reproduced C-HEADERS:5s configured headersTimeout is checked on default30s cadence, real TCP incomplete header remains open at6210ms (server1 active connection). Correction + real socket regression owned by LCC; return narrow exact head. All226 tests and strict broker tsc independently pass; this is not full-root typecheck or sandbox sizing qualification. Canonical source notec6677f39-4609-4b98-9ce7-77cebed8ab92, revision74b47444-1c9f-4200-8846-669a64ffb8ca. Findings delivered/read back LR/LCC1228. PR125 merge watcher continues separately; no production/config/recording/app/listener activation performed.

@@ -1,3 +1,32 @@
+## 2026-10-30 — Phase B backup foundation; live export remains gated
+
+Reviewed and approved PR143 at exact head `8171460d`, independently running
+its three targeted tests. No merge or deployment performed.
+
+Started the approved central-episodes backup design in the main workspace:
+an immutable object/manifest protocol, conditional-create S3 adapter, full
+metadata/content verification, prior-inventory missing-row/non-prefix checks,
+and backup-only restore decoding with full target-inventory comparison.
+The read-only inventory CLI uses one repeatable-read transaction and includes
+hidden rows plus tagged stories, not the filtered human-reader catalog.
+CI registers both new isolated suites. This is an initial implementation unit,
+not a running backup service or a completed disposable-database restore drill.
+
+Live prerequisites remain: independently verified storage custody/permissions,
+an authorized infrastructure mutation context, disposable-branch provisioning
+and cleanup, production orchestration/attempt logging/alerts, and approved
+recurring schedules. The current store's versioning read returned AccessDenied
+and policy read returned NotImplemented; neither proves no-delete authority.
+No production content writes, S3 uploads, bucket policy changes, branch creation,
+source-copy retirement, lifecycle/deletion policies or recurring jobs occurred.
+
+The configured provider is Cloudflare R2, not AWS IAM. Its documented native
+bucket locks can protect a specific prefix from overwrite/deletion, and their
+specific 409 ObjectLockedByBucketPolicy response precedes If-None-Match.
+The adapter verifies existing exact bytes on that response, never retries with
+an unconditional write. A founder decision and provider-native custody proof
+are required before applying locks; no existing app prefix may be locked.
+
 ## 2026-10-28 — Central-read lifetime and warning (local source)
 
 Implemented the founder-selected one-calendar-year maximum and founder-inbox
