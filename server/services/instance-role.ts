@@ -104,6 +104,7 @@ export const BACKGROUND_TASKS = {
   'daniela-tool-indexer': { roles: PRODUCTION_ONLY, what: 'Daniela tool indexer' },
   'goal-capability-indexer': { roles: PRODUCTION_ONLY, what: 'learning goal capability indexer' },
   'operation-skill-indexer': { roles: PRODUCTION_ONLY, what: 'agent operation skill indexer' },
+  'central-read-expiry-warnings': { roles: PRODUCTION_ONLY, what: 'founder central-read grant expiry warnings' },
   'shadow-auditor-reaper': { roles: PRODUCTION_ONLY, what: 'shadow auditor stale-session reaper' },
   'madrigal-indexing': { roles: PRODUCTION_ONLY, what: 'Madrigal unit embedding indexer' },
   'memory-consolidator': { roles: PRODUCTION_ONLY, what: 'memory consolidator' },

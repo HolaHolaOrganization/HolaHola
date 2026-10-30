@@ -223,6 +223,11 @@ export function getOriginalAdminId(user: User | undefined): string | null {
 // Founder user ID for founder-only endpoints
 const FOUNDER_USER_ID = '49847136';
 
+/** Sensitive founder grants never accept the non-production test equivalent. */
+export function isCanonicalFounderId(id: string | undefined | null): boolean {
+  return id === FOUNDER_USER_ID;
+}
+
 // ── Dev-only founder-equivalent test account ──────────────────────────────────
 // scripts/data-ops/seed-dev-test-account.ts seeds a single shared account
 // (DEV_TEST_ACCOUNT_ID) that agents/CI log into via the real password-auth

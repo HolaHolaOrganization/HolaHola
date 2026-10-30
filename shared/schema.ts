@@ -8617,6 +8617,24 @@ export const coordinationRuntimeRegistrations = pgTable("coordination_runtime_re
   ),
 ]);
 
+// Grants do not change routine registrations or routine credential scopes.
+export const centralReadGrants = pgTable("central_read_grants", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  runtimeId: varchar("runtime_id", { length: 120 }).notNull()
+    .references(() => coordinationRuntimeRegistrations.id, { onDelete: 'restrict' }),
+  actor: varchar("actor", { length: 80 }).notNull(),
+  scope: varchar("scope", { length: 80 }).notNull(),
+  grantedBy: varchar("granted_by", { length: 120 }).notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  expiresAt: timestamp("expires_at").notNull(),
+  revokedAt: timestamp("revoked_at"),
+}, (table) => [
+  check("central_read_grant_scope", sql`${table.scope} = 'central-records:read'`),
+  check("central_read_grant_expiry", sql`${table.expiresAt} > ${table.createdAt}`),
+  uniqueIndex("uq_central_read_live_grant").on(table.runtimeId, table.scope)
+    .where(sql`${table.revokedAt} IS NULL`),
+]);
+
 export const coordinationRuntimeCredentials = pgTable("coordination_runtime_credentials", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   runtimeId: varchar("runtime_id", { length: 120 }).notNull()
@@ -8629,7 +8647,12 @@ export const coordinationRuntimeCredentials = pgTable("coordination_runtime_cred
   lastUsedAt: timestamp("last_used_at"),
   revokedAt: timestamp("revoked_at"),
   renewedFromCredentialId: varchar("renewed_from_credential_id"),
+  centralGrantId: varchar("central_grant_id")
+    .references(() => centralReadGrants.id, { onDelete: 'restrict' }),
 }, (table) => [
+  check("coordination_central_credential_binding", sql`
+    (${table.centralGrantId} IS NOT NULL AND ${table.capabilities} = ARRAY['central-records:read']::text[])
+    OR (${table.centralGrantId} IS NULL AND NOT (${table.capabilities} && ARRAY['central-records:read','central-documents:read']::text[]))`),
   uniqueIndex("uq_coordination_runtime_token_hash").on(table.tokenHash),
   index("idx_coordination_runtime_credential_active").on(table.runtimeId, table.expiresAt, table.revokedAt),
   index("idx_coordination_runtime_credential_actor").on(table.actor, table.expiresAt),
@@ -8680,6 +8703,8 @@ export const coordinationCredentialAuditEvents = pgTable("coordination_credentia
   index("idx_coordination_credential_audit_runtime").on(table.runtimeId, table.createdAt),
   index("idx_coordination_credential_audit_actor").on(table.actor, table.createdAt),
   index("idx_coordination_credential_audit_failures").on(table.success, table.createdAt),
+  uniqueIndex("idx_central_expiry_warning_grant").on(sql`(${table.metadata}->>'grantId')`)
+    .where(sql`${table.eventType} = 'central_expiry_warned' AND ${table.success} = true`),
 ]);
 
 // Per-agent GitHub App token grants (standard-controls plan efb1e3d1 rev 10,

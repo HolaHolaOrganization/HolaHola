@@ -316,6 +316,7 @@ const BOOT_TIMER_INVENTORY: Record<string, TimerClass> = {
   'server/services/coordination-delivery-worker.ts::startCoordinationDeliveryWorker::setInterval': 'gated-starter',
   'server/services/coordination-gemini-provider-worker.ts::startGeminiProviderWorker::setInterval': 'gated-starter',
   'server/services/coordination-lifecycle-reaper-worker.ts::startCoordinationLifecycleReaperWorker::setInterval': 'gated-starter',
+  'server/services/central-read-expiry-warnings.ts::startCentralGrantExpiryWarnings::setInterval': 'gated-starter',
   'server/services/daniela-absence-worker.ts::startDanielaAbsenceWorker::setTimeout': 'gated-starter',
   'server/services/daniela-consult-autosave.ts::startDanielaConsultAutosave::setInterval': 'gated-starter',
   'server/services/daniela-consult-autosave.ts::startDanielaConsultAutosave::setTimeout': 'gated-starter',

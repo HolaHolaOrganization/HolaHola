@@ -538,6 +538,17 @@ npx tsx server/scripts/record-exchange.ts --preflight
 npx tsx server/scripts/record-exchange.ts \
   --source claude-code --david-file /tmp/david.txt --assistant-file /tmp/claude.txt \
   --turn-id <retry-this-id-if-acknowledgement-times-out>
+
+# Antigravity: ship completed turns from transcript_full.jsonl or read-only
+# conversations/<id>.db fallback (never conversation_summaries.db).
+# Runtime contract: requires Node 22+ / Node 24 with built-in `node:sqlite`
+# (fails fast at startup if `node:sqlite` is unavailable).
+# Ship incrementally during/after each session well before the ~2,800-step
+# context eviction window (status=5); LUCASHIP_EVICTION_ALARM fires at >=1,500
+# unshipped steps.
+node --import tsx server/scripts/antigravity-journal-shipper.ts \
+  --transcript "<appDataDir>/brain/<conversation-id>/.system_generated/logs/transcript_full.jsonl" \
+  --conversation-id <conversation-id>
 ```
 
 The internal `POST /api/internal/canonical-conversation-exchange` endpoint
