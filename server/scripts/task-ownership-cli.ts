@@ -17,7 +17,7 @@ function option(name: string): string | undefined {
 }
 
 function usage(): never {
-  console.error('Usage: task-ownership-cli.ts <begin|renew|status|prove|diagnostic> --task-ref <ref> --actor <actor> [--app-url <url>] [--challenge-id <expired-id> --approval-minutes <1-30>] [--receipt-id <receipt-id>] [--promote-branch <branch> --promote-commit <40-hex>]');
+  console.error('Usage: task-ownership-cli.ts <begin|renew|reapprove|status|prove|diagnostic> --task-ref <ref> --actor <actor> [--app-url <url>] [--challenge-id <predecessor-id> --approval-minutes <1-30>] [--receipt-id <receipt-id>] [--promote-branch <branch> --promote-commit <40-hex>]');
   process.exit(64);
 }
 
@@ -50,7 +50,7 @@ async function main(): Promise<void> {
   const command = process.argv[2] || 'diagnostic';
   const taskRef = option('--task-ref') || usage();
   validateTaskRef(taskRef);
-  if (command === 'begin' || command === 'renew') {
+  if (command === 'begin' || command === 'renew' || command === 'reapprove') {
     const appUrl = option('--app-url') || process.env.APP_URL;
     if (!appUrl) throw new Error('A server URL is required via --app-url or APP_URL.');
     const actor = option('--actor');
@@ -68,14 +68,15 @@ async function main(): Promise<void> {
       throw new Error('Publish the exact candidate branch before requesting promotion approval.');
     }
     if (command === 'begin' && option('--approval-minutes') !== undefined) {
-      throw new Error('--approval-minutes is only supported by renew; begin preserves its original request.');
+      throw new Error('--approval-minutes is only supported by renew or reapprove; begin preserves its original request.');
     }
-    const key = command === 'renew' ? await loadTaskAgentKey(taskRef) : await ensureTaskAgentKey(taskRef);
+    const key = command !== 'begin' ? await loadTaskAgentKey(taskRef) : await ensureTaskAgentKey(taskRef);
     const client = clientFor(appUrl, actor);
     const response = await requestOwnershipAttempt({
       command, workspace: root, endpoint: appUrl, client,
       previousChallengeId: option('--challenge-id'),
-      ttlMs: command === 'renew' ? approvalWindow(option('--approval-minutes')) : undefined,
+      previousReceiptId: command === 'reapprove' ? option('--receipt-id') : undefined,
+      ttlMs: command !== 'begin' ? approvalWindow(option('--approval-minutes')) : undefined,
       binding: {
         taskRef, actor, artifactSha256: createHash('sha256').update(artifact).digest('hex'),
         publicKey: key.publicKey, keyFingerprint: key.fingerprint,

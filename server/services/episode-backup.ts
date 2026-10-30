@@ -236,6 +236,11 @@ export function verifyRestoredEpisodeInventory(
     // Verify metadata too without relying on PostgreSQL JSONB key ordering.
     const stable = (v: unknown): string => {
       if (Array.isArray(v)) return `[${v.map(stable).join(",")}]`;
+      if ((v && typeof v === "object" && Object.getPrototypeOf(v) !== Object.prototype && Object.getPrototypeOf(v) !== null) ||
+          typeof v === "bigint" || typeof v === "undefined" || typeof v === "function" ||
+          typeof v === "symbol" || (typeof v === "number" && !Number.isFinite(v))) {
+        throw new Error("Restore comparison requires plain JSON values");
+      }
       if (v && typeof v === "object") return `{${Object.entries(v).sort(([a], [b]) =>
         a.localeCompare(b)).map(([k, value]) => `${JSON.stringify(k)}:${stable(value)}`).join(",")}}`;
       return JSON.stringify(v);

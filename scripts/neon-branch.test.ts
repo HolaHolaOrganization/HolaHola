@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { createBranch, deleteBranch, deleteBranchByNameOrId, requireTaskRef } from './neon-branch.ts';
+import { createBranch, deleteBranch, deleteBranchByNameOrId, listBranches, requireTaskRef } from './neon-branch.ts';
 import { InfraMutationBlockedError } from '../server/services/infra-mutation-guard';
 import type { TaskOwnershipResult } from '../server/services/task-ownership-service';
 
@@ -20,6 +20,42 @@ function ownershipResult(state: TaskOwnershipResult['state']): TaskOwnershipResu
     explanation: `stub:${state}`,
   };
 }
+
+test('branch listing refuses a pagination cursor before inferring absence', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(JSON.stringify({
+    branches: [], pagination: { next: 'synthetic-next-page' },
+  }), { status: 200 });
+  try {
+    await withEnv({ NEON_API_KEY: 'synthetic', NEON_PROJECT_ID: 'synthetic' }, async () => {
+      await assert.rejects(listBranches(), /Incomplete Neon branch listing/);
+    });
+  } finally { globalThis.fetch = originalFetch; }
+});
+test('creation records branch identity before a failing readiness poll', async () => {
+  const originalFetch = globalThis.fetch;
+  let captured = false;
+  globalThis.fetch = async (url, init) => {
+    if (init?.method === 'POST') return new Response(JSON.stringify({
+      branch: { id: 'br-synthetic', name: 'synthetic', parent_id: 'br-parent', default: false, protected: false },
+    }), { status: 200 });
+    if (String(url).endsWith('/branches')) return new Response(JSON.stringify({
+      branches: [{ id: 'br-parent', name: 'production', default: true }],
+    }), { status: 200 });
+    assert.equal(captured, true, 'readiness must not precede durable bookkeeping');
+    throw new Error('synthetic readiness failure');
+  };
+  try {
+    await withEnv({ NEON_API_KEY: 'synthetic', NEON_PROJECT_ID: 'synthetic' }, async () => {
+      await assert.rejects(createBranch({
+        name: 'synthetic', parent: 'production', schemaOnly: true, taskRef: '1470',
+        probeOwnership: async () => ownershipResult('main_session'),
+        onCreated: async branch => { assert.equal(branch.id, 'br-synthetic'); captured = true; },
+      }), /synthetic readiness failure/);
+      assert.equal(captured, true);
+    });
+  } finally { globalThis.fetch = originalFetch; }
+});
 
 function withEnv<T>(overrides: Record<string, string | undefined>, fn: () => Promise<T>): Promise<T> {
   const originals: Record<string, string | undefined> = {};

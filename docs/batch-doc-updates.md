@@ -35,6 +35,30 @@ run report is explicitly failed overall, with the verified manifest receipt
 preserved. Existing approved-receipt renewal is not supported by the current
 CLI; do not silently replace a founder decision or claim completion.
 
+Follow-up, founder-authorized renewal repair: added explicit `reapprove`,
+which creates a new pending founder review, preserves the original decision
+and key/artifact binding, and uses a deterministic predecessor challenge/receipt
+idempotency key. No server change or receipt-lifetime extension. Legacy
+`begin`/`renew` remain unchanged.
+
+Added separate `episode-backup-restore-resume.ts`: accepts a failed-after-export
+report plus independently retained manifest key/checksum, never exports or
+captures source rows, rechecks all backup objects and current schema catalogs,
+rejects old/orphan branches, restores into an empty isolated schema-only
+branch and verifies full JSON inventory before fresh-proof-gated deletion.
+New report preserves original failure evidence and records new approval,
+phase timestamps and ambiguous-creation/cleanup outcomes. Report-write failure
+cannot prevent guarded cleanup. Branch listing fails closed on pagination;
+the inventory comparator rejects Date/non-plain JSON values. New checks are
+registered in the canonical CI runner.
+
+Verification: 50 backup/branch tests and 11 CI-runner checks passed; typecheck
+and diff whitespace checks passed. Ownership suite: 82 passes plus one
+pre-existing registry CLI subprocess failure, independently reproduced at
+unchanged HEAD in a private baseline checkout. System health has zero red
+failures and two warnings for intentionally held app routes. A new real
+founder request is pending; actual restore is not yet performed or claimed.
+
 Verification: 32 focused backup/branch tests plus 11 CI-runner tests passed;
 root typecheck passed. System-health verifier exited 0 with zero red failures
 and Summary: 2 warnings, both app-route checks skipped because the local app

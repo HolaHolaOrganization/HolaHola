@@ -22,6 +22,7 @@ type Payload = {
 };
 type Attempt = {
   version: 1; endpoint: string; previousChallengeId: string | null; payload: Payload;
+  previousReceiptId?: string;
 };
 export type AttemptClient = {
   challenge(payload: Payload): Promise<unknown>;
@@ -87,12 +88,13 @@ async function saveAttempt(path: string, candidate: Attempt): Promise<Attempt> {
 }
 
 export async function requestOwnershipAttempt(input: {
-  command: 'begin' | 'renew';
+  command: 'begin' | 'renew' | 'reapprove';
   workspace: string;
   endpoint: string;
   binding: Binding;
   client: AttemptClient;
   previousChallengeId?: string;
+  previousReceiptId?: string;
   ttlMs?: number;
 }) {
   const { command, binding, client } = input;
@@ -104,10 +106,21 @@ export async function requestOwnershipAttempt(input: {
     throw new Error('Invalid ownership attempt binding.');
   }
   let previousChallengeId: string | null = null;
+  let previousReceiptId: string | undefined;
   const ttlMs = input.ttlMs ?? (command === 'begin' ? TASK_APPROVAL_DEFAULT_MS : TASK_APPROVAL_MAX_MS);
   if (!Number.isSafeInteger(ttlMs) || ttlMs < 60_000 || ttlMs > TASK_APPROVAL_MAX_MS ||
       (command === 'begin' && ttlMs !== TASK_APPROVAL_DEFAULT_MS)) {
     throw new Error('Invalid approval window; begin retains its original ten-minute request contract.');
+  }
+  if (command === 'reapprove') {
+    if (!uuid(input.previousChallengeId) || !uuid(input.previousReceiptId)) {
+      throw new Error('reapprove requires a valid --challenge-id and --receipt-id.');
+    }
+    if (binding.promotion) throw new Error('reapprove does not support promotion bindings.');
+    previousChallengeId = input.previousChallengeId.toLowerCase();
+    previousReceiptId = input.previousReceiptId.toLowerCase();
+  } else if (input.previousReceiptId !== undefined) {
+    throw new Error('--receipt-id is only supported by reapprove.');
   }
   if (command === 'renew') {
     if (!uuid(input.previousChallengeId)) throw new Error('renew requires a valid --challenge-id for the expired request.');
@@ -116,30 +129,50 @@ export async function requestOwnershipAttempt(input: {
     if (previous.status !== 'expired' || Date.parse(previous.expiresAt as string) > Date.now() || previous.receipt) {
       throw new Error(`Cannot renew ${previous.status} request or a request with a receipt. Pending, approved and rejected decisions are never silently replaced.`);
     }
-  } else if (input.previousChallengeId !== undefined) {
+  } else if (command === 'begin' && input.previousChallengeId !== undefined) {
     throw new Error('--challenge-id is only supported by renew.');
   }
   const directory = join(input.workspace, '.local', 'task-ownership-attempts',
     hash(JSON.stringify([endpoint, binding.actor, binding.taskRef])));
   await mkdir(directory, { recursive: true, mode: 0o700 });
-  const statePath = join(directory, previousChallengeId ? `renew-${previousChallengeId}${contextDigest ? `-promotion-v2-${contextDigest}` : ''}.json`
+  const statePath = join(directory, command === 'reapprove' ? `reapprove-${previousChallengeId}-${previousReceiptId}.json`
+    : previousChallengeId ? `renew-${previousChallengeId}${contextDigest ? `-promotion-v2-${contextDigest}` : ''}.json`
     : contextDigest ? `begin-promotion-v2-${contextDigest}.json` : 'begin.json');
+  if (command === 'reapprove') {
+    // A replay can observe the predecessor revoked by the NEW founder decision.
+    // A first request must never undo a revocation. No expiry inference is made:
+    // this requests explicit review, not a renewal or extension of authority.
+    let replay = false;
+    try { await readFile(statePath, 'utf8'); replay = true; }
+    catch (error: any) { if (error?.code !== 'ENOENT') throw error; }
+    const previous = boundStatus(await client.status(previousChallengeId!), previousChallengeId!, binding);
+    const receipt = previous.receipt as Record<string, unknown> | null;
+    if (previous.status !== 'approved' || !receipt || receipt.id !== previousReceiptId ||
+        (receipt.status !== 'active' && !(replay && receipt.status === 'revoked'))) {
+      throw new Error('Cannot reapprove: require the exact approved predecessor and its active receipt on first request.');
+    }
+  }
   const payload: Payload = {
     taskRef: binding.taskRef, intendedActor: binding.actor,
     artifactSha256: binding.artifactSha256, publicKey: binding.publicKey,
     keyFingerprint: binding.keyFingerprint, ttlMs,
-    idempotencyKey: previousChallengeId ? `renew:${binding.taskRef}:${randomUUID()}`
+    idempotencyKey: command === 'reapprove' ? `reapprove:${previousChallengeId}:${previousReceiptId}`
+      : previousChallengeId ? `renew:${binding.taskRef}:${randomUUID()}`
       : contextDigest
         ? `promotion-v2:${hash(canonicalJson([binding.taskRef, binding.keyFingerprint, contextDigest]))}`
         : `${binding.taskRef}:${binding.keyFingerprint}`,
     ...(contextDigest ? { contextDigest, promotionDescriptor: binding.promotion } : {}),
   };
-  const saved = await saveAttempt(statePath, { version: 1, endpoint, previousChallengeId, payload });
+  const saved = await saveAttempt(statePath, {
+    version: 1, endpoint, previousChallengeId, payload,
+    ...(previousReceiptId ? { previousReceiptId } : {}),
+  });
   if (saved?.version !== 1 || saved.endpoint !== endpoint || saved.previousChallengeId !== previousChallengeId ||
+      saved.previousReceiptId !== previousReceiptId ||
       !saved.payload || Object.keys(saved.payload).sort().join(',') !== Object.keys(payload).sort().join(',') ||
       Object.entries(payload).some(([field, value]) => field !== 'idempotencyKey' &&
         canonicalJson(saved.payload[field as keyof Payload]) !== canonicalJson(value)) ||
-      (previousChallengeId
+      (command === 'reapprove' ? saved.payload.idempotencyKey !== payload.idempotencyKey : previousChallengeId
         ? !saved.payload.idempotencyKey.startsWith(`renew:${binding.taskRef}:`) ||
           !uuid(saved.payload.idempotencyKey.slice(`renew:${binding.taskRef}:`.length))
         : saved.payload.idempotencyKey !== payload.idempotencyKey)) {
@@ -150,7 +183,7 @@ export async function requestOwnershipAttempt(input: {
   const result = response as Record<string, unknown>;
   if (!uuid(result.challengeId) || typeof result.expiresAt !== 'string' || !Number.isFinite(Date.parse(result.expiresAt)) ||
       result.challengeId === previousChallengeId) throw new Error('Malformed challenge response.');
-  const status = command === 'renew'
+  const status = command !== 'begin'
     ? boundStatus(await client.status(result.challengeId), result.challengeId, binding)
     : undefined;
   await saveOwnershipChallengeHandle(input.workspace, {
@@ -163,7 +196,13 @@ export async function requestOwnershipAttempt(input: {
     challengeId: result.challengeId, taskRef: binding.taskRef, fingerprint: binding.keyFingerprint,
     expiresAt: result.expiresAt, ...(status ? { status: status.status, receipt: status.receipt ?? null } : {}),
     approvalPath: 'HolaHola → Command Center (/admin) → System → Ownership',
-    retry: previousChallengeId ? `renew --challenge-id ${previousChallengeId}` : 'begin',
+    retry: command === 'reapprove'
+      ? `reapprove --challenge-id ${previousChallengeId} --receipt-id ${previousReceiptId}`
+      : previousChallengeId ? `renew --challenge-id ${previousChallengeId}` : 'begin',
+    ...(command === 'reapprove' ? {
+      previousChallengeId, previousReceiptId,
+      authority: 'New founder decision required; old receipt is neither extended nor changed by this request.',
+    } : {}),
     ...(binding.promotion ? { promotion: binding.promotion, contextDigest } : {}),
   };
 }

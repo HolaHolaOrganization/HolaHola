@@ -162,6 +162,7 @@ async function main() {
     await save();
     await restoreEpisodeBackupPostgres({
       sourceUrl, targetUrl, records: backupRecords, sourceColumns: snapshot.evidence.columns,
+      sourceConstraints: snapshot.evidence.constraints,
       authorize: () => guard!.authorize(`postgres:restore:${runId}:${ownedBranch!.id}`),
     });
     report.restoreVerified = true;

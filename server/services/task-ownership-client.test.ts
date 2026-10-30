@@ -141,11 +141,20 @@ function reset() {
   writeFileSync(join(workspace, '.local/tasks', `task-${taskRef}.md`), artifact);
 }
 
-async function run(mode: 'cli' | 'runtime' | 'standalone' | 'diagnostic' = 'cli', requestedRef = taskRef) {
+async function run(mode: 'cli' | 'runtime' | 'standalone' | 'diagnostic' | 'budget' = 'cli', requestedRef = taskRef, minimum = 300_000) {
   const args = mode === 'cli' || mode === 'diagnostic'
     ? [join(repo, 'server/scripts/task-ownership-cli.ts'), mode === 'cli' ? 'prove' : 'diagnostic',
       '--task-ref', requestedRef, '--actor', actor, '--receipt-id', receiptId, '--app-url', baseUrl]
-    : ['--input-type=module', '-e', `
+    : mode === 'budget' ? ['--input-type=module', '-e', `
+      import {TaskOwnershipHttpClient} from ${JSON.stringify(clientModule)};
+      import {createEpisodeBackupOwnership} from ${JSON.stringify(pathToFileURL(join(repo, 'server/services/episode-backup-ownership.ts')).href)};
+      const guard = createEpisodeBackupOwnership({
+        taskRef: ${JSON.stringify(taskRef)}, actor: ${JSON.stringify(actor)}, receiptId: ${JSON.stringify(receiptId)},
+        client: new TaskOwnershipHttpClient(${JSON.stringify(baseUrl)}, ${JSON.stringify(token)})
+      });
+      await guard.requireRemainingMs(${minimum});
+      console.log('budget-verified');
+    `] : ['--input-type=module', '-e', `
       import {TaskOwnershipHttpClient, proveTaskOwnership, proveStandaloneTaskOwnership} from ${JSON.stringify(clientModule)};
       const client = new TaskOwnershipHttpClient(${JSON.stringify(baseUrl)}, ${JSON.stringify(token)});
       const result = await ${mode === 'runtime' ? 'proveTaskOwnership' : 'proveStandaloneTaskOwnership'}(
@@ -177,6 +186,21 @@ test('actual CLI accepts approved proof-only response in a primary-shaped fixtur
   assert.equal(ownership.state, 'isolated_agent');
   assert.equal(ownership.evidence.verifiedActiveMainReceipt, false);
   assert.equal(ownership.evidence.checkout.kind, 'primary_worktree');
+  assert.equal(validSignatures, 1);
+});
+
+test('time budget refuses an otherwise valid receipt with insufficient lifetime', async () => {
+  reset();
+  const result = await run('budget');
+  assert.notEqual(result.code, 0);
+  assert.match(result.stderr, /Insufficient remaining ownership time/);
+  assert.equal(validSignatures, 1);
+});
+test('time budget uses fresh server proof and accepts sufficient signed remaining lifetime', async () => {
+  reset();
+  const result = await run('budget', taskRef, 1_000);
+  assert.equal(result.code, 0, result.stderr);
+  assert.match(result.stdout, /budget-verified/);
   assert.equal(validSignatures, 1);
 });
 

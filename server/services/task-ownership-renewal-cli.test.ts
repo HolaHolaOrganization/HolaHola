@@ -119,3 +119,22 @@ test('CLI rejects malformed options before any network operation', async () => {
   assert.match(badId.stderr, /valid --challenge-id/);
   assert.equal(requestCount, before);
 });
+
+test('real CLI explicitly requests reapproval, then replays the new founder decision', async () => {
+  const initial = [...requests.values()][0];
+  const receiptId = randomUUID();
+  Object.assign(statuses.get(initial.id), { status: 'approved', receipt: { id: receiptId, status: 'active' } });
+  const args = ['--challenge-id', initial.id, '--receipt-id', receiptId];
+  const result = await run('reapprove', args);
+  assert.equal(result.code, 0, result.stderr);
+  const replacement = JSON.parse(result.stdout);
+  assert.equal(replacement.status, 'pending');
+  assert.equal(replacement.previousReceiptId, receiptId);
+  assert.notEqual(replacement.challengeId, initial.id);
+  statuses.get(initial.id).receipt.status = 'revoked';
+  Object.assign(statuses.get(replacement.challengeId), { status: 'approved', receipt: { id: randomUUID(), status: 'active' } });
+  const replay = await run('reapprove', args);
+  assert.equal(replay.code, 0, replay.stderr);
+  assert.equal(JSON.parse(replay.stdout).challengeId, replacement.challengeId);
+  assert.equal(JSON.parse(replay.stdout).status, 'approved');
+});

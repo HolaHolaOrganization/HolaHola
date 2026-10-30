@@ -141,9 +141,12 @@ interface NeonDatabase {
   branch_id: string;
 }
 
-async function listBranches(): Promise<NeonBranch[]> {
+export async function listBranches(): Promise<NeonBranch[]> {
   const projectId = requireEnv('NEON_PROJECT_ID');
-  const data = await neonApi<{ branches: NeonBranch[] }>(`/projects/${projectId}/branches`);
+  const data = await neonApi<{ branches: NeonBranch[]; pagination?: { next?: unknown } }>(`/projects/${projectId}/branches`);
+  if (data.pagination?.next != null && data.pagination.next !== '') {
+    throw new Error('Incomplete Neon branch listing; refusing absence or identity inference');
+  }
   return data.branches;
 }
 

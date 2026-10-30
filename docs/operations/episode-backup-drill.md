@@ -30,6 +30,56 @@ Required process configuration uses the existing own-actor coordination credenti
 
 ## Evidence
 
+### Fresh approval and restore-only resume
+
+If export succeeded but the approved receipt expired before branch creation,
+do not repeat `begin`, use `renew` against an approved decision, or reset the
+baseline. Request an explicit **new founder review**:
+
+```sh
+node --import tsx server/scripts/task-ownership-cli.ts reapprove \
+  --task-ref TASK_NUMBER --actor luca-replit --app-url https://getholahola.com \
+  --challenge-id PREVIOUS_APPROVED_CHALLENGE --receipt-id PREVIOUS_RECEIPT
+```
+
+This preserves the original task artifact, key, challenge, receipt and decision.
+It creates only a pending request, never authority. A deterministic idempotency
+key records predecessor challenge/receipt lineage; retries converge on the same
+request, including after its approval. The founder must approve the new request
+in Command Center → System → Ownership. That decision replaces active receipts
+for this task (across actors), using the existing audited server transaction.
+Receipt lifetime is unchanged: **ten minutes after approval**. The default
+thirty-minute request window is only time to make the decision.
+
+Prepare and test before requesting that approval. Independently retain the
+export-time manifest key/checksum in a separate record; do not discover a
+"latest" manifest or derive a trust anchor from a newly read report.
+
+After approval, use the separate restore-only entrypoint:
+
+```sh
+node --import tsx server/scripts/episode-backup-restore-resume.ts \
+  --task-ref TASK_NUMBER --challenge-id NEW_CHALLENGE --receipt-id NEW_RECEIPT \
+  --app-url https://getholahola.com --restore-from FAILED_EXPORT_REPORT.json \
+  --manifest-key INDEPENDENT_MANIFEST_KEY --manifest-sha256 INDEPENDENT_SHA256
+```
+
+Only a verified export that failed at branch creation with no recorded branch
+is eligible. The new run preserves the failed report, hashes its bytes, repeats
+full backup-only verification, authenticates schema evidence from the pinned
+manifest and compares current schema catalogs without recapturing source rows.
+It refuses an original or earlier resume branch left behind. It performs no
+S3 writes, canary mutation, new export or source-content write.
+
+New reports include phase timestamps, original report provenance, new approval,
+manifest reference, full inventory and cleanup result. A passed resume with
+confirmed deletion is intentionally eligible as a later `--previous-receipt`.
+Fresh proofs gate every mutation. Minimum remaining-time checks do not extend
+authority or guarantee worst-case completion; the one-hour branch expiry is
+the backstop. Ambiguous branch-creation responses trigger exact-name/parent
+recovery checks, never an inferred absence. A reporting failure does not block
+guarded cleanup.
+
 Each run writes a small, content-free report under `docs/operations/episode-backup-drills/`. Keep this report independently from R2: its manifest key and checksum are the verification anchor. Reports retain phase/failure categories, source schema and migration provenance, inventory checksum, canary outcomes, restore result and branch cleanup status.
 
 Permanent synthetic canaries live under `episode-backups/v1/canaries/`. Both unconditional overwrite and deletion must receive the **specific R2 bucket-lock error**, followed by exact byte readback. Generic permission errors do not prove the lock. No destructive canary ever uses an episode object.
@@ -49,7 +99,8 @@ Do not retry a failed run as a new initial baseline if a manifest was published.
 ```sh
 node --import tsx --test server/services/episode-backup.test.ts \
   server/services/episode-backup-adapters.test.ts \
-  server/services/episode-backup-drill.test.ts scripts/neon-branch.test.ts
+  server/services/episode-backup-drill.test.ts server/services/episode-backup-resume.test.ts \
+  scripts/neon-branch.test.ts
 npm run typecheck
 node --import tsx server/scripts/verify-system-health.ts
 ```

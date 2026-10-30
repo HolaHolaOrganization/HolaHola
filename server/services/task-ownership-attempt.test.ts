@@ -98,6 +98,82 @@ test('renew saves the exact identity and defaults to thirty minutes', () => fixt
   assert.match(result.approvalPath, /System → Ownership/);
 }));
 
+const receiptId = '20000000-0000-4000-8000-000000000001';
+function reapprove(f: ReturnType<typeof fake>, workspace: string, extra: Record<string, any> = {}) {
+  return requestOwnershipAttempt({
+    command: 'reapprove', workspace, endpoint, binding, client: f.client,
+    previousChallengeId: expired, previousReceiptId: receiptId, ...extra,
+  });
+}
+function approved(f: ReturnType<typeof fake>) {
+  Object.assign(f.statuses.get(expired), { status: 'approved', receipt: { id: receiptId, status: 'active' } });
+}
+test('explicit reapproval creates only a pending review with deterministic server lineage', () => fixture(async (f, workspace) => {
+  approved(f);
+  const first = await reapprove(f, workspace);
+  assert.equal(first.status, 'pending');
+  assert.equal(first.previousReceiptId, receiptId);
+  assert.equal([...f.requests.keys()][0], `reapprove:${expired}:${receiptId}`);
+  assert.equal(f.statuses.get(expired).receipt.status, 'active');
+  assert.equal(f.statuses.get(expired).status, 'approved');
+  assert.match(first.authority!, /New founder decision required/);
+  assert.equal((await reapprove(f, workspace)).challengeId, first.challengeId);
+  assert.equal(f.requests.size, 1);
+}));
+test('reapproval replay survives new founder approval revoking the predecessor', () => fixture(async (f, workspace) => {
+  approved(f);
+  const first = await reapprove(f, workspace);
+  f.statuses.get(expired).receipt.status = 'revoked';
+  Object.assign(f.statuses.get(first.challengeId), { status: 'approved', receipt: { id: randomUUID(), status: 'active' } });
+  const replay = await reapprove(f, workspace);
+  assert.equal(replay.challengeId, first.challengeId);
+  assert.equal(replay.status, 'approved');
+  assert.equal(f.requests.size, 1);
+}));
+test('lost local reapproval attempt still uses the same server idempotency key', () => fixture(async (f, workspace) => {
+  approved(f);
+  const first = await reapprove(f, workspace);
+  const directory = join(workspace, '.local/task-ownership-attempts',
+    createHash('sha256').update(JSON.stringify([endpoint, binding.actor, binding.taskRef])).digest('hex'));
+  await rm(join(directory, `reapprove-${expired}-${receiptId}.json`));
+  assert.equal((await reapprove(f, workspace)).challengeId, first.challengeId);
+  assert.equal(f.requests.size, 1);
+}));
+test('reapproval interrupted after commit converges and rejects changed request windows', () => fixture(async (f, workspace) => {
+  approved(f);
+  f.failNext();
+  await assert.rejects(reapprove(f, workspace), /Connection lost/);
+  assert.equal((await reapprove(f, workspace)).status, 'pending');
+  await assert.rejects(reapprove(f, workspace, { ttlMs: 60_000 }), /Saved attempt differs/);
+  assert.equal(f.requests.size, 1);
+}));
+for (const patch of [
+  { status: 'pending' }, { status: 'rejected' }, { status: 'expired' },
+  { receipt: null }, { receipt: { id: randomUUID(), status: 'active' } },
+  { receipt: { id: receiptId, status: 'revoked' } },
+  { receipt: { id: receiptId, status: 'expired' } },
+  { artifactSha256: 'c'.repeat(64) }, { intendedActor: 'luca-other' },
+]) {
+  test(`reapproval refuses invalid predecessor ${JSON.stringify(patch)} before POST`, () => fixture(async (f, workspace) => {
+    approved(f);
+    Object.assign(f.statuses.get(expired), patch);
+    await assert.rejects(reapprove(f, workspace));
+    assert.equal(f.posts(), 0);
+  }));
+}
+test('reapproval refuses promotion and malformed receipt IDs without a POST', () => fixture(async (f, workspace) => {
+  approved(f);
+  await assert.rejects(reapprove(f, workspace, { previousReceiptId: '../escape' }));
+  await assert.rejects(reapprove(f, workspace, { binding: { ...binding, promotion: {} } }), /promotion/);
+  assert.equal(f.posts(), 0);
+}));
+test('concurrent reapprovals converge on one request', () => fixture(async (f, workspace) => {
+  approved(f);
+  const results = await Promise.all(Array.from({ length: 12 }, () => reapprove(f, workspace)));
+  assert.equal(new Set(results.map(r => r.challengeId)).size, 1);
+  assert.equal(f.requests.size, 1);
+}));
+
 test('interrupted reply retries the committed attempt with the identical key', () => fixture(async (f, workspace) => {
   f.failNext();
   await assert.rejects(renew(f, workspace), /Connection lost/);

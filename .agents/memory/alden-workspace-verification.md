@@ -39,3 +39,22 @@ work as separate claims. If guidance is wrong, correct the shared record and
 move to the actual native connection check rather than repeating an open-ended
 consultation loop.
 
+
+## Self-contained priority consultation packets
+
+Treat each priority architectural consultation as potentially independent:
+provide the complete bounded dependency closure needed to assess the current
+claim, including callers, decoders and relevant regression tests. Do not rely
+on "as you previously verified" or assume the consultation's deployed checkout
+contains current local changes.
+
+**Why:** Successive architectural consultations during a backup recovery
+repair repeatedly treated earlier supplied code as unavailable, while their
+deployed checkout predated the local implementation. Incremental snippet
+packets prolonged review without preserving earlier conclusions.
+
+**How to apply:** Send one self-contained current source packet, identify its
+local-versus-deployed boundary, and distinguish the actual supplied-code
+findings from unavailable-context conditions. A prior or conditional response
+is not an unconditional sign-off.
+

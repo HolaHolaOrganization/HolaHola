@@ -115,6 +115,7 @@ export async function proveStandaloneTaskOwnership(
   client: TaskOwnershipHttpClient, taskRef: string, actor: string, receiptId: string,
   artifactSha256: string,
   expectedContextDigest?: string,
+  onReceiptValidated?: (expiresAt: string) => void,
 ): Promise<StandaloneOwnershipProofResult> {
   if (!/^[0-9a-f]{64}$/.test(artifactSha256)) throw new Error('Invalid task artifact digest.');
   if (expectedContextDigest !== undefined && !/^[0-9a-f]{64}$/.test(expectedContextDigest)) {
@@ -147,6 +148,7 @@ export async function proveStandaloneTaskOwnership(
     throw new Error('Malformed or mismatched standalone ownership proof response.');
   }
   // Do not pass through a broker grant, even when a server includes one.
+  onReceiptValidated?.(receiptExpiresAt);
   return {
     ok: true, verified: true, receiptId, taskRef,
     intendedActor: actor, artifactSha256, proofPayloadDigest: signedPayloadDigest,

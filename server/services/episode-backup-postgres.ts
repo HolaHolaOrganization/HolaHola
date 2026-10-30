@@ -62,17 +62,18 @@ export async function captureEpisodeBackup(sourceUrl: string) {
 
 export async function restoreEpisodeBackupPostgres(input: {
   sourceUrl: string; targetUrl: string; records: EpisodeBackupRecord[];
-  sourceColumns: unknown; authorize: () => Promise<void>;
+  sourceColumns: unknown; sourceConstraints: unknown; authorize: () => Promise<void>;
 }): Promise<void> {
   assertIsolatedEpisodeTarget(input.sourceUrl, input.targetUrl);
   if (!input.records.length) throw new Error("Refusing empty restore");
   const sql = neon(input.targetUrl);
   const preflight = await sql.transaction([
     sql(SETTINGS), sql("SELECT count(*)::int AS count FROM public.conversation_memories"),
-    sql(COLUMNS), sql(TRIGGERS),
+    sql(COLUMNS), sql(TRIGGERS), sql(CONSTRAINTS),
   ], { isolationLevel: "RepeatableRead", readOnly: true });
   if (preflight[1][0].count !== 0) throw new Error("Restore target is not empty");
   if (JSON.stringify(preflight[2]) !== JSON.stringify(input.sourceColumns)
+       || JSON.stringify(preflight[4]) !== JSON.stringify(input.sourceConstraints)
       || preflight[3].length || preflight[2].some(c => c.generated || c.identity)) {
     throw new Error("Target schema or trigger compatibility failed");
   }
@@ -92,4 +93,15 @@ export async function restoreEpisodeBackupPostgres(input: {
     isolationLevel: "RepeatableRead", readOnly: true,
   });
   verifyRestoredEpisodeInventory(input.records, decodeEpisodeSnapshot(results[1] as { row_json: string }[]));
+}
+
+/** Catalog only: never recapture live episode rows while resuming an old backup. */
+export async function assertEpisodeBackupSchema(sourceUrl: string, evidence: Record<string, unknown>): Promise<void> {
+  const sql = neon(sourceUrl);
+  const result = await sql.transaction([sql(SETTINGS), sql(COLUMNS), sql(TRIGGERS), sql(CONSTRAINTS)], { readOnly: true, isolationLevel: "RepeatableRead" });
+  if (JSON.stringify(result[1]) !== JSON.stringify(evidence.columns) ||
+      JSON.stringify(result[2]) !== JSON.stringify(evidence.triggers) ||
+      JSON.stringify(result[3]) !== JSON.stringify(evidence.constraints)) {
+    throw new Error("Current source schema differs from verified backup schema");
+  }
 }

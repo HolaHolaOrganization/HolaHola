@@ -9,13 +9,15 @@ import { proveStandaloneTaskOwnership, type TaskOwnershipHttpClient } from "./ta
 export function createEpisodeBackupOwnership(input: {
   taskRef: string; actor: string; receiptId: string; client: TaskOwnershipHttpClient;
   rootDir?: string;
-}): { probe: OwnershipProbe; authorize: (action: string) => Promise<void> } {
+}): { probe: OwnershipProbe; authorize: (action: string) => Promise<void>; requireRemainingMs: (minimum: number) => Promise<void> } {
   const rootDir = resolve(input.rootDir ?? process.cwd());
   const artifact = resolve(rootDir, ".local/tasks", `task-${input.taskRef}.md`);
+  let validatedExpiry = 0;
   if (!/^[1-9][0-9]*$/.test(input.taskRef) || input.actor !== "luca-replit") {
     throw new Error("Backup requires its exact task and own Replit actor");
   }
   const probe: OwnershipProbe = async (ref, actor) => {
+    validatedExpiry = 0;
     if (ref !== input.taskRef || (actor !== undefined && actor !== input.actor)) {
       throw new Error("Backup ownership binding mismatch");
     }
@@ -27,6 +29,7 @@ export function createEpisodeBackupOwnership(input: {
         if (!before.isFile() || before.isSymbolicLink()) return false;
         await proveStandaloneTaskOwnership(
           input.client, taskRef, input.actor, input.receiptId, digest,
+          undefined, expiresAt => { validatedExpiry = Date.parse(expiresAt); },
         );
         const after = await lstat(artifact);
         return after.isFile() && !after.isSymbolicLink()
@@ -34,10 +37,12 @@ export function createEpisodeBackupOwnership(input: {
       },
     }).probe(ref);
   };
-  return {
-    probe,
-    authorize: async action => {
-      await assertOwnershipForInfraMutation(input.taskRef, action, probe, input.actor);
-    },
+  const authorize = async (action: string) => {
+    await assertOwnershipForInfraMutation(input.taskRef, action, probe, input.actor);
   };
+  return { probe, authorize, requireRemainingMs: async minimum => {
+    if (!Number.isSafeInteger(minimum) || minimum < 1) throw new Error("Invalid ownership time budget");
+    await authorize("backup:remaining-authority");
+    if (validatedExpiry - Date.now() < minimum) throw new Error("Insufficient remaining ownership time; request fresh founder approval");
+  } };
 }
