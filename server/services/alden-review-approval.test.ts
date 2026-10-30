@@ -279,3 +279,23 @@ describe('the dev apply sink re-checks the target immediately before writing', (
     }
   });
 });
+
+test('the sink refuses a target whose parent was swapped for a link to identical bytes elsewhere', async () => {
+  const { planApproval, applyPinnedApproval } = await import('./alden-review-approval');
+  const plan = planApproval(reviewed('server/routes.ts', 21, 21, 'twenty-one'), root, ENV.dev);
+  assert.equal(plan.kind, 'apply');
+  if (plan.kind !== 'apply') return;
+  const elsewhere = path.join(base, 'elsewhere-server');
+  fs.mkdirSync(elsewhere, { recursive: true });
+  fs.copyFileSync(path.join(root, 'server', 'routes.ts'), path.join(elsewhere, 'routes.ts'));
+  fs.renameSync(path.join(root, 'server'), path.join(root, 'server-real'));
+  try {
+    // Same bytes, so the before-hash matches; only the real path differs.
+    fs.symlinkSync(elsewhere, path.join(root, 'server'), process.platform === 'win32' ? 'junction' : 'dir');
+    assert.equal(applyPinnedApproval(plan), false);
+    assert.equal(fs.readFileSync(path.join(elsewhere, 'routes.ts'), 'utf8'), FILES['server/routes.ts'], 'the outside copy is untouched');
+  } finally {
+    fs.rmSync(path.join(root, 'server'), { recursive: true, force: true });
+    fs.renameSync(path.join(root, 'server-real'), path.join(root, 'server'));
+  }
+});
