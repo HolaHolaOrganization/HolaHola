@@ -2601,9 +2601,9 @@ export async function executeAldenTool(
         const eventId = String(args.event_id || '').trim();
         if (!eventId) return { data: { error: 'event_id is required' } };
         const { findAldenItemByEvent, publishAldenItemResponse } = await import('./alden-wake-ledger');
-        const inboxItemId = await findAldenItemByEvent(eventId);
-        if (!inboxItemId) return { data: { error: `event ${eventId} is not an item addressed to you`, refused: 'not_an_alden_item' } };
-        return { data: await publishAldenItemResponse({ inboxItemId, mode: 'chat', workerId: 'alden-chat', note: args.note ? String(args.note) : undefined }) };
+        const itemId = await findAldenItemByEvent(eventId);
+        if (!itemId) return { data: { error: `event ${eventId} is not an item addressed to you`, refused: 'not_an_alden_item' } };
+        return { data: await publishAldenItemResponse({ itemId, mode: 'chat', workerId: 'alden-chat', note: args.note ? String(args.note) : undefined }) };
       }
 
       case "resume_wake_thread": {
@@ -3147,24 +3147,24 @@ export async function executeAldenTool(
         if (context?.wakeTurn || covers.length > 0) {
           const { aldenItemReplyTarget, findAldenItemByEvent, publishAldenItemResponse } = await import('./alden-wake-ledger');
           const turn = context?.wakeTurn;
-          let inboxItemId = turn?.inboxItemId ?? null;
+          let itemId = turn?.itemId ?? null;
           let rest = covers;
           if (!turn) {
-            inboxItemId = await findAldenItemByEvent(covers[0]);
+            itemId = await findAldenItemByEvent(covers[0]);
             rest = covers.slice(1);
-            if (!inboxItemId) return { data: { error: `event ${covers[0]} is not an item addressed to you`, refused: 'not_an_alden_item' } };
+            if (!itemId) return { data: { error: `event ${covers[0]} is not an item addressed to you`, refused: 'not_an_alden_item' } };
           }
-          const target = await aldenItemReplyTarget(inboxItemId!);
+          const target = await aldenItemReplyTarget(itemId!);
           if (!target) return { data: { error: 'that item is not yet in the wake ledger; try again shortly', refused: 'not_seeded' } };
           if (target.threadId !== threadId || target.sender !== recipient) {
             return { data: { error: `this item's reply goes to ${target.sender} on thread ${target.threadId}`, refused: 'reply_binding_mismatch' } };
           }
           const result = await publishAldenItemResponse({
-            inboxItemId: inboxItemId!, mode: turn ? 'wake' : 'chat', workerId: turn?.workerId ?? 'alden-chat', claimEpoch: turn?.claimEpoch,
+            itemId: itemId!, mode: turn ? 'wake' : 'chat', workerId: turn?.workerId ?? 'alden-chat', claimEpoch: turn?.claimEpoch,
             content, model, covers: rest,
           });
           if (turn) turn.published = result;
-          console.log(`[Alden Tool] reply_to_coordination_thread (${turn ? 'wake' : 'chat, covers'}): item ${inboxItemId} → ${result.status}`);
+          console.log(`[Alden Tool] reply_to_coordination_thread (${turn ? 'wake' : 'chat, covers'}): item ${itemId} → ${result.status}`);
           return { data: result };
         }
 

@@ -69,8 +69,7 @@ async function newThread(sender: string, content: string) {
   return { threadId: created.thread.id, eventId: created.event.id };
 }
 
-const stateOf = async (eventId: string) => (await one(sql`select a.state from alden_wake_attempts a
-  join coordination_inbox_items i on i.id = a.inbox_item_id where i.coordination_event_id = ${eventId}`))?.state;
+const stateOf = async (eventId: string) => (await one(sql`select state from alden_wake_attempts where event_id = ${eventId}`))?.state;
 const drain = () => db.execute(sql`update alden_wake_attempts set state = 'manual', notes = 'test drain' where state = 'eligible'`);
 
 /** A scripted turn: records what the worker passed, then calls the real dispatcher. */
@@ -115,7 +114,7 @@ test('a wake turn replies through the bound path on the wake engine and profile'
   assert.equal(await stateOf(item.eventId), 'replied');
   const reply = await one(sql`select recipient_actor, content from coordination_events where thread_id = ${item.threadId} and actor = 'alden'`);
   assert.equal(reply.recipient_actor, 'luca-claude-code');
-  assert.equal((await one(sql`select status from alden_wake_notice_outbox o join coordination_inbox_items i on i.id = o.inbox_item_id where i.coordination_event_id = ${item.eventId}`)).status, 'delivered', 'the pass delivers the notice');
+  assert.equal((await one(sql`select o.status from alden_wake_notice_outbox o join alden_wake_attempts a on a.item_id = o.item_id where a.event_id = ${item.eventId}`)).status, 'delivered', 'the pass delivers the notice');
 });
 
 test('without a reply: declined, needs_david after notify, failed on an error or a throw', async (context) => {
@@ -141,7 +140,7 @@ test('without a reply: declined, needs_david after notify, failed on an error or
   assert.equal(await stateOf(needs.eventId), 'needs_david');
   assert.equal(await stateOf(errors.eventId), 'failed');
   assert.equal(await stateOf(throws.eventId), 'failed');
-  const failed = await one(sql`select a.error_class, a.notes from alden_wake_attempts a join coordination_inbox_items i on i.id = a.inbox_item_id where i.coordination_event_id = ${throws.eventId}`);
+  const failed = await one(sql`select error_class, notes from alden_wake_attempts where event_id = ${throws.eventId}`);
   assert.equal(failed.error_class, 'turn_error');
   assert.match(failed.notes, /network down/);
 });

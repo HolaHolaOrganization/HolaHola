@@ -42,7 +42,7 @@ export type WakeOutcome = 'declined' | 'needs_david' | 'failed' | 'observed';
  * records what happened here, so the worker can choose the outcome.
  */
 export interface AldenWakeTurn {
-  inboxItemId: string;
+  itemId: string;
   workerId: string;
   claimEpoch: number;
   threadId: string;
@@ -632,8 +632,8 @@ export async function findAldenItemByEvent(eventId: string, db: Db = getSharedDb
 }
 
 /** Where an item's reply must go: its thread and its sender. */
-export async function aldenItemReplyTarget(inboxItemId: string, db: Db = getSharedDb()): Promise<{ threadId: string; sender: string } | null> {
-  const [row] = rowsOf(await db.execute(sql`select target_thread_id, target_sender from alden_wake_attempts where inbox_item_id = ${inboxItemId}`));
+export async function aldenItemReplyTarget(itemId: string, db: Db = getSharedDb()): Promise<{ threadId: string; sender: string } | null> {
+  const [row] = rowsOf(await db.execute(sql`select target_thread_id, target_sender from alden_wake_attempts where item_id = ${itemId}`));
   return row ? { threadId: row.target_thread_id, sender: row.target_sender } : null;
 }
 

@@ -42,12 +42,12 @@ export async function runWakeTurn(attempt: WakeAttempt, deps: WakeDeps = {}): Pr
   const workerId = deps.workerId ?? defaultWorkerId();
   const generate = deps.generate ?? defaultGenerate;
   const [event] = ((await db.execute(sql`
-    select e.id, e.actor, e.created_at, t.title from coordination_inbox_items i
-    join coordination_events e on e.id = i.coordination_event_id
-    join coordination_threads t on t.id = i.coordination_thread_id
-    where i.id = ${attempt.inboxItemId}`)) as any).rows;
+    select e.id, e.actor, e.created_at, t.title from alden_wake_attempts a
+    join coordination_events e on e.id = a.event_id
+    join coordination_threads t on t.id = e.thread_id
+    where a.item_id = ${attempt.itemId}`)) as any).rows;
   const turn: AldenWakeTurn = {
-    inboxItemId: attempt.inboxItemId, workerId, claimEpoch: attempt.claimEpoch,
+    itemId: attempt.itemId, workerId, claimEpoch: attempt.claimEpoch,
     threadId: attempt.targetThreadId, targetSender: attempt.targetSender, itemKind: attempt.itemKind,
   };
   let response: Awaited<ReturnType<Generate>> | null = null;
@@ -73,7 +73,7 @@ export async function runWakeTurn(attempt: WakeAttempt, deps: WakeDeps = {}): Pr
   const decision = decideWakeOutcome(turn, thrown ? { error: thrown } : response);
   if (!decision) return 'published';
   const recorded = await recordWakeOutcome({
-    inboxItemId: attempt.inboxItemId, workerId, claimEpoch: attempt.claimEpoch,
+    itemId: attempt.itemId, workerId, claimEpoch: attempt.claimEpoch,
     outcome: decision.outcome, errorClass: decision.errorClass,
     notes: (thrown ?? response?.error ?? response?.response ?? '').slice(0, 2000) || undefined,
     toolsUsed: response?.toolsUsed ?? [],
