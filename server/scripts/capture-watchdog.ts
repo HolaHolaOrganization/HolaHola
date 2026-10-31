@@ -49,6 +49,14 @@ import {
 } from '../services/inner-life-capture.js';
 import { refreshMemoryIndexBestEffort } from '../services/agent-memory-core';
 import { historicalAttributionLabel } from '../services/historical-attribution-overlay';
+import {
+  attributionTags,
+  attributionWritersEnabled,
+  plainParticipants,
+  plainRowTitle,
+  plainSpeakerName,
+  plainTitleDate,
+} from '../services/attribution-rendering';
 import { recordHistoricalAttributionPause, clearHistoricalAttributionPause } from '../services/historical-attribution-status';
 
 // ─── Config ───────────────────────────────────────────────────────────────────
@@ -202,6 +210,9 @@ export function appendToEpisode(
       const historicalLabel = historicalAttributionLabel(t);
       const label = historicalLabel
         ? `**${historicalLabel}:**`
+        // Attribution design f5d77712 section 4, behind the shared writer switch.
+        : attributionWritersEnabled()
+        ? `**${plainSpeakerName(t)}:**`
         : t.speaker === 'DAVID'
         ? '**David:**'
         : t.speaker === 'CLAUDE_CODE'
@@ -264,6 +275,7 @@ async function writeToDb(
     'watchdog',
     ...sourceTags,
     ...(captureIdentityTag ? [captureIdentityTag] : []),
+    ...(attributionWritersEnabled() ? attributionTags(turns) : []),
   ];
   // Row-level participants/title are derived from the SAME per-turn identity
   // as the rendered body (content, below) -- via one shared `turnKinds` array
@@ -299,8 +311,11 @@ async function writeToDb(
   };
   const turnKinds = turns.map(turnAssistantKind);
   const assistantKinds = [...new Set(turnKinds.filter((k): k is AssistantKind => k !== 'david'))];
-  const participants = ['david', ...assistantKinds];
-  const title = assistantKinds.length > 0
+  const writersV1 = attributionWritersEnabled();
+  const participants = writersV1 ? plainParticipants(turns) : ['david', ...assistantKinds];
+  const title = writersV1
+    ? plainRowTitle(turns, plainTitleDate())
+    : assistantKinds.length > 0
     ? `David ↔ ${assistantKinds.map(k => ASSISTANT_TITLE_LABEL[k]).join(' + ')} — ${today}: per-turn capture`
     : `David — ${today}: per-turn capture`;
   const summary =
@@ -308,7 +323,14 @@ async function writeToDb(
     `Sources: ${sources.join(', ') || 'legacy'}. Bytes ${cursorFrom}–${cursorTo}.` +
     (captureIdentityTag ? ` Capture identity: ${captureIdentityTag}.` : '');
   const content = turns
-    .map((t, i) => `**${CONTENT_LABEL[turnKinds[i]]}:** ${t.text}`)
+    .map((t, i) => {
+      // With the writer switch on: the reviewed historical label for approved
+      // historical captures, else the plain name. Otherwise unchanged.
+      const label = writersV1
+        ? historicalAttributionLabel(t) ?? plainSpeakerName(t)
+        : CONTENT_LABEL[turnKinds[i]];
+      return `**${label}:** ${t.text}`;
+    })
     .join('\n\n');
 
   const existing = captureIdentityTag
