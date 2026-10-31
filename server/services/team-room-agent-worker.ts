@@ -140,11 +140,11 @@ async function loadRoomMemories(roomId: string): Promise<string> {
       .orderBy(desc(conversationMemories.createdAt))
       .limit(2);
 
-    // Load pinned memories by ID (Agent↔Daniela direct conversations etc.)
+    // Load pinned memories by 8-char UUID prefix (Agent↔Daniela direct conversations etc.)
     const pinnedRows = PINNED_MEMORY_IDS.length > 0 ? await db
       .select({ id: conversationMemories.id, title: conversationMemories.title, content: conversationMemories.content, createdAt: conversationMemories.createdAt })
       .from(conversationMemories)
-      .where(sql`id = ANY(${PINNED_MEMORY_IDS}::uuid[])`)
+      .where(sql`EXISTS (SELECT 1 FROM jsonb_array_elements_text(${JSON.stringify(PINNED_MEMORY_IDS)}::jsonb) AS p WHERE id LIKE p || '%')`)
       : [];
 
     const allRows = [...pinnedRows, ...teamRoomRows.filter(r => !pinnedRows.some(p => p.id === r.id))];
