@@ -3,7 +3,8 @@
  * disposable PostgreSQL: the wake ships enabled, attempt rows only take the
  * designed states and kinds, a thread holds at most one active pause and one
  * active watch per watcher, a pause's cooldown stays within 30 to 240 minutes,
- * and no hat can add itself as a watcher. Synthetic rows only.
+ * no hat can add itself as a watcher, and an attempt has exactly one source
+ * (an inbox item or a watch item, design r12). Synthetic rows only.
  */
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
@@ -33,7 +34,7 @@ async function rejects(table: string, columns: Record<string, unknown>, code: st
 }
 
 /** A thread with one bookkeeping event and an inbox item for Alden, the shape the wake claims. */
-async function seedInboxItem(): Promise<{ threadId: string; itemId: string; sequence: number }> {
+async function seedInboxItem(): Promise<{ threadId: string; itemId: string; eventId: string; sequence: number }> {
   const threadId = randomUUID();
   await insertRow('coordination_threads', { id: threadId, title: '0075 test', description: 'synthetic', origin_actor: 'luca-claude-code', intended_recipient: 'alden' });
   threads.push(threadId);
@@ -49,12 +50,12 @@ async function seedInboxItem(): Promise<{ threadId: string; itemId: string; sequ
     id: itemId, recipient_actor: 'alden', coordination_event_id: eventId, coordination_thread_id: threadId,
     event_global_sequence: sequence, sender_actor: 'luca-claude-code', message_kind: 'progress', recipient_rule_version: 1,
   });
-  return { threadId, itemId, sequence };
+  return { threadId, itemId, eventId, sequence };
 }
 
-function attempt(item: { threadId: string; itemId: string; sequence: number }, columns: Record<string, unknown> = {}) {
+function attempt(item: { threadId: string; itemId: string; eventId: string; sequence: number }, columns: Record<string, unknown> = {}) {
   return {
-    inbox_item_id: item.itemId, event_global_sequence: item.sequence, state: 'eligible',
+    item_id: item.itemId, inbox_item_id: item.itemId, event_id: item.eventId, event_global_sequence: item.sequence, state: 'eligible',
     effect_key: `wake:${item.itemId}:${randomUUID()}`, target_thread_id: item.threadId, target_sender: 'luca-claude-code',
     ...columns,
   };
@@ -77,14 +78,12 @@ test('Alden wake tables: shipped enabled, designed states only, one active pause
   for (const state of ['eligible', 'replied', 'declined', 'needs_david', 'failed', 'uncertain', 'conflict', 'manual', 'covered', 'handled_in_chat', 'history']) {
     await insertRow('alden_wake_attempts', attempt(await seedInboxItem(), { state }));
   }
-  await insertRow('alden_wake_attempts', attempt(await seedInboxItem(), { state: 'observed', item_kind: 'observe' }));
   await insertRow('alden_wake_attempts', attempt(await seedInboxItem(), {
     state: 'claimed', claimed_by: 'worker-1', claimed_at: new Date(), lease_until: new Date(Date.now() + 60_000), claim_epoch: 1,
   }));
   await rejects('alden_wake_attempts', attempt(await seedInboxItem(), { state: 'sleeping' }), '23514', 'alden_wake_attempts_state_valid');
   await rejects('alden_wake_attempts', attempt(await seedInboxItem(), { item_kind: 'broadcast' }), '23514', 'alden_wake_attempts_kind_valid');
   await rejects('alden_wake_attempts', attempt(await seedInboxItem(), { state: 'observed' }), '23514', 'alden_wake_attempts_observed_kind');
-  await rejects('alden_wake_attempts', attempt(await seedInboxItem(), { state: 'needs_david', item_kind: 'observe' }), '23514', 'alden_wake_attempts_observe_never_needs_david');
   await rejects('alden_wake_attempts', attempt(await seedInboxItem(), { state: 'claimed', claimed_by: 'worker-1' }), '23514', 'alden_wake_attempts_claim_complete');
   await rejects('alden_wake_attempts', attempt(await seedInboxItem(), { reply_payload_sha256: 'ABC' }), '23514', 'alden_wake_attempts_reply_sha256');
   await rejects('alden_wake_attempts', attempt(await seedInboxItem(), { claim_epoch: -1 }), '23514', 'alden_wake_attempts_epoch_nonnegative');
@@ -94,17 +93,17 @@ test('Alden wake tables: shipped enabled, designed states only, one active pause
   await rejects('alden_wake_attempts', attempt(await seedInboxItem(), { effect_key: shared }), '23505', 'uq_alden_wake_attempts_effect_key');
   // Matched by table, not name: PostgreSQL truncates drizzle's 64-character foreign-key name to 63.
   await assert.rejects(
-    insertRow('alden_wake_attempts', { ...attempt(effect), inbox_item_id: randomUUID() }),
+    insertRow('alden_wake_attempts', { ...attempt(effect), item_id: 'x', inbox_item_id: randomUUID() }),
     (err: any) => err.code === '23503' && err.table === 'alden_wake_attempts',
     'an attempt needs a real inbox item',
   );
 
   // Audit and outbox take only their closed result and status sets.
-  await insertRow('alden_wake_attempt_audit', { inbox_item_id: effect.itemId, claim_epoch: 1, worker_id: 'worker-1', result: 'published' });
-  await rejects('alden_wake_attempt_audit', { inbox_item_id: effect.itemId, claim_epoch: 1, worker_id: 'worker-1', result: 'maybe' }, '23514', 'alden_wake_attempt_audit_result_valid');
-  await insertRow('alden_wake_notice_outbox', { inbox_item_id: effect.itemId, state_reported: 'needs_david', dedupe_key: `notice:${effect.itemId}` });
-  await rejects('alden_wake_notice_outbox', { inbox_item_id: effect.itemId, state_reported: 'needs_david', dedupe_key: `notice:${effect.itemId}` }, '23505', 'uq_alden_wake_notice_outbox_dedupe');
-  await rejects('alden_wake_notice_outbox', { inbox_item_id: effect.itemId, state_reported: 'failed', dedupe_key: `notice:${randomUUID()}`, status: 'sent' }, '23514', 'alden_wake_notice_outbox_status_valid');
+  await insertRow('alden_wake_attempt_audit', { item_id: effect.itemId, claim_epoch: 1, worker_id: 'worker-1', result: 'published' });
+  await rejects('alden_wake_attempt_audit', { item_id: effect.itemId, claim_epoch: 1, worker_id: 'worker-1', result: 'maybe' }, '23514', 'alden_wake_attempt_audit_result_valid');
+  await insertRow('alden_wake_notice_outbox', { item_id: effect.itemId, state_reported: 'needs_david', dedupe_key: `notice:${effect.itemId}` });
+  await rejects('alden_wake_notice_outbox', { item_id: effect.itemId, state_reported: 'needs_david', dedupe_key: `notice:${effect.itemId}` }, '23505', 'uq_alden_wake_notice_outbox_dedupe');
+  await rejects('alden_wake_notice_outbox', { item_id: effect.itemId, state_reported: 'failed', dedupe_key: `notice:${randomUUID()}`, status: 'sent' }, '23514', 'alden_wake_notice_outbox_status_valid');
 
   // Pauses: cooldown 30 to 240 minutes, resume after the pause, one active pause per thread.
   const pausedAt = new Date();
@@ -132,4 +131,36 @@ test('Alden wake tables: shipped enabled, designed states only, one active pause
   await insertRow('coordination_thread_watchers', watch());
   await insertRow('coordination_thread_watchers', watch({ watcher: 'luca-codex' }));
   await rejects('coordination_thread_watchers', watch(), '23505', 'uq_coordination_thread_watchers_active');
+
+  // Watch items (r12): one per watcher and event, never the watcher's own event.
+  const [{ id: watchId }] = (await pool.query(`select id from coordination_thread_watchers where thread_id = $1 and watcher = 'alden' and removed_at is null`, [effect.threadId])).rows;
+  const observed = await seedInboxItem(); // reuse its thread and event as the watched event
+  const watchItem = (columns: Record<string, unknown> = {}) => ({
+    watch_id: watchId, watcher: 'alden', event_id: observed.eventId, thread_id: observed.threadId,
+    event_global_sequence: observed.sequence, sender: 'luca-claude-code', ...columns,
+  });
+  await rejects('coordination_watch_items', watchItem({ sender: 'alden' }), '23514', 'coordination_watch_items_not_own_event');
+  const [{ id: watchItemId }] = (await pool.query(
+    `insert into coordination_watch_items (watch_id, watcher, event_id, thread_id, event_global_sequence, sender)
+     values ($1, 'alden', $2, $3, $4, 'luca-claude-code') returning id`,
+    [watchId, observed.eventId, observed.threadId, observed.sequence],
+  )).rows;
+  await rejects('coordination_watch_items', watchItem(), '23505', 'uq_coordination_watch_items_watcher_event');
+
+  // Attempts (r12): exactly one source, matching the kind, keyed by that source's id.
+  const observeAttempt = (columns: Record<string, unknown> = {}) => ({
+    item_id: watchItemId, item_kind: 'observe', inbox_item_id: null, watch_item_id: watchItemId, event_id: observed.eventId,
+    event_global_sequence: observed.sequence, state: 'eligible', effect_key: `wake:${watchItemId}:${randomUUID()}`,
+    target_thread_id: observed.threadId, target_sender: 'luca-claude-code', ...columns,
+  });
+  const both = await seedInboxItem();
+  await rejects('alden_wake_attempts', observeAttempt({ inbox_item_id: both.itemId }), '23514', 'alden_wake_attempts_one_source');
+  await rejects('alden_wake_attempts', observeAttempt({ watch_item_id: null }), '23514', 'alden_wake_attempts_one_source');
+  await rejects('alden_wake_attempts', observeAttempt({ item_kind: 'addressed' }), '23514', 'alden_wake_attempts_one_source');
+  await rejects('alden_wake_attempts', observeAttempt({ item_id: randomUUID() }), '23514', 'alden_wake_attempts_one_source');
+  await rejects('alden_wake_attempts', attempt(both, { item_id: randomUUID() }), '23514', 'alden_wake_attempts_one_source');
+  await rejects('alden_wake_attempts', attempt(both, { watch_item_id: watchItemId }), '23514', 'alden_wake_attempts_one_source');
+  await assert.rejects(insertRow('alden_wake_attempts', attempt(both, { event_id: null })), (err: any) => err.code === '23502', 'an attempt names its event');
+  await rejects('alden_wake_attempts', observeAttempt({ state: 'needs_david' }), '23514', 'alden_wake_attempts_observe_never_needs_david');
+  await insertRow('alden_wake_attempts', observeAttempt({ state: 'observed' }));
 });
