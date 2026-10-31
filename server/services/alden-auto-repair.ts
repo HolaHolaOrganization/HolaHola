@@ -286,9 +286,8 @@ function utcTimestamp(): string {
  * surface it for async review by the Agent or David.
  */
 /** Returns whether the proposal row was actually inserted. */
-async function queueAsProposal(issueDescription: string, reason: string): Promise<boolean> {
+export async function queueAsProposal(issueDescription: string, reason: string, db: Pick<ReturnType<typeof getUserDb>, 'insert'> = getUserDb()): Promise<boolean> {
   try {
-    const db = getUserDb();
     await db.insert(buildQueue).values({
       proposedBy: 'alden',
       title: `Auto-repair deferred: ${issueDescription.substring(0, 80)}`,

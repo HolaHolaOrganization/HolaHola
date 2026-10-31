@@ -42,9 +42,9 @@ function assertHermeticSandbox(): void {
 (async () => {
   assertHermeticSandbox();
 
-  const dir = await executeAldenTool('list_directory', { path: '.' });
-  const file = await executeAldenTool('read_file', { path: 'ALDEN_WORKSPACE_CANARY.txt' });
-  const nested = await executeAldenTool('read_file', { path: 'alden-canary-subdir/nested-canary.txt' });
+  const dir = await executeAldenTool('list_directory', { path: 'server' });
+  const file = await executeAldenTool('read_file', { path: 'server/ALDEN_WORKSPACE_CANARY.txt' });
+  const nested = await executeAldenTool('read_file', { path: 'server/alden-canary-subdir/nested-canary.txt' });
 
   console.log('RESULTS:' + JSON.stringify({
     workspaceRoot: workspaceResolution.root,

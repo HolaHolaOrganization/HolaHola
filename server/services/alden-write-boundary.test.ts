@@ -199,11 +199,14 @@ describe('auto-repair, driven through attemptAutoRepair itself', () => {
 });
 
 test('auto-repair never claims "queued" when the real default queue insert fails', async () => {
-  // No queueProposal injected: the real default insert runs against this
-  // test's unreachable database, fails, and must be reported as not saved.
-  const { attemptAutoRepair } = await import('./alden-auto-repair');
+  // The real default queueAsProposal runs, with a database handle whose insert
+  // fails. That is deterministic everywhere: CI has a reachable database, so an
+  // "unreachable DB" assumption would not hold there.
+  const { attemptAutoRepair, queueAsProposal } = await import('./alden-auto-repair');
+  const failingDb = { insert: () => ({ values: async () => { throw new Error('synthetic insert failure'); } }) } as any;
   const notices: Array<[string, string]> = [];
   const deps = {
+    queueProposal: (issue: string, reason: string) => queueAsProposal(issue, reason, failingDb),
     classify: async () => ({ eligible: true, type: 'null_guard' as const, confidence: 'high' as const, reason: 'clear null guard' }),
     plan: async () => ({
       repairId: 'repair-q', issueDescription: 'issue', repairType: 'null_guard' as const, explanation: 'add a guard',
@@ -223,4 +226,14 @@ test('auto-repair never claims "queued" when the real default queue insert fails
   assert.equal(notices[0][1], 'alert');
   assert.match(notices[0][0], /could NOT be saved for review/);
   assert.doesNotMatch(notices[0][0], /The plan is queued for review/);
+});
+
+test('the real default queueAsProposal reports success only when its insert succeeds', async () => {
+  const { queueAsProposal } = await import('./alden-auto-repair');
+  const inserted: unknown[] = [];
+  const okDb = { insert: () => ({ values: async (v: unknown) => { inserted.push(v); } }) } as any;
+  const failingDb = { insert: () => ({ values: async () => { throw new Error('synthetic insert failure'); } }) } as any;
+  assert.equal(await queueAsProposal('issue', 'reason', okDb), true);
+  assert.equal(inserted.length, 1);
+  assert.equal(await queueAsProposal('issue', 'reason', failingDb), false);
 });
