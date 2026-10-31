@@ -8504,6 +8504,8 @@ export const coordinationEvents = pgTable("coordination_events", {
   uniqueIndex("idx_coordination_events_idempotency").on(table.actor, table.idempotencyKey),
   uniqueIndex("idx_coordination_events_global_sequence").on(table.globalSequence),
   index("idx_coordination_events_thread_created").on(table.threadId, table.createdAt),
+  // Serves the wake pass's watch-item anti-join: events on a thread above a global sequence (wake design r12).
+  index("idx_coordination_events_thread_global_sequence").on(table.threadId, table.globalSequence),
   index("idx_coordination_events_actor_created").on(table.actor, table.createdAt),
 ]);
 
@@ -10475,7 +10477,8 @@ export const aldenWakeAttempts = pgTable("alden_wake_attempts", {
   uniqueIndex("uq_alden_wake_attempts_effect_key").on(table.effectKey),
   index("idx_alden_wake_attempts_state").on(table.state, table.eventGlobalSequence),
   index("idx_alden_wake_attempts_thread").on(table.targetThreadId),
-  index("idx_alden_wake_attempts_event").on(table.eventId),
+  // One attempt per event (LR, r12): an event that has a watch item and later an addressed item is never answered twice.
+  uniqueIndex("uq_alden_wake_attempts_event").on(table.eventId),
   // Exactly one source, matching the kind, and the item id is that source's id.
   check("alden_wake_attempts_one_source", sql`(${table.itemKind} = 'addressed' AND ${table.inboxItemId} IS NOT NULL AND ${table.watchItemId} IS NULL AND ${table.itemId} = ${table.inboxItemId})
     OR (${table.itemKind} = 'observe' AND ${table.watchItemId} IS NOT NULL AND ${table.inboxItemId} IS NULL AND ${table.itemId} = ${table.watchItemId})`),

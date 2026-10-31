@@ -164,4 +164,6 @@ test('Alden wake tables: shipped enabled, designed states only, one active pause
   await assert.rejects(insertRow('alden_wake_attempts', attempt(both, { event_id: null })), (err: any) => err.code === '23502', 'an attempt names its event');
   await rejects('alden_wake_attempts', observeAttempt({ state: 'needs_david' }), '23514', 'alden_wake_attempts_observe_never_needs_david');
   await insertRow('alden_wake_attempts', observeAttempt({ state: 'observed' }));
+  // One attempt per event (LR, r12): the observed event's own inbox item cannot get a second, addressed attempt.
+  await rejects('alden_wake_attempts', attempt(observed), '23505', 'uq_alden_wake_attempts_event');
 });

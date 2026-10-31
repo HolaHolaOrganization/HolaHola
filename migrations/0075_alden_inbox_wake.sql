@@ -130,12 +130,13 @@ CREATE INDEX "idx_alden_wake_attempt_audit_item" ON "alden_wake_attempt_audit" U
 CREATE UNIQUE INDEX "uq_alden_wake_attempts_effect_key" ON "alden_wake_attempts" USING btree ("effect_key");--> statement-breakpoint
 CREATE INDEX "idx_alden_wake_attempts_state" ON "alden_wake_attempts" USING btree ("state","event_global_sequence");--> statement-breakpoint
 CREATE INDEX "idx_alden_wake_attempts_thread" ON "alden_wake_attempts" USING btree ("target_thread_id");--> statement-breakpoint
-CREATE INDEX "idx_alden_wake_attempts_event" ON "alden_wake_attempts" USING btree ("event_id");--> statement-breakpoint
+CREATE UNIQUE INDEX "uq_alden_wake_attempts_event" ON "alden_wake_attempts" USING btree ("event_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "uq_alden_wake_notice_outbox_dedupe" ON "alden_wake_notice_outbox" USING btree ("dedupe_key");--> statement-breakpoint
 CREATE INDEX "idx_alden_wake_notice_outbox_status" ON "alden_wake_notice_outbox" USING btree ("status");--> statement-breakpoint
 CREATE UNIQUE INDEX "uq_alden_wake_thread_pauses_active" ON "alden_wake_thread_pauses" USING btree ("thread_id") WHERE "alden_wake_thread_pauses"."resumed_at" IS NULL;--> statement-breakpoint
 CREATE UNIQUE INDEX "uq_coordination_thread_watchers_active" ON "coordination_thread_watchers" USING btree ("thread_id","watcher") WHERE "coordination_thread_watchers"."removed_at" IS NULL;--> statement-breakpoint
 CREATE UNIQUE INDEX "uq_coordination_watch_items_watcher_event" ON "coordination_watch_items" USING btree ("watcher","event_id");--> statement-breakpoint
 CREATE INDEX "idx_coordination_watch_items_thread_sequence" ON "coordination_watch_items" USING btree ("thread_id","event_global_sequence");--> statement-breakpoint
+CREATE INDEX "idx_coordination_events_thread_global_sequence" ON "coordination_events" USING btree ("thread_id","global_sequence");--> statement-breakpoint
 -- Ships on (founder decision, wake design eb2ed6bf r11): the single control row is created enabled. It is an emergency stop, not a launch gate; ON CONFLICT DO NOTHING means a re-run never re-enables a stopped wake.
 INSERT INTO "alden_wake_control" ("id", "enabled", "updated_by") VALUES ('alden', true, 'migration-0075') ON CONFLICT ("id") DO NOTHING;

@@ -1,5 +1,5 @@
 {
-  "id": "bae97609-3e19-40a5-bc02-4ed0f1752db1",
+  "id": "3db98512-e481-4e4d-b6c5-727fae5cc7a9",
   "prevId": "98644b55-72f0-4adc-b343-061cd7dc09f6",
   "version": "7",
   "dialect": "postgresql",
@@ -3918,8 +3918,8 @@
           "method": "btree",
           "with": {}
         },
-        "idx_alden_wake_attempts_event": {
-          "name": "idx_alden_wake_attempts_event",
+        "uq_alden_wake_attempts_event": {
+          "name": "uq_alden_wake_attempts_event",
           "columns": [
             {
               "expression": "event_id",
@@ -3928,7 +3928,7 @@
               "nulls": "last"
             }
           ],
-          "isUnique": false,
+          "isUnique": true,
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -10315,6 +10315,27 @@
             },
             {
               "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "idx_coordination_events_thread_global_sequence": {
+          "name": "idx_coordination_events_thread_global_sequence",
+          "columns": [
+            {
+              "expression": "thread_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "global_sequence",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
