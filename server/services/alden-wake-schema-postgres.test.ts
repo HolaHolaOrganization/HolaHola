@@ -93,7 +93,8 @@ test('Alden wake tables: shipped enabled, designed states only, one active pause
   await rejects('alden_wake_attempts', attempt(await seedInboxItem(), { effect_key: shared }), '23505', 'uq_alden_wake_attempts_effect_key');
   // Matched by table, not name: PostgreSQL truncates drizzle's 64-character foreign-key name to 63.
   await assert.rejects(
-    insertRow('alden_wake_attempts', { ...attempt(effect), item_id: 'x', inbox_item_id: randomUUID() }),
+    // item_id equals the (unknown) inbox item id, so the one-source CHECK passes and only the FK can refuse it.
+    (() => { const unknown = randomUUID(); return insertRow('alden_wake_attempts', { ...attempt(effect), item_id: unknown, inbox_item_id: unknown }); })(),
     (err: any) => err.code === '23503' && err.table === 'alden_wake_attempts',
     'an attempt needs a real inbox item',
   );
