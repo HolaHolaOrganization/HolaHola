@@ -391,7 +391,9 @@ test('one attempt per event: an event already holding a watch-item attempt never
   await wake.seedWakeAttempts(db);
   const attempts = await rows(sql`select item_kind from alden_wake_attempts where event_id = ${event.id}`);
   assert.deepEqual(attempts.map((row) => row.item_kind), ['observe'], 'the inbox item is not seeded a second attempt');
-  // The cursor does not wait on that inbox item: it advances past it.
+  // The cursor does not wait on that inbox item: it advances past it. Earlier scenarios
+  // deliberately leave uncertain items, which hold the watermark back, so settle them first.
+  await db.execute(sql`update alden_wake_attempts set state = 'manual', notes = 'test settle' where state in ('eligible', 'claimed', 'uncertain')`);
   const watermark = await db.transaction((tx: any) => wake.advanceAldenCursor(tx));
   assert.ok(watermark !== null && watermark >= Number(event.globalSequence), `cursor ${watermark} passes ${event.globalSequence}`);
 });
