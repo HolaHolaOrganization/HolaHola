@@ -12469,7 +12469,7 @@ export const buildQueue = pgTable("build_queue", {
   check("build_queue_pin_has_diff", sql`${table.pinKind} IS NULL OR ${table.diff} IS NOT NULL`),
   check("build_queue_pin_commit_sha", sql`${table.pinCommit} IS NULL OR ${table.pinCommit} ~ '^[0-9a-f]{40}$'`),
   check("build_queue_release_pin_digest", sql`${table.pinKind} IS DISTINCT FROM 'release' OR ${table.pinSourceDigest} IS NOT NULL`),
-  check("build_queue_pin_requires_high", sql`${table.pinKind} IS NULL OR ${table.confidence} = 'high'`),
+  check("build_queue_pin_requires_high", sql`${table.pinKind} IS NULL OR ${table.confidence} IS NOT DISTINCT FROM 'high'`),
   check("build_queue_notify_state_valid", sql`${table.notifyState} IS NULL OR ${table.notifyState} IN ('pending', 'delivered', 'failed')`),
 ]);
 

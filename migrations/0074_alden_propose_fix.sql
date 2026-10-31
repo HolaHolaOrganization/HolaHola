@@ -17,5 +17,5 @@ ALTER TABLE "build_queue" ADD CONSTRAINT "build_queue_pin_complete" CHECK (("bui
 ALTER TABLE "build_queue" ADD CONSTRAINT "build_queue_pin_has_diff" CHECK ("build_queue"."pin_kind" IS NULL OR "build_queue"."diff" IS NOT NULL);--> statement-breakpoint
 ALTER TABLE "build_queue" ADD CONSTRAINT "build_queue_pin_commit_sha" CHECK ("build_queue"."pin_commit" IS NULL OR "build_queue"."pin_commit" ~ '^[0-9a-f]{40}$');--> statement-breakpoint
 ALTER TABLE "build_queue" ADD CONSTRAINT "build_queue_release_pin_digest" CHECK ("build_queue"."pin_kind" IS DISTINCT FROM 'release' OR "build_queue"."pin_source_digest" IS NOT NULL);--> statement-breakpoint
-ALTER TABLE "build_queue" ADD CONSTRAINT "build_queue_pin_requires_high" CHECK ("build_queue"."pin_kind" IS NULL OR "build_queue"."confidence" = 'high');--> statement-breakpoint
+ALTER TABLE "build_queue" ADD CONSTRAINT "build_queue_pin_requires_high" CHECK ("build_queue"."pin_kind" IS NULL OR "build_queue"."confidence" IS NOT DISTINCT FROM 'high');--> statement-breakpoint
 ALTER TABLE "build_queue" ADD CONSTRAINT "build_queue_notify_state_valid" CHECK ("build_queue"."notify_state" IS NULL OR "build_queue"."notify_state" IN ('pending', 'delivered', 'failed'));
