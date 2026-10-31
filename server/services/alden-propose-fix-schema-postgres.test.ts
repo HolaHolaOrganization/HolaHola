@@ -53,6 +53,7 @@ test('build_queue proposal constraints and the new review statuses', async (cont
   await insertProposal({ confidence: 'medium' });
   await insertProposal({ confidence: 'low', notify_state: 'failed', notify_error: 'post failed', notify_attempts: 2 });
   await insertProposal({}); // an existing-style proposal with none of the new fields
+  await insertProposal({ confidence: null }); // legacy unpinned NULL confidence stays valid
 
   // Refused shapes.
   await rejects({ confidence: 'certain' }, 'build_queue_confidence_valid');
@@ -63,6 +64,10 @@ test('build_queue proposal constraints and the new review statuses', async (cont
   await rejects({ confidence: 'high', pin_kind: 'dev-head', pin_commit: 'ABC', pin_files: FILES, diff: 'd' }, 'build_queue_pin_commit_sha');
   await rejects({ confidence: 'high', pin_kind: 'release', pin_commit: SHA, pin_files: FILES, diff: 'd' }, 'build_queue_release_pin_digest');
   await rejects({ confidence: 'medium', pin_kind: 'dev-head', pin_commit: SHA, pin_files: FILES, diff: 'd' }, 'build_queue_pin_requires_high');
+  // NULL-safe: a complete pin with no confidence, omitted or explicit NULL, is refused (LR review 5720053230).
+  await rejects({ pin_kind: 'dev-head', pin_commit: SHA, pin_files: FILES, diff: 'd' }, 'build_queue_pin_requires_high');
+  await rejects({ confidence: null, pin_kind: 'dev-head', pin_commit: SHA, pin_files: FILES, diff: 'd' }, 'build_queue_pin_requires_high');
+  await rejects({ confidence: null, pin_kind: 'release', pin_commit: SHA, pin_source_digest: 'c'.repeat(64), pin_files: FILES, diff: 'd' }, 'build_queue_pin_requires_high');
   await rejects({ notify_state: 'sent' }, 'build_queue_notify_state_valid');
 
   // proposed_code_changes: both new statuses, and the link to a stored proposal.

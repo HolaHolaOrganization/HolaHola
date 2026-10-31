@@ -1,5 +1,5 @@
 {
-  "id": "6e1c4bcf-706e-4057-8b05-8b351c55c11b",
+  "id": "98644b55-72f0-4adc-b343-061cd7dc09f6",
   "prevId": "ca46639a-b11f-4489-9a52-7ec096312732",
   "version": "7",
   "dialect": "postgresql",
@@ -5625,7 +5625,7 @@
         },
         "build_queue_pin_requires_high": {
           "name": "build_queue_pin_requires_high",
-          "value": "\"build_queue\".\"pin_kind\" IS NULL OR \"build_queue\".\"confidence\" = 'high'"
+          "value": "\"build_queue\".\"pin_kind\" IS NULL OR \"build_queue\".\"confidence\" IS NOT DISTINCT FROM 'high'"
         },
         "build_queue_notify_state_valid": {
           "name": "build_queue_notify_state_valid",
