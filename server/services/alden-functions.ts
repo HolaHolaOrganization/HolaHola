@@ -42,7 +42,7 @@ import { founderCollabService } from "./founder-collaboration-service";
 import * as fs from "fs";
 import * as path from "path";
 import { execFileSync, execSync, spawn } from "child_process";
-import { randomUUID } from "crypto";
+import { createHash, randomUUID } from "crypto";
 import { aldenActivity } from "./alden-activity-emitter";
 import { getMonitoringSnapshots, analyzePatterns } from "./monitoring-service";
 import { workspaceResolution } from "./workspace-root";
@@ -978,6 +978,16 @@ export function toAnthropicAldenTools(
     description,
     input_schema,
   }));
+}
+
+/**
+ * The same briefing to the same recipient is posted once: the key is the
+ * recipient plus a digest of the exact text (the scoped catalog entries and
+ * the active registrations), so a retry returns the existing thread and a
+ * changed briefing posts a new one.
+ */
+export function briefingIdempotencyKey(recipient: string, description: string): string {
+  return `alden-brief:${recipient}:${createHash('sha256').update(description, 'utf8').digest('hex').slice(0, 32)}`;
 }
 
 export async function executeAldenTool(
@@ -3184,7 +3194,7 @@ export async function executeAldenTool(
             title: `Orientation briefing for ${recipient}`,
             description,
             priority: 'normal',
-            idempotencyKey: randomUUID(),
+            idempotencyKey: briefingIdempotencyKey(recipient, description),
           });
           console.log(`[Alden Tool] brief_new_actor: ${recipient} (${scoped.length} operations, thread ${result.thread.id})`);
           // Return exactly what was posted, so any summary can quote the artifact
@@ -3202,6 +3212,8 @@ export async function executeAldenTool(
               })),
               deliveryState: result.deliveryState,
               postedContent: result.event.content,
+              // True when this exact briefing was already posted: a retry returns that thread.
+              alreadyPosted: result.deduplicated,
             },
           };
         } catch (e: any) {
