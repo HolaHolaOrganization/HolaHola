@@ -7,7 +7,7 @@ import { pathToFileURL } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { FileCoordinationCliCredentialCache } from '../../services/coordination-cli-credential-cache';
 import { readProcessIdentity, parentState } from './coordination-listener-identity';
-import { bootChildEnvironment, bootPreflight, launchBootSupervisor, listenerCommand, postBootReady,
+import { classifyBootFailure, writeBootFailure, bootChildEnvironment, bootPreflight, launchBootSupervisor, listenerCommand, postBootReady,
   prepareListener, supervisorLease, workspaceBootConfig, type BootConfig } from './coordination-listener-boot';
 
 async function fixture(t: { after: (fn: () => Promise<void>) => void }) {
@@ -174,4 +174,20 @@ test('detached supervisor survives launcher, owns child, deduplicates and honors
   assert.ok(['stopped', 'operator-stopped'].includes(before.state));
   await launchBootSupervisor(c, entry);
   assert.equal(JSON.parse(await readFile(join(c.stateDir, 'boot/status.json'), 'utf8')).state, 'disabled');
+});
+
+test('boot failure records a non-secret reason and an alert for the live-status banner', async t => {
+  const c = await fixture(t);
+  await mkdir(join(c.root, '.local'), { recursive: true });
+  assert.equal(await classifyBootFailure(c), 'other');
+  await save(c, new Date(Date.now() - 1000).toISOString());
+  assert.equal(await classifyBootFailure(c), 'credential_expired');
+  await rm(c.cacheDir, { recursive: true });
+  assert.equal(await classifyBootFailure(c), 'credential_missing');
+  await writeBootFailure(c);
+  const files = (await readdir(join(c.stateDir, 'boot'))).filter(f => f.startsWith('failure-'));
+  const body = await readFile(join(c.stateDir, 'boot', files[0]), 'utf8');
+  assert.equal(JSON.parse(body).reason, 'credential_missing');
+  assert.doesNotMatch(body, /synthetic-not-a-real-credential/);
+  assert.match(await readFile(join(c.root, '.local/listener-boot-alert.md'), 'utf8'), /credential_missing/);
 });
