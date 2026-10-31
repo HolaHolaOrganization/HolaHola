@@ -224,7 +224,7 @@ describe('auto-repair, driven through attemptAutoRepair itself', () => {
         repairId: 'repair-1', issueDescription: 'issue', repairType: 'null_guard' as const, explanation: 'add a guard',
         changes: [{ filePath, originalContent: 'a\n', newContent: 'b\n', description: 'guard' }],
       }),
-      queueProposal: async (...args: string[]) => { proposals.push(args); },
+      queueProposal: async (...args: string[]) => { proposals.push(args); return true; },
       notify: async (...args: string[]) => { notices.push(args); },
     };
     return { deps, proposals, notices };
@@ -255,4 +255,31 @@ describe('auto-repair, driven through attemptAutoRepair itself', () => {
     assert.equal(initiated, false);
     assert.equal(proposals.length, 0);
   });
+});
+
+test('auto-repair never claims "queued" when the real default queue insert fails', async () => {
+  // No queueProposal injected: the real default insert runs against this
+  // test's unreachable database, fails, and must be reported as not saved.
+  const { attemptAutoRepair } = await import('./alden-auto-repair');
+  const notices: Array<[string, string]> = [];
+  const deps = {
+    classify: async () => ({ eligible: true, type: 'null_guard' as const, confidence: 'high' as const, reason: 'clear null guard' }),
+    plan: async () => ({
+      repairId: 'repair-q', issueDescription: 'issue', repairType: 'null_guard' as const, explanation: 'add a guard',
+      changes: [{ filePath: OUTSIDE_REPO, originalContent: 'a\n', newContent: 'b\n', description: 'guard' }],
+    }),
+    notify: async (content: string, severity: string) => { notices.push([content, severity]); },
+  };
+  const calls = await trapWritePrimitives();
+  try {
+    const initiated = await withRole('production', () => attemptAutoRepair('issue', '', deps as any));
+    assert.equal(initiated, false);
+  } finally {
+    restoreWritePrimitives();
+  }
+  assert.deepEqual(calls, []);
+  assert.equal(notices.length, 1);
+  assert.equal(notices[0][1], 'alert');
+  assert.match(notices[0][0], /could NOT be saved for review/);
+  assert.doesNotMatch(notices[0][0], /The plan is queued for review/);
 });
