@@ -47,7 +47,9 @@ const personaSource = readFileSync(
 // Every Anthropic call in a turn goes through one injected callback
 // (alden-anthropic-turn.ts). Rounds and the continuation wrap ask for tools,
 // and the callback attaches the projected declarations, never any other set.
-assert.match(personaSource, /const anthropicTools = toAnthropicAldenTools\(\);/,
+// The projection may be narrowed by the per-turn tool allowlist (gated-fixes
+// design e4f8e988); it is still built from toAnthropicAldenTools(), never ALDEN_TOOLS.
+assert.match(personaSource, /const anthropicTools = toAnthropicAldenTools\(\)(?:\.filter\([^;]*\))?;/,
   'persona service must build the provider projection');
 assert.equal(
   (personaSource.match(/tools: anthropicTools/g) ?? []).length,

@@ -1,6 +1,7 @@
 import { GoogleGenAI } from "@google/genai";
 import Anthropic from "@anthropic-ai/sdk";
 import { buildAldenSystemPrompt } from "../alden-system-prompt";
+import type { AldenToolAllowlist } from "./alden-tool-allowlist";
 import { ALDEN_TOOLS, executeAldenTool, toAnthropicAldenTools } from "./alden-functions";
 import { buildAldenWorkspaceContext } from "./alden-workspace-context";
 import { aldenActivity } from "./alden-activity-emitter";
@@ -129,6 +130,8 @@ interface AldenChatParams {
   engineOverride?: AldenEngine;
   reviewSourceReferences?: AldenReviewSourceReference[];
   reviewSourceEngine?: AldenEngine;
+  /** Restricts this turn to the listed tools, enforced at dispatch (see alden-tool-allowlist.ts). */
+  toolAllowlist?: AldenToolAllowlist;
 }
 
 interface ContinuationInfo {
@@ -144,6 +147,8 @@ interface AldenChatResponse {
   continuation?: ContinuationInfo;
   reviewSourceReferences?: AldenReviewSourceReference[];
   reviewSourceEngine?: AldenEngine;
+  /** The same allowlist the turn ran under; a caller starting a continuation phase must pass it on. */
+  toolAllowlist?: AldenToolAllowlist;
 }
 
 const MAX_AGENT_ROUNDS = 10;
@@ -181,7 +186,7 @@ async function generateAldenResponseAnthropic(params: AldenChatParams): Promise<
       ?? await loadAldenReviewSourceReferences("anthropic", conversationId));
     const claude = getAnthropicClient();
     const systemPrompt = buildAldenSystemPrompt({ founderName, timezone, engine: 'anthropic', modelId: ANTHROPIC_MODEL });
-    const anthropicTools = toAnthropicAldenTools();
+    const anthropicTools = toAnthropicAldenTools().filter((tool) => !params.toolAllowlist || params.toolAllowlist.has(tool.name));
 
     const messages: Anthropic.MessageParam[] = [];
 
@@ -248,7 +253,7 @@ async function generateAldenResponseAnthropic(params: AldenChatParams): Promise<
         toolsUsed.push(tu.name);
         aldenActivity.push({ type: 'tool_start', name: tu.name, timestamp: new Date().toISOString() });
         try {
-          const toolResult = await executeAldenTool(tu.name, (tu.input as Record<string, any>) || {}, { conversationId, engine: 'anthropic', reviewReadSession });
+          const toolResult = await executeAldenTool(tu.name, (tu.input as Record<string, any>) || {}, { conversationId, engine: 'anthropic', reviewReadSession, toolAllowlist: params.toolAllowlist });
           aldenActivity.push({ type: 'tool_result', name: tu.name, success: true, timestamp: new Date().toISOString() });
           const truncatedResult = serializeAldenToolResult(tu.name, toolResult.data);
           reviewReadSession.stageDelivery(tu.name, truncatedResult);
@@ -271,7 +276,7 @@ async function generateAldenResponseAnthropic(params: AldenChatParams): Promise<
     aldenActivity.push({ type: 'response_complete', timestamp: new Date().toISOString() });
 
     return { response: aldenResponse, toolsUsed, coordinationReadReceipts, continuation: pendingContinuation,
-      reviewSourceReferences: reviewReadSession.sourceReferences, reviewSourceEngine: "anthropic" };
+      reviewSourceReferences: reviewReadSession.sourceReferences, reviewSourceEngine: "anthropic", toolAllowlist: params.toolAllowlist };
   } catch (error: any) {
     console.error('[Alden Chat/Claude] Error:', error.message);
     return {
@@ -352,7 +357,7 @@ async function generateAldenResponseGemini(params: AldenChatParams): Promise<Ald
       model: GEMINI_MODEL,
       config: {
         systemInstruction: systemPrompt,
-        tools: [{ functionDeclarations: toGeminiFunctions(ALDEN_TOOLS) }],
+        tools: [{ functionDeclarations: toGeminiFunctions(ALDEN_TOOLS.filter((tool) => !params.toolAllowlist || params.toolAllowlist.has(tool.name))) }],
         // Gemini 3 takes a thinking level, not a token budget, and is tuned for its
         // default temperature. Alden reviews and reports, so it thinks at HIGH.
         thinkingConfig: { thinkingLevel: 'HIGH' as any },
@@ -394,7 +399,7 @@ async function generateAldenResponseGemini(params: AldenChatParams): Promise<Ald
         aldenActivity.push({ type: 'tool_start', name: toolName, timestamp: new Date().toISOString() });
 
         try {
-          const toolResult = await executeAldenTool(toolName, toolArgs, { conversationId, engine: 'gemini', reviewReadSession });
+          const toolResult = await executeAldenTool(toolName, toolArgs, { conversationId, engine: 'gemini', reviewReadSession, toolAllowlist: params.toolAllowlist });
           aldenActivity.push({ type: 'tool_result', name: toolName, success: true, timestamp: new Date().toISOString() });
 
           const truncatedResult = serializeAldenToolResult(toolName, toolResult.data);
@@ -463,7 +468,7 @@ async function generateAldenResponseGemini(params: AldenChatParams): Promise<Ald
 
     reviewReadSession.acknowledgeDelivery();
     return { response: aldenResponse, toolsUsed, coordinationReadReceipts, continuation: pendingContinuation,
-      reviewSourceReferences: reviewReadSession.sourceReferences, reviewSourceEngine: "gemini" };
+      reviewSourceReferences: reviewReadSession.sourceReferences, reviewSourceEngine: "gemini", toolAllowlist: params.toolAllowlist };
   } catch (error: any) {
     console.error('[Alden Chat] Error:', error.message);
     return {

@@ -24,6 +24,7 @@ import { getUserDb } from '../db';
 import { costTracker } from './cost-tracker';
 import { ALDEN_BACKGROUND_MODEL, ALDEN_BACKGROUND_THINKING } from './alden-background-model';
 import { aldenNotifications, buildQueue } from '@shared/schema';
+import { aldenWriteBoundary } from './alden-write-boundary';
 
 const GUARDIAN_MANIFEST_PATH = '/tmp/alden-guardian-manifest.json';
 const REPAIR_LOG_PATH = path.join(process.cwd(), '.local/alden-repairs.md');
@@ -284,9 +285,9 @@ function utcTimestamp(): string {
  * This is the "tiered autonomy" path: instead of silently dropping the issue, we
  * surface it for async review by the Agent or David.
  */
-async function queueAsProposal(issueDescription: string, reason: string): Promise<void> {
+/** Returns whether the proposal row was actually inserted. */
+export async function queueAsProposal(issueDescription: string, reason: string, db: Pick<ReturnType<typeof getUserDb>, 'insert'> = getUserDb()): Promise<boolean> {
   try {
-    const db = getUserDb();
     await db.insert(buildQueue).values({
       proposedBy: 'alden',
       title: `Auto-repair deferred: ${issueDescription.substring(0, 80)}`,
@@ -296,8 +297,10 @@ async function queueAsProposal(issueDescription: string, reason: string): Promis
       status: 'pending',
     });
     console.log('[AutoRepair] Queued as build proposal for review');
+    return true;
   } catch (err: any) {
     console.warn('[AutoRepair] Failed to queue proposal:', err.message);
+    return false;
   }
 }
 
@@ -305,21 +308,37 @@ async function queueAsProposal(issueDescription: string, reason: string): Promis
  * Main entry point. Called from alden-watch-worker when a WARNING or ALERT
  * issue is detected. Returns true if a repair was initiated, false if ineligible.
  */
+/**
+ * Model calls and the permitted durable records, injectable so tests can drive
+ * the real entry point. File writes and the guardian spawn are not injectable.
+ */
+export interface AutoRepairDeps {
+  classify: typeof classifyRepair;
+  plan: typeof generateRepairPlan;
+  queueProposal: typeof queueAsProposal;
+  notify: typeof writeNotification;
+}
+
 export async function attemptAutoRepair(
   issueDescription: string,
   recentErrors: string = '',
+  deps: Partial<AutoRepairDeps> = {},
 ): Promise<boolean> {
+  const classifyFn = deps.classify ?? classifyRepair;
+  const planFn = deps.plan ?? generateRepairPlan;
+  const queueProposal = deps.queueProposal ?? queueAsProposal;
+  const notify = deps.notify ?? writeNotification;
   console.log('[AutoRepair] Evaluating:', issueDescription.substring(0, 120));
 
   try {
-    const classification = await classifyRepair(issueDescription, recentErrors);
+    const classification = await classifyFn(issueDescription, recentErrors);
 
     if (!classification.eligible || classification.confidence !== 'high' || !classification.type) {
       // Tiered autonomy: if there's a meaningful signal (medium confidence or known type),
       // queue it for async review instead of silently dropping it.
       const worthQueuing = classification.confidence === 'medium' || classification.type !== null;
       if (worthQueuing) {
-        await queueAsProposal(issueDescription, classification.reason);
+        await queueProposal(issueDescription, classification.reason);
       }
       console.log(`[AutoRepair] Ineligible — ${worthQueuing ? 'queued for review' : 'dropped'}. ${classification.reason}`);
       return false;
@@ -327,7 +346,7 @@ export async function attemptAutoRepair(
 
     console.log(`[AutoRepair] Eligible: type=${classification.type} confidence=high`);
 
-    const plan = await generateRepairPlan(issueDescription, classification.type, recentErrors);
+    const plan = await planFn(issueDescription, classification.type, recentErrors);
     if (!plan) {
       console.log('[AutoRepair] Plan generation failed or was rejected by safety checks');
       return false;
@@ -335,11 +354,34 @@ export async function attemptAutoRepair(
 
     console.log(`[AutoRepair] Plan: ${plan.changes.length} file(s) — ${plan.explanation.substring(0, 80)}`);
 
+    // Production write boundary: outside `dev` the plan is queued for review;
+    // no manifest or file is written and no guardian is spawned.
+    const boundary = aldenWriteBoundary();
+    if (!boundary.allowed) {
+      const planText = plan.changes.map(c => `• ${c.filePath}: ${c.description}`).join('\n');
+      // Claim "queued" only after the insert is confirmed; otherwise say plainly it was lost.
+      const queued = await queueProposal(issueDescription, `${boundary.reason}. Proposed repair (${classification.type}): ${plan.explanation}\n${planText}`);
+      if (queued) {
+        await notify(
+          `Auto-repair proposed, not applied (${boundary.role}): ${plan.explanation}\n\nThe plan is queued for review. Nothing was written.`,
+          'info',
+        );
+        console.log(`[AutoRepair] Not applied (${boundary.role}); queued for review.`);
+      } else {
+        await notify(
+          `Auto-repair proposed, not applied (${boundary.role}), and the proposal could NOT be saved for review: ${plan.explanation}\n\nNothing was written, and nothing is waiting in the build queue. Issue: ${issueDescription}`,
+          'alert',
+        );
+        console.warn(`[AutoRepair] Not applied (${boundary.role}); the review proposal failed to save.`);
+      }
+      return false;
+    }
+
     const changeList = plan.changes
       .map(c => `• ${path.basename(c.filePath)}: ${c.description}`)
       .join('\n');
 
-    await writeNotification(
+    await notify(
       `Auto-repair initiated (${classification.type}):\n${plan.explanation}\n\nFiles:\n${changeList}\n\nGuardian is monitoring server health. A follow-up notification will confirm success or rollback.`,
       'info',
     );

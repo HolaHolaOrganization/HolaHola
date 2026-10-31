@@ -9,14 +9,18 @@
 
 import * as fs from 'fs';
 import Anthropic from '@anthropic-ai/sdk';
-import { getSharedDb } from '../db';
+import { getSharedDb, getUserDb } from '../db';
 import { costTracker } from './cost-tracker';
 import { ALDEN_BACKGROUND_MODEL, ALDEN_BACKGROUND_THINKING } from './alden-background-model';
-import { proposedCodeChanges, editorInsights, founderSessions } from '@shared/schema';
+import { proposedCodeChanges, editorInsights, founderSessions, aldenNotifications } from '@shared/schema';
 import { eq, and, desc, gte } from 'drizzle-orm';
 import { founderCollabService } from './founder-collaboration-service';
 import { postToActiveTeamRoom } from './team-room-proactive-poster';
 import { SourceControlService } from './source-control-service';
+import { aldenWriteBoundary } from './alden-write-boundary';
+import { applyPinnedApproval, planApproval } from './alden-review-approval';
+import { insertPinnedProposal, notifyStoredProposal } from './alden-propose-fix-service';
+import { workspaceResolution } from './workspace-root';
 
 const FOUNDER_ID = '49847136';
 const ALDEN_SESSION_TITLE = 'Alden Platform Management';
@@ -32,7 +36,7 @@ function getClient(): Anthropic {
 
 type ReviewDecision = 'approve' | 'revise' | 'escalate';
 
-interface ReviewResult {
+export interface ReviewResult {
   decision: ReviewDecision;
   reason: string;
   revisionGuidance?: string;
@@ -144,22 +148,6 @@ Be direct and specific. If revising, explain exactly what should be different. I
   };
 }
 
-function applyPatch(filePath: string, lineStart: number, lineEnd: number, afterCode: string): boolean {
-  try {
-    const raw = fs.readFileSync(filePath, 'utf-8');
-    const lines = raw.split('\n');
-    const before = lines.slice(0, lineStart - 1);
-    const after = lines.slice(lineEnd);
-    const newLines = [...before, ...afterCode.split('\n'), ...after];
-    fs.writeFileSync(filePath, newLines.join('\n'), 'utf-8');
-    console.log(`[AldenReview] Applied patch to ${filePath}:${lineStart}-${lineEnd}`);
-    return true;
-  } catch (err: any) {
-    console.error(`[AldenReview] File write failed for ${filePath}:`, err.message);
-    return false;
-  }
-}
-
 async function requestSourceControlSync(actor: string): Promise<{ success: boolean; output: string }> {
   try {
     const outcome = await new SourceControlService().sync(actor);
@@ -194,13 +182,14 @@ async function postReviewDecision(
   change: { id: string; findingTitle: string; filePath: string; lineStart: number; lineEnd: number; beforeCode: string; afterCode: string },
   result: ReviewResult,
   applied: boolean,
-  githubSynced: boolean
+  githubSynced: boolean,
+  notAppliedReason?: string,
 ): Promise<void> {
   const sessionId = await getOrCreateAldenSession();
 
   const icon = result.decision === 'approve' ? '✓' : result.decision === 'revise' ? '↩' : '⚠';
   const label = result.decision === 'approve'
-    ? applied ? 'APPROVED + APPLIED' : 'APPROVED (apply failed)'
+    ? applied ? 'APPROVED + APPLIED' : notAppliedReason ? 'APPROVED (not applied)' : 'APPROVED (apply failed)'
     : result.decision === 'revise' ? 'REVISION REQUESTED'
     : 'ESCALATED TO DAVID';
 
@@ -215,6 +204,10 @@ async function postReviewDecision(
 
   if (result.decision === 'revise' && result.revisionGuidance) {
     lines.push(``, `**Revision needed:** ${result.revisionGuidance}`);
+  }
+
+  if (result.decision === 'approve' && notAppliedReason) {
+    lines.push(``, `**Not applied:** ${notAppliedReason}`);
   }
 
   if (result.decision === 'approve' && applied) {
@@ -261,8 +254,53 @@ export interface CodeReviewSummary {
   failed: number;
 }
 
-export async function runReviewQueue(): Promise<CodeReviewSummary> {
-  const db = getSharedDb();
+/**
+ * External I/O the queue depends on, injectable so tests can drive the real
+ * entry point. Source writes and git sync are deliberately not injectable.
+ */
+export interface ReviewQueueDeps {
+  db: ReturnType<typeof getSharedDb>;
+  loadMemory: () => Promise<string>;
+  review: (change: typeof proposedCodeChanges.$inferSelect, memory: string) => Promise<ReviewResult>;
+  postDecision: typeof postReviewDecision;
+  /** The workspace the change is resolved and pinned against. */
+  root: string;
+  env: NodeJS.ProcessEnv;
+  /** Stores a production approval as a pending pinned proposal (propose_fix's route). */
+  storeProposal: (input: Parameters<typeof insertPinnedProposal>[1]) => Promise<{ id: string }>;
+  /** Records the permitted diagnostic notice for a blocked approval. */
+  notifyBlocked: (change: { id: string; findingTitle: string }, reason: string) => Promise<void>;
+}
+
+async function storeReviewedProposal(input: Parameters<typeof insertPinnedProposal>[1]): Promise<{ id: string }> {
+  const row = await insertPinnedProposal(getUserDb(), input);
+  await notifyStoredProposal(row);
+  return row;
+}
+
+async function noticeBlockedApproval(change: { id: string; findingTitle: string }, reason: string): Promise<void> {
+  const db = getUserDb();
+  const fingerprint = `review_blocked:${change.id}`.slice(0, 100);
+  const [existing] = await db.select({ id: aldenNotifications.id }).from(aldenNotifications).where(eq(aldenNotifications.fingerprint, fingerprint)).limit(1);
+  if (existing) return;
+  await db.insert(aldenNotifications).values({
+    content: `A code review approval is blocked and was not applied: "${change.findingTitle}" (${change.id}). Reason: ${reason}`,
+    triggeredBy: 'system',
+    severity: 'warning',
+    read: false,
+    fingerprint,
+  });
+}
+
+export async function runReviewQueue(deps: Partial<ReviewQueueDeps> = {}): Promise<CodeReviewSummary> {
+  const db = deps.db ?? getSharedDb();
+  const loadMemory = deps.loadMemory ?? loadAldenMemory;
+  const review = deps.review ?? reviewWithClaude;
+  const postDecision = deps.postDecision ?? postReviewDecision;
+  const root = deps.root ?? workspaceResolution.root;
+  const env = deps.env ?? process.env;
+  const storeProposal = deps.storeProposal ?? storeReviewedProposal;
+  const notifyBlocked = deps.notifyBlocked ?? noticeBlockedApproval;
   const summary: CodeReviewSummary = { total: 0, approved: 0, applied: 0, githubSynced: 0, revised: 0, escalated: 0, failed: 0 };
 
   const pending = await db
@@ -279,14 +317,14 @@ export async function runReviewQueue(): Promise<CodeReviewSummary> {
   console.log(`[AldenReview] Reviewing ${pending.length} proposed change(s)...`);
   summary.total = pending.length;
 
-  const memory = await loadAldenMemory();
+  const memory = await loadMemory();
 
   for (const change of pending) {
     console.log(`[AldenReview] Reviewing: "${change.findingTitle}"`);
     let result: ReviewResult;
 
     try {
-      result = await reviewWithClaude(change, memory);
+      result = await review(change, memory);
     } catch (err: any) {
       console.error(`[AldenReview] Claude review failed for "${change.findingTitle}":`, err.message);
       await db.update(proposedCodeChanges)
@@ -303,7 +341,63 @@ export async function runReviewQueue(): Promise<CodeReviewSummary> {
       let applied = false;
       let githubSynced = false;
 
-      applied = applyPatch(change.filePath, change.lineStart, change.lineEnd, change.afterCode);
+      // review_blocked: no apply, no sync, no pin; a diagnostic notice keeps it visible.
+      const blockApproval = async (reason: string): Promise<void> => {
+        const note = `Not applied: ${reason}.`;
+        await db.update(proposedCodeChanges).set({
+          status: 'review_blocked',
+          reviewerNotes: note,
+          aldenDecisionReason: result.reason,
+          reviewedAt: new Date(),
+          appliedAt: null,
+          githubSynced: false,
+        }).where(eq(proposedCodeChanges.id, change.id));
+        try {
+          await notifyBlocked(change, reason);
+        } catch (err: any) {
+          console.warn(`[AldenReview] Blocked-approval notice failed for ${change.id}:`, err?.message ?? err);
+        }
+        await postDecision(change, result, false, false, note);
+      };
+
+      // Design e4f8e988 P0b: decide before any write. Only dev, with a clean
+      // dev-head pin, applies; production stores a release-pinned proposal;
+      // anything else is review_blocked. The write boundary is checked again.
+      const plan = planApproval(change, root, env);
+      if (plan.kind === 'store') {
+        let note: string;
+        try {
+          const stored = await storeProposal({
+            title: `Reviewed fix: ${change.findingTitle}`.slice(0, 300),
+            description: `Approved by Alden's code review (proposed_code_changes ${change.id}).\n\nFinding: ${change.findingDescription}\n\nPatch rationale: ${change.patchRationale}\n\nAlden's review: ${result.reason}`,
+            change: plan.change,
+            patternId: null,
+            recheckSource: plan.recheckSource,
+          });
+          note = `Not applied: stored as pending proposal ${stored.id}, pinned to release ${plan.change.pin.commit}. It needs review before anything is built.`;
+          await db.update(proposedCodeChanges).set({
+            status: 'approved_pending_review',
+            buildQueueId: stored.id,
+            reviewerNotes: note,
+            aldenDecisionReason: result.reason,
+            reviewedAt: new Date(),
+            appliedAt: null,
+            githubSynced: false,
+          }).where(eq(proposedCodeChanges.id, change.id));
+          await postDecision(change, result, false, false, note);
+          continue;
+        } catch (err: any) {
+          // The pinned store failed (for example a stale recheck): block it visibly.
+          await blockApproval(`the proposal could not be stored: ${err?.message ?? err}`);
+          continue;
+        }
+      }
+      if (plan.kind === 'blocked' || !aldenWriteBoundary(env).allowed) {
+        await blockApproval(plan.kind === 'blocked' ? plan.reason : 'the write boundary refused applying it outside a dev instance');
+        continue;
+      }
+
+      applied = applyPinnedApproval(plan);
 
       if (applied) {
         summary.applied++;
@@ -317,12 +411,13 @@ export async function runReviewQueue(): Promise<CodeReviewSummary> {
       await db.update(proposedCodeChanges).set({
         status: applied ? 'applied' : 'approved',
         aldenDecisionReason: result.reason,
+        reviewerNotes: `Pinned to dev-head ${plan.pinCommit} before applying.`,
         reviewedAt: new Date(),
         appliedAt: applied ? new Date() : null,
         githubSynced,
       }).where(eq(proposedCodeChanges.id, change.id));
 
-      await postReviewDecision(change, result, applied, githubSynced);
+      await postDecision(change, result, applied, githubSynced);
 
     } else if (result.decision === 'revise') {
       summary.revised++;
@@ -333,7 +428,7 @@ export async function runReviewQueue(): Promise<CodeReviewSummary> {
         reviewedAt: new Date(),
       }).where(eq(proposedCodeChanges.id, change.id));
 
-      await postReviewDecision(change, result, false, false);
+      await postDecision(change, result, false, false);
 
     } else {
       summary.escalated++;
@@ -344,7 +439,7 @@ export async function runReviewQueue(): Promise<CodeReviewSummary> {
         reviewedAt: new Date(),
       }).where(eq(proposedCodeChanges.id, change.id));
 
-      await postReviewDecision(change, result, false, false);
+      await postDecision(change, result, false, false);
     }
   }
 

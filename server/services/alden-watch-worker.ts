@@ -257,6 +257,14 @@ async function runWatchCycle() {
     liveConsecutiveTrigger = params.consecutiveLowScoreTrigger;
   } catch { /* keep existing live values if DB read fails */ }
 
+  // Retry any propose_fix notice that failed after its proposal was stored.
+  try {
+    const { retryProposalNotices } = await import('./alden-propose-fix-service');
+    await retryProposalNotices();
+  } catch (err: any) {
+    console.warn('[AldenWatch] propose_fix notice retry failed:', err?.message ?? err);
+  }
+
   writeHeartbeat('running');
 
   try {

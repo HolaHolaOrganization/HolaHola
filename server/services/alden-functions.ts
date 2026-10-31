@@ -1,4 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { aldenToolRefusal, type AldenToolAllowlist } from './alden-tool-allowlist';
+import { aldenWriteToolRefusal } from './alden-write-boundary';
+import { aldenReadablePath, aldenSearchRoots, classifyAldenReadPath, resolveAldenReadPath, secretContentReason, secretPathReason } from './alden-read-policy';
 import { getSharedDb } from "../neon-db";
 import { getUserDb, getMonitoringDb } from "../db";
 import { 
@@ -38,7 +41,7 @@ import { computeHealthStatus } from "./voice-health-monitor";
 import { founderCollabService } from "./founder-collaboration-service";
 import * as fs from "fs";
 import * as path from "path";
-import { execSync, spawn } from "child_process";
+import { execFileSync, execSync, spawn } from "child_process";
 import { randomUUID } from "crypto";
 import { aldenActivity } from "./alden-activity-emitter";
 import { getMonitoringSnapshots, analyzePatterns } from "./monitoring-service";
@@ -246,6 +249,20 @@ export const ALDEN_TOOLS: AldenTool[] = [
         },
       },
       required: ["content"],
+    },
+  },
+  {
+    // Draft wording pending Alden's own (founder rule: Alden words his own prompts).
+    name: "update_support_pattern",
+    description: "During a Sofia triage task, record your findings on the support pattern the task was started for. Status may be 'open' or 'investigating' only; a pattern becomes fixed only from a merged and deployed change, never from this tool. Notes are appended with a timestamp, never replaced. Only the pattern this task was started for can be updated.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        pattern_id: { type: "string" as const, description: "The PATTERN ID from the triage task." },
+        status: { type: "string" as const, enum: ["open", "investigating"], description: "'investigating' while you look into it; 'open' if it needs someone else." },
+        notes: { type: "string" as const, description: "What you checked and found." },
+      },
+      required: ["pattern_id", "status", "notes"],
     },
   },
   {
@@ -614,6 +631,35 @@ export const ALDEN_TOOLS: AldenTool[] = [
     },
   },
   {
+    // Draft wording pending Alden's own (founder rule: Alden words his own prompts).
+    name: "propose_fix",
+    description: "Propose an exact code fix for review. Nothing is written: the change is checked, pinned to the source it was checked against, and stored as a pending build-queue proposal that a reviewer can turn into a pull request. Each edit is {path, find, replace}; find must occur exactly once in the file, edits to one file must not overlap, and at most 3 files may change. Read-only folders (.agents/memory, .agents/skills, .github/workflows) and blocklisted files cannot be targets. Set confidence honestly: only 'high' carries a pinned diff; 'low' or 'medium' store a description-only proposal.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        edits: {
+          type: "array" as const,
+          description: "The exact replacements. Several may name the same path.",
+          items: {
+            type: "object" as const,
+            properties: {
+              path: { type: "string" as const, description: "Workspace-relative file path." },
+              find: { type: "string" as const, description: "Exact text that occurs once in the file." },
+              replace: { type: "string" as const, description: "The replacement text." },
+            },
+            required: ["path", "find", "replace"],
+          },
+        },
+        rationale: { type: "string" as const, description: "What is wrong and why this change fixes it." },
+        evidence: { type: "string" as const, description: "What you observed: errors, logs, code you read." },
+        verify: { type: "string" as const, description: "How a reviewer can confirm the fix works." },
+        confidence: { type: "string" as const, enum: ["low", "medium", "high"], description: "Your own assessment of how certain this fix is." },
+        pattern_id: { type: "string" as const, description: "The support pattern this fix addresses, if any." },
+      },
+      required: ["edits", "rationale", "evidence", "verify", "confidence"],
+    },
+  },
+  {
     name: "queue_build_proposal",
     description: "Add a proposal to the build queue for async review by David or the Agent. Use when you identify a fix or improvement that is outside your auto-repair safe zone — schema changes, route changes, auth, billing, or anything requiring complex judgment. Include a full diff if you have one. The proposal is queued, not executed.",
     input_schema: {
@@ -937,8 +983,21 @@ export function toAnthropicAldenTools(
 export async function executeAldenTool(
   toolName: string,
   args: Record<string, any>,
-  context?: { conversationId?: string; engine?: 'anthropic' | 'gemini'; reviewReadSession?: AldenReviewReadSession }
+  context?: { conversationId?: string; engine?: 'anthropic' | 'gemini'; reviewReadSession?: AldenReviewReadSession; toolAllowlist?: AldenToolAllowlist }
 ): Promise<{ data: any; sideEffects?: Record<string, any> }> {
+  // Per-turn allowlist: refuse before any tool code runs (both engines, nested
+  // dispatch and continuations all pass through here).
+  const refusal = aldenToolRefusal(toolName, context?.toolAllowlist, args);
+  if (refusal) {
+    console.warn(`[Alden Tool] refused ${toolName}: not in allowlist "${refusal.allowlist}"`);
+    return { data: refusal };
+  }
+  // Production write boundary: file writes and shell only on a `dev` instance.
+  const writeRefusal = aldenWriteToolRefusal(toolName);
+  if (writeRefusal) {
+    console.warn(`[Alden Tool] refused ${toolName}: ${writeRefusal.refused}`);
+    return { data: writeRefusal };
+  }
   try {
     switch (toolName) {
       case "get_system_health": {
@@ -1647,6 +1706,35 @@ export async function executeAldenTool(
         return { data: { friction, layer, question, groundingFound, sections, responseText } };
       }
 
+      case "update_support_pattern": {
+        // Design e4f8e988 P3: only inside a triage task, only its own pattern
+        // (the dispatch gate enforces the binding), only open/investigating,
+        // and notes are appended, never replaced.
+        const patternId = context?.toolAllowlist?.bindings.supportPatternId;
+        if (!patternId) return { data: { error: 'update_support_pattern is only available inside a triage task for a tracked pattern', refused: 'no_triage_pattern' } };
+        if (args.pattern_id !== patternId) return { data: { error: `Only pattern ${patternId} can be updated in this task`, refused: 'tool_binding_mismatch' } };
+        if (args.status !== 'open' && args.status !== 'investigating') {
+          return { data: { error: "status must be 'open' or 'investigating'; a pattern is fixed only from a merged and deployed change", refused: 'status_not_allowed' } };
+        }
+        const notes = String(args.notes ?? '').trim();
+        if (!notes) return { data: { error: 'notes are required' } };
+        const { supportPatterns } = await import('@shared/schema');
+        const entry = `[${new Date().toISOString()}] Alden: ${notes.slice(0, 4000)}`;
+        const updated = await getSharedDb().update(supportPatterns).set({
+          status: args.status,
+          developerNotes: sql`CASE WHEN ${supportPatterns.developerNotes} IS NULL OR ${supportPatterns.developerNotes} = '' THEN ${entry} ELSE ${supportPatterns.developerNotes} || E'\n' || ${entry} END`,
+          // Atomic current-state guard: only a still-triageable pattern changes. A later
+          // fixed, wont_fix or known_benign decision is never reopened by a stale task.
+        }).where(and(eq(supportPatterns.id, patternId), sql`coalesce(${supportPatterns.status}, 'open') IN ('open', 'investigating')`))
+          .returning({ id: supportPatterns.id, status: supportPatterns.status });
+        if (updated.length === 0) {
+          const [current] = await getSharedDb().select({ status: supportPatterns.status }).from(supportPatterns).where(eq(supportPatterns.id, patternId));
+          if (!current) return { data: { error: `Pattern ${patternId} was not found` } };
+          return { data: { error: `Pattern ${patternId} is now '${current.status}', so this task can no longer change it; nothing was updated`, refused: 'pattern_not_editable', status: current.status } };
+        }
+        return { data: { updated: true, patternId, status: updated[0].status, appended: entry } };
+      }
+
       case "post_to_express_lane": {
         const { content, metadata } = args;
         const FOUNDER_ID = '49847136';
@@ -2093,15 +2181,19 @@ export async function executeAldenTool(
       }
 
       case "read_file": {
-        const filePath = safePath(args.path);
-        if (!fs.existsSync(filePath)) {
-          return { data: { error: `File not found: ${args.path}` } };
+        const decision = resolveAldenReadPath(args.path, WORKSPACE_ROOT);
+        if (!decision.ok) {
+          return { data: { error: `Cannot read ${args.path}: ${decision.reason}`, refused: 'read_path_refused' } };
         }
-        const stat = fs.statSync(filePath);
-        if (stat.isDirectory()) {
+        if (decision.kind === 'root' || decision.kind === 'ancestor' || fs.statSync(decision.abs).isDirectory()) {
           return { data: { error: `${args.path} is a directory — use list_directory instead` } };
         }
-        const allLines = fs.readFileSync(filePath, 'utf-8').split('\n');
+        const text = fs.readFileSync(decision.abs, 'utf-8');
+        const secret = secretContentReason(text);
+        if (secret) {
+          return { data: { error: `Cannot read ${args.path}: it contains what looks like a credential (${secret})`, refused: 'secret_content' } };
+        }
+        const allLines = text.split('\n');
         const totalLines = allLines.length;
         const startLine = Math.max(1, args.start_line || 1);
         const endLine = Math.min(totalLines, args.end_line || startLine + 199);
@@ -2122,7 +2214,7 @@ export async function executeAldenTool(
 
       case "search_code": {
         const pattern = args.pattern as string;
-        const searchDir = args.directory ? safePath(args.directory) : WORKSPACE_ROOT;
+        const searchDir = args.directory as string | undefined;
         const glob = args.file_glob as string | undefined;
         const caseSensitive = Boolean(args.case_sensitive);
         const contextLines = typeof args.context_lines === 'number' ? Math.min(args.context_lines, 50) : 0;
@@ -2193,7 +2285,7 @@ export async function executeAldenTool(
         const capped = searches.slice(0, 6);
 
         const runOneSearch = (spec: typeof capped[0]) => {
-          const searchDir = spec.directory ? safePath(spec.directory) : WORKSPACE_ROOT;
+          const searchDir = spec.directory;
           const contextLines = typeof spec.context_lines === 'number' ? Math.min(spec.context_lines, 50) : 0;
           let search: { output: string; usedFallback: boolean; bounded: boolean };
           try {
@@ -2234,12 +2326,20 @@ export async function executeAldenTool(
       }
 
       case "list_directory": {
-        const dirPath = safePath(args.path || '.');
-        if (!fs.existsSync(dirPath)) {
-          return { data: { error: `Directory not found: ${args.path}` } };
+        const decision = resolveAldenReadPath(args.path || '.', WORKSPACE_ROOT);
+        if (!decision.ok) {
+          return { data: { error: `Cannot list ${args.path || '.'}: ${decision.reason}`, refused: 'read_path_refused' } };
         }
-        const entries = fs.readdirSync(dirPath, { withFileTypes: true });
-        const dirs = entries.filter(e => e.isDirectory() && !e.name.startsWith('.')).map(e => e.name + '/').sort();
+        if (decision.kind === 'file' || !fs.statSync(decision.abs).isDirectory()) {
+          return { data: { error: `${args.path} is a file — use read_file instead` } };
+        }
+        // Entries are filtered by the same policy; symlinks are not listed or followed.
+        const entries = fs.readdirSync(decision.abs, { withFileTypes: true }).filter((e) => {
+          if (e.isSymbolicLink()) return false;
+          const childRel = decision.rel ? `${decision.rel}/${e.name}` : e.name;
+          return !secretPathReason(childRel) && classifyAldenReadPath(childRel) !== null;
+        });
+        const dirs = entries.filter(e => e.isDirectory()).map(e => e.name + '/').sort();
         const files = entries.filter(e => e.isFile()).map(e => e.name).sort();
         return {
           data: {
@@ -2719,7 +2819,8 @@ export async function executeAldenTool(
         const speaker = args.speaker || 'Alden';
 
         // Re-use get_ai_cost_report logic inline to get the formatted text
-        const reportResult = await executeAldenTool('get_ai_cost_report', { hours, env });
+        // Nested dispatch carries this turn's context, so an allowlist applies here too.
+        const reportResult = await executeAldenTool('get_ai_cost_report', { hours, env }, context);
         const reportData   = reportResult.data as any;
         const reportText   = reportData?.text as string;
         if (!reportText) return { data: { error: 'Failed to generate cost report' } };
@@ -2751,6 +2852,28 @@ export async function executeAldenTool(
             reportSummary: `Combined total: $${(reportData?.combined?.totalCostUsd ?? 0).toFixed(4)} over last ${hours}h`,
           },
         };
+      }
+
+      case 'propose_fix': {
+        const { proposeFix } = await import('./alden-propose-fix-service');
+        try {
+          const { row } = await proposeFix(args as any, { root: WORKSPACE_ROOT });
+          return {
+            data: {
+              proposed: true,
+              id: row.id,
+              confidence: row.confidence,
+              pin: row.pinKind ? { kind: row.pinKind, commit: row.pinCommit } : null,
+              files: row.filesAffected,
+              notifyState: row.notifyState,
+              note: row.pinKind
+                ? 'Stored as a pending, pinned proposal for review. Nothing was written.'
+                : 'Stored as a description-only proposal (confidence below high). Nothing was written.',
+            },
+          };
+        } catch (err: any) {
+          return { data: { error: `Fix not proposed: ${err?.message ?? err}`, refused: 'propose_fix_refused' } };
+        }
       }
 
       case 'queue_build_proposal': {
@@ -3279,6 +3402,10 @@ interface FallbackSearchOptions {
   caseSensitive?: boolean;
   contextLines?: number;
   maxMatches: number;
+  /** Read-policy filter on the workspace-relative (posix) path. */
+  isReadable: (rel: string) => boolean;
+  /** Search only this entry of searchDir (a single top-level file). */
+  onlyName?: string;
 }
 
 /**
@@ -3321,6 +3448,7 @@ function fallbackCodeSearch(
     }
     for (const entry of entries) {
       if (bounded || matchCount >= opts.maxMatches) return;
+      if (opts.onlyName !== undefined && entry.name !== opts.onlyName) continue;
       if (
         Date.now() - startedAt > FALLBACK_MAX_MS ||
         filesScanned > FALLBACK_MAX_FILES_SCANNED ||
@@ -3331,8 +3459,9 @@ function fallbackCodeSearch(
       }
       if (entry.isSymbolicLink()) continue;
       const fullPath = path.join(dir, entry.name);
+      const entryRel = path.relative(WORKSPACE_ROOT, fullPath).split(path.sep).join('/');
       if (entry.isDirectory()) {
-        if (FALLBACK_EXCLUDED_DIRS.has(entry.name)) continue;
+        if (FALLBACK_EXCLUDED_DIRS.has(entry.name) || secretPathReason(entryRel)) continue;
         walk(fullPath, depth + 1);
         continue;
       }
@@ -3340,6 +3469,7 @@ function fallbackCodeSearch(
       const ext = path.extname(entry.name).toLowerCase();
       if (FALLBACK_EXCLUDED_EXTENSIONS.has(ext)) continue;
       if (globMatcher && !globMatcher.test(entry.name)) continue;
+      if (!opts.isReadable(entryRel)) continue;
       filesScanned++;
       let stat: fs.Stats;
       try {
@@ -3357,7 +3487,7 @@ function fallbackCodeSearch(
       }
       if (content.includes('\u0000')) continue; // skip binary-looking files
       const lines = content.split('\n');
-      const relPath = fullPath.startsWith(WORKSPACE_ROOT + '/') ? fullPath.slice(WORKSPACE_ROOT.length + 1) : fullPath;
+      const relPath = entryRel;
       let lastEmittedLine = -1;
       for (let i = 0; i < lines.length; i++) {
         if (matchCount >= opts.maxMatches) break;
@@ -3423,29 +3553,38 @@ const FALLBACK_MAX_DEPTH = 12;
  */
 function runCodeSearch(
   pattern: string,
-  searchDir: string,
+  directory: string | undefined,
   opts: CodeSearchExecOptions,
 ): { output: string; usedFallback: boolean; bounded: boolean } {
+  // Read confinement (design e4f8e988 P2): the directory is resolved under the
+  // read policy, the search runs only over the readable roots beneath it, and
+  // every result path is filtered again, by path and by content.
+  const decision = resolveAldenReadPath(directory ?? '.', WORKSPACE_ROOT);
+  if (!decision.ok) throw new Error(`Search refused: ${decision.reason}`);
+  const roots = aldenSearchRoots(decision, WORKSPACE_ROOT);
+  if (roots.length === 0) return { output: '', usedFallback: false, bounded: false };
+  const readable = new Map<string, boolean>();
+  const isReadable = (rel: string) => aldenReadablePath(rel, WORKSPACE_ROOT, readable);
   if (rgAvailable()) {
-    const rgParts: string[] = ['rg', '--line-number', '--with-filename', '--glob=!node_modules/**', '--glob=!dist/**', '--glob=!.git/**'];
-    if (!opts.caseSensitive) rgParts.push('-i');
-    if (opts.glob) rgParts.push(`--glob=${opts.glob}`);
+    // An argument array, never a shell command line: the model-supplied pattern,
+    // glob and directory reach rg verbatim (file_glob used to be unquoted).
+    // --json gives each result's exact path for the filter.
+    const rgArgs: string[] = ['--json', '--hidden', '--glob=!node_modules/**', '--glob=!dist/**', '--glob=!.git/**', '--glob=!.env*'];
+    if (!opts.caseSensitive) rgArgs.push('-i');
+    if (opts.glob) rgArgs.push(`--glob=${opts.glob}`);
     if (opts.contextLines > 0) {
-      rgParts.push(`-C ${opts.contextLines}`);
+      rgArgs.push('-C', String(opts.contextLines));
     } else {
-      rgParts.push('--no-heading', ...(opts.rgExtraArgs ?? ['--max-count=3']));
+      rgArgs.push(...(opts.rgExtraArgs ?? ['--max-count=3']));
     }
-    const safePattern = pattern.replace(/'/g, `'\\''`);
-    const safeDir = searchDir.replace(/'/g, `'\\''`);
-    rgParts.push(`-e '${safePattern}'`, `'${safeDir}'`);
+    rgArgs.push('-e', pattern, '--', ...roots);
     try {
-      const output = execSync(rgParts.join(' '), {
+      const json = execFileSync('rg', rgArgs, {
         cwd: WORKSPACE_ROOT,
-        maxBuffer: opts.maxBuffer,
+        maxBuffer: opts.maxBuffer * 4,
         timeout: opts.timeoutMs,
-        shell: '/bin/sh',
       }).toString();
-      return { output, usedFallback: false, bounded: false };
+      return { output: renderRgJson(json, opts.contextLines > 0, isReadable), usedFallback: false, bounded: false };
     } catch (e: any) {
       if (e.status === 1) return { output: '', usedFallback: false, bounded: false };
       if (e.status === 127 || e.code === 'ENOENT') {
@@ -3457,13 +3596,52 @@ function runCodeSearch(
       }
     }
   }
-  const result = fallbackCodeSearch(pattern, searchDir, {
-    glob: opts.glob,
-    caseSensitive: opts.caseSensitive,
-    contextLines: opts.contextLines,
-    maxMatches: opts.maxMatches,
-  });
-  return { output: result.output, usedFallback: true, bounded: result.bounded };
+  let output = '';
+  let bounded = false;
+  for (const root of roots) {
+    // A top-level file root is searched as the one named entry of its directory.
+    const isFileRoot = fs.statSync(path.join(WORKSPACE_ROOT, root)).isFile();
+    const result = fallbackCodeSearch(pattern, path.join(WORKSPACE_ROOT, isFileRoot ? path.dirname(root) : root), {
+      glob: opts.glob,
+      caseSensitive: opts.caseSensitive,
+      contextLines: opts.contextLines,
+      maxMatches: opts.maxMatches,
+      isReadable,
+      onlyName: isFileRoot ? path.basename(root) : undefined,
+    });
+    if (result.output) output += (output && opts.contextLines > 0 ? '\n--\n' : output ? '\n' : '') + result.output;
+    bounded ||= result.bounded;
+  }
+  return { output, usedFallback: true, bounded };
+}
+
+/**
+ * Render rg --json events as rg's plain text (`path:line:text` for matches,
+ * `path-line-text` for context, `--` between groups in context mode), keeping
+ * only results whose path passes the read policy.
+ */
+export function renderRgJson(json: string, withContext: boolean, isReadable: (rel: string) => boolean): string {
+  const out: string[] = [];
+  let lastPath = '';
+  let lastLine = -1;
+  for (const raw of json.split('\n')) {
+    if (!raw) continue;
+    let event: any;
+    try { event = JSON.parse(raw); } catch { continue; }
+    if (event.type !== 'match' && event.type !== 'context') continue;
+    const file = event.data?.path?.text;
+    const text = event.data?.lines?.text;
+    const line = event.data?.line_number;
+    if (typeof file !== 'string' || typeof text !== 'string' || typeof line !== 'number') continue;
+    const rel = file.split('\\').join('/').replace(/^\.\//, '');
+    if (!isReadable(rel)) continue;
+    if (withContext && out.length > 0 && (rel !== lastPath || line > lastLine + 1)) out.push('--');
+    const sep = event.type === 'match' ? ':' : '-';
+    out.push(`${rel}${sep}${line}${sep}${text.replace(/\r?\n$/, '')}`);
+    lastPath = rel;
+    lastLine = line;
+  }
+  return out.join('\n');
 }
 
 const FALLBACK_MAX_FILES_SCANNED = 20_000;

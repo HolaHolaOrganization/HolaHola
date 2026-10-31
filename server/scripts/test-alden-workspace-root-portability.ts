@@ -100,14 +100,16 @@ function createFixtures(): { tempRoot: string; canaryToken: string } {
   const tempRoot = mkdtempSync(join(tmpdir(), 'alden-workspace-root-'));
   mkdirSync(join(tempRoot, 'server'), { recursive: true });
   mkdirSync(join(tempRoot, 'shared'), { recursive: true });
-  mkdirSync(join(tempRoot, 'alden-canary-subdir'), { recursive: true });
+  // The canaries live under server/: Alden's read policy (gated-fixes design e4f8e988 P2)
+  // exposes only its allowed root, so a canary at the workspace top level is hidden by design.
+  mkdirSync(join(tempRoot, 'server', 'alden-canary-subdir'), { recursive: true });
   writeFileSync(join(tempRoot, 'package.json'), '{}');
   writeFileSync(join(tempRoot, 'drizzle.config.ts'), 'export default {};');
   writeFileSync(join(tempRoot, 'shared', 'schema.ts'), 'export {};');
 
   const canaryToken = `ALDEN_WORKSPACE_CANARY_${randomUUID().replace(/-/g, '')}`;
-  writeFileSync(join(tempRoot, 'ALDEN_WORKSPACE_CANARY.txt'), `${canaryToken}\n`);
-  writeFileSync(join(tempRoot, 'alden-canary-subdir', 'nested-canary.txt'), `${canaryToken}-nested\n`);
+  writeFileSync(join(tempRoot, 'server', 'ALDEN_WORKSPACE_CANARY.txt'), `${canaryToken}\n`);
+  writeFileSync(join(tempRoot, 'server', 'alden-canary-subdir', 'nested-canary.txt'), `${canaryToken}-nested\n`);
 
   return { tempRoot, canaryToken };
 }
