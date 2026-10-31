@@ -36,6 +36,22 @@ const COVERABLE = ['eligible', 'manual'];
 
 export type WakeOutcome = 'declined' | 'needs_david' | 'failed' | 'observed';
 
+/**
+ * One unattended wake turn, passed to executeAldenTool. The dispatcher routes
+ * the reply tool through publishAldenItemResponse under this claim and
+ * records what happened here, so the worker can choose the outcome.
+ */
+export interface AldenWakeTurn {
+  inboxItemId: string;
+  workerId: string;
+  claimEpoch: number;
+  threadId: string;
+  targetSender: string;
+  itemKind: WakeItemKind;
+  published?: PublishResult;
+  notified?: boolean;
+}
+
 export interface WakeAttempt {
   inboxItemId: string;
   itemKind: WakeItemKind;
@@ -616,6 +632,12 @@ export async function deliverWakeNotices(db: Db = getSharedDb(), limit = 20): Pr
 export async function findAldenItemByEvent(eventId: string, db: Db = getSharedDb()): Promise<string | null> {
   const [row] = rowsOf(await db.execute(sql`select id from coordination_inbox_items where recipient_actor = ${WAKE_RECIPIENT} and coordination_event_id = ${eventId}`));
   return row?.id ?? null;
+}
+
+/** Where an item's reply must go: its thread and its sender. */
+export async function aldenItemReplyTarget(inboxItemId: string, db: Db = getSharedDb()): Promise<{ threadId: string; sender: string } | null> {
+  const [row] = rowsOf(await db.execute(sql`select target_thread_id, target_sender from alden_wake_attempts where inbox_item_id = ${inboxItemId}`));
+  return row ? { threadId: row.target_thread_id, sender: row.target_sender } : null;
 }
 
 /** Ends a thread pause on an explicit resume, recording who resumed it. */

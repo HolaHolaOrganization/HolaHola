@@ -87,6 +87,7 @@ export const BACKGROUND_TASKS = {
   'lyra-analytics': { roles: PRODUCTION_ONLY, what: 'Lyra learning-experience analytics worker' },
   'alden-digest': { roles: PRODUCTION_ONLY, what: 'Alden weekly digest worker' },
   'alden-watch': { roles: PRODUCTION_ONLY, what: 'Alden watch notifications worker' },
+  'alden-wake': { roles: PRODUCTION_ONLY, what: 'Alden inbox wake: answers coordination items addressed to him every 60 s (emergency stops: alden_wake_control, ALDEN_INBOX_WAKE=off)' },
   'thread-weaver-refresh': { roles: PRODUCTION_ONLY, what: 'thread weaver monthly refresh' },
   'shared-lobe-snapshot': { roles: PRODUCTION_ONLY, what: 'shared lobe snapshot and watcher' },
   'agent-notes-snapshot': { roles: PRODUCTION_ONLY, what: 'agent notes inbox snapshot' },

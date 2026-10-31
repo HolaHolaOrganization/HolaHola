@@ -17649,6 +17649,7 @@ Return ONLY valid JSON, no markdown, no explanation.`;
           timezone,
           reviewSourceReferences,
           reviewSourceEngine,
+          founderPresent: true,
         });
 
         reviewSourceReferences = result.reviewSourceReferences;

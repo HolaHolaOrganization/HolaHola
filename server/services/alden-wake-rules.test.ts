@@ -5,7 +5,7 @@
  */
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { isRepeatingExchange, loopHash, normalizeForLoop, noticeOwed } from './alden-wake-rules';
+import { buildWakeMessage, decideWakeOutcome, isRepeatingExchange, loopHash, normalizeForLoop, noticeOwed, wakeEngineConfig } from './alden-wake-rules';
 
 type Pair = Parameters<typeof isRepeatingExchange>[0][number];
 let sequence = 1000;
@@ -71,4 +71,26 @@ test('notices: observe items only on failure-like outcomes; addressed items on e
   for (const state of ['failed', 'uncertain', 'conflict']) assert.equal(noticeOwed('observe', state), true, state);
   for (const state of ['replied', 'declined', 'needs_david', 'failed', 'uncertain', 'conflict']) assert.equal(noticeOwed('addressed', state), true, state);
   for (const state of ['handled_in_chat', 'covered', 'history', 'manual']) assert.equal(noticeOwed('addressed', state), false, state);
+});
+
+test('the wake message fills the event into Alden\'s words', () => {
+  const message = buildWakeMessage({ eventId: 'ev-1', threadId: 'th-1', title: 'Onboarding', actor: 'luca-codex', createdAt: '2026-10-31T09:00:00.000Z' });
+  assert.ok(message.startsWith('[INBOX WAKE — David is not present] Coordination event ev-1 on thread th-1 ("Onboarding") from luca-codex, created 2026-10-31T09:00:00.000Z.'));
+  assert.ok(message.endsWith('Only items listed there count as covered, and only items on this thread from the same sender.'));
+});
+
+test('outcome without a publication: failed on error, observed for observe items, needs_david only after notify', () => {
+  assert.equal(decideWakeOutcome({ itemKind: 'addressed', published: { status: 'replied' } }, { }), null);
+  assert.deepEqual(decideWakeOutcome({ itemKind: 'addressed' }, { error: 'boom' }), { outcome: 'failed', errorClass: 'turn_error' });
+  assert.deepEqual(decideWakeOutcome({ itemKind: 'addressed' }, null), { outcome: 'failed', errorClass: 'turn_error' });
+  assert.deepEqual(decideWakeOutcome({ itemKind: 'observe', notified: true }, {}), { outcome: 'observed' });
+  assert.deepEqual(decideWakeOutcome({ itemKind: 'addressed', notified: true }, {}), { outcome: 'needs_david' });
+  assert.deepEqual(decideWakeOutcome({ itemKind: 'addressed' }, {}), { outcome: 'declined' });
+});
+
+test('the wake engine is Gemini by default, Sonnet by configuration, and anything else fails closed', () => {
+  assert.deepEqual(wakeEngineConfig(undefined, 'claude-sonnet-5-5'), { engine: 'gemini' });
+  assert.deepEqual(wakeEngineConfig(' Gemini ', 'claude-sonnet-5-5'), { engine: 'gemini' });
+  assert.deepEqual(wakeEngineConfig('sonnet', 'claude-sonnet-5-5'), { engine: 'anthropic', model: 'claude-sonnet-5-5' });
+  assert.throws(() => wakeEngineConfig('opus', 'claude-sonnet-5-5'), /must be "gemini" or "sonnet"/);
 });
