@@ -37,7 +37,7 @@ const COVERABLE = ['eligible', 'manual'];
 export type WakeOutcome = 'declined' | 'needs_david' | 'failed' | 'observed';
 
 export interface WakeAttempt {
-  inboxItemId: string;
+  itemId: string;
   itemKind: WakeItemKind;
   eventGlobalSequence: number;
   state: string;
@@ -55,7 +55,7 @@ const jsonArray = (values: readonly string[]) => sql`(select coalesce(array_agg(
 
 function toAttempt(row: any): WakeAttempt {
   return {
-    inboxItemId: row.inbox_item_id,
+    itemId: row.item_id,
     itemKind: row.item_kind,
     eventGlobalSequence: Number(row.event_global_sequence),
     state: row.state,
@@ -76,19 +76,19 @@ function toAttempt(row: any): WakeAttempt {
  * there could predate the wait (design r7).
  */
 async function leaseLive(tx: Db, itemId: string): Promise<boolean> {
-  const [row] = rowsOf(await tx.execute(sql`select lease_until > clock_timestamp() as live from alden_wake_attempts where inbox_item_id = ${itemId}`));
+  const [row] = rowsOf(await tx.execute(sql`select lease_until > clock_timestamp() as live from alden_wake_attempts where item_id = ${itemId}`));
   return row?.live === true;
 }
 
 async function audit(tx: Db, itemId: string, epoch: number, workerId: string, result: 'published' | 'superseded' | 'refused' | 'failed', reason: string | null) {
-  await tx.execute(sql`insert into alden_wake_attempt_audit (inbox_item_id, claim_epoch, worker_id, result, reason)
+  await tx.execute(sql`insert into alden_wake_attempt_audit (item_id, claim_epoch, worker_id, result, reason)
     values (${itemId}, ${epoch}, ${workerId}, ${result}, ${reason})`);
 }
 
-async function addNotice(tx: Db, attempt: { inboxItemId: string; itemKind: WakeItemKind }, state: string) {
+async function addNotice(tx: Db, attempt: { itemId: string; itemKind: WakeItemKind }, state: string) {
   if (!noticeOwed(attempt.itemKind, state)) return;
-  await tx.execute(sql`insert into alden_wake_notice_outbox (inbox_item_id, state_reported, dedupe_key)
-    values (${attempt.inboxItemId}, ${state}, ${`alden_wake:${attempt.inboxItemId}:${state}`})
+  await tx.execute(sql`insert into alden_wake_notice_outbox (item_id, state_reported, dedupe_key)
+    values (${attempt.itemId}, ${state}, ${`alden_wake:${attempt.itemId}:${state}`})
     on conflict (dedupe_key) do nothing`);
 }
 
@@ -101,10 +101,10 @@ async function addNotice(tx: Db, attempt: { inboxItemId: string; itemKind: WakeI
 export async function advanceAldenCursor(tx: Db): Promise<number | null> {
   const [row] = rowsOf(await tx.execute(sql`
     select least(
-      (select min(event_global_sequence) from alden_wake_attempts where state in ('eligible', 'claimed', 'uncertain')),
+      (select min(event_global_sequence) from alden_wake_attempts where item_kind = 'addressed' and state in ('eligible', 'claimed', 'uncertain')),
       (select min(i.event_global_sequence) from coordination_inbox_items i
         where i.recipient_actor = ${WAKE_RECIPIENT}
-          and not exists (select 1 from alden_wake_attempts a where a.inbox_item_id = i.id))
+          and not exists (select 1 from alden_wake_attempts a where a.item_id = i.id))
     ) as blocked,
     (select max(event_global_sequence) from coordination_inbox_items where recipient_actor = ${WAKE_RECIPIENT}) as top`));
   if (row.top === null) return null;
@@ -150,16 +150,16 @@ export async function activateWake(db: Db = getSharedDb()): Promise<{ enabled: b
  */
 export async function seedWakeAttempts(db: Db = getSharedDb()): Promise<number> {
   const result = await db.execute(sql`
-    insert into alden_wake_attempts (inbox_item_id, item_kind, event_global_sequence, state, effect_key, target_thread_id, target_sender)
-    select i.id, 'addressed', i.event_global_sequence,
+    insert into alden_wake_attempts (item_id, item_kind, inbox_item_id, event_id, event_global_sequence, state, effect_key, target_thread_id, target_sender)
+    select i.id, 'addressed', i.id, i.coordination_event_id, i.event_global_sequence,
       case when i.event_global_sequence <= c.cutoff_global_sequence then 'history' else 'eligible' end,
       'alden-wake:' || i.id, i.coordination_thread_id, i.sender_actor
     from coordination_inbox_items i
     cross join alden_wake_control c
     where c.id = 'alden' and c.cutoff_global_sequence is not null
       and i.recipient_actor = ${WAKE_RECIPIENT}
-      and not exists (select 1 from alden_wake_attempts a where a.inbox_item_id = i.id)
-    on conflict (inbox_item_id) do nothing`);
+      and not exists (select 1 from alden_wake_attempts a where a.item_id = i.id)
+    on conflict (item_id) do nothing`);
   return Number(result?.rowCount ?? 0);
 }
 
@@ -192,8 +192,7 @@ async function recentWakeReplies(tx: Db, threadId: string): Promise<ThreadReplyP
            t.actor as trigger_actor, t.content as trigger_content
     from alden_wake_attempts a
     join coordination_events r on r.id = a.reply_event_id
-    join coordination_inbox_items i on i.id = a.inbox_item_id
-    join coordination_events t on t.id = i.coordination_event_id
+    join coordination_events t on t.id = a.event_id
     where a.target_thread_id = ${threadId} and a.state = 'replied'
     order by r.global_sequence desc
     limit ${LOOP_LENGTH}`));
@@ -300,7 +299,7 @@ export async function claimNextWakeItem(
     }
 
     const candidates = rowsOf(await tx.execute(sql`
-      select inbox_item_id, target_thread_id from alden_wake_attempts
+      select item_id, target_thread_id from alden_wake_attempts
       where state = 'eligible'
       order by (item_kind = 'observe'), event_global_sequence
       limit ${CLAIM_SCAN_LIMIT}
@@ -314,7 +313,7 @@ export async function claimNextWakeItem(
         update alden_wake_attempts set state = 'claimed', claim_epoch = claim_epoch + 1, claimed_by = ${workerId},
           claimed_at = clock_timestamp(), lease_until = clock_timestamp() + make_interval(secs => ${leaseMs / 1000}),
           claim_day = (clock_timestamp() at time zone 'UTC')::date, updated_at = clock_timestamp()
-        where inbox_item_id = ${candidate.inbox_item_id} and state = 'eligible'
+        where item_id = ${candidate.item_id} and state = 'eligible'
         returning *`));
       if (row) return { status: 'claimed', attempt: toAttempt(row), held } as const;
     }
@@ -326,7 +325,7 @@ export async function claimNextWakeItem(
 // Publication
 
 export interface PublishInput {
-  inboxItemId: string;
+  itemId: string;
   /** 'wake' needs the claim's worker and epoch; 'chat' means David is present. */
   mode: 'wake' | 'chat';
   workerId: string;
@@ -357,12 +356,11 @@ async function applyCoverage(tx: Db, trigger: WakeAttempt, triggerEventId: strin
   const refused: CoverageRefusal[] = [];
   if (eventIds.length === 0) return { covered, refused };
   const rows = rowsOf(await tx.execute(sql`
-    select a.*, i.coordination_event_id from alden_wake_attempts a
-    join coordination_inbox_items i on i.id = a.inbox_item_id
-    where i.recipient_actor = ${WAKE_RECIPIENT}
-      and i.coordination_event_id in (select value from jsonb_array_elements_text(${JSON.stringify(eventIds)}::jsonb) as value)
-    order by a.inbox_item_id
-    for update of a`));
+    select a.*, a.event_id as coordination_event_id from alden_wake_attempts a
+    where a.item_kind = 'addressed'
+      and a.event_id in (select value from jsonb_array_elements_text(${JSON.stringify(eventIds)}::jsonb) as value)
+    order by a.item_id
+    for update`));
   const byEvent = new Map(rows.map((row) => [row.coordination_event_id as string, row]));
   for (const eventId of new Set(eventIds)) {
     const row = byEvent.get(eventId);
@@ -374,9 +372,9 @@ async function applyCoverage(tx: Db, trigger: WakeAttempt, triggerEventId: strin
       : !COVERABLE.includes(row.state) ? 'terminal'
       : null;
     if (reason) { refused.push({ eventId, reason }); continue; }
-    await tx.execute(sql`update alden_wake_attempts set state = 'covered', covered_by = ${trigger.inboxItemId},
+    await tx.execute(sql`update alden_wake_attempts set state = 'covered', covered_by = ${trigger.itemId},
       covered_reply_event_id = ${replyEventId}, decided_by = ${decidedBy}, decided_at = clock_timestamp(), updated_at = clock_timestamp()
-      where inbox_item_id = ${row.inbox_item_id} and state in ('eligible', 'manual')`);
+      where item_id = ${row.item_id} and state in ('eligible', 'manual')`);
     covered.push(eventId);
   }
   return { covered, refused };
@@ -404,18 +402,18 @@ export async function publishAldenItemResponse(input: PublishInput, db: Db = get
   try {
     return await db.transaction(async (tx: Db) => {
       const [locked] = rowsOf(await tx.execute(sql`
-        select a.*, i.coordination_event_id
-        from alden_wake_attempts a join coordination_inbox_items i on i.id = a.inbox_item_id
-        where a.inbox_item_id = ${input.inboxItemId} for update of a`));
-      if (!locked) throw new Error(`no wake attempt for inbox item ${input.inboxItemId}`);
+        select a.*, a.event_id as coordination_event_id
+        from alden_wake_attempts a
+        where a.item_id = ${input.itemId} for update`));
+      if (!locked) throw new Error(`no wake attempt for inbox item ${input.itemId}`);
       const attempt = toAttempt(locked);
 
       if (input.mode === 'wake') {
         const live = attempt.state === 'claimed' && attempt.claimEpoch === input.claimEpoch
-          && attempt.claimedBy === input.workerId && await leaseLive(tx, attempt.inboxItemId);
+          && attempt.claimedBy === input.workerId && await leaseLive(tx, attempt.itemId);
         if (!live) throw new FencedOut(attempt.state);
       } else if (!CHAT_ANSWERABLE.includes(attempt.state)) {
-        await audit(tx, attempt.inboxItemId, attempt.claimEpoch, input.workerId, 'refused', `already_answered:${attempt.state}`);
+        await audit(tx, attempt.itemId, attempt.claimEpoch, input.workerId, 'refused', `already_answered:${attempt.state}`);
         return { status: 'already_answered', state: attempt.state } as const;
       }
 
@@ -430,7 +428,7 @@ export async function publishAldenItemResponse(input: PublishInput, db: Db = get
         const payloadSha = sha256(input.content);
         // Durable intent first: the payload digest and the requested coverage.
         await tx.execute(sql`update alden_wake_attempts set reply_payload_sha256 = ${payloadSha},
-          requested_covers = ${jsonArray(covers)}, updated_at = clock_timestamp() where inbox_item_id = ${attempt.inboxItemId}`);
+          requested_covers = ${jsonArray(covers)}, updated_at = clock_timestamp() where item_id = ${attempt.itemId}`);
         const [thread] = rowsOf(await tx.execute(sql`select latest_sequence from coordination_threads where id = ${attempt.targetThreadId} for update`));
         const appended = await appendCoordinationEvent({
           threadId: attempt.targetThreadId,
@@ -438,7 +436,7 @@ export async function publishAldenItemResponse(input: PublishInput, db: Db = get
           eventType: 'comment',
           content: input.content,
           recipientActor: attempt.targetSender as any,
-          payload: { model: input.model ?? null, inboxItemId: attempt.inboxItemId, covers, via: input.mode === 'wake' ? 'alden-wake' : 'alden-chat' },
+          payload: { model: input.model ?? null, itemId: attempt.itemId, covers, via: input.mode === 'wake' ? 'alden-wake' : 'alden-chat' },
           idempotencyKey: attempt.effectKey,
           expectedSequence: Number(thread.latest_sequence),
         }, tx);
@@ -457,9 +455,9 @@ export async function publishAldenItemResponse(input: PublishInput, db: Db = get
       await tx.execute(sql`update alden_wake_attempts set state = ${outcome}, reply_event_id = ${replyEventId},
         claim_epoch = claim_epoch + ${epochBump}, notes = ${input.note ?? reason},
         decided_by = ${input.mode === 'chat' ? 'alden-chat' : null}, decided_at = clock_timestamp(), updated_at = clock_timestamp()
-        where inbox_item_id = ${attempt.inboxItemId}`);
+        where item_id = ${attempt.itemId}`);
       if (input.mode === 'wake' || outcome === 'conflict' || outcome === 'uncertain') await addNotice(tx, attempt, outcome);
-      await audit(tx, attempt.inboxItemId, attempt.claimEpoch + epochBump, input.workerId, outcome === 'replied' || outcome === 'handled_in_chat' ? 'published' : 'failed', reason);
+      await audit(tx, attempt.itemId, attempt.claimEpoch + epochBump, input.workerId, outcome === 'replied' || outcome === 'handled_in_chat' ? 'published' : 'failed', reason);
       await advanceAldenCursor(tx);
       await input.beforeCommit?.();
 
@@ -469,13 +467,13 @@ export async function publishAldenItemResponse(input: PublishInput, db: Db = get
   } catch (err) {
     if (err instanceof FencedOut) {
       await db.transaction(async (tx: Db) => {
-        const [row] = rowsOf(await tx.execute(sql`select claim_epoch from alden_wake_attempts where inbox_item_id = ${input.inboxItemId}`));
-        await audit(tx, input.inboxItemId, input.claimEpoch ?? Number(row?.claim_epoch ?? 0), input.workerId, 'superseded', `fenced:${err.message}`);
+        const [row] = rowsOf(await tx.execute(sql`select claim_epoch from alden_wake_attempts where item_id = ${input.itemId}`));
+        await audit(tx, input.itemId, input.claimEpoch ?? Number(row?.claim_epoch ?? 0), input.workerId, 'superseded', `fenced:${err.message}`);
       });
       return { status: 'superseded', state: err.message };
     }
     if (input.mode === 'wake' && (err as any)?.code === 'idempotency_conflict') {
-      const recorded = await recordWakeOutcome({ inboxItemId: input.inboxItemId, workerId: input.workerId, claimEpoch: input.claimEpoch!, outcome: 'conflict', notes: 'the item\'s key is already used on another thread' }, db);
+      const recorded = await recordWakeOutcome({ itemId: input.itemId, workerId: input.workerId, claimEpoch: input.claimEpoch!, outcome: 'conflict', notes: 'the item\'s key is already used on another thread' }, db);
       return recorded === 'recorded'
         ? { status: 'conflict', replyEventId: null, reason: 'idempotency_conflict' }
         : { status: 'superseded', state: 'fenced' };
@@ -484,7 +482,7 @@ export async function publishAldenItemResponse(input: PublishInput, db: Db = get
     // turn's failed outcome, recorded under the same fencing; chat rethrows.
     if (input.mode === 'wake' && err instanceof CoordinationError) {
       const code = String((err as any).code ?? 'coordination_error');
-      const recorded = await recordWakeOutcome({ inboxItemId: input.inboxItemId, workerId: input.workerId, claimEpoch: input.claimEpoch!, outcome: 'failed', errorClass: code, notes: String((err as Error).message).slice(0, 500) }, db);
+      const recorded = await recordWakeOutcome({ itemId: input.itemId, workerId: input.workerId, claimEpoch: input.claimEpoch!, outcome: 'failed', errorClass: code, notes: String((err as Error).message).slice(0, 500) }, db);
       return recorded === 'recorded' ? { status: 'failed', reason: code } : { status: 'superseded', state: 'fenced' };
     }
     throw err;
@@ -498,26 +496,26 @@ export async function publishAldenItemResponse(input: PublishInput, db: Db = get
  * overwrites the winning disposition.
  */
 export async function recordWakeOutcome(
-  input: { inboxItemId: string; workerId: string; claimEpoch: number; outcome: WakeOutcome | 'conflict'; notes?: string; errorClass?: string; toolsUsed?: string[] },
+  input: { itemId: string; workerId: string; claimEpoch: number; outcome: WakeOutcome | 'conflict'; notes?: string; errorClass?: string; toolsUsed?: string[] },
   db: Db = getSharedDb(),
 ): Promise<'recorded' | 'superseded'> {
   return db.transaction(async (tx: Db) => {
     const [row] = rowsOf(await tx.execute(sql`
-      select * from alden_wake_attempts where inbox_item_id = ${input.inboxItemId} for update`));
+      select * from alden_wake_attempts where item_id = ${input.itemId} for update`));
     const attempt = row ? toAttempt(row) : null;
     const live = attempt && attempt.state === 'claimed' && attempt.claimEpoch === input.claimEpoch
-      && attempt.claimedBy === input.workerId && await leaseLive(tx, input.inboxItemId);
+      && attempt.claimedBy === input.workerId && await leaseLive(tx, input.itemId);
     const allowed = attempt && (input.outcome === 'observed' ? attempt.itemKind === 'observe'
       : input.outcome === 'needs_david' ? attempt.itemKind === 'addressed' : true);
     if (!live || !allowed) {
-      await audit(tx, input.inboxItemId, input.claimEpoch, input.workerId, 'superseded', !live ? `fenced:${attempt?.state ?? 'missing'}` : `not_for_kind:${input.outcome}`);
+      await audit(tx, input.itemId, input.claimEpoch, input.workerId, 'superseded', !live ? `fenced:${attempt?.state ?? 'missing'}` : `not_for_kind:${input.outcome}`);
       return 'superseded';
     }
     await tx.execute(sql`update alden_wake_attempts set state = ${input.outcome}, notes = ${input.notes ?? null},
       error_class = ${input.errorClass ?? null}, tools_used = ${jsonArray(input.toolsUsed ?? [])},
-      decided_at = clock_timestamp(), updated_at = clock_timestamp() where inbox_item_id = ${input.inboxItemId}`);
+      decided_at = clock_timestamp(), updated_at = clock_timestamp() where item_id = ${input.itemId}`);
     await addNotice(tx, attempt, input.outcome);
-    await audit(tx, input.inboxItemId, input.claimEpoch, input.workerId, input.outcome === 'failed' ? 'failed' : 'published', input.notes ?? null);
+    await audit(tx, input.itemId, input.claimEpoch, input.workerId, input.outcome === 'failed' ? 'failed' : 'published', input.notes ?? null);
     await advanceAldenCursor(tx);
     return 'recorded';
   });
@@ -536,12 +534,12 @@ export async function reconcileWake(db: Db = getSharedDb()): Promise<{ seeded: n
   const seeded = await seedWakeAttempts(db);
   let recovered = 0;
   let uncertain = 0;
-  const expired = rowsOf(await db.execute(sql`select inbox_item_id from alden_wake_attempts where state = 'claimed' and lease_until <= clock_timestamp()`));
-  for (const { inbox_item_id: itemId } of expired) {
+  const expired = rowsOf(await db.execute(sql`select item_id from alden_wake_attempts where state = 'claimed' and lease_until <= clock_timestamp()`));
+  for (const { item_id: itemId } of expired) {
     await db.transaction(async (tx: Db) => {
       const [row] = rowsOf(await tx.execute(sql`
-        select a.*, i.coordination_event_id from alden_wake_attempts a join coordination_inbox_items i on i.id = a.inbox_item_id
-        where a.inbox_item_id = ${itemId} and a.state = 'claimed' and a.lease_until <= clock_timestamp() for update of a`));
+        select a.*, a.event_id as coordination_event_id from alden_wake_attempts a
+        where a.item_id = ${itemId} and a.state = 'claimed' and a.lease_until <= clock_timestamp() for update`));
       if (!row) return;
       const attempt = toAttempt(row);
       const [event] = rowsOf(await tx.execute(sql`select id, thread_id, actor, idempotency_key, recipient_actor, content from coordination_events
@@ -551,7 +549,7 @@ export async function reconcileWake(db: Db = getSharedDb()): Promise<{ seeded: n
       if (found) await applyCoverage(tx, attempt, row.coordination_event_id, row.requested_covers ?? [], event.id, 'alden-wake-reconcile');
       await tx.execute(sql`update alden_wake_attempts set state = ${state}, claim_epoch = claim_epoch + 1,
         reply_event_id = ${found ? event.id : null}, notes = ${found ? 'recovered after lease expiry' : 'lease expired without a verified reply'},
-        decided_at = clock_timestamp(), updated_at = clock_timestamp() where inbox_item_id = ${itemId}`);
+        decided_at = clock_timestamp(), updated_at = clock_timestamp() where item_id = ${itemId}`);
       await addNotice(tx, attempt, state);
       await audit(tx, itemId, attempt.claimEpoch + 1, 'alden-wake-reconcile', found ? 'published' : 'failed', `lease_expired:${state}`);
       await advanceAldenCursor(tx);
@@ -584,9 +582,8 @@ export async function deliverWakeNotices(db: Db = getSharedDb(), limit = 20): Pr
     try {
       await db.transaction(async (tx: Db) => {
         const [notice] = rowsOf(await tx.execute(sql`
-          select o.*, a.target_sender, i.coordination_event_id, t.title from alden_wake_notice_outbox o
-          join alden_wake_attempts a on a.inbox_item_id = o.inbox_item_id
-          join coordination_inbox_items i on i.id = o.inbox_item_id
+          select o.*, a.target_sender, a.event_id as coordination_event_id, t.title from alden_wake_notice_outbox o
+          join alden_wake_attempts a on a.item_id = o.item_id
           join coordination_threads t on t.id = a.target_thread_id
           where o.id = ${id} and o.status = 'pending' for update of o skip locked`));
         if (!notice) return;
@@ -644,11 +641,11 @@ export async function listWakePending(options: { budgetUsd?: number } = {}, db: 
   const { spend, resumeAt } = await wakeSpendToday(db);
   const spending = spend >= budget;
   const items = rowsOf(await db.execute(sql`
-    select a.state, a.item_kind, a.target_thread_id, a.target_sender, a.notes, i.coordination_event_id, i.created_at,
-      i.created_at < clock_timestamp() - interval '24 hours' as stale,
+    select a.state, a.item_kind, a.target_thread_id, a.target_sender, a.notes, a.event_id as coordination_event_id, e.created_at,
+      e.created_at < clock_timestamp() - interval '24 hours' as stale,
       p.id as pause_id, p.resume_at as pause_resume_at, p.evidence as pause_evidence
     from alden_wake_attempts a
-    join coordination_inbox_items i on i.id = a.inbox_item_id
+    join coordination_events e on e.id = a.event_id
     left join alden_wake_thread_pauses p on p.thread_id = a.target_thread_id and p.resumed_at is null
     where a.state in ('eligible', 'manual', 'uncertain', 'failed', 'needs_david', 'conflict')
     order by a.event_global_sequence`));
@@ -671,8 +668,8 @@ export async function listWakePending(options: { budgetUsd?: number } = {}, db: 
     }
   }
   pending.observing = [...observing].map(([threadId, count]) => ({ threadId, count }));
-  const [history] = rowsOf(await db.execute(sql`select count(*)::int as count, min(i.created_at) as oldest
-    from alden_wake_attempts a join coordination_inbox_items i on i.id = a.inbox_item_id where a.state = 'history'`));
+  const [history] = rowsOf(await db.execute(sql`select count(*)::int as count, min(e.created_at) as oldest
+    from alden_wake_attempts a join coordination_events e on e.id = a.event_id where a.state = 'history'`));
   pending.history = { count: Number(history?.count ?? 0), oldest: history?.oldest ? new Date(history.oldest).toISOString() : null };
   return pending;
 }

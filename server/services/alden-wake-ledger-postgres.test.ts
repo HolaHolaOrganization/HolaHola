@@ -82,14 +82,14 @@ async function ask(threadId: string, sender: string, content: string) {
   return { threadId, eventId: event.id, itemId: (await wake.findAldenItemByEvent(event.id, db))! };
 }
 
-const state = async (itemId: string) => (await one(sql`select state from alden_wake_attempts where inbox_item_id = ${itemId}`))?.state;
+const state = async (itemId: string) => (await one(sql`select state from alden_wake_attempts where item_id = ${itemId}`))?.state;
 const drain = () => db.execute(sql`update alden_wake_attempts set state = 'manual', notes = 'test drain' where state = 'eligible'`);
 const eventsUnderKey = async (itemId: string) => Number((await one(sql`select count(*)::int as c from coordination_events where actor = 'alden' and idempotency_key = ${`alden-wake:${itemId}`}`)).c);
 
 async function claimItem(itemId: string, workerId = 'worker-a', options: any = {}) {
   const result = await wake.claimNextWakeItem(workerId, options, db);
   assert.equal(result.status, 'claimed', JSON.stringify(result));
-  assert.equal((result as any).attempt.inboxItemId, itemId);
+  assert.equal((result as any).attempt.itemId, itemId);
   return (result as any).attempt;
 }
 
@@ -123,7 +123,7 @@ test('claim: two workers, one claim; the emergency stop is ordered against claim
   const results = await Promise.all([wake.claimNextWakeItem('worker-a', {}, db), wake.claimNextWakeItem('worker-b', {}, db)]);
   assert.deepEqual(results.map((r) => r.status).sort(), ['claimed', 'none']);
   const won = results.find((r) => r.status === 'claimed') as any;
-  assert.equal(won.attempt.inboxItemId, item.itemId);
+  assert.equal(won.attempt.itemId, item.itemId);
   assert.equal(won.attempt.claimEpoch, 1);
 
   await drain();
@@ -141,21 +141,21 @@ test('publication: bound reply, read-back, notice, audit and a cursor that never
   const item = await newThread('luca-claude-code', 'please confirm');
   const waiting = await newThread('luca-replit', 'still open');
   const attempt = await claimItem(item.itemId);
-  const result = await wake.publishAldenItemResponse({ inboxItemId: item.itemId, mode: 'wake', workerId: 'worker-a', claimEpoch: attempt.claimEpoch, content: 'Confirmed (unattended turn).', model: 'gemini-test' }, db);
+  const result = await wake.publishAldenItemResponse({ itemId: item.itemId, mode: 'wake', workerId: 'worker-a', claimEpoch: attempt.claimEpoch, content: 'Confirmed (unattended turn).', model: 'gemini-test' }, db);
   assert.equal(result.status, 'replied');
   const event = await one(sql`select * from coordination_events where id = ${(result as any).replyEventId}`);
   assert.equal(event.thread_id, item.threadId);
   assert.equal(event.recipient_actor, 'luca-claude-code', 'the server binds the recipient to the requester');
   assert.equal(event.idempotency_key, `alden-wake:${item.itemId}`);
   assert.equal(await state(item.itemId), 'replied');
-  assert.equal((await one(sql`select count(*)::int as c from alden_wake_notice_outbox where inbox_item_id = ${item.itemId}`)).c, 1);
-  assert.equal((await one(sql`select result from alden_wake_attempt_audit where inbox_item_id = ${item.itemId} order by created_at desc limit 1`)).result, 'published');
+  assert.equal((await one(sql`select count(*)::int as c from alden_wake_notice_outbox where item_id = ${item.itemId}`)).c, 1);
+  assert.equal((await one(sql`select result from alden_wake_attempt_audit where item_id = ${item.itemId} order by created_at desc limit 1`)).result, 'published');
   const cursor = Number((await one(sql`select acknowledged_event_global_sequence as v from coordination_inbox_cursors where recipient_actor = 'alden'`)).v);
-  const waitingSeq = Number((await one(sql`select event_global_sequence as v from alden_wake_attempts where inbox_item_id = ${waiting.itemId}`)).v);
+  const waitingSeq = Number((await one(sql`select event_global_sequence as v from alden_wake_attempts where item_id = ${waiting.itemId}`)).v);
   assert.ok(cursor < waitingSeq, `cursor ${cursor} stays below the open item ${waitingSeq}`);
 
   // A second publish for the same item is fenced (the item is no longer claimed): nothing new is posted.
-  const again = await wake.publishAldenItemResponse({ inboxItemId: item.itemId, mode: 'wake', workerId: 'worker-a', claimEpoch: attempt.claimEpoch, content: 'Confirmed (unattended turn).' }, db);
+  const again = await wake.publishAldenItemResponse({ itemId: item.itemId, mode: 'wake', workerId: 'worker-a', claimEpoch: attempt.claimEpoch, content: 'Confirmed (unattended turn).' }, db);
   assert.equal(again.status, 'superseded');
   assert.equal(await eventsUnderKey(item.itemId), 1);
 
@@ -163,7 +163,7 @@ test('publication: bound reply, read-back, notice, audit and a cursor that never
   const first = await wake.deliverWakeNotices(db);
   assert.ok(first.delivered >= 1);
   assert.equal((await one(sql`select count(*)::int as c from alden_notifications where fingerprint = ${`alden_wake:${item.itemId}:replied`}`)).c, 1);
-  await db.execute(sql`update alden_wake_notice_outbox set status = 'pending' where inbox_item_id = ${item.itemId}`);
+  await db.execute(sql`update alden_wake_notice_outbox set status = 'pending' where item_id = ${item.itemId}`);
   await wake.deliverWakeNotices(db); // a crash after the insert, before marking delivered
   assert.equal((await one(sql`select count(*)::int as c from alden_notifications where fingerprint = ${`alden_wake:${item.itemId}:replied`}`)).c, 1, 'the read-back by fingerprint prevents a duplicate');
 });
@@ -174,7 +174,7 @@ test('identical retry is deduplicated; a different payload under the key is a co
   const same = await newThread('luca-claude-code', 'retry same');
   let attempt = await claimItem(same.itemId);
   await append(same.threadId, 'alden', 'Identical body.', 'luca-claude-code', `alden-wake:${same.itemId}`); // an earlier crash's effect
-  const deduped = await wake.publishAldenItemResponse({ inboxItemId: same.itemId, mode: 'wake', workerId: 'worker-a', claimEpoch: attempt.claimEpoch, content: 'Identical body.' }, db);
+  const deduped = await wake.publishAldenItemResponse({ itemId: same.itemId, mode: 'wake', workerId: 'worker-a', claimEpoch: attempt.claimEpoch, content: 'Identical body.' }, db);
   assert.equal(deduped.status, 'replied');
   assert.equal((deduped as any).deduplicated, true);
   assert.equal(await eventsUnderKey(same.itemId), 1);
@@ -182,7 +182,7 @@ test('identical retry is deduplicated; a different payload under the key is a co
   const differ = await newThread('luca-claude-code', 'retry different');
   attempt = await claimItem(differ.itemId);
   await append(differ.threadId, 'alden', 'First body.', 'luca-claude-code', `alden-wake:${differ.itemId}`);
-  const conflict = await wake.publishAldenItemResponse({ inboxItemId: differ.itemId, mode: 'wake', workerId: 'worker-a', claimEpoch: attempt.claimEpoch, content: 'Second body.' }, db);
+  const conflict = await wake.publishAldenItemResponse({ itemId: differ.itemId, mode: 'wake', workerId: 'worker-a', claimEpoch: attempt.claimEpoch, content: 'Second body.' }, db);
   assert.equal(conflict.status, 'conflict');
   assert.equal(await state(differ.itemId), 'conflict');
   assert.equal(await eventsUnderKey(differ.itemId), 1, 'never reported as delivery of a second payload');
@@ -193,20 +193,20 @@ test('chat and wake race in both orders; a stale worker never overwrites the win
   await drain();
   const chatFirst = await newThread('luca-claude-code', 'chat first');
   const attempt = await claimItem(chatFirst.itemId);
-  const chat = await wake.publishAldenItemResponse({ inboxItemId: chatFirst.itemId, mode: 'chat', workerId: 'alden-chat', content: 'Answered with David here.' }, db);
+  const chat = await wake.publishAldenItemResponse({ itemId: chatFirst.itemId, mode: 'chat', workerId: 'alden-chat', content: 'Answered with David here.' }, db);
   assert.equal(chat.status, 'handled_in_chat');
-  assert.equal(Number((await one(sql`select claim_epoch from alden_wake_attempts where inbox_item_id = ${chatFirst.itemId}`)).claim_epoch), attempt.claimEpoch + 1, 'chat bumps the epoch of a claimed item');
-  const late = await wake.publishAldenItemResponse({ inboxItemId: chatFirst.itemId, mode: 'wake', workerId: 'worker-a', claimEpoch: attempt.claimEpoch, content: 'Wake reply.' }, db);
+  assert.equal(Number((await one(sql`select claim_epoch from alden_wake_attempts where item_id = ${chatFirst.itemId}`)).claim_epoch), attempt.claimEpoch + 1, 'chat bumps the epoch of a claimed item');
+  const late = await wake.publishAldenItemResponse({ itemId: chatFirst.itemId, mode: 'wake', workerId: 'worker-a', claimEpoch: attempt.claimEpoch, content: 'Wake reply.' }, db);
   assert.equal(late.status, 'superseded');
-  assert.equal(await wake.recordWakeOutcome({ inboxItemId: chatFirst.itemId, workerId: 'worker-a', claimEpoch: attempt.claimEpoch, outcome: 'declined' }, db), 'superseded');
+  assert.equal(await wake.recordWakeOutcome({ itemId: chatFirst.itemId, workerId: 'worker-a', claimEpoch: attempt.claimEpoch, outcome: 'declined' }, db), 'superseded');
   assert.equal(await state(chatFirst.itemId), 'handled_in_chat');
-  assert.equal((await one(sql`select count(*)::int as c from alden_wake_attempt_audit where inbox_item_id = ${chatFirst.itemId} and result = 'superseded'`)).c, 2);
+  assert.equal((await one(sql`select count(*)::int as c from alden_wake_attempt_audit where item_id = ${chatFirst.itemId} and result = 'superseded'`)).c, 2);
 
   await drain();
   const wakeFirst = await newThread('luca-claude-code', 'wake first');
   const claimed = await claimItem(wakeFirst.itemId);
-  assert.equal((await wake.publishAldenItemResponse({ inboxItemId: wakeFirst.itemId, mode: 'wake', workerId: 'worker-a', claimEpoch: claimed.claimEpoch, content: 'Wake reply.' }, db)).status, 'replied');
-  const second = await wake.publishAldenItemResponse({ inboxItemId: wakeFirst.itemId, mode: 'chat', workerId: 'alden-chat', content: 'Chat reply.' }, db);
+  assert.equal((await wake.publishAldenItemResponse({ itemId: wakeFirst.itemId, mode: 'wake', workerId: 'worker-a', claimEpoch: claimed.claimEpoch, content: 'Wake reply.' }, db)).status, 'replied');
+  const second = await wake.publishAldenItemResponse({ itemId: wakeFirst.itemId, mode: 'chat', workerId: 'alden-chat', content: 'Chat reply.' }, db);
   assert.deepEqual(second, { status: 'already_answered', state: 'replied' });
   assert.equal(await eventsUnderKey(wakeFirst.itemId), 1);
 });
@@ -216,8 +216,8 @@ test('lease: a late worker is refused before any reconciliation, including after
   await drain();
   const expired = await newThread('luca-claude-code', 'late completion');
   const attempt = await claimItem(expired.itemId);
-  await db.execute(sql`update alden_wake_attempts set lease_until = clock_timestamp() - interval '1 second' where inbox_item_id = ${expired.itemId}`);
-  const late = await wake.publishAldenItemResponse({ inboxItemId: expired.itemId, mode: 'wake', workerId: 'worker-a', claimEpoch: attempt.claimEpoch, content: 'Too late.' }, db);
+  await db.execute(sql`update alden_wake_attempts set lease_until = clock_timestamp() - interval '1 second' where item_id = ${expired.itemId}`);
+  const late = await wake.publishAldenItemResponse({ itemId: expired.itemId, mode: 'wake', workerId: 'worker-a', claimEpoch: attempt.claimEpoch, content: 'Too late.' }, db);
   assert.equal(late.status, 'superseded');
   assert.equal(await eventsUnderKey(expired.itemId), 0);
   assert.equal(await state(expired.itemId), 'claimed', 'the disposition is left for the reconcile');
@@ -226,12 +226,12 @@ test('lease: a late worker is refused before any reconciliation, including after
   await drain();
   const waiting = await newThread('luca-claude-code', 'lock wait');
   const held = await claimItem(waiting.itemId);
-  await db.execute(sql`update alden_wake_attempts set lease_until = clock_timestamp() + interval '2 seconds' where inbox_item_id = ${waiting.itemId}`);
+  await db.execute(sql`update alden_wake_attempts set lease_until = clock_timestamp() + interval '2 seconds' where item_id = ${waiting.itemId}`);
   const holder = new pg.Client({ connectionString: url });
   await holder.connect();
   await holder.query('begin');
-  await holder.query('select 1 from alden_wake_attempts where inbox_item_id = $1 for update', [waiting.itemId]);
-  const publishing = wake.publishAldenItemResponse({ inboxItemId: waiting.itemId, mode: 'wake', workerId: 'worker-a', claimEpoch: held.claimEpoch, content: 'Waited.' }, db);
+  await holder.query('select 1 from alden_wake_attempts where item_id = $1 for update', [waiting.itemId]);
+  const publishing = wake.publishAldenItemResponse({ itemId: waiting.itemId, mode: 'wake', workerId: 'worker-a', claimEpoch: held.claimEpoch, content: 'Waited.' }, db);
   await new Promise((resolve) => setTimeout(resolve, 2500));
   await holder.query('commit');
   await holder.end();
@@ -245,7 +245,7 @@ test('atomic boundary: a crash before commit leaves nothing; the reconcile recov
   const crash = await newThread('luca-claude-code', 'crash before commit');
   const sibling = await ask(crash.threadId, 'luca-claude-code', 'a second question');
   const attempt = await claimItem(crash.itemId);
-  await assert.rejects(wake.publishAldenItemResponse({ inboxItemId: crash.itemId, mode: 'wake', workerId: 'worker-a', claimEpoch: attempt.claimEpoch, content: 'Never lands.', covers: [sibling.eventId], beforeCommit: () => { throw new Error('simulated crash'); } }, db), /simulated crash/);
+  await assert.rejects(wake.publishAldenItemResponse({ itemId: crash.itemId, mode: 'wake', workerId: 'worker-a', claimEpoch: attempt.claimEpoch, content: 'Never lands.', covers: [sibling.eventId], beforeCommit: () => { throw new Error('simulated crash'); } }, db), /simulated crash/);
   assert.equal(await eventsUnderKey(crash.itemId), 0);
   assert.equal(await state(crash.itemId), 'claimed');
   assert.equal(await state(sibling.itemId), 'eligible');
@@ -253,12 +253,12 @@ test('atomic boundary: a crash before commit leaves nothing; the reconcile recov
   // Recovered: the reply is on the ledger under the full read-back contract, with recorded coverage.
   const body = 'Recovered body.';
   await db.execute(sql`update alden_wake_attempts set reply_payload_sha256 = encode(sha256(convert_to(${body}, 'UTF8')), 'hex'),
-    requested_covers = array[${sibling.eventId}]::text[], lease_until = clock_timestamp() - interval '1 second' where inbox_item_id = ${crash.itemId}`);
+    requested_covers = array[${sibling.eventId}]::text[], lease_until = clock_timestamp() - interval '1 second' where item_id = ${crash.itemId}`);
   await append(crash.threadId, 'alden', body, 'luca-claude-code', `alden-wake:${crash.itemId}`);
   // Wrong recipient on another expired claim: uncertain.
   const wrong = await newThread('luca-claude-code', 'wrong recipient');
   await db.execute(sql`update alden_wake_attempts set state = 'claimed', claimed_by = 'worker-a', claimed_at = clock_timestamp(), lease_until = clock_timestamp() - interval '1 second',
-    reply_payload_sha256 = encode(sha256(convert_to('Misaddressed.', 'UTF8')), 'hex') where inbox_item_id = ${wrong.itemId}`);
+    reply_payload_sha256 = encode(sha256(convert_to('Misaddressed.', 'UTF8')), 'hex') where item_id = ${wrong.itemId}`);
   await append(wrong.threadId, 'alden', 'Misaddressed.', 'luca-replit', `alden-wake:${wrong.itemId}`);
   const result = await wake.reconcileWake(db);
   assert.ok(result.recovered >= 1 && result.uncertain >= 1, JSON.stringify(result));
@@ -277,9 +277,9 @@ test('coverage: same thread and same requester only; refusals keep their obligat
   const otherThread = await newThread('luca-claude-code', 'another thread');
   const foreign = randomUUID();
   const attempt = await claimItem(trigger.itemId);
-  await db.execute(sql`update alden_wake_attempts set state = 'claimed', claimed_by = 'worker-b', claimed_at = clock_timestamp(), lease_until = clock_timestamp() + interval '5 minutes' where inbox_item_id = ${otherThread.itemId}`);
+  await db.execute(sql`update alden_wake_attempts set state = 'claimed', claimed_by = 'worker-b', claimed_at = clock_timestamp(), lease_until = clock_timestamp() + interval '5 minutes' where item_id = ${otherThread.itemId}`);
   const result = await wake.publishAldenItemResponse({
-    inboxItemId: trigger.itemId, mode: 'wake', workerId: 'worker-a', claimEpoch: attempt.claimEpoch, content: 'Both answered.',
+    itemId: trigger.itemId, mode: 'wake', workerId: 'worker-a', claimEpoch: attempt.claimEpoch, content: 'Both answered.',
     covers: [same.eventId, otherRequester.eventId, otherThread.eventId, foreign, trigger.eventId],
   }, db) as any;
   assert.equal(result.status, 'replied');
@@ -287,7 +287,7 @@ test('coverage: same thread and same requester only; refusals keep their obligat
   assert.deepEqual(Object.fromEntries(result.refusedCovers.map((r: any) => [r.eventId, r.reason])), {
     [otherRequester.eventId]: 'other_requester', [otherThread.eventId]: 'other_thread', [foreign]: 'not_an_alden_item', [trigger.eventId]: 'is_trigger',
   });
-  const covered = await one(sql`select * from alden_wake_attempts where inbox_item_id = ${same.itemId}`);
+  const covered = await one(sql`select * from alden_wake_attempts where item_id = ${same.itemId}`);
   assert.equal(covered.state, 'covered');
   assert.equal(covered.covered_reply_event_id, result.replyEventId);
   assert.equal(await state(otherRequester.itemId), 'eligible');
@@ -300,10 +300,10 @@ test('chat guard: only structured coverage or an ack moves an item; an Alden com
   const item = await newThread('luca-claude-code', 'single item thread');
   await append(item.threadId, 'alden', 'An unrelated comment from chat.', 'luca-claude-code');
   assert.equal(await state(item.itemId), 'eligible');
-  const ack = await wake.publishAldenItemResponse({ inboxItemId: item.itemId, mode: 'chat', workerId: 'alden-chat', note: 'handled with David' }, db);
+  const ack = await wake.publishAldenItemResponse({ itemId: item.itemId, mode: 'chat', workerId: 'alden-chat', note: 'handled with David' }, db);
   assert.equal(ack.status, 'handled_in_chat');
   assert.equal(await eventsUnderKey(item.itemId), 0, 'an ack publishes nothing');
-  assert.equal((await one(sql`select count(*)::int as c from alden_wake_notice_outbox where inbox_item_id = ${item.itemId}`)).c, 0, 'David was present: no notice');
+  assert.equal((await one(sql`select count(*)::int as c from alden_wake_notice_outbox where item_id = ${item.itemId}`)).c, 0, 'David was present: no notice');
 });
 
 test('spending guard: no claim at budget, items stay eligible and listed as held, one alert per day', async (context) => {
@@ -332,7 +332,7 @@ test('loop breaker: a repeating exchange pauses its thread only, and every pause
   let item = loop;
   for (let round = 0; round < 3; round += 1) {
     const attempt = await claimItem(item.itemId);
-    assert.equal((await wake.publishAldenItemResponse({ inboxItemId: item.itemId, mode: 'wake', workerId: 'worker-a', claimEpoch: attempt.claimEpoch, content: 'Yes, I am here.' }, db)).status, 'replied');
+    assert.equal((await wake.publishAldenItemResponse({ itemId: item.itemId, mode: 'wake', workerId: 'worker-a', claimEpoch: attempt.claimEpoch, content: 'Yes, I am here.' }, db)).status, 'replied');
     item = await ask(loop.threadId, sender, 'Are you there?');
   }
   // Created after the loop's held item, so a claim reaching it proves the older held item was skipped.
@@ -353,7 +353,7 @@ test('loop breaker: a repeating exchange pauses its thread only, and every pause
   await db.execute(sql`update alden_wake_thread_pauses set paused_at = clock_timestamp() - interval '31 minutes', resume_at = clock_timestamp() - interval '1 minute' where id = ${pause.id}`);
   const afterCooldown = await claimItem(item.itemId);
   assert.equal((await one(sql`select resumed_by from alden_wake_thread_pauses where id = ${pause.id}`)).resumed_by, 'cooldown');
-  await wake.publishAldenItemResponse({ inboxItemId: item.itemId, mode: 'wake', workerId: 'worker-a', claimEpoch: afterCooldown.claimEpoch, content: 'Yes, I am here.' }, db);
+  await wake.publishAldenItemResponse({ itemId: item.itemId, mode: 'wake', workerId: 'worker-a', claimEpoch: afterCooldown.claimEpoch, content: 'Yes, I am here.' }, db);
   item = await ask(loop.threadId, sender, 'Are you there?');
   assert.equal((await wake.claimNextWakeItem('worker-a', {}, db)).status, 'none');
   const repause = await one(sql`select * from alden_wake_thread_pauses where thread_id = ${loop.threadId} and resumed_at is null`);
