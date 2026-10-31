@@ -120,7 +120,7 @@ export async function advanceAldenCursor(tx: Db): Promise<number | null> {
       (select min(event_global_sequence) from alden_wake_attempts where item_kind = 'addressed' and state in ('eligible', 'claimed', 'uncertain')),
       (select min(i.event_global_sequence) from coordination_inbox_items i
         where i.recipient_actor = ${WAKE_RECIPIENT}
-          and not exists (select 1 from alden_wake_attempts a where a.item_id = i.id))
+          and not exists (select 1 from alden_wake_attempts a where a.item_id = i.id or a.event_id = i.coordination_event_id))
     ) as blocked,
     (select max(event_global_sequence) from coordination_inbox_items where recipient_actor = ${WAKE_RECIPIENT}) as top`));
   if (row.top === null) return null;
@@ -162,7 +162,10 @@ export async function activateWake(db: Db = getSharedDb()): Promise<{ enabled: b
 /**
  * Gives every Alden inbox item without one an attempt row. Classification
  * depends only on the item's global sequence against the durable cutoff, so a
- * late materialization of an old event is history, never woken. Idempotent.
+ * late materialization of an old event is history, never woken. An event that
+ * already has an attempt (a watch item seeded first, before a backfill created
+ * its inbox item) is skipped, so one event is never answered twice; the
+ * cursor does not wait on that inbox item either. Idempotent.
  */
 export async function seedWakeAttempts(db: Db = getSharedDb()): Promise<number> {
   const result = await db.execute(sql`
@@ -174,8 +177,8 @@ export async function seedWakeAttempts(db: Db = getSharedDb()): Promise<number> 
     cross join alden_wake_control c
     where c.id = 'alden' and c.cutoff_global_sequence is not null
       and i.recipient_actor = ${WAKE_RECIPIENT}
-      and not exists (select 1 from alden_wake_attempts a where a.item_id = i.id)
-    on conflict (item_id) do nothing`);
+      and not exists (select 1 from alden_wake_attempts a where a.item_id = i.id or a.event_id = i.coordination_event_id)
+    on conflict do nothing`);
   return Number(result?.rowCount ?? 0);
 }
 

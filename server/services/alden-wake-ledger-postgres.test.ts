@@ -371,3 +371,27 @@ test('loop breaker: a repeating exchange pauses its thread only, and every pause
   assert.equal(await wake.resumeWakeThread(loop.threadId, 'david', db), true);
   assert.equal(await wake.resumeWakeThread(loop.threadId, 'david', db), false);
 });
+
+test('one attempt per event: an event already holding a watch-item attempt never gets a second, addressed one', async (context) => {
+  if (skipUnlessCi(context)) return;
+  await drain();
+  // The inbox item exists, but the event got its observe attempt first (as after a late backfill).
+  const created = await ledger.createCoordinationThread({
+    actor: 'luca-claude-code', intendedRecipient: 'alden', title: `wake test ${runId} one-per-event`, description: 'both paths', idempotencyKey: `wake-test:${runId}:${n++}`,
+  });
+  threads.push(created.thread.id);
+  const event = created.event;
+  const [watch] = await rows(sql`insert into coordination_thread_watchers (thread_id, watcher, added_by, reason, from_global_sequence)
+    values (${created.thread.id}, 'alden', 'david', 'one-attempt-per-event test', 0) returning id`);
+  const [watchItem] = await rows(sql`insert into coordination_watch_items (watch_id, watcher, event_id, thread_id, event_global_sequence, sender)
+    values (${watch.id}, 'alden', ${event.id}, ${created.thread.id}, ${event.globalSequence}, 'luca-claude-code') returning id`);
+  await db.execute(sql`insert into alden_wake_attempts (item_id, item_kind, watch_item_id, event_id, event_global_sequence, state, effect_key, target_thread_id, target_sender)
+    values (${watchItem.id}, 'observe', ${watchItem.id}, ${event.id}, ${event.globalSequence}, 'observed', ${`alden-wake:${watchItem.id}`}, ${created.thread.id}, 'luca-claude-code')`);
+  await wake.seedWakeAttempts(db);
+  await wake.seedWakeAttempts(db);
+  const attempts = await rows(sql`select item_kind from alden_wake_attempts where event_id = ${event.id}`);
+  assert.deepEqual(attempts.map((row) => row.item_kind), ['observe'], 'the inbox item is not seeded a second attempt');
+  // The cursor does not wait on that inbox item: it advances past it.
+  const watermark = await db.transaction((tx: any) => wake.advanceAldenCursor(tx));
+  assert.ok(watermark !== null && watermark >= Number(event.globalSequence), `cursor ${watermark} passes ${event.globalSequence}`);
+});
