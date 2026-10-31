@@ -299,3 +299,34 @@ test('the sink refuses a target whose parent was swapped for a link to identical
     fs.renameSync(path.join(root, 'server-real'), path.join(root, 'server'));
   }
 });
+
+describe('after a production proposal is stored, later failures never mark it blocked (LR #156 note)', () => {
+  afterEach(restore);
+
+  test('a failed review-row update leaves no review_blocked, no blocked notice and no decision post', async () => {
+    const { runReviewQueue } = await import('./alden-code-review-service');
+    const { deps, stored, blocked, decisions } = harness(reviewed('server/routes.ts', 14, 14, 'x'), ENV.production);
+    const updates: Record<string, unknown>[] = [];
+    deps.db.update = () => ({ set: (values: Record<string, unknown>) => ({ where: async () => { updates.push(values); throw new Error('synthetic update failure'); } }) });
+    const calls = await trap({ processes: true });
+    await runReviewQueue(deps);
+    restore();
+    assert.deepEqual(calls, []);
+    assert.equal(stored.length, 1, 'the proposal was stored once');
+    assert.deepEqual(updates.map((u) => u.status), ['approved_pending_review'], 'only the link was attempted, never review_blocked');
+    assert.deepEqual(blocked, []);
+    assert.equal(decisions.length, 0);
+  });
+
+  test('a failed decision post leaves the item linked as approved_pending_review', async () => {
+    const { runReviewQueue } = await import('./alden-code-review-service');
+    const { deps, updates, stored, blocked } = harness(reviewed('server/routes.ts', 15, 15, 'x'), ENV.production, {
+      postDecision: async () => { throw new Error('synthetic post failure'); },
+    });
+    await runReviewQueue(deps);
+    assert.equal(stored.length, 1);
+    assert.deepEqual(updates.map((u) => u.status), ['approved_pending_review']);
+    assert.equal(updates[0].buildQueueId, 'bq-1');
+    assert.deepEqual(blocked, []);
+  });
+});

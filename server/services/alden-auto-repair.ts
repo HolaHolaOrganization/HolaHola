@@ -286,9 +286,10 @@ function utcTimestamp(): string {
  * surface it for async review by the Agent or David.
  */
 /** Returns whether the proposal row was actually inserted. */
-export async function queueAsProposal(issueDescription: string, reason: string, db: Pick<ReturnType<typeof getUserDb>, 'insert'> = getUserDb()): Promise<boolean> {
+export async function queueAsProposal(issueDescription: string, reason: string, db?: Pick<ReturnType<typeof getUserDb>, 'insert'>): Promise<boolean> {
   try {
-    await db.insert(buildQueue).values({
+    // Resolved inside the try (LR's note): a failure to get the database is a failed save too.
+    await (db ?? getUserDb()).insert(buildQueue).values({
       proposedBy: 'alden',
       title: `Auto-repair deferred: ${issueDescription.substring(0, 80)}`,
       description: `Alden identified an issue but could not safely auto-repair it.\n\nIssue: ${issueDescription}\n\nReason deferred: ${reason}\n\nThis needs Agent or human review.`,
