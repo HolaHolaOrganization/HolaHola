@@ -67,14 +67,32 @@ export async function writeBootStatus(c: BootConfig, state: string, fields: Omit
   try {
     await writeFile(tmp, JSON.stringify({ state, at: new Date().toISOString(), ...fields }), { mode: 0o600 });
     await rename(tmp, target);
+    if (state === 'listening') await unlink(join(c.root, '.local/listener-boot-alert.md')).catch(e => { if (!absent(e)) throw e; });
   } finally { await unlink(tmp).catch(e => { if (!absent(e)) throw e; }); }
 }
 
-export async function writeBootFailure(c: BootConfig) {
+export type BootFailureReason = 'credential_missing' | 'credential_expired' | 'other';
+// Non-secret classification: reads only cache presence and expiry metadata.
+export async function classifyBootFailure(c: BootConfig, now = Date.now()): Promise<BootFailureReason> {
+  try {
+    const credential = await new FileCoordinationCliCredentialCache(c.cacheDir).load(c.actor, c.runtimeId);
+    if (!credential) return 'credential_missing';
+    const expires = Date.parse(credential.expiresAt);
+    if (!Number.isFinite(expires) || expires <= now) return 'credential_expired';
+    return 'other';
+  } catch { return 'other'; }
+}
+
+export async function writeBootFailure(c: BootConfig, reason?: BootFailureReason) {
   const directory = join(c.stateDir, 'boot');
   await mkdir(directory, { recursive: true, mode: 0o700 });
+  const at = new Date().toISOString();
+  const resolved = reason ?? await classifyBootFailure(c);
   await writeFile(join(directory, `failure-${process.pid}.json`),
-    JSON.stringify({ state: 'recovery-required', at: new Date().toISOString() }), { mode: 0o600 });
+    JSON.stringify({ state: 'recovery-required', at, reason: resolved }), { mode: 0o600 });
+  // Read by the MEMORY.md live-status banner so a failed boot is seen at session start.
+  await writeFile(join(c.root, '.local/listener-boot-alert.md'),
+    `Listener boot failed closed at ${at}: ${resolved}. See holahola-coordination-recovery skill.\n`, { mode: 0o600 });
 }
 
 export async function postBootReady(c: BootConfig, childPid: number, started: number,
