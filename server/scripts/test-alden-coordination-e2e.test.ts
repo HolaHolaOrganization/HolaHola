@@ -267,6 +267,17 @@ databaseTest('brief_new_actor assembles a scoped briefing from the real operatio
     thread_id: briefing.data.threadId, event_id: briefing.data.eventId,
   });
   assert.equal(readBack.data.error, undefined, `read_coordination_message failed: ${readBack.data.error}`);
+
+  // A retry of the same briefing returns the existing thread instead of posting a second one.
+  assert.equal(briefing.data.alreadyPosted, false);
+  const retry = await executeAldenTool('brief_new_actor', { recipient: 'luca-replit' });
+  assert.equal(retry.data.error, undefined, `brief_new_actor retry failed: ${retry.data.error}`);
+  assert.equal(retry.data.threadId, briefing.data.threadId);
+  assert.equal(retry.data.eventId, briefing.data.eventId);
+  assert.equal(retry.data.alreadyPosted, true);
+  const briefings = await getSharedDb().select({ id: coordinationThreads.id }).from(coordinationThreads)
+    .where(eq(coordinationThreads.title, 'Orientation briefing for luca-replit'));
+  assert.deepEqual(briefings.map((row) => row.id), [briefing.data.threadId], 'one briefing thread, not two');
 });
 
 databaseTest('brief_new_actor fails closed instead of posting an empty or fabricated briefing when the recipient has no catalog entries', async () => {
