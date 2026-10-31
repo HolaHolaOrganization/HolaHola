@@ -92,7 +92,12 @@ test('Alden wake tables: shipped enabled, designed states only, one active pause
   const shared = `wake:${effect.itemId}:shared`;
   await insertRow('alden_wake_attempts', attempt(effect, { effect_key: shared }));
   await rejects('alden_wake_attempts', attempt(await seedInboxItem(), { effect_key: shared }), '23505', 'uq_alden_wake_attempts_effect_key');
-  await rejects('alden_wake_attempts', { ...attempt(effect), inbox_item_id: randomUUID() }, '23503', 'alden_wake_attempts_inbox_item_id_coordination_inbox_items_id_fk');
+  // Matched by table, not name: PostgreSQL truncates drizzle's 64-character foreign-key name to 63.
+  await assert.rejects(
+    insertRow('alden_wake_attempts', { ...attempt(effect), inbox_item_id: randomUUID() }),
+    (err: any) => err.code === '23503' && err.table === 'alden_wake_attempts',
+    'an attempt needs a real inbox item',
+  );
 
   // Audit and outbox take only their closed result and status sets.
   await insertRow('alden_wake_attempt_audit', { inbox_item_id: effect.itemId, claim_epoch: 1, worker_id: 'worker-1', result: 'published' });
