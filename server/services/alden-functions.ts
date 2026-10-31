@@ -1723,8 +1723,15 @@ export async function executeAldenTool(
         const updated = await getSharedDb().update(supportPatterns).set({
           status: args.status,
           developerNotes: sql`CASE WHEN ${supportPatterns.developerNotes} IS NULL OR ${supportPatterns.developerNotes} = '' THEN ${entry} ELSE ${supportPatterns.developerNotes} || E'\n' || ${entry} END`,
-        }).where(eq(supportPatterns.id, patternId)).returning({ id: supportPatterns.id, status: supportPatterns.status });
-        if (updated.length === 0) return { data: { error: `Pattern ${patternId} was not found` } };
+          // Atomic current-state guard: only a still-triageable pattern changes. A later
+          // fixed, wont_fix or known_benign decision is never reopened by a stale task.
+        }).where(and(eq(supportPatterns.id, patternId), sql`coalesce(${supportPatterns.status}, 'open') IN ('open', 'investigating')`))
+          .returning({ id: supportPatterns.id, status: supportPatterns.status });
+        if (updated.length === 0) {
+          const [current] = await getSharedDb().select({ status: supportPatterns.status }).from(supportPatterns).where(eq(supportPatterns.id, patternId));
+          if (!current) return { data: { error: `Pattern ${patternId} was not found` } };
+          return { data: { error: `Pattern ${patternId} is now '${current.status}', so this task can no longer change it; nothing was updated`, refused: 'pattern_not_editable', status: current.status } };
+        }
         return { data: { updated: true, patternId, status: updated[0].status, appended: entry } };
       }
 
