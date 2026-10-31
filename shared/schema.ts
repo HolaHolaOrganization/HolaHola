@@ -10414,6 +10414,150 @@ export const insertAldenNotificationSchema = createInsertSchema(aldenNotificatio
 export type InsertAldenNotification = z.infer<typeof insertAldenNotificationSchema>;
 export type AldenNotification = typeof aldenNotifications.$inferSelect;
 
+// ===== Alden inbox wake (design eb2ed6bf r11, approved 2026-10-31) =====
+// W1 is schema only: nothing reads or writes these tables until the wake
+// worker (W2) and the thread watch (W3) land.
+
+export const ALDEN_WAKE_STATES = [
+  'eligible', 'claimed', 'replied', 'declined', 'needs_david', 'failed', 'uncertain', 'conflict',
+  'manual', 'covered', 'handled_in_chat', 'history', 'observed',
+] as const;
+
+/** One row. The migration creates it enabled ("ships on"); it is an emergency stop, not a launch gate. */
+export const aldenWakeControl = pgTable("alden_wake_control", {
+  id: varchar("id").primaryKey(),
+  enabled: boolean("enabled").notNull(),
+  activatedAt: timestamp("activated_at"),
+  // Set once by the first pass, from max(coordination_events.global_sequence); never changed after.
+  cutoffGlobalSequence: bigint("cutoff_global_sequence", { mode: 'number' }),
+  updatedBy: varchar("updated_by", { length: 120 }),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => [
+  check("alden_wake_control_single_row", sql`${table.id} = 'alden'`),
+]);
+
+/** One row per Alden inbox item: its wake disposition, lease and fencing epoch. */
+export const aldenWakeAttempts = pgTable("alden_wake_attempts", {
+  inboxItemId: varchar("inbox_item_id").primaryKey()
+    .references(() => coordinationInboxItems.id, { onDelete: 'cascade' }),
+  // 'addressed' for an item addressed to Alden; 'observe' for a thread-watch item (W3).
+  itemKind: varchar("item_kind", { length: 20 }).notNull().default('addressed'),
+  eventGlobalSequence: bigint("event_global_sequence", { mode: 'number' }).notNull(),
+  state: varchar("state", { length: 30 }).notNull(),
+  claimedBy: varchar("claimed_by", { length: 120 }),
+  claimedAt: timestamp("claimed_at"),
+  leaseUntil: timestamp("lease_until"),
+  claimDay: date("claim_day"),
+  effectKey: varchar("effect_key", { length: 200 }).notNull(),
+  targetThreadId: varchar("target_thread_id").notNull(),
+  targetSender: varchar("target_sender", { length: 80 }).notNull(),
+  replyEventId: varchar("reply_event_id"),
+  coveredBy: varchar("covered_by"),
+  coveredReplyEventId: varchar("covered_reply_event_id"),
+  toolsUsed: text("tools_used").array(),
+  errorClass: varchar("error_class", { length: 120 }),
+  notes: text("notes"),
+  decidedBy: varchar("decided_by", { length: 120 }),
+  decidedAt: timestamp("decided_at"),
+  claimEpoch: integer("claim_epoch").notNull().default(0),
+  replyPayloadSha256: varchar("reply_payload_sha256", { length: 64 }),
+  requestedCovers: text("requested_covers").array(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("uq_alden_wake_attempts_effect_key").on(table.effectKey),
+  index("idx_alden_wake_attempts_state").on(table.state, table.eventGlobalSequence),
+  index("idx_alden_wake_attempts_thread").on(table.targetThreadId),
+  check("alden_wake_attempts_state_valid", sql`${table.state} IN ('eligible', 'claimed', 'replied', 'declined', 'needs_david', 'failed', 'uncertain', 'conflict', 'manual', 'covered', 'handled_in_chat', 'history', 'observed')`),
+  check("alden_wake_attempts_kind_valid", sql`${table.itemKind} IN ('addressed', 'observe')`),
+  // observed is the terminal outcome of an observe item only, and an observe item is never needs_david.
+  check("alden_wake_attempts_observed_kind", sql`${table.state} <> 'observed' OR ${table.itemKind} = 'observe'`),
+  check("alden_wake_attempts_observe_never_needs_david", sql`${table.itemKind} <> 'observe' OR ${table.state} <> 'needs_david'`),
+  // A claim holds its lease fields together.
+  check("alden_wake_attempts_claim_complete", sql`${table.state} <> 'claimed' OR (${table.claimedBy} IS NOT NULL AND ${table.claimedAt} IS NOT NULL AND ${table.leaseUntil} IS NOT NULL)`),
+  check("alden_wake_attempts_reply_sha256", sql`${table.replyPayloadSha256} IS NULL OR ${table.replyPayloadSha256} ~ '^[0-9a-f]{64}$'`),
+  check("alden_wake_attempts_epoch_nonnegative", sql`${table.claimEpoch} >= 0`),
+]);
+
+/** Append-only: one row per worker or chat attempt. A stale worker's result lives here, never on the item. */
+export const aldenWakeAttemptAudit = pgTable("alden_wake_attempt_audit", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  inboxItemId: varchar("inbox_item_id").notNull()
+    .references(() => aldenWakeAttempts.inboxItemId, { onDelete: 'cascade' }),
+  claimEpoch: integer("claim_epoch").notNull(),
+  workerId: varchar("worker_id", { length: 120 }).notNull(),
+  result: varchar("result", { length: 20 }).notNull(),
+  reason: text("reason"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  index("idx_alden_wake_attempt_audit_item").on(table.inboxItemId, table.createdAt),
+  check("alden_wake_attempt_audit_result_valid", sql`${table.result} IN ('published', 'superseded', 'refused', 'failed')`),
+]);
+
+/** One row per notice obligation; the dedupe key makes a retry deliver a notice at most once. */
+export const aldenWakeNoticeOutbox = pgTable("alden_wake_notice_outbox", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  inboxItemId: varchar("inbox_item_id").notNull()
+    .references(() => aldenWakeAttempts.inboxItemId, { onDelete: 'cascade' }),
+  stateReported: varchar("state_reported", { length: 30 }).notNull(),
+  dedupeKey: varchar("dedupe_key", { length: 200 }).notNull(),
+  status: varchar("status", { length: 20 }).notNull().default('pending'),
+  attempts: integer("attempts").notNull().default(0),
+  lastError: text("last_error"),
+  notificationId: varchar("notification_id"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("uq_alden_wake_notice_outbox_dedupe").on(table.dedupeKey),
+  index("idx_alden_wake_notice_outbox_status").on(table.status),
+  check("alden_wake_notice_outbox_status_valid", sql`${table.status} IN ('pending', 'delivered')`),
+]);
+
+/** A loop-breaker pause; a thread is paused while it has a row with resumed_at IS NULL. */
+export const aldenWakeThreadPauses = pgTable("alden_wake_thread_pauses", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  threadId: varchar("thread_id").notNull()
+    .references(() => coordinationThreads.id, { onDelete: 'cascade' }),
+  pausedAt: timestamp("paused_at").notNull(),
+  reason: varchar("reason", { length: 40 }).notNull(),
+  evidence: jsonb("evidence").notNull(),
+  resumeAt: timestamp("resume_at").notNull(),
+  cooldownMinutes: integer("cooldown_minutes").notNull(),
+  resumedAt: timestamp("resumed_at"),
+  resumedBy: varchar("resumed_by", { length: 120 }),
+  resumeEventId: varchar("resume_event_id"),
+}, (table) => [
+  uniqueIndex("uq_alden_wake_thread_pauses_active").on(table.threadId).where(sql`${table.resumedAt} IS NULL`),
+  check("alden_wake_thread_pauses_reason_valid", sql`${table.reason} IN ('repeating_exchange')`),
+  check("alden_wake_thread_pauses_cooldown_bounds", sql`${table.cooldownMinutes} BETWEEN 30 AND 240`),
+  check("alden_wake_thread_pauses_resume_after_pause", sql`${table.resumeAt} > ${table.pausedAt}`),
+  check("alden_wake_thread_pauses_resumed_complete", sql`(${table.resumedAt} IS NULL) = (${table.resumedBy} IS NULL)`),
+]);
+
+/**
+ * Thread watch (W3): a watcher gets an observe item for each event on the
+ * thread after from_global_sequence. Forward-only by construction; never a
+ * self-add (added_by must differ from watcher).
+ */
+export const coordinationThreadWatchers = pgTable("coordination_thread_watchers", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  threadId: varchar("thread_id").notNull()
+    .references(() => coordinationThreads.id, { onDelete: 'cascade' }),
+  watcher: varchar("watcher", { length: 80 }).notNull(),
+  addedBy: varchar("added_by", { length: 120 }).notNull(),
+  reason: text("reason").notNull(),
+  // Events at or below this global sequence (the thread's history when the watch was added) never create observe items.
+  fromGlobalSequence: bigint("from_global_sequence", { mode: 'number' }).notNull(),
+  addedAt: timestamp("added_at").notNull().defaultNow(),
+  removedAt: timestamp("removed_at"),
+  removedBy: varchar("removed_by", { length: 120 }),
+}, (table) => [
+  uniqueIndex("uq_coordination_thread_watchers_active").on(table.threadId, table.watcher).where(sql`${table.removedAt} IS NULL`),
+  check("coordination_thread_watchers_no_self_add", sql`${table.addedBy} <> ${table.watcher}`),
+  check("coordination_thread_watchers_reason_nonempty", sql`length(trim(${table.reason})) > 0`),
+  check("coordination_thread_watchers_removed_complete", sql`(${table.removedAt} IS NULL) = (${table.removedBy} IS NULL)`),
+]);
+
 // ===== Wren Proactive Triggers =====
 // Detected patterns that warrant attention - enables proactive surfacing
 

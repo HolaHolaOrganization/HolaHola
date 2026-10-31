@@ -883,6 +883,12 @@ const listeningPromise = new Promise<void>((resolve, reject) => {
       startAldenWatchWorker();
     }, 45000));
 
+    // +47s: Alden Inbox Wake — answers coordination items addressed to him (design eb2ed6bf)
+    backgroundTasks.run('alden-wake', () => setTimeout(async () => {
+      const { startAldenWakeWorker } = await import('./services/alden-wake-worker');
+      startAldenWakeWorker();
+    }, 47000));
+
     // +46s: Thread Weaver Monthly Refresh — re-weave identity threads if stale (> 28 days)
     backgroundTasks.run('thread-weaver-refresh', () => setTimeout(async () => {
       const { runMonthlyThreadRefresh } = await import('./services/thread-weaver-service');

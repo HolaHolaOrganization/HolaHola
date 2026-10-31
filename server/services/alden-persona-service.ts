@@ -5,6 +5,7 @@ import type { AldenToolAllowlist } from "./alden-tool-allowlist";
 import { ALDEN_TOOLS, executeAldenTool, toAnthropicAldenTools } from "./alden-functions";
 import { buildAldenWorkspaceContext } from "./alden-workspace-context";
 import { aldenActivity } from "./alden-activity-emitter";
+import type { AldenWakeTurn } from './alden-wake-ledger';
 import { aldenCoordinationReadReceipt, serializeAldenToolResult } from "./alden-tool-result";
 import { AldenReviewReadSession, type AldenReviewSourceReference } from "./alden-review-source";
 import { loadAldenReviewSourceReferences } from "./alden-review-source-context";
@@ -132,6 +133,14 @@ interface AldenChatParams {
   reviewSourceEngine?: AldenEngine;
   /** Restricts this turn to the listed tools, enforced at dispatch (see alden-tool-allowlist.ts). */
   toolAllowlist?: AldenToolAllowlist;
+  /** Set only by the founder chat route. */
+  founderPresent?: boolean;
+  /** Set only by the inbox wake worker (alden-wake-worker.ts). */
+  wakeTurn?: AldenWakeTurn;
+  /** The model id for the chosen engine; the RUNTIME line names it. Defaults to the engine's chat model. */
+  modelOverride?: string;
+  /** The ai_cost_logs context; defaults to 'alden-chat'. */
+  costContext?: string;
 }
 
 interface ContinuationInfo {
@@ -149,6 +158,8 @@ interface AldenChatResponse {
   reviewSourceEngine?: AldenEngine;
   /** The same allowlist the turn ran under; a caller starting a continuation phase must pass it on. */
   toolAllowlist?: AldenToolAllowlist;
+  /** Set when the turn failed and the response is only the fallback text. */
+  error?: string;
 }
 
 const MAX_AGENT_ROUNDS = 10;
@@ -185,7 +196,8 @@ async function generateAldenResponseAnthropic(params: AldenChatParams): Promise<
     reviewReadSession = new AldenReviewReadSession((params.reviewSourceEngine === "anthropic" ? params.reviewSourceReferences : undefined)
       ?? await loadAldenReviewSourceReferences("anthropic", conversationId));
     const claude = getAnthropicClient();
-    const systemPrompt = buildAldenSystemPrompt({ founderName, timezone, engine: 'anthropic', modelId: ANTHROPIC_MODEL });
+    const model = params.modelOverride ?? ANTHROPIC_MODEL;
+    const systemPrompt = buildAldenSystemPrompt({ founderName, timezone, engine: 'anthropic', modelId: model });
     const anthropicTools = toAnthropicAldenTools().filter((tool) => !params.toolAllowlist || params.toolAllowlist.has(tool.name));
 
     const messages: Anthropic.MessageParam[] = [];
@@ -237,7 +249,7 @@ async function generateAldenResponseAnthropic(params: AldenChatParams): Promise<
       maxTokens: ANTHROPIC_MAX_TOKENS,
       wrapMaxTokens: ANTHROPIC_WRAP_MAX_TOKENS,
       call: async ({ messages: turnMessages, maxTokens, withTools }) => claude.messages.create({
-        model: ANTHROPIC_MODEL,
+        model,
         max_tokens: maxTokens,
         system: systemPrompt,
         ...(withTools ? { tools: anthropicTools } : {}),
@@ -253,7 +265,7 @@ async function generateAldenResponseAnthropic(params: AldenChatParams): Promise<
         toolsUsed.push(tu.name);
         aldenActivity.push({ type: 'tool_start', name: tu.name, timestamp: new Date().toISOString() });
         try {
-          const toolResult = await executeAldenTool(tu.name, (tu.input as Record<string, any>) || {}, { conversationId, engine: 'anthropic', reviewReadSession, toolAllowlist: params.toolAllowlist });
+          const toolResult = await executeAldenTool(tu.name, (tu.input as Record<string, any>) || {}, { conversationId, engine: 'anthropic', reviewReadSession, toolAllowlist: params.toolAllowlist, founderPresent: params.founderPresent, wakeTurn: params.wakeTurn });
           aldenActivity.push({ type: 'tool_result', name: tu.name, success: true, timestamp: new Date().toISOString() });
           const truncatedResult = serializeAldenToolResult(tu.name, toolResult.data);
           reviewReadSession.stageDelivery(tu.name, truncatedResult);
@@ -270,7 +282,7 @@ async function generateAldenResponseAnthropic(params: AldenChatParams): Promise<
     const aldenResponse = turn.response;
     const pendingContinuation = turn.continuation as ContinuationInfo | undefined;
 
-    const callCostUsd = costTracker.track(ANTHROPIC_MODEL, totalInputTokens, totalOutputTokens, 'alden-chat');
+    const callCostUsd = costTracker.track(model, totalInputTokens, totalOutputTokens, params.costContext ?? 'alden-chat');
     console.log(`[Alden Chat/Claude] Response generated (${aldenResponse.length} chars, ${toolsUsed.length} tools used, ~$${callCostUsd.toFixed(4)} | ${(totalInputTokens/1000).toFixed(0)}k in / ${(totalOutputTokens/1000).toFixed(0)}k out)`);
 
     aldenActivity.push({ type: 'response_complete', timestamp: new Date().toISOString() });
@@ -281,6 +293,7 @@ async function generateAldenResponseAnthropic(params: AldenChatParams): Promise<
     console.error('[Alden Chat/Claude] Error:', error.message);
     return {
       response: "Something went wrong on my end. Let me try to recover — ask me again in a moment.",
+      error: String(error?.message ?? error),
       toolsUsed,
       reviewSourceReferences: reviewReadSession.sourceReferences, reviewSourceEngine: "anthropic",
     };
@@ -297,7 +310,8 @@ async function generateAldenResponseGemini(params: AldenChatParams): Promise<Ald
     reviewReadSession = new AldenReviewReadSession((params.reviewSourceEngine === "gemini" ? params.reviewSourceReferences : undefined)
       ?? await loadAldenReviewSourceReferences("gemini", conversationId));
     const ai = getGeminiClient();
-    const systemPrompt = buildAldenSystemPrompt({ founderName, timezone, engine: 'gemini', modelId: GEMINI_MODEL });
+    const model = params.modelOverride ?? GEMINI_MODEL;
+    const systemPrompt = buildAldenSystemPrompt({ founderName, timezone, engine: 'gemini', modelId: model });
 
     // ── Build Gemini-format history ───────────────────────────────────────────
     const history: Array<{ role: string; parts: Array<{ text: string }> }> = [];
@@ -354,7 +368,7 @@ async function generateAldenResponseGemini(params: AldenChatParams): Promise<Ald
 
     // Create Gemini chat session with full history and tool declarations
     const chat = ai.chats.create({
-      model: GEMINI_MODEL,
+      model,
       config: {
         systemInstruction: systemPrompt,
         tools: [{ functionDeclarations: toGeminiFunctions(ALDEN_TOOLS.filter((tool) => !params.toolAllowlist || params.toolAllowlist.has(tool.name))) }],
@@ -399,7 +413,7 @@ async function generateAldenResponseGemini(params: AldenChatParams): Promise<Ald
         aldenActivity.push({ type: 'tool_start', name: toolName, timestamp: new Date().toISOString() });
 
         try {
-          const toolResult = await executeAldenTool(toolName, toolArgs, { conversationId, engine: 'gemini', reviewReadSession, toolAllowlist: params.toolAllowlist });
+          const toolResult = await executeAldenTool(toolName, toolArgs, { conversationId, engine: 'gemini', reviewReadSession, toolAllowlist: params.toolAllowlist, founderPresent: params.founderPresent, wakeTurn: params.wakeTurn });
           aldenActivity.push({ type: 'tool_result', name: toolName, success: true, timestamp: new Date().toISOString() });
 
           const truncatedResult = serializeAldenToolResult(toolName, toolResult.data);
@@ -457,7 +471,7 @@ async function generateAldenResponseGemini(params: AldenChatParams): Promise<Ald
       }
     }
 
-    const callCostUsd = costTracker.track(GEMINI_MODEL, totalInputTokens, totalOutputTokens, 'alden-chat');
+    const callCostUsd = costTracker.track(model, totalInputTokens, totalOutputTokens, params.costContext ?? 'alden-chat');
     console.log(`[Alden Chat] Response generated (${aldenResponse.length} chars, ${toolsUsed.length} tools used, ~$${callCostUsd.toFixed(4)} | ${(totalInputTokens/1000).toFixed(0)}k in / ${(totalOutputTokens/1000).toFixed(0)}k out)`);
 
     aldenActivity.push({ type: 'response_complete', timestamp: new Date().toISOString() });
@@ -473,6 +487,7 @@ async function generateAldenResponseGemini(params: AldenChatParams): Promise<Ald
     console.error('[Alden Chat] Error:', error.message);
     return {
       response: "Something went wrong on my end. Let me try to recover — ask me again in a moment.",
+      error: String(error?.message ?? error),
       toolsUsed,
       reviewSourceReferences: reviewReadSession.sourceReferences, reviewSourceEngine: "gemini",
     };

@@ -63,7 +63,8 @@ describe('wiring in both engines', () => {
   });
 
   test('both engines pass the allowlist to dispatch and filter the model-visible tool list', () => {
-    assert.equal(persona.match(/toolAllowlist: params\.toolAllowlist \}\);/g)?.length, 2);
+    // Both engines also carry the founder-present and wake-turn context to dispatch (wake W2b).
+    assert.equal(persona.match(/toolAllowlist: params\.toolAllowlist, founderPresent: params\.founderPresent, wakeTurn: params\.wakeTurn \}\);/g)?.length, 2);
     assert.match(persona, /toAnthropicAldenTools\(\)\.filter\(\(tool\) => !params\.toolAllowlist \|\| params\.toolAllowlist\.has\(tool\.name\)\)/);
     assert.match(persona, /toGeminiFunctions\(ALDEN_TOOLS\.filter\(\(tool\) => !params\.toolAllowlist \|\| params\.toolAllowlist\.has\(tool\.name\)\)\)/);
   });
