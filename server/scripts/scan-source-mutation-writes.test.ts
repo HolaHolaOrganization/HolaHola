@@ -794,6 +794,14 @@ function isUnderTrackedRoot(p: string): { label: string } | null {
   return null;
 }
 
+/**
+ * Formats a resolved absolute path as a PROJECT_ROOT-relative target using
+ * forward slashes on all platforms (matching AllowlistEntry.target).
+ */
+function toProjectRelativeTarget(absPath: string): string {
+  return path.relative(PROJECT_ROOT, absPath).split(path.sep).join('/');
+}
+
 // ─── Call-site scanner ───────────────────────────────────────────────────────
 
 interface WriteCallSite {
@@ -885,7 +893,7 @@ function scanForViolations(scriptsRoot: string): { tracked: TrackedViolation[]; 
       if (resolved.kind === 'path') {
         const hit = isUnderTrackedRoot(resolved.value);
         if (!hit) continue; // outside every tracked directory -- safe
-        const relTarget = path.relative(PROJECT_ROOT, resolved.value).split(path.sep).join('/');
+        const relTarget = toProjectRelativeTarget(resolved.value);
         if (TARGET_ALLOWLIST.has(`${entryName}::${relTarget}`)) continue;
         const dedupeKey = `${entryName}::${relTarget}`;
         if (seenTracked.has(dedupeKey)) continue;
@@ -964,7 +972,7 @@ describe('Source-mutation write guard — server/scripts writes stay out of trac
         const matches = scanned.sites.some((site) => {
           const resolved = resolveExpr(scanned.ctx, site.targetArg, new Set());
           if (resolved.kind !== 'path') return false;
-          const rel = path.relative(PROJECT_ROOT, resolved.value).split(path.sep).join('/');
+          const rel = toProjectRelativeTarget(resolved.value);
           return rel === entry.target;
         });
         if (!matches) stale.push(`${entry.file} -> target ${entry.target}`);
@@ -1129,7 +1137,7 @@ describe('Source-mutation write guard — resolver unit checks', () => {
     const sites = findWriteCallSites(ctx.sourceFile, ctx.importBindings);
     const targets = sites.map((s) => {
       const r = resolveExpr(ctx, s.targetArg, new Set());
-      return r.kind === 'path' ? path.relative(PROJECT_ROOT, r.value) : r.kind;
+      return r.kind === 'path' ? toProjectRelativeTarget(r.value) : r.kind;
     });
     assert.deepEqual(new Set([...targets]), new Set(['server/a.ts', 'server/b.ts', 'server/c.ts']));
   });
