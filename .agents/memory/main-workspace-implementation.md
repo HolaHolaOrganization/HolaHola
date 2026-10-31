@@ -167,3 +167,12 @@ Review and act on incoming approved-project work without repeatedly asking the f
 
 **How to apply:** Coordinate directly with the owning hat and verify exact-source work as it arrives. Distinguish durable message collection from actual runtime awareness; prove idle-session notification, re-arming and replay on each native runtime. Preserve sensitive approval boundaries and do not claim waking ended sessions without evidence.
 
+
+## Standing authorization for colleague reviews
+
+Review colleagues' work when it is ready without asking the founder for permission on each review. This standing authorization covers routine technical review and recording the review decision, not automatic approval.
+
+**Why:** On 2026-10-30 the founder explicitly said, “you are authorized to always review your colleagues work,” after pending colleague reviews had unnecessarily waited for another founder request.
+
+**How to apply:** Read and independently assess the exact current candidate, run proportionate verification, and return findings directly to the colleague. Do not defer an otherwise actionable review merely because a different review was requested most recently. Preserve separate merge, publication, credential, destructive-action, and active-hold boundaries.
+

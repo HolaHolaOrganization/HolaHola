@@ -335,3 +335,12 @@ needed source/configuration directories. Use the established own-actor
 authentication wrapper for lazy blob hydration too. Never change Git trust or
 persist credentials merely to obtain review sources.
 
+
+## Batch own-App review calls without persisting credentials
+
+Prefer one own-actor `github-exec` invocation running a trusted batch of GitHub CLI operations over a new wrapper invocation for every read and review. Keep the token solely in the child's inherited environment; never print it, put it in arguments, persist it, or switch actors to get around a refusal.
+
+**Why:** A multi-PR review exhausted the broker's mint limiter and returned HTTP 429 even though the GitHub API calls themselves had been working. Each wrapper invocation needs another mint. This is distinct from GitHub's own API limit; no exact reset interval was established.
+
+**How to apply:** In a batch, recheck each candidate's exact head, open state and auto-merge state immediately before posting its decision. If the broker refuses a mint, do independent local work and retry later without alternate credentials. A denied mint means the child never ran, so do not claim that a review was posted.
+
