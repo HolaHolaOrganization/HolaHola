@@ -55,3 +55,29 @@ test('update_support_pattern appends notes on its own pattern only', async (cont
   assert.equal(untouched.status, 'open');
   assert.equal(untouched.developerNotes, 'earlier note');
 });
+
+test('a stale triage task cannot reopen a fixed, wont_fix or known_benign pattern', async (context) => {
+  if (!getVerifiedCiDatabaseUrl()) {
+    context.skip('requires CI=true and matching job-local CI_DATABASE_URL / NEON_SHARED_DATABASE_URL');
+    return;
+  }
+  const { getSharedDb } = await import('../neon-db');
+  const { supportPatterns } = await import('@shared/schema');
+  const { eq } = await import('drizzle-orm');
+  const { executeAldenTool } = await import('./alden-functions');
+  const { triageAllowlist } = await import('./alden-tool-profiles');
+  const db = getSharedDb();
+  for (const status of ['fixed', 'wont_fix', 'known_benign']) {
+    const id = randomUUID();
+    ids.push(id);
+    await db.insert(supportPatterns).values({ id, patternType: 'no_audio', description: `profiles pg terminal ${status}`, status, developerNotes: 'decided earlier' } as any);
+    for (const next of ['open', 'investigating']) {
+      const result = await executeAldenTool('update_support_pattern', { pattern_id: id, status: next, notes: 'stale task note' }, { toolAllowlist: triageAllowlist(id) });
+      assert.equal(result.data.refused, 'pattern_not_editable', `${status} -> ${next}: ${JSON.stringify(result.data)}`);
+      assert.equal(result.data.status, status);
+    }
+    const [row] = await db.select().from(supportPatterns).where(eq(supportPatterns.id, id));
+    assert.equal(row.status, status, 'the decided status is unchanged');
+    assert.equal(row.developerNotes, 'decided earlier', 'no stale note was appended');
+  }
+});

@@ -285,7 +285,8 @@ function utcTimestamp(): string {
  * This is the "tiered autonomy" path: instead of silently dropping the issue, we
  * surface it for async review by the Agent or David.
  */
-async function queueAsProposal(issueDescription: string, reason: string): Promise<void> {
+/** Returns whether the proposal row was actually inserted. */
+async function queueAsProposal(issueDescription: string, reason: string): Promise<boolean> {
   try {
     const db = getUserDb();
     await db.insert(buildQueue).values({
@@ -297,8 +298,10 @@ async function queueAsProposal(issueDescription: string, reason: string): Promis
       status: 'pending',
     });
     console.log('[AutoRepair] Queued as build proposal for review');
+    return true;
   } catch (err: any) {
     console.warn('[AutoRepair] Failed to queue proposal:', err.message);
+    return false;
   }
 }
 
@@ -357,12 +360,21 @@ export async function attemptAutoRepair(
     const boundary = aldenWriteBoundary();
     if (!boundary.allowed) {
       const planText = plan.changes.map(c => `• ${c.filePath}: ${c.description}`).join('\n');
-      await queueProposal(issueDescription, `${boundary.reason}. Proposed repair (${classification.type}): ${plan.explanation}\n${planText}`);
-      await notify(
-        `Auto-repair proposed, not applied (${boundary.role}): ${plan.explanation}\n\nThe plan is queued for review. Nothing was written.`,
-        'info',
-      );
-      console.log(`[AutoRepair] Not applied (${boundary.role}); queued for review.`);
+      // Claim "queued" only after the insert is confirmed; otherwise say plainly it was lost.
+      const queued = await queueProposal(issueDescription, `${boundary.reason}. Proposed repair (${classification.type}): ${plan.explanation}\n${planText}`);
+      if (queued) {
+        await notify(
+          `Auto-repair proposed, not applied (${boundary.role}): ${plan.explanation}\n\nThe plan is queued for review. Nothing was written.`,
+          'info',
+        );
+        console.log(`[AutoRepair] Not applied (${boundary.role}); queued for review.`);
+      } else {
+        await notify(
+          `Auto-repair proposed, not applied (${boundary.role}), and the proposal could NOT be saved for review: ${plan.explanation}\n\nNothing was written, and nothing is waiting in the build queue. Issue: ${issueDescription}`,
+          'alert',
+        );
+        console.warn(`[AutoRepair] Not applied (${boundary.role}); the review proposal failed to save.`);
+      }
       return false;
     }
 
