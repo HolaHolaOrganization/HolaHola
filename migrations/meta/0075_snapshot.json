@@ -1,5 +1,5 @@
 {
-  "id": "b9be52f1-35f5-43e2-affd-4d70d7043e11",
+  "id": "bae97609-3e19-40a5-bc02-4ed0f1752db1",
   "prevId": "98644b55-72f0-4adc-b343-061cd7dc09f6",
   "version": "7",
   "dialect": "postgresql",
@@ -3608,8 +3608,8 @@
           "notNull": true,
           "default": "gen_random_uuid()"
         },
-        "inbox_item_id": {
-          "name": "inbox_item_id",
+        "item_id": {
+          "name": "item_id",
           "type": "varchar",
           "primaryKey": false,
           "notNull": true
@@ -3651,7 +3651,7 @@
           "name": "idx_alden_wake_attempt_audit_item",
           "columns": [
             {
-              "expression": "inbox_item_id",
+              "expression": "item_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -3670,15 +3670,15 @@
         }
       },
       "foreignKeys": {
-        "alden_wake_attempt_audit_inbox_item_id_alden_wake_attempts_inbox_item_id_fk": {
-          "name": "alden_wake_attempt_audit_inbox_item_id_alden_wake_attempts_inbox_item_id_fk",
+        "alden_wake_attempt_audit_item_id_alden_wake_attempts_item_id_fk": {
+          "name": "alden_wake_attempt_audit_item_id_alden_wake_attempts_item_id_fk",
           "tableFrom": "alden_wake_attempt_audit",
           "tableTo": "alden_wake_attempts",
           "columnsFrom": [
-            "inbox_item_id"
+            "item_id"
           ],
           "columnsTo": [
-            "inbox_item_id"
+            "item_id"
           ],
           "onDelete": "cascade",
           "onUpdate": "no action"
@@ -3699,8 +3699,8 @@
       "name": "alden_wake_attempts",
       "schema": "",
       "columns": {
-        "inbox_item_id": {
-          "name": "inbox_item_id",
+        "item_id": {
+          "name": "item_id",
           "type": "varchar",
           "primaryKey": true,
           "notNull": true
@@ -3711,6 +3711,24 @@
           "primaryKey": false,
           "notNull": true,
           "default": "'addressed'"
+        },
+        "inbox_item_id": {
+          "name": "inbox_item_id",
+          "type": "varchar",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "watch_item_id": {
+          "name": "watch_item_id",
+          "type": "varchar",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "event_id": {
+          "name": "event_id",
+          "type": "varchar",
+          "primaryKey": false,
+          "notNull": true
         },
         "event_global_sequence": {
           "name": "event_global_sequence",
@@ -3899,6 +3917,21 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
+        },
+        "idx_alden_wake_attempts_event": {
+          "name": "idx_alden_wake_attempts_event",
+          "columns": [
+            {
+              "expression": "event_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         }
       },
       "foreignKeys": {
@@ -3914,12 +3947,42 @@
           ],
           "onDelete": "cascade",
           "onUpdate": "no action"
+        },
+        "alden_wake_attempts_watch_item_id_coordination_watch_items_id_fk": {
+          "name": "alden_wake_attempts_watch_item_id_coordination_watch_items_id_fk",
+          "tableFrom": "alden_wake_attempts",
+          "tableTo": "coordination_watch_items",
+          "columnsFrom": [
+            "watch_item_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "alden_wake_attempts_event_id_coordination_events_id_fk": {
+          "name": "alden_wake_attempts_event_id_coordination_events_id_fk",
+          "tableFrom": "alden_wake_attempts",
+          "tableTo": "coordination_events",
+          "columnsFrom": [
+            "event_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {
+        "alden_wake_attempts_one_source": {
+          "name": "alden_wake_attempts_one_source",
+          "value": "(\"alden_wake_attempts\".\"item_kind\" = 'addressed' AND \"alden_wake_attempts\".\"inbox_item_id\" IS NOT NULL AND \"alden_wake_attempts\".\"watch_item_id\" IS NULL AND \"alden_wake_attempts\".\"item_id\" = \"alden_wake_attempts\".\"inbox_item_id\")\n    OR (\"alden_wake_attempts\".\"item_kind\" = 'observe' AND \"alden_wake_attempts\".\"watch_item_id\" IS NOT NULL AND \"alden_wake_attempts\".\"inbox_item_id\" IS NULL AND \"alden_wake_attempts\".\"item_id\" = \"alden_wake_attempts\".\"watch_item_id\")"
+        },
         "alden_wake_attempts_state_valid": {
           "name": "alden_wake_attempts_state_valid",
           "value": "\"alden_wake_attempts\".\"state\" IN ('eligible', 'claimed', 'replied', 'declined', 'needs_david', 'failed', 'uncertain', 'conflict', 'manual', 'covered', 'handled_in_chat', 'history', 'observed')"
@@ -4017,8 +4080,8 @@
           "notNull": true,
           "default": "gen_random_uuid()"
         },
-        "inbox_item_id": {
-          "name": "inbox_item_id",
+        "item_id": {
+          "name": "item_id",
           "type": "varchar",
           "primaryKey": false,
           "notNull": true
@@ -4109,15 +4172,15 @@
         }
       },
       "foreignKeys": {
-        "alden_wake_notice_outbox_inbox_item_id_alden_wake_attempts_inbox_item_id_fk": {
-          "name": "alden_wake_notice_outbox_inbox_item_id_alden_wake_attempts_inbox_item_id_fk",
+        "alden_wake_notice_outbox_item_id_alden_wake_attempts_item_id_fk": {
+          "name": "alden_wake_notice_outbox_item_id_alden_wake_attempts_item_id_fk",
           "tableFrom": "alden_wake_notice_outbox",
           "tableTo": "alden_wake_attempts",
           "columnsFrom": [
-            "inbox_item_id"
+            "item_id"
           ],
           "columnsTo": [
-            "inbox_item_id"
+            "item_id"
           ],
           "onDelete": "cascade",
           "onUpdate": "no action"
@@ -21340,6 +21403,157 @@
         "coordination_v2_transport_work_result_size": {
           "name": "coordination_v2_transport_work_result_size",
           "value": "length(\"coordination_v2_transport_work_results\".\"result\"::text) <= 32768"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.coordination_watch_items": {
+      "name": "coordination_watch_items",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "varchar",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "watch_id": {
+          "name": "watch_id",
+          "type": "varchar",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "watcher": {
+          "name": "watcher",
+          "type": "varchar(80)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "event_id": {
+          "name": "event_id",
+          "type": "varchar",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "thread_id": {
+          "name": "thread_id",
+          "type": "varchar",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "event_global_sequence": {
+          "name": "event_global_sequence",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "sender": {
+          "name": "sender",
+          "type": "varchar(80)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "uq_coordination_watch_items_watcher_event": {
+          "name": "uq_coordination_watch_items_watcher_event",
+          "columns": [
+            {
+              "expression": "watcher",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "event_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "idx_coordination_watch_items_thread_sequence": {
+          "name": "idx_coordination_watch_items_thread_sequence",
+          "columns": [
+            {
+              "expression": "thread_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "event_global_sequence",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "coordination_watch_items_watch_id_coordination_thread_watchers_id_fk": {
+          "name": "coordination_watch_items_watch_id_coordination_thread_watchers_id_fk",
+          "tableFrom": "coordination_watch_items",
+          "tableTo": "coordination_thread_watchers",
+          "columnsFrom": [
+            "watch_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "coordination_watch_items_event_id_coordination_events_id_fk": {
+          "name": "coordination_watch_items_event_id_coordination_events_id_fk",
+          "tableFrom": "coordination_watch_items",
+          "tableTo": "coordination_events",
+          "columnsFrom": [
+            "event_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "coordination_watch_items_thread_id_coordination_threads_id_fk": {
+          "name": "coordination_watch_items_thread_id_coordination_threads_id_fk",
+          "tableFrom": "coordination_watch_items",
+          "tableTo": "coordination_threads",
+          "columnsFrom": [
+            "thread_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "coordination_watch_items_not_own_event": {
+          "name": "coordination_watch_items_not_own_event",
+          "value": "\"coordination_watch_items\".\"sender\" <> \"coordination_watch_items\".\"watcher\""
         }
       },
       "isRLSEnabled": false

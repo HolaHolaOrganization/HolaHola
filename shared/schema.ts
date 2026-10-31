@@ -10438,10 +10438,17 @@ export const aldenWakeControl = pgTable("alden_wake_control", {
 
 /** One row per Alden inbox item: its wake disposition, lease and fencing epoch. */
 export const aldenWakeAttempts = pgTable("alden_wake_attempts", {
-  inboxItemId: varchar("inbox_item_id").primaryKey()
-    .references(() => coordinationInboxItems.id, { onDelete: 'cascade' }),
+  // The item's own id: its inbox item id when addressed, its watch item id when observed (design r12).
+  itemId: varchar("item_id").primaryKey(),
   // 'addressed' for an item addressed to Alden; 'observe' for a thread-watch item (W3).
   itemKind: varchar("item_kind", { length: 20 }).notNull().default('addressed'),
+  inboxItemId: varchar("inbox_item_id")
+    .references(() => coordinationInboxItems.id, { onDelete: 'cascade' }),
+  watchItemId: varchar("watch_item_id")
+    .references(() => coordinationWatchItems.id, { onDelete: 'cascade' }),
+  // The coordination event the item is for.
+  eventId: varchar("event_id").notNull()
+    .references(() => coordinationEvents.id, { onDelete: 'cascade' }),
   eventGlobalSequence: bigint("event_global_sequence", { mode: 'number' }).notNull(),
   state: varchar("state", { length: 30 }).notNull(),
   claimedBy: varchar("claimed_by", { length: 120 }),
@@ -10468,6 +10475,10 @@ export const aldenWakeAttempts = pgTable("alden_wake_attempts", {
   uniqueIndex("uq_alden_wake_attempts_effect_key").on(table.effectKey),
   index("idx_alden_wake_attempts_state").on(table.state, table.eventGlobalSequence),
   index("idx_alden_wake_attempts_thread").on(table.targetThreadId),
+  index("idx_alden_wake_attempts_event").on(table.eventId),
+  // Exactly one source, matching the kind, and the item id is that source's id.
+  check("alden_wake_attempts_one_source", sql`(${table.itemKind} = 'addressed' AND ${table.inboxItemId} IS NOT NULL AND ${table.watchItemId} IS NULL AND ${table.itemId} = ${table.inboxItemId})
+    OR (${table.itemKind} = 'observe' AND ${table.watchItemId} IS NOT NULL AND ${table.inboxItemId} IS NULL AND ${table.itemId} = ${table.watchItemId})`),
   check("alden_wake_attempts_state_valid", sql`${table.state} IN ('eligible', 'claimed', 'replied', 'declined', 'needs_david', 'failed', 'uncertain', 'conflict', 'manual', 'covered', 'handled_in_chat', 'history', 'observed')`),
   check("alden_wake_attempts_kind_valid", sql`${table.itemKind} IN ('addressed', 'observe')`),
   // observed is the terminal outcome of an observe item only, and an observe item is never needs_david.
@@ -10482,23 +10493,23 @@ export const aldenWakeAttempts = pgTable("alden_wake_attempts", {
 /** Append-only: one row per worker or chat attempt. A stale worker's result lives here, never on the item. */
 export const aldenWakeAttemptAudit = pgTable("alden_wake_attempt_audit", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  inboxItemId: varchar("inbox_item_id").notNull()
-    .references(() => aldenWakeAttempts.inboxItemId, { onDelete: 'cascade' }),
+  itemId: varchar("item_id").notNull()
+    .references(() => aldenWakeAttempts.itemId, { onDelete: 'cascade' }),
   claimEpoch: integer("claim_epoch").notNull(),
   workerId: varchar("worker_id", { length: 120 }).notNull(),
   result: varchar("result", { length: 20 }).notNull(),
   reason: text("reason"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 }, (table) => [
-  index("idx_alden_wake_attempt_audit_item").on(table.inboxItemId, table.createdAt),
+  index("idx_alden_wake_attempt_audit_item").on(table.itemId, table.createdAt),
   check("alden_wake_attempt_audit_result_valid", sql`${table.result} IN ('published', 'superseded', 'refused', 'failed')`),
 ]);
 
 /** One row per notice obligation; the dedupe key makes a retry deliver a notice at most once. */
 export const aldenWakeNoticeOutbox = pgTable("alden_wake_notice_outbox", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  inboxItemId: varchar("inbox_item_id").notNull()
-    .references(() => aldenWakeAttempts.inboxItemId, { onDelete: 'cascade' }),
+  itemId: varchar("item_id").notNull()
+    .references(() => aldenWakeAttempts.itemId, { onDelete: 'cascade' }),
   stateReported: varchar("state_reported", { length: 30 }).notNull(),
   dedupeKey: varchar("dedupe_key", { length: 200 }).notNull(),
   status: varchar("status", { length: 20 }).notNull().default('pending'),
@@ -10535,9 +10546,10 @@ export const aldenWakeThreadPauses = pgTable("alden_wake_thread_pauses", {
 ]);
 
 /**
- * Thread watch (W3): a watcher gets an observe item for each event on the
- * thread after from_global_sequence. Forward-only by construction; never a
- * self-add (added_by must differ from watcher).
+ * Thread watch (W3, design r12): a watcher gets a watch item for each content
+ * event on the thread after from_global_sequence. Forward-only by
+ * construction; never a self-add (added_by must differ from watcher). The
+ * coordination inbox is not involved.
  */
 export const coordinationThreadWatchers = pgTable("coordination_thread_watchers", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -10556,6 +10568,28 @@ export const coordinationThreadWatchers = pgTable("coordination_thread_watchers"
   check("coordination_thread_watchers_no_self_add", sql`${table.addedBy} <> ${table.watcher}`),
   check("coordination_thread_watchers_reason_nonempty", sql`length(trim(${table.reason})) > 0`),
   check("coordination_thread_watchers_removed_complete", sql`(${table.removedAt} IS NULL) = (${table.removedBy} IS NULL)`),
+]);
+
+/**
+ * One row per content event on a watched thread for its watcher (design r12),
+ * materialized by the wake pass by anti-join. Unique per watcher and event.
+ */
+export const coordinationWatchItems = pgTable("coordination_watch_items", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  watchId: varchar("watch_id").notNull()
+    .references(() => coordinationThreadWatchers.id, { onDelete: 'cascade' }),
+  watcher: varchar("watcher", { length: 80 }).notNull(),
+  eventId: varchar("event_id").notNull()
+    .references(() => coordinationEvents.id, { onDelete: 'cascade' }),
+  threadId: varchar("thread_id").notNull()
+    .references(() => coordinationThreads.id, { onDelete: 'cascade' }),
+  eventGlobalSequence: bigint("event_global_sequence", { mode: 'number' }).notNull(),
+  sender: varchar("sender", { length: 80 }).notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("uq_coordination_watch_items_watcher_event").on(table.watcher, table.eventId),
+  index("idx_coordination_watch_items_thread_sequence").on(table.threadId, table.eventGlobalSequence),
+  check("coordination_watch_items_not_own_event", sql`${table.sender} <> ${table.watcher}`),
 ]);
 
 // ===== Wren Proactive Triggers =====
