@@ -365,16 +365,25 @@ export async function runReviewQueue(deps: Partial<ReviewQueueDeps> = {}): Promi
       // anything else is review_blocked. The write boundary is checked again.
       const plan = planApproval(change, root, env);
       if (plan.kind === 'store') {
-        let note: string;
+        let stored: { id: string };
         try {
-          const stored = await storeProposal({
+          stored = await storeProposal({
             title: `Reviewed fix: ${change.findingTitle}`.slice(0, 300),
             description: `Approved by Alden's code review (proposed_code_changes ${change.id}).\n\nFinding: ${change.findingDescription}\n\nPatch rationale: ${change.patchRationale}\n\nAlden's review: ${result.reason}`,
             change: plan.change,
             patternId: null,
             recheckSource: plan.recheckSource,
           });
-          note = `Not applied: stored as pending proposal ${stored.id}, pinned to release ${plan.change.pin.commit}. It needs review before anything is built.`;
+        } catch (err: any) {
+          // The pinned store failed (for example a stale recheck): block it visibly.
+          await blockApproval(`the proposal could not be stored: ${err?.message ?? err}`);
+          continue;
+        }
+        // The proposal is durable from here on. A later failure must never mark
+        // this item review_blocked, which would hide a stored proposal behind a
+        // false "not stored" (LR's #156 review note): link it, then post.
+        const note = `Not applied: stored as pending proposal ${stored.id}, pinned to release ${plan.change.pin.commit}. It needs review before anything is built.`;
+        try {
           await db.update(proposedCodeChanges).set({
             status: 'approved_pending_review',
             buildQueueId: stored.id,
@@ -384,13 +393,17 @@ export async function runReviewQueue(deps: Partial<ReviewQueueDeps> = {}): Promi
             appliedAt: null,
             githubSynced: false,
           }).where(eq(proposedCodeChanges.id, change.id));
-          await postDecision(change, result, false, false, note);
-          continue;
         } catch (err: any) {
-          // The pinned store failed (for example a stale recheck): block it visibly.
-          await blockApproval(`the proposal could not be stored: ${err?.message ?? err}`);
+          // The item stays pending_review; the stored proposal names it, so the link can be repaired.
+          console.error(`[AldenReview] Proposal ${stored.id} is stored, but linking review item ${change.id} failed:`, err?.message ?? err);
           continue;
         }
+        try {
+          await postDecision(change, result, false, false, note);
+        } catch (err: any) {
+          console.warn(`[AldenReview] Decision post failed for ${change.id} (proposal ${stored.id} is stored and linked):`, err?.message ?? err);
+        }
+        continue;
       }
       if (plan.kind === 'blocked' || !aldenWriteBoundary(env).allowed) {
         await blockApproval(plan.kind === 'blocked' ? plan.reason : 'the write boundary refused applying it outside a dev instance');

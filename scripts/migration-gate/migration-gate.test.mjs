@@ -3,6 +3,7 @@
 // branch list is a stubbed fetch and the manifest runs against a temporary repo.
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -295,7 +296,10 @@ test('summary: a fixed template with re-rendered values, whatever follows an acc
     const { lines } = summarize(raw, rc);
     const out = lines.join('\n');
     assert.doesNotMatch(out, /PRIVATE|learner/);
-    assert.equal(lines.length, 7);
+    // Seven fixed lines; a failed run adds the failing-test list, whose entries
+    // here are withheld because nothing in this raw text is source in main.
+    assert.equal(lines.length, rc === '0' ? 7 : 9);
+    if (rc === '1') assert.match(lines[8], /^- file: withheld \| test: withheld \| id: [0-9a-f]{12}$/);
     assert.match(out, /test totals: tests 12, pass 10, fail 2, skipped 0, cancelled 0, todo 0/);
     assert.match(out, /gate groups started: 1/);
   }
@@ -383,4 +387,45 @@ test('workflow: the real gate step body leaks no accepted-prefix data and keeps 
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test('summary: a failed run names failing tests only when they are source text in main', () => {
+  const sha12 = (s) => createHash('sha256').update(s).digest('hex').slice(0, 12);
+  const file = 'scripts/migration-gate/migration-gate.test.mjs';
+  const literal = 'a failing case whose name is written in this file';
+  const dynamic = `row 4823 ${PRIVATE}`;
+  const tap = [
+    '[gate] Running a group against the branch...',
+    `# Subtest: ${file}`,
+    `    # Subtest: ${literal}`,
+    `    not ok 1 - ${literal}`,
+    `    not ok 2 - ${dynamic}`,
+    `not ok 1 - ${file}`,
+    '# Subtest: server/no/such/file.test.ts',
+    '    not ok 1 - something',
+    'not ok 2 - server/no/such/file.test.ts',
+    '# Subtest: ../outside/escape.test.ts',
+    'not ok 3 - ../outside/escape.test.ts',
+    'not ok 4 - scripts/migration-gate/summarize-gate-log.mjs',
+    '# fail 4',
+  ].join('\n');
+  const out = summarize(tap, '1').lines;
+  const list = out.slice(out.findIndex((l) => l.startsWith('failing tests')) + 1);
+  assert.deepEqual(list, [
+    `- file: ${file} | test: ${literal} | id: ${sha12(literal)}`,
+    `- file: ${file} | test: withheld | id: ${sha12(dynamic)}`,
+    `- file: withheld | test: withheld | id: ${sha12('something')}`,
+    `- file: withheld | test: withheld | id: ${sha12('../outside/escape.test.ts')}`,
+    `- file: scripts/migration-gate/summarize-gate-log.mjs | test: (the file failed; no failing case was listed) | id: ${sha12('scripts/migration-gate/summarize-gate-log.mjs')}`,
+  ]);
+  assert.doesNotMatch(out.join('\n'), /PRIVATE|learner|4823/);
+});
+
+test('summary: a passing or incomplete run lists no failing tests, and a long list is capped', () => {
+  const tap = ['# Subtest: x', 'not ok 1 - x', READY].join('\n');
+  assert.equal(summarize(tap, '0').lines.length, 7, 'a pass never lists the expected failures a mutation proof prints');
+  const many = Array.from({ length: 25 }, (_, i) => `not ok ${i + 1} - case ${i}`).join('\n');
+  const lines = summarize(many, '1').lines;
+  assert.equal(lines.filter((l) => l.startsWith('- file:')).length, 20);
+  assert.equal(lines.at(-1), '- and 5 more');
 });
