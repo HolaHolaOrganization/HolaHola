@@ -95,6 +95,14 @@ describe('agent-voice-turn route ordering', () => {
     assert.ok(record < at('bench.projectBenchTurn(db, bench.benchEvent(turn)'));
     assert.ok(record < at("} else if (lucaLine?.trim() && !noEpisode) {"));
   });
+  test('the episode intent comes from the request, is bound to the receipt, and the replay follows the stored intent', () => {
+    at("const benchIntent: 'project' | 'exclude' = noEpisode ? 'exclude' : 'project';");
+    at('bench.findBenchTurn(db, sessionId, turnId, benchUserId, studentText, benchIntent)');
+    at('}, benchIntent);');
+    assert.ok(at("if (stored.intent === 'project') {") < at('replayed: true'), 'the replay projects only from the stored intent');
+    assert.equal(route.split('bench.projectBenchTurn(').length - 1, 2);
+    assert.equal(route.split(', { sessionId, turnId });').length - 1, 2, 'both projection calls record the target with the turn');
+  });
   test('endSession in receipt mode finalizes the receipt row instead of inserting a transcript', () => {
     assert.ok(at('if (endSession && bench) {') < at('} else if (endSession && agentSession.conversationTranscript.length > 0) {'));
   });
@@ -109,7 +117,7 @@ describe('SQL parameter shape (no database)', () => {
     const responses: Record<string, unknown>[][] = [[], [], [{ id: '00000000-0000-0000-0000-000000000001' }], [{ content: sessionHeader('t'), attribution: null }], [], []];
     const tx = { execute: async (q: any) => { seen.push(dialect.sqlToQuery(q)); return { rows: responses.shift() ?? [] }; } };
     const db = { ...tx, transaction: async (fn: any) => fn(tx) };
-    assert.equal((await recordBenchTurn(db as any, turn, { userId: 'dev-test-agent', topicHint: 't', dateStr: 'd' })).kind, 'stored');
+    assert.equal((await recordBenchTurn(db as any, turn, { userId: 'dev-test-agent', topicHint: 't', dateStr: 'd' }, 'project')).kind, 'stored');
     await finalizeBenchSession(tx as any, turn.sessionId, null, ['a', 'b']);
     for (const q of seen) assert.doesNotMatch(q.sql, /\(\$\d+, \$\d+/, `no expanded tuple in: ${q.sql.slice(0, 120)}`);
     const insert = seen.find(q => q.sql.includes('INSERT INTO conversation_memories'))!;

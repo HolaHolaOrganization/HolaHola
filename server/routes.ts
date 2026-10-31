@@ -25460,6 +25460,8 @@ Current conversation context:
     const { attributionWritersEnabled } = await import('./services/attribution-rendering');
     const benchReceipts = attributionWritersEnabled();
     const receiptMode = benchReceipts && (!noEpisode || turnId !== undefined);
+    // The turn's episode intent is bound to its receipt; a retry may not change it.
+    const benchIntent: 'project' | 'exclude' = noEpisode ? 'exclude' : 'project';
     const bench = receiptMode ? await import('./services/chat-bench-receipt') : null;
     const benchUserId: string | undefined = req.user?.id;
     let benchInFlightKey: string | null = null;
@@ -25482,17 +25484,18 @@ Current conversation context:
           return res.status(409).json({ error: 'this turnId is already in flight; retry after it completes' });
         }
         reservation.release = release;
-        const stored = await bench.findBenchTurn(db, sessionId, turnId, benchUserId, studentText);
+        const stored = await bench.findBenchTurn(db, sessionId, turnId, benchUserId, studentText, benchIntent);
         if (stored.status === 'conflict') return res.status(409).json({ error: stored.reason });
         if (stored.status === 'complete') {
           // Completed exact retry: return the stored bytes, never rerun
           // Daniela or tools. Projection is retried through the common append
           // so an earlier projection failure is repaired, not assumed done.
+          // Projection follows the STORED intent (equal to this request's, or it was refused above).
           let episodeProjection: unknown = 'skipped';
-          if (!noEpisode) {
+          if (stored.intent === 'project') {
             try {
               const { currentRollingEpisodeId } = await import('./services/projection-append-store');
-              episodeProjection = await bench.projectBenchTurn(db, stored.event, currentRollingEpisodeId);
+              episodeProjection = await bench.projectBenchTurn(db, stored.event, currentRollingEpisodeId, { sessionId, turnId });
             } catch (e: any) { episodeProjection = { failed: e?.message ?? String(e) }; }
           }
           let savedMemoryId: string | null = null;
@@ -25903,7 +25906,7 @@ The visual layer IS the lesson. Move through the arc in sequence — open scene 
         const db = getUserDb() as any;
         const dateStr = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
         const turn = { sessionId, turnId, lucaText: studentText, danielaText, participant: 'daniela' as const };
-        const recorded = await bench.recordBenchTurn(db, turn, { userId: benchUserId!, topicHint: topicHint || '', dateStr });
+        const recorded = await bench.recordBenchTurn(db, turn, { userId: benchUserId!, topicHint: topicHint || '', dateStr }, benchIntent);
         if (recorded.kind === 'conflict') {
           // Daniela already answered this request; say so rather than hide it.
           return res.status(409).json({ error: `receipt refused: ${recorded.reason}`, modelRan: true });
@@ -25912,7 +25915,7 @@ The visual layer IS the lesson. Move through the arc in sequence — open scene 
         if (!noEpisode) {
           try {
             const { currentRollingEpisodeId } = await import('./services/projection-append-store');
-            episodeProjection = await bench.projectBenchTurn(db, bench.benchEvent(turn), currentRollingEpisodeId);
+            episodeProjection = await bench.projectBenchTurn(db, bench.benchEvent(turn), currentRollingEpisodeId, { sessionId, turnId });
           } catch (e: any) {
             // The receipt is durable; an exact retry repairs the projection.
             episodeProjection = { failed: e?.message ?? String(e) };
