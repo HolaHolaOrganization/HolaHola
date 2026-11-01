@@ -7,12 +7,13 @@
  * or escalates to David.
  */
 
+import { createHash } from 'node:crypto';
 import * as fs from 'fs';
 import Anthropic from '@anthropic-ai/sdk';
 import { getSharedDb, getUserDb } from '../db';
 import { costTracker } from './cost-tracker';
 import { ALDEN_BACKGROUND_MODEL, ALDEN_BACKGROUND_THINKING } from './alden-background-model';
-import { proposedCodeChanges, editorInsights, founderSessions, aldenNotifications } from '@shared/schema';
+import { proposedCodeChanges, editorInsights, founderSessions, aldenNotifications, buildQueue } from '@shared/schema';
 import { eq, and, desc, gte } from 'drizzle-orm';
 import { founderCollabService } from './founder-collaboration-service';
 import { postToActiveTeamRoom } from './team-room-proactive-poster';
@@ -272,9 +273,20 @@ export interface ReviewQueueDeps {
   notifyBlocked: (change: { id: string; findingTitle: string }, reason: string) => Promise<void>;
 }
 
-async function storeReviewedProposal(input: Parameters<typeof insertPinnedProposal>[1]): Promise<{ id: string }> {
-  const row = await insertPinnedProposal(getUserDb(), input);
-  await notifyStoredProposal(row);
+export function reviewProposalDedupeKey(changeId: string, diff: string): string {
+  const digest = createHash('sha256').update(`${changeId}\0${diff}`).digest('hex').slice(0, 16);
+  return `proposed_code_changes:${changeId}:${digest}`;
+}
+
+export async function storeReviewedProposal(
+  input: Parameters<typeof insertPinnedProposal>[1],
+  deps: { db?: ReturnType<typeof getUserDb>; notify?: (row: typeof buildQueue.$inferSelect) => Promise<void> } = {},
+): Promise<{ id: string }> {
+  const db = deps.db ?? getUserDb();
+  const row = await insertPinnedProposal(db, input);
+  if (row.notifyState !== 'delivered') {
+    await notifyStoredProposal(row, { db, notify: deps.notify });
+  }
   return row;
 }
 
@@ -365,11 +377,13 @@ export async function runReviewQueue(deps: Partial<ReviewQueueDeps> = {}): Promi
       // anything else is review_blocked. The write boundary is checked again.
       const plan = planApproval(change, root, env);
       if (plan.kind === 'store') {
+        const dedupeKey = reviewProposalDedupeKey(change.id, plan.change.diff);
         let stored: { id: string };
         try {
           stored = await storeProposal({
+            dedupeKey,
             title: `Reviewed fix: ${change.findingTitle}`.slice(0, 300),
-            description: `Approved by Alden's code review (proposed_code_changes ${change.id}).\n\nFinding: ${change.findingDescription}\n\nPatch rationale: ${change.patchRationale}\n\nAlden's review: ${result.reason}`,
+            description: `Approved by Alden's code review (proposed_code_changes ${change.id}, dedupe ${dedupeKey}).\n\nFinding: ${change.findingDescription}\n\nPatch rationale: ${change.patchRationale}\n\nAlden's review: ${result.reason}`,
             change: plan.change,
             patternId: null,
             recheckSource: plan.recheckSource,

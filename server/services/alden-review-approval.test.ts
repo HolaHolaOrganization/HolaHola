@@ -104,7 +104,13 @@ function harness(change: any, env: NodeJS.ProcessEnv, overrides: Record<string, 
     postDecision: async (...args: unknown[]) => { decisions.push(args); },
     root,
     env,
-    storeProposal: async (input: any) => { stored.push(input); return { id: 'bq-1' }; },
+    storeProposal: async (input: any) => {
+      const existing = input.dedupeKey ? stored.find((s) => s.dedupeKey === input.dedupeKey) : undefined;
+      if (existing) return { id: existing.id };
+      const id = `bq-${stored.length + 1}`;
+      stored.push({ ...input, id });
+      return { id };
+    },
     notifyBlocked: async (_change: unknown, reason: string) => { blocked.push(reason); },
     ...overrides,
   };
@@ -328,5 +334,117 @@ describe('after a production proposal is stored, later failures never mark it bl
     assert.deepEqual(updates.map((u) => u.status), ['approved_pending_review']);
     assert.equal(updates[0].buildQueueId, 'bq-1');
     assert.deepEqual(blocked, []);
+  });
+
+  test('a retry after a failed review-row link finds the existing build_queue proposal by dedupe key even when pin.commit changed (LR #158 note)', async () => {
+    const { PgDialect } = await import('drizzle-orm/pg-core');
+    const dialect = new PgDialect();
+    const { runReviewQueue, storeReviewedProposal, reviewProposalDedupeKey } = await import('./alden-code-review-service');
+    const change = reviewed('server/routes.ts', 16, 16, 'route sixteen');
+    const queueRows: any[] = [];
+    const notifiedIds: string[] = [];
+    const dedupeQueries: Array<{ sql: string; params: unknown[] }> = [];
+    const filterQueueRows = (cond: any, isDedupeLimit: boolean) => {
+      const rendered = dialect.sqlToQuery(cond);
+      if (isDedupeLimit) {
+        dedupeQueries.push(rendered);
+        assert.doesNotMatch(rendered.sql, /pin_commit/, 'dedupe lookup must not filter by pin_commit so retries across release commits match');
+        assert.match(rendered.sql, /"build_queue"\."description" like \$4/, 'dedupe key match must be pushed into SQL where clause');
+        const [proposedBy, pinKind, diff, likePattern] = rendered.params as [string, string, string, string];
+        const needle = likePattern.replace(/^%|%$/g, '');
+        // Also populate a distractor row with a different dedupe key to prove the SQL where filter is enforced
+        const allRows = [
+          { id: 'bq-distractor', proposedBy, pinKind, diff, description: 'Unrelated proposal without matching key', notifyState: 'delivered', notifyAttempts: 1 },
+          ...queueRows,
+        ];
+        return allRows.filter(
+          (r) => r.proposedBy === proposedBy && r.pinKind === pinKind && r.diff === diff && typeof r.description === 'string' && r.description.includes(needle),
+        );
+      }
+      if (rendered.sql.includes('"build_queue"."id" = $1')) {
+        return queueRows.filter((r) => r.id === rendered.params[0]);
+      }
+      return [...queueRows];
+    };
+    const select = () => ({
+      from: () => ({
+        where: (cond: any) => {
+          const promise = Promise.resolve().then(() => filterQueueRows(cond, false));
+          return Object.assign(promise, {
+            limit: async (n: number) => filterQueueRows(cond, true).slice(0, n),
+          });
+        },
+      }),
+    });
+    const insert = () => ({
+      values: (v: any) => ({
+        returning: async () => {
+          const row = { id: `bq-${queueRows.length + 1}`, notifyAttempts: 0, ...v };
+          queueRows.push(row);
+          return [row];
+        },
+      }),
+    });
+    const proposalDb: any = {
+      select,
+      insert,
+      transaction: async (fn: any) => fn({ select, insert }),
+      update: () => ({ set: (v: any) => ({ where: async () => { Object.assign(queueRows[queueRows.length - 1], v); } }) }),
+    };
+
+    let reviewCalls = 0;
+    let linkAttempt = 0;
+    const updates: Record<string, unknown>[] = [];
+    const { deps, blocked, decisions } = harness(change, ENV.production, {
+      review: async () => ({ decision: 'approve' as const, reason: `review pass ${++reviewCalls}` }),
+      storeProposal: (input: any) => storeReviewedProposal(input, {
+        db: proposalDb,
+        root,
+        env: ENV.production,
+        notify: async (row) => { notifiedIds.push(row.id); },
+      }),
+    });
+    deps.db.update = () => ({
+      set: (values: Record<string, unknown>) => ({
+        where: async () => {
+          updates.push(values);
+          if (++linkAttempt === 1) throw new Error('synthetic link failure on first run');
+        },
+      }),
+    });
+
+    const manifestPath = path.join(root, 'dist', 'release-manifest.json');
+    const originalManifest = fs.readFileSync(manifestPath, 'utf8');
+    try {
+      // Run 1: proposal is stored and notified once against commit HEAD, but linking proposed_code_changes fails.
+      await runReviewQueue(deps);
+      assert.equal(queueRows.length, 1, 'stored once on run 1');
+      assert.equal(queueRows[0].id, 'bq-1');
+      assert.equal(queueRows[0].pinCommit, HEAD);
+      assert.match(queueRows[0].description, new RegExp(reviewProposalDedupeKey(change.id, queueRows[0].diff)));
+      assert.deepEqual(notifiedIds, ['bq-1']);
+      assert.equal(decisions.length, 0);
+
+      // Simulate main advancing to a new release commit before the retry runs.
+      const nextCommitSha = 'b'.repeat(40);
+      assert.notEqual(nextCommitSha, HEAD);
+      fs.writeFileSync(manifestPath, JSON.stringify({
+        ...JSON.parse(originalManifest),
+        commitSha: nextCommitSha,
+      }));
+
+      // Run 2 (retry): pin.commit is now nextCommitSha, yet storeReviewedProposal finds bq-1 by dedupe key.
+      await runReviewQueue(deps);
+      assert.equal(queueRows.length, 1, 'no second build_queue row stored on retry even after pin.commit changed');
+      assert.equal(dedupeQueries.length, 2, 'dedupe query executed inside transaction on both runs');
+      assert.deepEqual(notifiedIds, ['bq-1'], 'already-delivered proposal notice is not sent again');
+      assert.equal(updates.length, 2);
+      assert.equal(updates[1].status, 'approved_pending_review');
+      assert.equal(updates[1].buildQueueId, 'bq-1');
+      assert.deepEqual(blocked, []);
+      assert.equal(decisions.length, 1);
+    } finally {
+      fs.writeFileSync(manifestPath, originalManifest);
+    }
   });
 });

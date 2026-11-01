@@ -6,7 +6,7 @@
  * notify_state. The proposal id is the fingerprint, so a retry can neither
  * duplicate nor lose them.
  */
-import { and, eq, inArray, lt } from 'drizzle-orm';
+import { and, eq, inArray, like, lt } from 'drizzle-orm';
 import { aldenNotifications, buildQueue } from '@shared/schema';
 import { getUserDb } from '../db';
 import { createCoordinationThread } from './coordination-ledger-service';
@@ -106,13 +106,30 @@ export async function insertPinnedProposal(db: Db, input: {
   change: PinnedChange;
   patternId: string | null;
   recheckSource: () => PinSource;
+  dedupeKey?: string;
 }): Promise<Row> {
   const { change } = input;
   return db.transaction(async (tx) => {
+    if (input.dedupeKey) {
+      const [existing] = await tx
+        .select()
+        .from(buildQueue)
+        .where(and(
+          eq(buildQueue.proposedBy, 'alden'),
+          eq(buildQueue.pinKind, change.pin.kind),
+          eq(buildQueue.diff, change.diff),
+          like(buildQueue.description, `%${input.dedupeKey}%`),
+        ))
+        .limit(1);
+      if (existing) return existing;
+    }
     recheckPin(change.pin, input.recheckSource());
+    const description = input.dedupeKey && !input.description.includes(input.dedupeKey)
+      ? `${input.description}\n\nDedupe key: ${input.dedupeKey}`
+      : input.description;
     const [inserted] = await tx.insert(buildQueue).values({
       proposedBy: 'alden', title: input.title, isSafeZone: false, status: 'pending', priority: 5,
-      description: input.description,
+      description,
       filesAffected: change.pin.files.map((f) => f.path),
       diff: change.diff,
       confidence: 'high',
