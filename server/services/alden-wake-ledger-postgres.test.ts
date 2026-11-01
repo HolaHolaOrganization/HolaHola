@@ -397,3 +397,26 @@ test('one attempt per event: an event already holding a watch-item attempt never
   const watermark = await db.transaction((tx: any) => wake.advanceAldenCursor(tx));
   assert.ok(watermark !== null && watermark >= Number(event.globalSequence), `cursor ${watermark} passes ${event.globalSequence}`);
 });
+
+test('a paused thread with more than a page of eligible items never hides another thread (LR, #160)', async (context) => {
+  if (skipUnlessCi(context)) return;
+  await drain();
+  const busy = await newThread('luca-claude-code', 'are you there?');
+  let last = busy;
+  for (let i = 0; i < 54; i += 1) last = await ask(busy.threadId, 'luca-claude-code', 'are you there?');
+  const { max } = await one(sql`select max(global_sequence) as max from coordination_events where thread_id = ${busy.threadId}`);
+  // An active, uncooled pause whose evidence covers every message on the thread: the thread stays held.
+  await db.execute(sql`insert into alden_wake_thread_pauses (thread_id, paused_at, reason, evidence, resume_at, cooldown_minutes)
+    values (${busy.threadId}, clock_timestamp(), 'repeating_exchange',
+      ${JSON.stringify({ lastSequence: Number(max), replyHash: 'r', triggerHash: 'loopHashUnused' })}::jsonb,
+      clock_timestamp() + interval '30 minutes', 30)`);
+  const eligibleOnBusy = Number((await one(sql`select count(*)::int as c from alden_wake_attempts where target_thread_id = ${busy.threadId} and state = 'eligible'`)).c);
+  assert.equal(eligibleOnBusy, 55, 'more than one scan page of items waits on the paused thread');
+  const other = await newThread('luca-replit', 'a different thread');
+  const result = await wake.claimNextWakeItem('worker-a', {}, db);
+  assert.equal(result.status, 'claimed');
+  assert.equal((result as any).attempt.itemId, other.itemId, 'the other thread is reached past the held page');
+  assert.equal((result as any).held, 50, 'one page of the paused thread was scanned and held, then skipped');
+  assert.equal(await state(last.itemId), 'eligible', 'held items stay eligible');
+  assert.equal((await wake.claimNextWakeItem('worker-a', {}, db)).status, 'none', 'with only held items left, nothing is claimed and the loop ends');
+});

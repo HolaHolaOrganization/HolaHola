@@ -317,24 +317,40 @@ export async function claimNextWakeItem(
       return { status: 'spending', spend, resumeAt } as const;
     }
 
-    const candidates = rowsOf(await tx.execute(sql`
-      select item_id, target_thread_id from alden_wake_attempts
-      where state = 'eligible'
-      order by (item_kind = 'observe'), event_global_sequence
-      limit ${CLAIM_SCAN_LIMIT}
-      for update skip locked`));
+    // Page through eligible items, leaving out threads already found held, so a
+    // paused thread with any number of waiting items never hides other threads
+    // (LR, #160 review). A non-held candidate is locked by this transaction, so
+    // its claim always succeeds; the loop ends on a claim or when nothing is left.
     const holds = new Map<string, ThreadHold>();
+    const heldThreads: string[] = [];
+    const passed: string[] = []; // never expected; guarantees the loop terminates
     let held = 0;
-    for (const candidate of candidates) {
-      if (!holds.has(candidate.target_thread_id)) holds.set(candidate.target_thread_id, await threadHold(tx, candidate.target_thread_id));
-      if (holds.get(candidate.target_thread_id)!.held) { held += 1; continue; }
-      const [row] = rowsOf(await tx.execute(sql`
-        update alden_wake_attempts set state = 'claimed', claim_epoch = claim_epoch + 1, claimed_by = ${workerId},
-          claimed_at = clock_timestamp(), lease_until = clock_timestamp() + make_interval(secs => ${leaseMs / 1000}),
-          claim_day = (clock_timestamp() at time zone 'UTC')::date, updated_at = clock_timestamp()
-        where item_id = ${candidate.item_id} and state = 'eligible'
-        returning *`));
-      if (row) return { status: 'claimed', attempt: toAttempt(row), held } as const;
+    for (;;) {
+      const candidates = rowsOf(await tx.execute(sql`
+        select item_id, target_thread_id from alden_wake_attempts
+        where state = 'eligible'
+          and target_thread_id not in (select value from jsonb_array_elements_text(${JSON.stringify(heldThreads)}::jsonb) as value)
+          and item_id not in (select value from jsonb_array_elements_text(${JSON.stringify(passed)}::jsonb) as value)
+        order by (item_kind = 'observe'), event_global_sequence
+        limit ${CLAIM_SCAN_LIMIT}
+        for update skip locked`));
+      if (candidates.length === 0) break;
+      for (const candidate of candidates) {
+        if (!holds.has(candidate.target_thread_id)) holds.set(candidate.target_thread_id, await threadHold(tx, candidate.target_thread_id));
+        if (holds.get(candidate.target_thread_id)!.held) {
+          held += 1;
+          if (!heldThreads.includes(candidate.target_thread_id)) heldThreads.push(candidate.target_thread_id);
+          continue;
+        }
+        const [row] = rowsOf(await tx.execute(sql`
+          update alden_wake_attempts set state = 'claimed', claim_epoch = claim_epoch + 1, claimed_by = ${workerId},
+            claimed_at = clock_timestamp(), lease_until = clock_timestamp() + make_interval(secs => ${leaseMs / 1000}),
+            claim_day = (clock_timestamp() at time zone 'UTC')::date, updated_at = clock_timestamp()
+          where item_id = ${candidate.item_id} and state = 'eligible'
+          returning *`));
+        if (row) return { status: 'claimed', attempt: toAttempt(row), held } as const;
+        passed.push(candidate.item_id);
+      }
     }
     return { status: 'none', held } as const;
   });
