@@ -50,3 +50,27 @@ export function consultWelcomeAllowlist(threadId: string): AldenToolAllowlist {
     },
   });
 }
+
+/**
+ * The unattended inbox wake (design eb2ed6bf r11): read, reply, pause and
+ * notify only. The reply is bound to the claimed item's thread here, and its
+ * recipient to the item's sender by the reply handler. Excluded: interject,
+ * brief_new_actor, file reads and code search, request_continuation (a wake
+ * turn is exactly one phase), and the chat-only ack and resume tools.
+ */
+export const WAKE_TOOLS: readonly string[] = Object.freeze([
+  'list_coordination_inbox', 'read_coordination_message', 'reply_to_coordination_thread',
+  'read_conversation_memories', 'read_conversation_memory_content', 'get_current_episode', 'search_editor_memories',
+  'search_express_lane', 'read_express_lane_session',
+  'read_agent_notes', 'list_shared_spec_reviews', 'read_shared_spec_review',
+  'get_system_health', 'notify_david', 'steward_pause',
+  'list_wake_pending',
+]);
+
+export function wakeAllowlist(threadId: string): AldenToolAllowlist {
+  if (!threadId) throw new Error('the wake profile needs the claimed item\'s thread id');
+  return makeAldenToolAllowlist('wake', WAKE_TOOLS, {
+    bindings: { threadId },
+    boundArgs: { reply_to_coordination_thread: { arg: 'thread_id', binding: 'threadId' } },
+  });
+}

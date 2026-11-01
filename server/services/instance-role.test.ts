@@ -309,6 +309,7 @@ const BOOT_TIMER_INVENTORY: Record<string, TimerClass> = {
   'server/services/alden-watch-worker.ts::scheduleNextCycle::setTimeout': 'worker-internal',
   'server/services/alden-watch-worker.ts::startAldenWatchWorker::setTimeout': 'gated-starter',
   'server/services/alden-watch-worker.ts::startAldenWatchWorker::setInterval': 'gated-starter',
+  'server/services/alden-wake-worker.ts::startAldenWakeWorker::setTimeout': 'gated-starter',
   'server/services/board-meeting-service.ts::scheduleMondayBrief::setTimeout': 'worker-internal',
   'server/services/brain-health-aggregator.ts::startBrainHealthAggregator::setInterval': 'gated-starter',
   'server/services/context-health-monitor.ts::startContextHealthMonitor::setTimeout': 'gated-starter',

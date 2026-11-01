@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { aldenToolRefusal, type AldenToolAllowlist } from './alden-tool-allowlist';
 import { aldenWriteToolRefusal } from './alden-write-boundary';
+import type { AldenWakeTurn } from './alden-wake-ledger';
 import { aldenReadablePath, aldenSearchRoots, classifyAldenReadPath, resolveAldenReadPath, secretContentReason, secretPathReason } from './alden-read-policy';
 import { getSharedDb } from "../neon-db";
 import { getUserDb, getMonitoringDb } from "../db";
@@ -42,7 +43,7 @@ import { founderCollabService } from "./founder-collaboration-service";
 import * as fs from "fs";
 import * as path from "path";
 import { execFileSync, execSync, spawn } from "child_process";
-import { randomUUID } from "crypto";
+import { createHash, randomUUID } from "crypto";
 import { aldenActivity } from "./alden-activity-emitter";
 import { getMonitoringSnapshots, analyzePatterns } from "./monitoring-service";
 import { workspaceResolution } from "./workspace-root";
@@ -786,8 +787,40 @@ export const ALDEN_TOOLS: AldenTool[] = [
         recipient: { type: "string" as const, enum: ALDEN_COORDINATION_RECIPIENT_IDS, description: "Who this specific reply is addressed to (usually the thread's other participant)." },
         content: { type: "string" as const, description: "The reply text." },
         model: { type: "string" as const, description: "The model or engine you are currently running as when you post this reply (e.g. 'claude-opus-4.6', 'gemini-3-flash-preview'). Required so the coordination record shows which model produced it." },
+        // DRAFT wording by LCC, sent to Alden for rewording (48d10847 seq 37).
+        covers: { type: "array" as const, items: { type: "string" as const }, description: "Event IDs of other items addressed to you that this reply also answers. Only items on this thread from the same sender count; anything else is refused and stays open." },
       },
       required: ["thread_id", "recipient", "content", "model"],
+    },
+  },
+  // DRAFT wording by LCC for the three wake tools below, sent to Alden for rewording (48d10847 seq 37).
+  {
+    name: "list_wake_pending",
+    description: "Shows what your inbox wake is holding or could not finish: items that need David, failed, uncertain or conflicting; every item a guard is holding, with the reason (the daily budget, or a repeating exchange) and how it resumes; items waiting more than a day; observed-thread counts; and older history as one line.",
+    gemini_description: "Shows what my inbox wake is holding or could not finish: items that need David, failed, uncertain or conflicting; every item a guard is holding, with the reason (the daily budget, or a repeating exchange) and how it resumes; items waiting more than a day; observed-thread counts; and older history as one line.",
+    input_schema: { type: "object" as const, properties: {}, required: [] },
+  },
+  {
+    name: "ack_coordination_item",
+    description: "Record that an inbox item addressed to you was handled here in chat, without posting a reply. Use it when you answered the item another way or it needs nothing. Only in chat with David.",
+    gemini_description: "Record that an inbox item addressed to me was handled here in chat, without posting a reply. For when I answered it another way or it needs nothing. Only in chat with David.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        event_id: { type: "string" as const, description: "The coordination event the item is for." },
+        note: { type: "string" as const, description: "What was done." },
+      },
+      required: ["event_id"],
+    },
+  },
+  {
+    name: "resume_wake_thread",
+    description: "End the wake's pause on a thread it held for a repeating exchange, so new items there are answered again. Only in chat with David.",
+    gemini_description: "End the wake's pause on a thread it held for a repeating exchange, so new items there are answered again. Only in chat with David.",
+    input_schema: {
+      type: "object" as const,
+      properties: { thread_id: { type: "string" as const, description: "The paused thread." } },
+      required: ["thread_id"],
     },
   },
   {
@@ -980,10 +1013,29 @@ export function toAnthropicAldenTools(
   }));
 }
 
+/**
+ * The same briefing to the same recipient is posted once: the key is the
+ * recipient plus a digest of the exact text (the scoped catalog entries and
+ * the active registrations), so a retry returns the existing thread and a
+ * changed briefing posts a new one.
+ */
+export function briefingIdempotencyKey(recipient: string, description: string): string {
+  return `alden-brief:${recipient}:${createHash('sha256').update(description, 'utf8').digest('hex').slice(0, 32)}`;
+}
+
+/** Tools that act on David's behalf in his presence; refused in every unattended turn. */
+const CHAT_ONLY_TOOLS = new Set(['ack_coordination_item', 'resume_wake_thread']);
+
 export async function executeAldenTool(
   toolName: string,
   args: Record<string, any>,
-  context?: { conversationId?: string; engine?: 'anthropic' | 'gemini'; reviewReadSession?: AldenReviewReadSession; toolAllowlist?: AldenToolAllowlist }
+  context?: {
+    conversationId?: string; engine?: 'anthropic' | 'gemini'; reviewReadSession?: AldenReviewReadSession; toolAllowlist?: AldenToolAllowlist;
+    /** Set only by the founder chat route: David is in the conversation. */
+    founderPresent?: boolean;
+    /** Set only by the inbox wake worker: this turn answers one claimed item. */
+    wakeTurn?: AldenWakeTurn;
+  }
 ): Promise<{ data: any; sideEffects?: Record<string, any> }> {
   // Per-turn allowlist: refuse before any tool code runs (both engines, nested
   // dispatch and continuations all pass through here).
@@ -997,6 +1049,9 @@ export async function executeAldenTool(
   if (writeRefusal) {
     console.warn(`[Alden Tool] refused ${toolName}: ${writeRefusal.refused}`);
     return { data: writeRefusal };
+  }
+  if (CHAT_ONLY_TOOLS.has(toolName) && (!context?.founderPresent || context.wakeTurn)) {
+    return { data: { error: `${toolName} is only available in chat with David`, refused: 'founder_not_present' } };
   }
   try {
     switch (toolName) {
@@ -2547,8 +2602,30 @@ export async function executeAldenTool(
         };
       }
 
+      case "list_wake_pending": {
+        const { listWakePending } = await import('./alden-wake-ledger');
+        return { data: await listWakePending() };
+      }
+
+      case "ack_coordination_item": {
+        const eventId = String(args.event_id || '').trim();
+        if (!eventId) return { data: { error: 'event_id is required' } };
+        const { findAldenItemByEvent, publishAldenItemResponse } = await import('./alden-wake-ledger');
+        const itemId = await findAldenItemByEvent(eventId);
+        if (!itemId) return { data: { error: `event ${eventId} is not an item addressed to you`, refused: 'not_an_alden_item' } };
+        return { data: await publishAldenItemResponse({ itemId, mode: 'chat', workerId: 'alden-chat', note: args.note ? String(args.note) : undefined }) };
+      }
+
+      case "resume_wake_thread": {
+        const threadId = String(args.thread_id || '').trim();
+        if (!threadId) return { data: { error: 'thread_id is required' } };
+        const { resumeWakeThread } = await import('./alden-wake-ledger');
+        return { data: { resumed: await resumeWakeThread(threadId, 'david') } };
+      }
+
       case "notify_david": {
         const { message, severity = 'info' } = args;
+        if (context?.wakeTurn) context.wakeTurn.notified = true;
         const db = getUserDb();
         const [notification] = await db.insert(aldenNotifications).values({
           content: message,
@@ -3072,6 +3149,34 @@ export async function executeAldenTool(
         if (recipient === 'alden') return { data: { error: 'recipient cannot be alden — you cannot address a reply to yourself' } };
         if (!content) return { data: { error: 'content is required' } };
         if (!model) return { data: { error: 'model is required' } };
+        const covers = Array.isArray(args.covers) ? args.covers.map(String).filter(Boolean) : [];
+
+        // A wake reply, or a chat reply that names the items it answers, goes
+        // through the one fenced publication path; the server binds the thread
+        // and the recipient to the item.
+        if (context?.wakeTurn || covers.length > 0) {
+          const { aldenItemReplyTarget, findAldenItemByEvent, publishAldenItemResponse } = await import('./alden-wake-ledger');
+          const turn = context?.wakeTurn;
+          let itemId = turn?.itemId ?? null;
+          let rest = covers;
+          if (!turn) {
+            itemId = await findAldenItemByEvent(covers[0]);
+            rest = covers.slice(1);
+            if (!itemId) return { data: { error: `event ${covers[0]} is not an item addressed to you`, refused: 'not_an_alden_item' } };
+          }
+          const target = await aldenItemReplyTarget(itemId!);
+          if (!target) return { data: { error: 'that item is not yet in the wake ledger; try again shortly', refused: 'not_seeded' } };
+          if (target.threadId !== threadId || target.sender !== recipient) {
+            return { data: { error: `this item's reply goes to ${target.sender} on thread ${target.threadId}`, refused: 'reply_binding_mismatch' } };
+          }
+          const result = await publishAldenItemResponse({
+            itemId: itemId!, mode: turn ? 'wake' : 'chat', workerId: turn?.workerId ?? 'alden-chat', claimEpoch: turn?.claimEpoch,
+            content, model, covers: rest,
+          });
+          if (turn) turn.published = result;
+          console.log(`[Alden Tool] reply_to_coordination_thread (${turn ? 'wake' : 'chat, covers'}): item ${itemId} → ${result.status}`);
+          return { data: result };
+        }
 
         const attempt = async () => {
           const { thread } = await getCoordinationThread(threadId, 'alden');
@@ -3184,7 +3289,7 @@ export async function executeAldenTool(
             title: `Orientation briefing for ${recipient}`,
             description,
             priority: 'normal',
-            idempotencyKey: randomUUID(),
+            idempotencyKey: briefingIdempotencyKey(recipient, description),
           });
           console.log(`[Alden Tool] brief_new_actor: ${recipient} (${scoped.length} operations, thread ${result.thread.id})`);
           // Return exactly what was posted, so any summary can quote the artifact
@@ -3202,6 +3307,8 @@ export async function executeAldenTool(
               })),
               deliveryState: result.deliveryState,
               postedContent: result.event.content,
+              // True when this exact briefing was already posted: a retry returns that thread.
+              alreadyPosted: result.deduplicated,
             },
           };
         } catch (e: any) {
