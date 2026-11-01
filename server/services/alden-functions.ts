@@ -813,6 +813,30 @@ export const ALDEN_TOOLS: AldenTool[] = [
       required: ["event_id"],
     },
   },
+  // DRAFT wording by LCC for the two watch tools below, for Alden to reword.
+  {
+    name: "watch_coordination_thread",
+    description: "Start watching a coordination thread at David's request, so your inbox wake also hears posts on it that are addressed to someone else. Only new posts count; the thread's history does not. Only in chat with David, and recorded as added by him.",
+    gemini_description: "Start watching a coordination thread at David's request, so my inbox wake also hears posts on it that are addressed to someone else. Only new posts count, not the history. Only in chat with David, and recorded as added by him.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        thread_id: { type: "string" as const, description: "The thread to watch." },
+        reason: { type: "string" as const, description: "Why it is watched, in David's words if he gave them." },
+      },
+      required: ["thread_id", "reason"],
+    },
+  },
+  {
+    name: "unwatch_coordination_thread",
+    description: "Stop watching a coordination thread at David's request. Posts already picked up stay recorded. Only in chat with David.",
+    gemini_description: "Stop watching a coordination thread at David's request. Posts already picked up stay recorded. Only in chat with David.",
+    input_schema: {
+      type: "object" as const,
+      properties: { thread_id: { type: "string" as const, description: "The thread to stop watching." } },
+      required: ["thread_id"],
+    },
+  },
   {
     name: "resume_wake_thread",
     description: "End the wake's pause on a thread it held for a repeating exchange, so new items there are answered again. Only in chat with David.",
@@ -1024,7 +1048,7 @@ export function briefingIdempotencyKey(recipient: string, description: string): 
 }
 
 /** Tools that act on David's behalf in his presence; refused in every unattended turn. */
-const CHAT_ONLY_TOOLS = new Set(['ack_coordination_item', 'resume_wake_thread']);
+const CHAT_ONLY_TOOLS = new Set(['ack_coordination_item', 'resume_wake_thread', 'watch_coordination_thread', 'unwatch_coordination_thread']);
 
 export async function executeAldenTool(
   toolName: string,
@@ -2614,6 +2638,32 @@ export async function executeAldenTool(
         const itemId = await findAldenItemByEvent(eventId);
         if (!itemId) return { data: { error: `event ${eventId} is not an item addressed to you`, refused: 'not_an_alden_item' } };
         return { data: await publishAldenItemResponse({ itemId, mode: 'chat', workerId: 'alden-chat', note: args.note ? String(args.note) : undefined }) };
+      }
+
+      case "watch_coordination_thread": {
+        const threadId = String(args.thread_id || '').trim();
+        const reason = String(args.reason || '').trim();
+        if (!threadId || !reason) return { data: { error: 'thread_id and reason are required' } };
+        const { addThreadWatch, WatchRefusal } = await import('./alden-wake-watch');
+        try {
+          // Chat-only with David present (checked above), so the founder is the one adding it.
+          return { data: await addThreadWatch({ threadId, watcher: 'alden', addedBy: 'david', reason }) };
+        } catch (e: any) {
+          if (e instanceof WatchRefusal) return { data: { error: e.message, refused: e.code } };
+          throw e;
+        }
+      }
+
+      case "unwatch_coordination_thread": {
+        const threadId = String(args.thread_id || '').trim();
+        if (!threadId) return { data: { error: 'thread_id is required' } };
+        const { removeThreadWatch, WatchRefusal } = await import('./alden-wake-watch');
+        try {
+          return { data: await removeThreadWatch({ threadId, watcher: 'alden', removedBy: 'david' }) };
+        } catch (e: any) {
+          if (e instanceof WatchRefusal) return { data: { error: e.message, refused: e.code } };
+          throw e;
+        }
       }
 
       case "resume_wake_thread": {

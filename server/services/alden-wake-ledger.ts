@@ -15,6 +15,7 @@
 import { sql } from 'drizzle-orm';
 import { getSharedDb } from '../db';
 import { appendCoordinationEvent, CoordinationError } from './coordination-ledger-service';
+import { materializeWatchItems } from './alden-wake-watch';
 import { isRepeatingExchange, LOOP_LENGTH, loopHash, noticeOwed, sha256, type ThreadReplyPair, type WakeItemKind } from './alden-wake-rules';
 
 export { isRepeatingExchange, loopHash, normalizeForLoop, noticeOwed } from './alden-wake-rules';
@@ -179,7 +180,20 @@ export async function seedWakeAttempts(db: Db = getSharedDb()): Promise<number> 
       and i.recipient_actor = ${WAKE_RECIPIENT}
       and not exists (select 1 from alden_wake_attempts a where a.item_id = i.id or a.event_id = i.coordination_event_id)
     on conflict do nothing`);
-  return Number(result?.rowCount ?? 0);
+  // Observe items (W3): one per watch item for Alden, classified by the same cutoff.
+  // An event that already has an attempt (its addressed item) is skipped.
+  const observed = await db.execute(sql`
+    insert into alden_wake_attempts (item_id, item_kind, watch_item_id, event_id, event_global_sequence, state, effect_key, target_thread_id, target_sender)
+    select w.id, 'observe', w.id, w.event_id, w.event_global_sequence,
+      case when w.event_global_sequence <= c.cutoff_global_sequence then 'history' else 'eligible' end,
+      'alden-wake:' || w.id, w.thread_id, w.sender
+    from coordination_watch_items w
+    cross join alden_wake_control c
+    where c.id = 'alden' and c.cutoff_global_sequence is not null
+      and w.watcher = ${WAKE_RECIPIENT}
+      and not exists (select 1 from alden_wake_attempts a where a.item_id = w.id or a.event_id = w.event_id)
+    on conflict do nothing`);
+  return Number(result?.rowCount ?? 0) + Number(observed?.rowCount ?? 0);
 }
 
 /** The emergency stop. Ordered against claims by the control row lock. */
@@ -468,7 +482,7 @@ export async function publishAldenItemResponse(input: PublishInput, db: Db = get
         const appended = await appendCoordinationEvent({
           threadId: attempt.targetThreadId,
           actor: WAKE_RECIPIENT,
-          eventType: 'comment',
+          eventType: attempt.itemKind === 'observe' ? 'steward_comment' : 'comment',
           content: input.content,
           recipientActor: attempt.targetSender as any,
           payload: { model: input.model ?? null, itemId: attempt.itemId, covers, via: input.mode === 'wake' ? 'alden-wake' : 'alden-chat' },
@@ -593,6 +607,7 @@ export async function releaseWakeForFollowUp(
  * including recorded coverage) or uncertain. There is no second model call.
  */
 export async function reconcileWake(db: Db = getSharedDb()): Promise<{ seeded: number; recovered: number; uncertain: number }> {
+  await materializeWatchItems(db);
   const seeded = await seedWakeAttempts(db);
   let recovered = 0;
   let uncertain = 0;

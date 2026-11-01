@@ -21,7 +21,8 @@ test('the wake profile lists exactly the design\'s unattended tools', () => {
 test('excluded tools are refused; steward_pause and notify_david are allowed', () => {
   const allowlist = wakeAllowlist('thread-1');
   for (const tool of ['interject_on_coordination_thread', 'brief_new_actor', 'read_file', 'search_code', 'request_continuation',
-    'ack_coordination_item', 'resume_wake_thread', 'propose_fix', 'apply_code_change', 'run_shell', 'create_coordination_thread']) {
+    'ack_coordination_item', 'resume_wake_thread', 'watch_coordination_thread', 'unwatch_coordination_thread',
+    'propose_fix', 'apply_code_change', 'run_shell', 'create_coordination_thread']) {
     assert.equal(aldenToolRefusal(tool, allowlist, {})?.refused, 'tool_not_allowed', tool);
   }
   assert.equal(aldenToolRefusal('steward_pause', allowlist, { friction: 'x', question: 'y' }), null);

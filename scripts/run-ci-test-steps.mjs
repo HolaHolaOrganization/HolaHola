@@ -98,6 +98,7 @@ commands.splice(safetyInsertion, 0,
   // Its own command: a wake claim takes the oldest eligible Alden item globally.
   'npx tsx --test server/services/alden-wake-ledger-postgres.test.ts',
   'npx tsx --test server/services/alden-wake-worker-postgres.test.ts',
+  'npx tsx --test server/services/alden-wake-watch-postgres.test.ts',
   'npx tsx --test server/services/claude-code-mirror.test.ts server/services/claude-code-mirror-postgres.test.ts server/services/claude-code-projection.test.ts server/services/claude-code-projection-postgres.test.ts server/scripts/claude-code-mirror-sync.test.ts',
   'npx tsx --test server/scripts/test-episode-claude-attribution-repair.test.ts',
   'npx tsx --test server/scripts/test-episode-attribution-repair-postgres.test.ts',
