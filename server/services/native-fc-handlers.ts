@@ -11801,7 +11801,7 @@ export class NativeFunctionCallHandler {
       const descendants = await db.execute(sql`
         SELECT id, title, summary, importance, created_at
         FROM conversation_memories
-        WHERE extends_memory_id = ANY(${chainIds}::uuid[])
+        WHERE extends_memory_id = ANY(ARRAY(SELECT jsonb_array_elements_text(${JSON.stringify(chainIds)}::jsonb))::text[])
           AND id != ${relatedTo}
         ORDER BY created_at ASC LIMIT 10
       `);

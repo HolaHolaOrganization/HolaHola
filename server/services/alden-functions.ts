@@ -1523,7 +1523,7 @@ export async function executeAldenTool(
             SELECT id, title, summary, content, importance, created_at, tags, entry_type,
               arc_name, extends_memory_id
             FROM conversation_memories
-            WHERE extends_memory_id = ANY(${chainIds}::uuid[])
+            WHERE extends_memory_id = ANY(ARRAY(SELECT jsonb_array_elements_text(${JSON.stringify(chainIds)}::jsonb))::text[])
               AND id != ${related_to}
             ORDER BY created_at ASC
             LIMIT 10
