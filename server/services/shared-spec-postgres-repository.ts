@@ -50,6 +50,7 @@ const reviewFromRow = (row: any): SharedSpecReview => ({
   decisionActorId: row.decisionActor ?? undefined, state: row.state,
   rationale: row.decisionRationale ?? undefined, evidenceReferences: row.evidenceReferences ?? [],
   requestedAt: row.createdAt, claimedAt: row.claimedAt ?? undefined, decidedAt: row.decidedAt ?? undefined,
+  cancelledAt: row.cancelledAt ?? undefined,
   decisionPolicyVersionId: row.decisionPolicyVersionId ?? undefined,
   decisionPolicyVersion: row.decisionPolicyVersion ?? undefined,
   decisionPolicyActorId: row.decisionPolicyActorId ?? undefined,
@@ -145,7 +146,7 @@ export class PostgresSharedSpecRepository implements SharedSpecRepository {
           claimedReviewerActor: review.claimedReviewerActorId, decisionActor: review.decisionActorId,
           state: review.state, decisionRationale: review.rationale,
           evidenceReferences: [...review.evidenceReferences], createdAt: review.requestedAt,
-          claimedAt: review.claimedAt, decidedAt: review.decidedAt,
+          claimedAt: review.claimedAt, decidedAt: review.decidedAt, cancelledAt: review.cancelledAt,
           decisionPolicyVersionId: review.decisionPolicyVersionId,
           decisionPolicyVersion: review.decisionPolicyVersion,
           decisionPolicyActorId: review.decisionPolicyActorId,
@@ -161,6 +162,7 @@ export class PostgresSharedSpecRepository implements SharedSpecRepository {
           requestedReviewerActor: review.requestedReviewerActorId, claimedReviewerActor: review.claimedReviewerActorId,
           decisionActor: review.decisionActorId, state: review.state, decisionRationale: review.rationale,
           evidenceReferences: [...review.evidenceReferences], claimedAt: review.claimedAt, decidedAt: review.decidedAt,
+          cancelledAt: review.cancelledAt,
           decisionPolicyVersionId: review.decisionPolicyVersionId, decisionPolicyVersion: review.decisionPolicyVersion,
           decisionPolicyActorId: review.decisionPolicyActorId, decisionPolicyCapability: review.decisionPolicyCapability,
           decisionPolicyActive: review.decisionPolicyActive, decisionPolicyDocumentKind: review.decisionPolicyDocumentKind,
@@ -220,6 +222,17 @@ export class PostgresSharedSpecRepository implements SharedSpecRepository {
           eq(sharedSpecReviews.claimedReviewerActor, expectedClaimedReviewerActorId),
         )).returning({ id: sharedSpecReviews.id });
         return updated.length === 1;
+      },
+      cancelSupersededPendingReviews: async (documentId, currentRevisionId, cancelledAt) => {
+        const updated = await db.update(sharedSpecReviews).set({
+          state: "cancelled",
+          cancelledAt,
+        }).where(and(
+          eq(sharedSpecReviews.documentId, documentId),
+          eq(sharedSpecReviews.state, "pending"),
+          ne(sharedSpecReviews.revisionId, currentRevisionId),
+        )).returning({ id: sharedSpecReviews.id });
+        return updated.length;
       },
       getActivePolicy: async (actorId, capability, kind) => {
         const [row] = await db.select().from(sharedSpecReviewerPolicies).where(and(

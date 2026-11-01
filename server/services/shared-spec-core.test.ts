@@ -262,12 +262,75 @@ test("listReviewerQueue omits a pending review whose revision was superseded by 
     documentId: doc.document.id, baseRevisionId: doc.revision.id, markdown: "# v2\n", idempotencyKey: "revise-superseded-v2",
   });
   assert.equal((await core.listReviewerQueue(reviewer.actorId)).length, 0, "the v1 request can no longer be decided, so it is not queue work");
+  assert.equal((await core.listReviewsForReviewer(reviewer.actorId)).length, 0, "the v1 request is auto-closed, so listReviewsForReviewer also omits it");
+  const cancelledStale = await core.getReview(stale.id);
+  assert.equal(cancelledStale.state, "cancelled", "superseded pending review transitions to state = 'cancelled'");
+  assert.ok(cancelledStale.cancelledAt instanceof Date, "cancelledAt timestamp is recorded when auto-closed");
 
   const fresh = await core.markRevisionReady(author, {
     documentId: doc.document.id, revisionId: v2.id,
     requestedReviewerActorId: reviewer.actorId, idempotencyKey: "ready-superseded-v2",
   });
   assert.deepEqual((await core.listReviewerQueue(reviewer.actorId)).map(e => e.review.id), [fresh.id]);
+});
+
+test("appendRevision and shareDocument auto-close superseded pending reviews while preserving already-decided reviews", async () => {
+  const { core, created: doc } = await setup();
+  // First revision is approved -> state = "approved"
+  const approvedReview = await core.markRevisionReady(author, {
+    documentId: doc.document.id, revisionId: doc.revision.id,
+    requestedReviewerActorId: reviewer.actorId, idempotencyKey: "ready-v1-approve",
+  });
+  await core.claimReview(reviewer, approvedReview.id, "claim-v1-approve");
+  await core.approveReview(reviewer, { reviewId: approvedReview.id, idempotencyKey: "approve-v1" });
+
+  // Second revision is marked ready (unassigned open review) then superseded by v3 before anyone decides it
+  const v2 = await core.appendRevision(author, {
+    documentId: doc.document.id, baseRevisionId: doc.revision.id, markdown: "# v2\n", idempotencyKey: "append-v2",
+  });
+  const openPendingV2 = await core.markRevisionReady(author, {
+    documentId: doc.document.id, revisionId: v2.id, idempotencyKey: "ready-v2-open",
+  });
+  assert.equal((await core.getReview(openPendingV2.id)).state, "pending");
+
+  const v3 = await core.appendRevision(author, {
+    documentId: doc.document.id, baseRevisionId: v2.id, markdown: "# v3\n", idempotencyKey: "append-v3",
+  });
+  const afterV3 = await core.getReview(openPendingV2.id);
+  assert.equal(afterV3.state, "cancelled");
+  assert.ok(afterV3.cancelledAt instanceof Date);
+
+  // The earlier approved review on v1 must remain "approved" with no cancelledAt
+  const preservedApproved = await core.getReview(approvedReview.id);
+  assert.equal(preservedApproved.state, "approved");
+  assert.equal(preservedApproved.cancelledAt, undefined);
+
+  // Claiming, assigning, or deciding the auto-closed v2 review fails cleanly
+  await assert.rejects(
+    () => core.claimReview(reviewer, openPendingV2.id, "claim-cancelled-v2"),
+    (error: SharedSpecDomainError) => error.code === "INVALID_STATE",
+  );
+  await assert.rejects(
+    () => core.assignReview(admin, openPendingV2.id, reviewer.actorId, "assign-cancelled-v2"),
+    (error: SharedSpecDomainError) => error.code === "INVALID_STATE",
+  );
+  assert.equal(v3.parentRevisionId, v2.id);
+
+  // Fast-share note revise path also auto-closes a pending review on the note's prior revision
+  const note = await core.shareDocument(author, {
+    repository: "hola/hola", gitPath: "notes/superseded-note.md", markdown: "# Note v1\n", idempotencyKey: "share-note-v1",
+  });
+  const noteReview = await core.markRevisionReady(author, {
+    documentId: note.document.id, revisionId: note.revision.id,
+    requestedReviewerActorId: reviewer.actorId, idempotencyKey: "ready-note-v1",
+  });
+  await core.shareDocument(author, {
+    repository: "hola/hola", gitPath: "notes/superseded-note.md", markdown: "# Note v2\n",
+    baseRevisionId: note.revision.id, idempotencyKey: "share-note-v2",
+  });
+  const closedNoteReview = await core.getReview(noteReview.id);
+  assert.equal(closedNoteReview.state, "cancelled");
+  assert.ok(closedNoteReview.cancelledAt instanceof Date);
 });
 
 test("creation only accepts canonical repository and safe spec namespace", async () => {
