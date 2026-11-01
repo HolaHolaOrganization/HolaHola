@@ -141,6 +141,8 @@ interface AldenChatParams {
   modelOverride?: string;
   /** The ai_cost_logs context; defaults to 'alden-chat'. */
   costContext?: string;
+  /** Tool-round limit for this turn; defaults to MAX_AGENT_ROUNDS. */
+  maxRounds?: number;
 }
 
 interface ContinuationInfo {
@@ -247,7 +249,7 @@ async function generateAldenResponseAnthropic(params: AldenChatParams): Promise<
     let totalOutputTokens = 0;
     const turn = await runAldenAnthropicTurn({
       messages,
-      maxRounds: MAX_AGENT_ROUNDS,
+      maxRounds: params.maxRounds ?? MAX_AGENT_ROUNDS,
       maxTokens: ANTHROPIC_MAX_TOKENS,
       wrapMaxTokens: ANTHROPIC_WRAP_MAX_TOKENS,
       call: async ({ messages: turnMessages, maxTokens, withTools }) => claude.messages.create({
@@ -394,7 +396,7 @@ async function generateAldenResponseGemini(params: AldenChatParams): Promise<Ald
     totalOutputTokens += geminiOutputTokens((response as any).usageMetadata);
 
     // ── Agentic tool-use loop ─────────────────────────────────────────────────
-    for (let round = 0; round < MAX_AGENT_ROUNDS; round++) {
+    for (let round = 0; round < (params.maxRounds ?? MAX_AGENT_ROUNDS); round++) {
       reviewReadSession.acknowledgeDelivery();
       const functionCalls = response.functionCalls;
 

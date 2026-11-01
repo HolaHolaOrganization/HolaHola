@@ -69,6 +69,31 @@ export function buildFollowUpNote(previousNotes: string): string {
   return `\n\nThis is your follow-up turn on this item. Your previous unattended turn reached its tool limit before you replied, and you wrote this summary at the end of it:\n\n${previousNotes}\n\nThis is the last turn for this item: reply, notify David, or choose not to reply.`;
 }
 
+/** Tool rounds for a wake turn (chat keeps its own default). */
+export const WAKE_MAX_ROUNDS = 16;
+const TRIGGER_TEXT_LIMIT = 8000;
+
+/**
+ * The triggering event's own text, added to the wake message so Alden need
+ * not spend rounds fetching it. Long texts are cut with a stated pointer to
+ * the rest. DRAFT framing by LCC, for Alden to reword.
+ */
+export function buildTriggerText(event: { eventId: string; actor: string; content: string }): string {
+  const cut = event.content.length > TRIGGER_TEXT_LIMIT;
+  const body = cut ? event.content.slice(0, TRIGGER_TEXT_LIMIT) : event.content;
+  return `\n\nThe full text of event ${event.eventId}, from ${event.actor}${cut ? ` (first ${TRIGGER_TEXT_LIMIT} of ${event.content.length} characters; read_coordination_message with an offset gives the rest)` : ''}:\n\n${body}`;
+}
+
+/**
+ * Written by the server after the notes of any wake turn that published no
+ * reply, so a claim in Alden's own summary is never carried forward as fact.
+ */
+export const UNVERIFIED_NOTE = '[server] No reply was published in this turn; any claim of actions above is unverified. The attempt ledger and audit are the record of what happened.';
+
+export function annotateUnpublishedNotes(notes: string): string {
+  return notes ? `${notes}\n\n${UNVERIFIED_NOTE}` : UNVERIFIED_NOTE;
+}
+
 /** A wake turn that stops on the tool-round limit gets exactly one follow-up turn. */
 export const WAKE_FOLLOW_UP_TURNS = 1;
 

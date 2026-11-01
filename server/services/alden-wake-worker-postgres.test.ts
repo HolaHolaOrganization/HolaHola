@@ -111,6 +111,10 @@ test('a wake turn replies through the bound path on the wake engine and profile'
   assert.equal(params.toolAllowlist.label, 'wake');
   assert.ok(params.userMessage.includes(`Coordination event ${item.eventId} on thread ${item.threadId}`));
   assert.ok(params.userMessage.includes('from luca-claude-code'));
+  assert.ok(params.userMessage.includes(`The full text of event ${item.eventId}, from luca-claude-code:
+
+please confirm ${runId}`), 'the trigger text rides in the turn');
+  assert.equal(params.maxRounds, 16, 'the wake round limit');
   assert.equal(await stateOf(item.eventId), 'replied');
   const reply = await one(sql`select recipient_actor, content from coordination_events where thread_id = ${item.threadId} and actor = 'alden'`);
   assert.equal(reply.recipient_actor, 'luca-claude-code');
@@ -143,6 +147,8 @@ test('without a reply: declined, needs_david after notify, failed on an error or
   const failed = await one(sql`select error_class, notes from alden_wake_attempts where event_id = ${throws.eventId}`);
   assert.equal(failed.error_class, 'turn_error');
   assert.match(failed.notes, /network down/);
+  const quietNotes = (await one(sql`select notes from alden_wake_attempts where event_id = ${quiet.eventId}`)).notes;
+  assert.ok(quietNotes.startsWith('No reply needed.') && quietNotes.includes('[server] No reply was published in this turn'), 'an unpublished turn notes are marked unverified');
 });
 
 test('Sonnet by configuration; ALDEN_INBOX_WAKE=off skips the pass and leaves items eligible', async (context) => {
@@ -214,6 +220,7 @@ test('a turn stopped on the tool-round limit gets exactly one follow-up carrying
   assert.equal(seen.get(exhausts.eventId)!.length, 2);
   const followUpMessage = seen.get(resolves.eventId)![1].userMessage;
   assert.ok(followUpMessage.includes(`Summary so far for ${resolves.eventId}: read two of four.`), 'the follow-up carries the first turn notes');
+  assert.ok(followUpMessage.includes('[server] No reply was published in this turn'), 'and marks them unverified, so a false claim is never passed forward as fact');
   assert.ok(!seen.get(resolves.eventId)![0].userMessage.includes('follow-up turn'), 'the first turn has no follow-up note');
   assert.equal(await stateOf(resolves.eventId), 'replied');
   const failed = await one(sql`select state, error_class, claim_epoch from alden_wake_attempts where event_id = ${exhausts.eventId}`);

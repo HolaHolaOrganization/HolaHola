@@ -5,7 +5,7 @@
  */
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { buildFollowUpNote, buildWakeMessage, decideWakeOutcome, isRepeatingExchange, loopHash, normalizeForLoop, noticeOwed, wakeEngineConfig } from './alden-wake-rules';
+import { annotateUnpublishedNotes, buildFollowUpNote, buildTriggerText, buildWakeMessage, decideWakeOutcome, UNVERIFIED_NOTE, WAKE_MAX_ROUNDS, isRepeatingExchange, loopHash, normalizeForLoop, noticeOwed, wakeEngineConfig } from './alden-wake-rules';
 
 type Pair = Parameters<typeof isRepeatingExchange>[0][number];
 let sequence = 1000;
@@ -104,4 +104,17 @@ test('a turn stopped on the tool-round limit gets one follow-up, then fails visi
   const note = buildFollowUpNote('I read seq 30 and 31; next I read 37.');
   assert.match(note, /follow-up turn/);
   assert.ok(note.includes('I read seq 30 and 31; next I read 37.'));
+});
+
+test('the trigger text rides in the turn, cut with a pointer when long; unverified claims are marked', () => {
+  const short = buildTriggerText({ eventId: 'ev-9', actor: 'luca-codex', content: 'Please confirm.' });
+  assert.ok(short.includes('The full text of event ev-9, from luca-codex:'));
+  assert.ok(short.endsWith('Please confirm.'));
+  const long = buildTriggerText({ eventId: 'ev-9', actor: 'luca-codex', content: 'x'.repeat(9000) });
+  assert.match(long, /first 8000 of 9000 characters; read_coordination_message with an offset gives the rest/);
+  assert.ok(long.endsWith(':\n\n' + 'x'.repeat(8000)), 'exactly the first 8000 characters follow the header');
+  assert.equal(WAKE_MAX_ROUNDS, 16);
+  assert.equal(annotateUnpublishedNotes('I replied on the thread.'), `I replied on the thread.\n\n${UNVERIFIED_NOTE}`);
+  assert.equal(annotateUnpublishedNotes(''), UNVERIFIED_NOTE);
+  assert.match(UNVERIFIED_NOTE, /No reply was published in this turn/);
 });
