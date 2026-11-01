@@ -57,6 +57,18 @@ test('the quickstart keeps the execution-policy guidance: process-only RemoteSig
   assert.match(quickstart, /fails closed: no\s+`Bypass`/);
 });
 
+test('the quickstart and coordination-clients runbook document the four Antigravity IDE worktree and diff-banner rules', () => {
+  const clientsDoc = readFileSync('docs/coordination-clients.md', 'utf8');
+  for (const doc of [quickstart, clientsDoc]) {
+    assert.match(doc, /edit_file/);
+    assert.match(doc, /write_file/);
+    assert.match(doc, /git worktree add/);
+    assert.match(doc, /Accept all/);
+    assert.match(doc, /Reject all/);
+    assert.match(doc, /git diff --stat origin\/main\.\.\.HEAD/);
+  }
+});
+
 test("Alden's orientation briefing names exactly the MCP server's real tools, and asks for the hat's base", () => {
   const text = buildActorBriefing([], [], coordinationMcpToolNames());
   assert.deepEqual(coordinationToolsNamedIn(text.replace(/- ([a-z_]+)$/gm, '- `$1`')), mcpToolNames());

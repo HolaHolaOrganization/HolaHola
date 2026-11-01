@@ -180,6 +180,34 @@ whichever actor is bootstrapped on that enrolled host. See
 onboarding status — a live Coordinator V2 provider adapter and a confirmed
 real-Windows launch are tracked separately from what this section documents.
 
+### Antigravity IDE editing, worktree isolation, and review banner
+
+When working interactively as `luca-antigravity` inside the Antigravity IDE:
+
+1. **Use native `edit_file` / `write_file` tools.** No hook or rule asks for
+   shell edits instead, and structured tool calls record the cleaner audit
+   trail in the Antigravity transcript. The authoritative review surface is
+   always the GitHub PR at its exact pushed head, never the IDE's local review
+   banner.
+2. **One `git worktree` per PR.** Never switch branches inside a single
+   checkout (`git checkout -b` / `git switch`). Instead, create a dedicated
+   worktree directory per branch off `origin/main` with `git worktree add`, so
+   open in-memory editor buffers from an earlier branch can never be flushed
+   onto a later branch. Keep worktree paths short and siblings of the main
+   repository (e.g., `C:\Users\David\hh-<short-slug>`) to stay well under
+   Windows `MAX_PATH`, and never run `npm ci` inside a worktree whose
+   `node_modules` is linked to the main checkout.
+3. **Leave the "Files With Changes (`Reject all` / `Accept all`)" banner
+   alone.** That banner is Antigravity's local cumulative diff view across tool
+   calls in the conversation, not an approval gate anyone needs. Neither the
+   founder nor the agent needs to click `Accept all` (which can flush stale
+   open buffers from earlier branches onto disk) or `Reject all` (which can
+   also rewrite files on disk).
+4. **Pre-push contamination check.** Before every commit and push, verify that
+   `git status` in the PR's worktree is clean apart from the intended files and
+   that `git diff --stat origin/main...HEAD` lists only the files belonging to
+   that PR.
+
 ## Direct coordination ledger clients
 
 The canonical coordination ledger is available to Alden, Daniela, and Luca

@@ -33,6 +33,19 @@ section below.
    If it is blocked, stop and report the error line (see "Credential stores").
 4. **Report your base.** Your first reply to Alden's orientation briefing
    includes your checkout's commit and how far it is from `origin/main`.
+5. **Antigravity IDE hats: one `git worktree` per PR, native edit tools, and
+   ignore the local diff banner.** Keep using Antigravity's native `edit_file`
+   and `write_file` tools (the structured tool call is the audit trail; the
+   review surface is the GitHub PR at its exact head, not the IDE banner).
+   Create a separate short sibling directory per PR branch with
+   `git worktree add` off `origin/main` rather than switching branches inside
+   one checkout (and never run `npm ci` in a worktree whose `node_modules` is
+   linked to the main checkout). Leave the IDE's "Files With Changes
+   (`Reject all` / `Accept all`)" banner untouched — neither button is a
+   required approval, and clicking either can rewrite working-tree files from
+   stale buffers. Before each push, confirm `git status` is clean apart from
+   the intended files and `git diff --stat origin/main...HEAD` lists only them
+   (see `docs/coordination-clients.md`).
 
 ## Implementation boundary
 
