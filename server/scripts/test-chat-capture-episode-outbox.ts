@@ -291,7 +291,11 @@ async function main(): Promise<void> {
       join(process.cwd(), 'server/services/agent-session-autosave.ts'),
       'utf8',
     );
-    const normalAppendIndex = autosaveSource.indexOf('const episodeOk = await appendInnerLifeToEpisodeDb');
+    // Both branches assign episodeOk before the one success guard: the
+    // framed common append (ATTRIBUTION_WRITERS_V1) and the legacy DB-first append.
+    const framedAppendIndex = autosaveSource.indexOf('episodeOk = await appendFramedEpisodeMirror(item);');
+    const normalAppendIndex = autosaveSource.indexOf('episodeOk = await appendInnerLifeToEpisodeDb(', framedAppendIndex);
+    assert(framedAppendIndex !== -1, 'the framed branch assigns episodeOk before the success guard');
     const failedAppendGuardIndex = autosaveSource.indexOf('if (!episodeOk) return false;', normalAppendIndex);
     const normalAdvanceIndex = autosaveSource.indexOf(
       'const acknowledgementOffset = advanceEpisodeMirrorAcknowledgement(item);',

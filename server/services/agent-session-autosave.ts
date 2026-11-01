@@ -71,7 +71,8 @@ import {
   formatChatCaptureSpeakerLabel,
 } from './transcript-parser';
 import { attributionTags, attributionWritersEnabled, plainRowTitle, plainTitleDate } from './attribution-rendering';
-import { buildCanonicalRowAttribution } from './turn-attribution-writer';
+import { buildCanonicalEpisodeEvent, buildCanonicalRowAttribution } from './turn-attribution-writer';
+import { turnAttributionOf } from './turn-attribution';
 import {
   acquireCanonicalConversationIngressLock,
   isCompleteCanonicalCaptureBatch,
@@ -1871,6 +1872,86 @@ function writeExactEpisodeMarkdownReplica(
 }
 
 /**
+ * ATTRIBUTION_WRITERS_V1, writer 1 (design f5d77712 3.4): append one
+ * chat-capture mirror item's framed event to the episode row through the
+ * common locked append. Exact retries are no-ops, conflicts and partial
+ * events are refused, and the Markdown replica is replaced only with the
+ * exact DB content. Returns true only when the episode durably holds the
+ * event; otherwise the outbox keeps the item (it is never appended unframed).
+ */
+const withEpisodeEvent = (event: import('./projection-append').AppendEvent | null) => (event ? { episodeEvent: event } : {});
+
+async function appendFramedEpisodeMirror(item: import('./episode-mirror-outbox').EpisodeMirrorOutboxItem): Promise<boolean> {
+  const episodeFilename = item.liveEpisode;
+  if (!item.episodeEvent) {
+    const reason = 'turns lack a durable capture id/source, so they cannot be framed; held, never appended unframed';
+    console.error(`[AgentAutosave] Framed episode mirror pending for ${episodeFilename} ${item.startCursor}→${item.endOffset}: ${reason}`);
+    flagDbWriteFailure(`episode-mirror-unframed:${episodeFilename}`, reason);
+    return false;
+  }
+  // Historical attribution overlays rewrite labels of approved historical
+  // captures; a framed event carries its own exact bytes, so the two must
+  // never combine. Fail closed if an overlay claims these captures.
+  try {
+    if (projectHistoricalEpisodeMirror(item) !== item.formattedContent) {
+      flagDbWriteFailure(`episode-mirror-overlay:${episodeFilename}`, 'historical overlay claims a framed capture; held');
+      return false;
+    }
+  } catch (error) {
+    recordHistoricalAttributionPause(error, 'episode-mirror', 'autosave');
+    return false;
+  }
+  const db = getUserDb();
+  const title = episodeTitleFromFilename(episodeFilename);
+  let memoryId = episodeIdCache.get(episodeFilename);
+  try {
+    if (!memoryId) {
+      const rows = await db.execute(sql`
+        SELECT id FROM conversation_memories WHERE arc_name = 'HolaHola Episodes' AND title = ${title} LIMIT 1
+      `);
+      const row = (rows as any).rows?.[0] ?? (rows as any)[0];
+      if (!row?.id) {
+        console.warn(`[AgentAutosave] Framed episode mirror: no episode row for ${episodeFilename}; held`);
+        return false;
+      }
+      memoryId = row.id as string;
+      episodeIdCache.set(episodeFilename, memoryId);
+    }
+  } catch (err: any) {
+    flagDbWriteFailure(`episode-id-lookup:${episodeFilename}`, err?.message ?? String(err));
+    return false;
+  }
+  const filePath = join(DOCS_DIR, episodeFilename);
+  let ok = false;
+  await withEpisodeFileLock(episodeFilename, async () => {
+    try {
+      const { applyProjectionAppend } = await import('./projection-append-store');
+      const result = await applyProjectionAppend(db as any, memoryId as string, item.episodeEvent!);
+      if (result.kind === 'conflict') {
+        console.error(`[AgentAutosave] Framed episode mirror refused for ${episodeFilename}: ${result.reason}`);
+        flagDbWriteFailure(`episode-mirror-conflict:${episodeFilename}`, result.reason);
+        return;
+      }
+      if (result.kind === 'missing') return;
+      ok = writeExactEpisodeMarkdownReplica(episodeFilename, filePath, result.content);
+      if (ok && result.kind === 'append') {
+        console.log(`[AgentAutosave] Framed episode append ${item.episodeEvent!.source}/${item.episodeEvent!.sourceEventId} → ${episodeFilename}`);
+        writeCaptureStatus(episodeFilename);
+        if (_innerLifeReembedEnabled) {
+          reembedConversationMemory(memoryId as string).catch((err: any) => {
+            console.error(`[AgentAutosave] Re-embed failed for ${episodeFilename}:`, err?.message ?? err);
+          });
+        }
+      }
+    } catch (err: any) {
+      console.error(`[AgentAutosave] Framed episode mirror failed for ${episodeFilename}:`, err?.message ?? err);
+      flagDbWriteFailure(`episode-mirror-framed:${episodeFilename}`, err?.message ?? String(err));
+    }
+  });
+  return ok;
+}
+
+/**
  * DB-first inner-life episode append.
  *
  * Writes the inner-life text to the episode's conversation_memories content
@@ -1935,10 +2016,19 @@ async function appendInnerLifeToEpisodeDb(
       }
 
       const pre = await db.execute(sql`
-        SELECT content FROM conversation_memories WHERE id = ${memoryId}
+        SELECT content, attribution FROM conversation_memories WHERE id = ${memoryId}
       `);
       const preRow = (pre as any).rows?.[0] ?? (pre as any)[0];
       const preContent = typeof preRow?.content === 'string' ? preRow.content : '';
+      // Design f5d77712 3.4: once a row carries per-turn attribution, an
+      // unframed append would leave bytes after coveredEnd and invalidate
+      // every frame. Refuse it visibly; this writer must use the common append.
+      if (turnAttributionOf(preRow?.attribution) !== undefined) {
+        const reason = 'episode row carries per-turn attribution; an unframed append is refused (design 3.4 switch blocker)';
+        console.error(`[AgentAutosave] ${reason}: ${episodeFilename}`);
+        flagDbWriteFailure(`episode-append-unframed:${episodeFilename}`, reason);
+        return;
+      }
       if (
         route?.appendMarker &&
         episodeContentHasEventMarker(preContent, route.appendMarker)
@@ -1973,42 +2063,24 @@ async function appendInnerLifeToEpisodeDb(
       // re-evaluates the conditional predicate after a concurrent UPDATE
       // commits, so only one can append a given durable marker.
       const appendText = [route?.appendMarker, text].filter(Boolean).join('\n');
-      let newContent: unknown;
-      if (route?.appendMarker) {
-        const updated = await db.execute(sql`
-          UPDATE conversation_memories
-          SET content = content || ${'\n' + appendText + '\n'}
-          WHERE id = ${memoryId}
-            AND POSITION(${route.appendMarker} IN content) = 0
-          RETURNING content
-        `);
-        const updatedRow = (updated as any).rows?.[0] ?? (updated as any)[0];
-        if (updatedRow) {
-          newContent = updatedRow.content;
-        } else {
-          const canonical = await db.execute(sql`
-            SELECT content FROM conversation_memories WHERE id = ${memoryId}
-          `);
-          const canonicalRow = (canonical as any).rows?.[0] ?? (canonical as any)[0];
-          newContent = canonicalRow?.content;
-          console.log(`[AgentAutosave] Episode event already present in ${episodeFilename} after conditional update — skipping duplicate append`);
-        }
-      } else {
-        await db.execute(sql`
-          UPDATE conversation_memories
-          SET content = content || ${'\n' + appendText + '\n'}
-          WHERE id = ${memoryId}
-        `);
-
-        // 2. Read updated content from DB and replace Markdown with that exact
-        // snapshot. This creates a missing mirror when the episode was created
-        // after the current deployed filesystem was built.
-        const updated = await db.execute(sql`
-          SELECT content FROM conversation_memories WHERE id = ${memoryId}
-        `);
-        const updatedRow = (updated as any).rows?.[0] ?? (updated as any)[0];
-        newContent = updatedRow?.content;
+      // The row-level guard is in the UPDATE predicate itself
+      // (episode-legacy-append.ts): an attribution-aware row is refused,
+      // atomically, whatever the switch says now. The exact DB content is
+      // returned, so the Markdown replica is written from it as before.
+      const { appendUnframedToLegacyRow } = await import('./episode-legacy-append');
+      const result = await appendUnframedToLegacyRow(db as any, memoryId as string, appendText, route?.appendMarker);
+      if (result.kind === 'refused-aware' || result.kind === 'refused' || result.kind === 'missing') {
+        const reason = result.kind === 'refused-aware'
+          ? 'episode row carries per-turn attribution; an unframed append is refused (design 3.4 switch blocker)'
+          : result.kind === 'refused' ? result.reason : 'episode row vanished';
+        console.error(`[AgentAutosave] Episode append not recorded for ${episodeFilename}: ${reason}`);
+        flagDbWriteFailure(`episode-append-unframed:${episodeFilename}`, reason);
+        return;
       }
+      if (result.kind === 'already-present') {
+        console.log(`[AgentAutosave] Episode event already present in ${episodeFilename} after conditional update — skipping duplicate append`);
+      }
+      const newContent: unknown = result.content;
 
       if (typeof newContent === 'string' && writeExactEpisodeMarkdownReplica(episodeFilename, filePath, newContent)) {
         appended = true;
@@ -2385,7 +2457,7 @@ export async function appendExchangeToEpisode(
   exchange: string,
   episodeFilename: string,
   options?: { appendMarker?: string },
-): Promise<void> {
+): Promise<boolean> {
   if (isCiSentinelExchange(exchange)) {
     const rollingFilename = await getCurrentRollingEpisodeFilename();
     if (mustRejectCiSentinelForEpisode(exchange, episodeFilename, rollingFilename)) {
@@ -2400,8 +2472,9 @@ export async function appendExchangeToEpisode(
     allowAppend: true,
   });
   if (!appended) {
-    console.error(`[AgentAutosave] Episode append remains pending because DB→Markdown replication is incomplete: ${episodeFilename}`);
+    console.error(`[AgentAutosave] Episode append remains pending because it was not recorded or replicated: ${episodeFilename}`);
   }
+  return appended;
 }
 
 export async function checkEpisodeAppend(): Promise<void> {
@@ -2451,8 +2524,32 @@ export async function checkEpisodeAppend(): Promise<void> {
     } catch { /* ignore */ }
 
     console.log(`[AgentAutosave] Episode append trigger: "${parsed.exchange.slice(0, 60).replace(/\n/g, '↵')}…" → ${episodeFilename}`);
-    await appendExchangeToEpisode(parsed.exchange, episodeFilename);
+    if (!await appendExchangeToEpisode(parsed.exchange, episodeFilename)) {
+      // Not recorded (e.g. refused for an attribution-aware row): put the
+      // exchange back, ahead of anything queued since, so it stays pending
+      // and retryable instead of being lost with the cleared trigger.
+      restorePendingEpisodeAppend(episodeAppendPath, parsed.exchange, episodeFilename);
+    }
   } catch { /* file briefly locked — skip */ }
+}
+
+/**
+ * Put an unrecorded exchange back into the trigger file, ahead of any
+ * exchange queued since it was read, preserving both. The next poll retries.
+ */
+function restorePendingEpisodeAppend(path: string, exchange: string, episodeFilename: string): void {
+  try {
+    let queued = '';
+    if (existsSync(path)) {
+      const raw = readFileSync(path, 'utf-8').trim();
+      if (raw) queued = parseEpisodeAppend(raw)?.exchange ?? raw;
+    }
+    const merged = queued ? `${exchange}\n\n${queued}` : exchange;
+    writeFileSync(path, JSON.stringify({ exchange: merged, episode: episodeFilename }), 'utf-8');
+    console.error(`[AgentAutosave] Episode append kept pending in ${path} (${exchange.length} chars)`);
+  } catch (err: any) {
+    flagDbWriteFailure(`episode-append-restore:${episodeFilename}`, err?.message ?? String(err));
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -2504,18 +2601,25 @@ async function processPendingEpisodeMirrors(
         );
         return true;
       }
-      let projectedContent: string;
-      try {
-        projectedContent = projectHistoricalEpisodeMirror(item, capturePath);
-      } catch (error) {
-        recordHistoricalAttributionPause(error, 'episode-mirror', 'autosave');
-        throw error; // The outbox retains the item and acknowledgement.
+      let episodeOk: boolean;
+      if (item.attributionRequired || item.episodeEvent) {
+        // ATTRIBUTION_WRITERS_V1, writer 1: framed append through the common
+        // append only. An item without an event is held, never unframed.
+        episodeOk = await appendFramedEpisodeMirror(item);
+      } else {
+        let projectedContent: string;
+        try {
+          projectedContent = projectHistoricalEpisodeMirror(item, capturePath);
+        } catch (error) {
+          recordHistoricalAttributionPause(error, 'episode-mirror', 'autosave');
+          throw error; // The outbox retains the item and acknowledgement.
+        }
+        episodeOk = await appendInnerLifeToEpisodeDb(
+          projectedContent,
+          item.liveEpisode,
+          { appendMarker: item.appendMarker, allowAppend: true },
+        );
       }
-      const episodeOk = await appendInnerLifeToEpisodeDb(
-        projectedContent,
-        item.liveEpisode,
-        { appendMarker: item.appendMarker, allowAppend: true },
-      );
       if (!episodeOk) return false;
       const acknowledgementOffset = advanceEpisodeMirrorAcknowledgement(item);
 
@@ -2773,6 +2877,9 @@ async function checkChatCapture(): Promise<void> {
           appendMarker: eventMarkers,
           captureIds,
           lastSavedTurnFingerprint: chatCaptureTurnFingerprint(remaining[includedCount - 1]),
+          // ATTRIBUTION_WRITERS_V1 (writer 1): the exact framed event, or a
+          // hold marker when the turns cannot be framed (never unframed text).
+          ...(writersV1 ? { attributionRequired: true, ...withEpisodeEvent(buildCanonicalEpisodeEvent(batchTurns)) } : {}),
         });
       }
 
@@ -2845,6 +2952,23 @@ async function checkChatCapture(): Promise<void> {
 // ---------------------------------------------------------------------------
 export async function checkAutoCapture(): Promise<void> {
   const triggerPath = _autoCaptureTriggerPathOverrideForTest ?? LUCA_AUTO_CAPTURE_PATH;
+  if (attributionWritersEnabled() && _autoCaptureDbEnabled) {
+    // ATTRIBUTION_WRITERS_V1, writer 3 (design 3.5): durable intake, caller
+    // turn ids, canonical replit turns projected by writer 1. The direct
+    // episode append below is not used: once the exchange is in the canonical
+    // log, the canonical pipeline owns its projection and retries.
+    const { moveTriggerIntoIntake, processAutoCaptureIntake } = await import('./auto-capture-intake');
+    moveTriggerIntoIntake(triggerPath);
+    const outcomes = await processAutoCaptureIntake();
+    for (const outcome of outcomes) {
+      if (outcome.status === 'pending') {
+        console.error(`[AgentAutosave] Auto-capture intake pending (${outcome.record}): ${outcome.reason}`);
+        flagDbWriteFailure(`auto-capture-pending:${outcome.record}`, outcome.reason ?? 'pending');
+      }
+    }
+    if (outcomes.some(outcome => outcome.status === 'recorded')) await checkChatCapture();
+    return;
+  }
   if (!existsSync(triggerPath)) return;
   const trigger = parseAutoCaptureTrigger(triggerPath);
   if (!trigger || (!trigger.david && !trigger.luca)) {

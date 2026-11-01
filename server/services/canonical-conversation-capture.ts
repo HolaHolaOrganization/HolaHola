@@ -10,6 +10,7 @@
 
 import { closeSync, existsSync, statSync, mkdirSync, renameSync, writeFileSync, openSync, readFileSync, readdirSync, unlinkSync } from 'fs';
 import { join } from 'path';
+import { isCanonicalFourChannelLucaTurn } from './inner-life-capture';
 import {
   appendChatCaptureTurnsAtomic,
   CHAT_CAPTURE_ACK_DIR,
@@ -364,6 +365,83 @@ export function appendCanonicalConversationExchange(
       targetByteOffset: existsSync(capturePath) ? statSync(capturePath).size : 0,
       appendedSpeakers,
     };
+  } finally {
+    releaseIngressLock(lockFd, ingressLockPath);
+  }
+}
+
+export type AutoCaptureAppendResult =
+  | { kind: 'appended'; turnId: string; roles: CanonicalConversationSpeaker[] }
+  /** Every supplied role is already present with identical text. */
+  | { kind: 'exact-retry'; turnId: string }
+  | { kind: 'conflict'; turnId: string; reason: string }
+  /** The canonical consumer would not accept this exchange: nothing committed. */
+  | { kind: 'unsupported'; turnId: string; reason: string };
+
+/**
+ * Would the canonical consumer (checkChatCapture) accept this exchange as one
+ * canonical replit event? It is the consumer's OWN predicates: both authored
+ * sides (isCompleteCanonicalCaptureBatch) and, for the Luca side, the
+ * felt/thinking/moment/main envelope (isCanonicalFourChannelLucaTurn). An
+ * exchange the consumer would quarantine or block on must never be committed
+ * and reported as handed off (luca-replit review of PR71, R2).
+ */
+export function canonicalConsumerRejection(david: string | undefined, luca: string | undefined): string | null {
+  if (!david || !luca) return 'the canonical consumer accepts only complete two-sided exchanges; a one-sided exchange would be quarantined';
+  if (!isCanonicalFourChannelLucaTurn(luca)) return 'the Luca side lacks the felt/thinking/moment/main envelope the canonical consumer requires; nothing is synthesized';
+  return null;
+}
+
+/**
+ * Writer 3 (attribution design f5d77712 section 3.5): append an auto-capture
+ * exchange under a caller turn id as ordinary canonical `replit` turns, so
+ * writer 1 projects them. The rules:
+ * - an exchange the canonical consumer would not accept (one-sided, or a
+ *   Luca side without the four-channel envelope) is `unsupported` and
+ *   nothing is appended; the caller keeps it pending;
+ * - an exact retry (the same roles with the same text) appends nothing;
+ * - the same id with different text, a different set of roles (a late
+ *   second side included), a legacy or other source, or duplicated sides is
+ *   a conflict and appends nothing;
+ * - otherwise both roles are appended in ONE write, under the same ingress
+ *   lock as canonical exchanges.
+ */
+export function appendAutoCaptureExchange(input: {
+  turnId: string;
+  david?: string;
+  luca?: string;
+  capturePath?: string;
+  ingressLockPath?: string;
+}): AutoCaptureAppendResult {
+  const turnId = input.turnId;
+  if (!/^[A-Za-z0-9-]{1,200}$/.test(turnId)) return { kind: 'conflict', turnId, reason: 'turnId must be 1-200 letters, digits or hyphens' };
+  const roles: { speaker: 'David' | 'Luca Replit'; parsed: DialogueTurn['speaker']; text: string }[] = [];
+  if (typeof input.david === 'string' && input.david.length > 0) roles.push({ speaker: 'David', parsed: 'DAVID', text: input.david });
+  if (typeof input.luca === 'string' && input.luca.length > 0) roles.push({ speaker: 'Luca Replit', parsed: 'LUCA', text: input.luca });
+  if (roles.length === 0) return { kind: 'conflict', turnId, reason: 'an auto-capture exchange needs at least one side' };
+  const rejection = canonicalConsumerRejection(input.david || undefined, input.luca || undefined);
+  if (rejection) return { kind: 'unsupported', turnId, reason: rejection };
+  const capturePath = input.capturePath ?? CHAT_CAPTURE_PATH;
+  const ingressLockPath = input.ingressLockPath ?? CANONICAL_CAPTURE_INGRESS_LOCK;
+  const lockFd = acquireIngressLock(ingressLockPath);
+  if (lockFd === -1) return { kind: 'conflict', turnId, reason: 'canonical conversation ingress is busy; retry the same turnId' };
+  try {
+    const existing = parseChatCaptureFromOffset(capturePath, 0).turns.filter(turn => turn.captureId === turnId);
+    if (existing.length > 0) {
+      if (existing.some(turn => turn.source !== 'replit')) return { kind: 'conflict', turnId, reason: 'turnId already belongs to a different or legacy source' };
+      const speakers = existing.map(turn => turn.speaker).sort();
+      if (new Set(speakers).size !== speakers.length) return { kind: 'conflict', turnId, reason: 'turnId already has duplicate author sides' };
+      const wanted = roles.map(role => role.parsed).sort();
+      if (speakers.join(',') !== wanted.join(',')) return { kind: 'conflict', turnId, reason: 'turnId already holds a different set of sides; a late side is never merged' };
+      for (const role of roles) {
+        if (existing.find(turn => turn.speaker === role.parsed)?.text !== role.text) {
+          return { kind: 'conflict', turnId, reason: `turnId already has different ${role.speaker} text` };
+        }
+      }
+      return { kind: 'exact-retry', turnId };
+    }
+    appendChatCaptureTurnsAtomic(roles.map(role => ({ speaker: role.speaker, text: role.text, captureId: turnId, source: 'replit' as const })), capturePath);
+    return { kind: 'appended', turnId, roles: roles.map(role => (role.parsed === 'DAVID' ? 'user' : 'assistant')) };
   } finally {
     releaseIngressLock(lockFd, ingressLockPath);
   }
