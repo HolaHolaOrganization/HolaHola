@@ -43,6 +43,13 @@ import {
   releaseCursorLock,
   type DialogueTurn,
 } from '../services/transcript-parser';
+import {
+  attributionTags,
+  attributionWritersEnabled,
+  plainParticipants,
+  plainRowTitle,
+  plainTitleDate,
+} from '../services/attribution-rendering';
 
 // Row-level participants/title for a .chat_capture batch, mirroring
 // capture-watchdog.ts's writeToDb model: derive both from actual per-turn
@@ -71,6 +78,8 @@ function chatCaptureAssistantKinds(batchTurns: Array<Pick<DialogueTurn, 'speaker
   return [...new Set(batchTurns.map(chatCaptureTurnKind).filter((k): k is ChatCaptureAssistantKind => k !== 'david'))];
 }
 function chatCaptureBatchTitle(batchTurns: Array<Pick<DialogueTurn, 'speaker' | 'source'>>, today: string, suffix: string): string {
+  // Attribution design f5d77712 section 4, behind the shared writer switch.
+  if (attributionWritersEnabled()) return plainRowTitle(batchTurns, plainTitleDate());
   const assistantKinds = chatCaptureAssistantKinds(batchTurns);
   const who = assistantKinds.length > 0
     ? `David ↔ ${assistantKinds.map(k => CHAT_CAPTURE_ASSISTANT_TITLE[k]).join(' + ')}`
@@ -79,7 +88,16 @@ function chatCaptureBatchTitle(batchTurns: Array<Pick<DialogueTurn, 'speaker' | 
 }
 /** Postgres array-literal string for a text[] parameter bound through drizzle's sql tag (matches agent-session-autosave.ts's participantsArray). */
 function chatCaptureBatchParticipants(batchTurns: Array<Pick<DialogueTurn, 'speaker' | 'source'>>): string {
-  const values = ['david', ...chatCaptureAssistantKinds(batchTurns)];
+  const values = attributionWritersEnabled()
+    ? plainParticipants(batchTurns)
+    : ['david', ...chatCaptureAssistantKinds(batchTurns)];
+  return pgTextArray(values);
+}
+/** Base tags plus, with the writer switch on, the design section 4 attribution tags. */
+function chatCaptureBatchTags(base: string[], batchTurns: Array<Pick<DialogueTurn, 'source'>>): string {
+  return pgTextArray(attributionWritersEnabled() ? [...base, ...attributionTags(batchTurns)] : base);
+}
+function pgTextArray(values: string[]): string {
   return `{${values.map(v => `"${v.replace(/"/g, '\\"')}"`).join(',')}}`;
 }
 
@@ -231,7 +249,7 @@ async function saveNow(context: string): Promise<void> {
             ${summary},
             ${dialogue},
             ${chatCaptureBatchParticipants(batchTurns)}::text[],
-            ARRAY['david-luca-chat', 'verbatim', 'per-turn', 'chat-capture', 'session-end-flush']::text[],
+            ${chatCaptureBatchTags(['david-luca-chat', 'verbatim', 'per-turn', 'chat-capture', 'session-end-flush'], batchTurns)}::text[],
             8,
             NOW(),
             'conversation',
@@ -348,7 +366,7 @@ async function saveChatCaptureWithLock(lockFd: number, _context: string): Promis
           ${summary},
           ${dialogue},
           ${chatCaptureBatchParticipants(batchTurns)}::text[],
-          ARRAY['david-luca-chat', 'verbatim', 'per-turn', 'chat-capture']::text[],
+          ${chatCaptureBatchTags(['david-luca-chat', 'verbatim', 'per-turn', 'chat-capture'], batchTurns)}::text[],
           8,
           NOW(),
           'conversation',
