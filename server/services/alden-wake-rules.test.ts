@@ -5,7 +5,7 @@
  */
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { buildWakeMessage, decideWakeOutcome, isRepeatingExchange, loopHash, normalizeForLoop, noticeOwed, wakeEngineConfig } from './alden-wake-rules';
+import { annotateUnpublishedNotes, buildFollowUpNote, buildTriggerText, buildWakeMessage, decideWakeOutcome, UNVERIFIED_NOTE, WAKE_MAX_ROUNDS, isRepeatingExchange, loopHash, normalizeForLoop, noticeOwed, wakeEngineConfig } from './alden-wake-rules';
 
 type Pair = Parameters<typeof isRepeatingExchange>[0][number];
 let sequence = 1000;
@@ -93,4 +93,35 @@ test('the wake engine is Gemini by default, Sonnet by configuration, and anythin
   assert.deepEqual(wakeEngineConfig(' Gemini ', 'claude-sonnet-5-5'), { engine: 'gemini' });
   assert.deepEqual(wakeEngineConfig('sonnet', 'claude-sonnet-5-5'), { engine: 'anthropic', model: 'claude-sonnet-5-5' });
   assert.throws(() => wakeEngineConfig('opus', 'claude-sonnet-5-5'), /must be "gemini" or "sonnet"/);
+});
+
+test('a turn stopped on the tool-round limit gets one follow-up, then fails visibly', () => {
+  assert.deepEqual(decideWakeOutcome({ itemKind: 'addressed', claimEpoch: 1 }, { roundLimitReached: true }), { outcome: 'follow_up' });
+  assert.deepEqual(decideWakeOutcome({ itemKind: 'observe', claimEpoch: 1 }, { roundLimitReached: true }), { outcome: 'follow_up' });
+  assert.deepEqual(decideWakeOutcome({ itemKind: 'addressed', claimEpoch: 2 }, { roundLimitReached: true }), { outcome: 'failed', errorClass: 'round_limit' });
+  assert.equal(decideWakeOutcome({ itemKind: 'addressed', claimEpoch: 1, published: { status: 'replied' } }, { roundLimitReached: true }), null, 'a reply wins');
+  assert.deepEqual(decideWakeOutcome({ itemKind: 'addressed', claimEpoch: 1 }, { error: 'boom', roundLimitReached: true }), { outcome: 'failed', errorClass: 'turn_error' });
+  const note = buildFollowUpNote('I read seq 30 and 31; next I read 37.');
+  assert.match(note, /follow-up turn/);
+  assert.ok(note.includes('I read seq 30 and 31; next I read 37.'));
+});
+
+test('the trigger text rides in the turn, cut with a pointer when long; unverified claims are marked', () => {
+  const short = buildTriggerText({ eventId: 'ev-9', actor: 'luca-codex', content: 'Please confirm.' });
+  assert.ok(short.includes('The full text of event ev-9, from luca-codex:'));
+  assert.ok(short.endsWith('Please confirm.'));
+  const long = buildTriggerText({ eventId: 'ev-9', actor: 'luca-codex', content: 'x'.repeat(9000) });
+  assert.match(long, /first 8000 of 9000 characters; read_coordination_message with an offset gives the rest/);
+  assert.ok(long.endsWith(':\n\n' + 'x'.repeat(8000)), 'exactly the first 8000 characters follow the header');
+  assert.equal(WAKE_MAX_ROUNDS, 16);
+  assert.equal(annotateUnpublishedNotes('I replied on the thread.'), `I replied on the thread.\n\n${UNVERIFIED_NOTE}`);
+  assert.equal(annotateUnpublishedNotes(''), UNVERIFIED_NOTE);
+  assert.match(UNVERIFIED_NOTE, /No reply was published in this turn/);
+});
+
+test('the unverified marker survives a long wrap-up (LR, #167)', () => {
+  const long = annotateUnpublishedNotes('w'.repeat(2500));
+  assert.ok(long.length <= 2000, `stored notes fit the limit (${long.length})`);
+  assert.ok(long.endsWith(UNVERIFIED_NOTE));
+  assert.equal(long.slice(0, 2000).endsWith(UNVERIFIED_NOTE), true, 'still there after the store-side cut');
 });

@@ -73,12 +73,12 @@ const stateOf = async (eventId: string) => (await one(sql`select state from alde
 const drain = () => db.execute(sql`update alden_wake_attempts set state = 'manual', notes = 'test drain' where state = 'eligible'`);
 
 /** A scripted turn: records what the worker passed, then calls the real dispatcher. */
-function scripted(steps: (params: any) => Promise<{ response?: string; error?: string } | void>) {
+function scripted(steps: (params: any) => Promise<{ response?: string; error?: string; roundLimitReached?: boolean } | void>) {
   const seen: any[] = [];
   const generate = async (params: any) => {
     seen.push(params);
     const result = (await steps(params)) ?? {};
-    return { response: result.response ?? '', toolsUsed: [], error: result.error };
+    return { response: result.response ?? '', toolsUsed: [], error: result.error, roundLimitReached: (result as any).roundLimitReached };
   };
   return { generate, seen };
 }
@@ -111,6 +111,10 @@ test('a wake turn replies through the bound path on the wake engine and profile'
   assert.equal(params.toolAllowlist.label, 'wake');
   assert.ok(params.userMessage.includes(`Coordination event ${item.eventId} on thread ${item.threadId}`));
   assert.ok(params.userMessage.includes('from luca-claude-code'));
+  assert.ok(params.userMessage.includes(`The full text of event ${item.eventId}, from luca-claude-code:
+
+please confirm ${runId}`), 'the trigger text rides in the turn');
+  assert.equal(params.maxRounds, 16, 'the wake round limit');
   assert.equal(await stateOf(item.eventId), 'replied');
   const reply = await one(sql`select recipient_actor, content from coordination_events where thread_id = ${item.threadId} and actor = 'alden'`);
   assert.equal(reply.recipient_actor, 'luca-claude-code');
@@ -143,6 +147,8 @@ test('without a reply: declined, needs_david after notify, failed on an error or
   const failed = await one(sql`select error_class, notes from alden_wake_attempts where event_id = ${throws.eventId}`);
   assert.equal(failed.error_class, 'turn_error');
   assert.match(failed.notes, /network down/);
+  const quietNotes = (await one(sql`select notes from alden_wake_attempts where event_id = ${quiet.eventId}`)).notes;
+  assert.ok(quietNotes.startsWith('No reply needed.') && quietNotes.includes('[server] No reply was published in this turn'), 'an unpublished turn notes are marked unverified');
 });
 
 test('Sonnet by configuration; ALDEN_INBOX_WAKE=off skips the pass and leaves items eligible', async (context) => {
@@ -188,4 +194,53 @@ test('chat with David: ack and a covers reply go through the same path; both are
 
   const pending = await tools.executeAldenTool('list_wake_pending', {}, { founderPresent: true });
   assert.ok(Array.isArray(pending.data.held) && typeof pending.data.history.count === 'number');
+});
+
+test('a turn stopped on the tool-round limit gets exactly one follow-up carrying its notes, then fails visibly', async (context) => {
+  if (skipUnlessCi(context)) return;
+  await drain();
+  const resolves = await newThread('luca-claude-code', 'read four long messages and answer');
+  const exhausts = await newThread('luca-claude-code', 'a task that never fits');
+  const seen = new Map<string, any[]>();
+  const turn = scripted(async (params) => {
+    const eventId = /Coordination event (\S+) on thread/.exec(params.userMessage)![1];
+    seen.set(eventId, [...(seen.get(eventId) ?? []), params]);
+    const followUp = params.userMessage.includes('This is your follow-up turn on this item.');
+    if (eventId === resolves.eventId && followUp) {
+      const reply = await call(params, 'reply_to_coordination_thread', { thread_id: resolves.threadId, recipient: 'luca-claude-code', content: 'Done on the follow-up. (Unattended turn.)', model: 'gemini-test' });
+      assert.equal(reply.data.status, 'replied');
+      return { response: 'replied' };
+    }
+    return { response: `Summary so far for ${eventId}: read two of four.`, roundLimitReached: true };
+  });
+  const first = await worker.runWakePass({ db, generate: turn.generate, env: {} });
+  // A released item is eligible again and still the oldest, so the same pass gives it its follow-up at once.
+  assert.deepEqual(first.turns, ['follow_up:released', 'published:replied', 'follow_up:released', 'failed:recorded']);
+  assert.equal(seen.get(resolves.eventId)!.length, 2);
+  assert.equal(seen.get(exhausts.eventId)!.length, 2);
+  const followUpMessage = seen.get(resolves.eventId)![1].userMessage;
+  assert.ok(followUpMessage.includes(`Summary so far for ${resolves.eventId}: read two of four.`), 'the follow-up carries the first turn notes');
+  assert.ok(followUpMessage.includes('[server] No reply was published in this turn'), 'and marks them unverified, so a false claim is never passed forward as fact');
+  assert.ok(!seen.get(resolves.eventId)![0].userMessage.includes('follow-up turn'), 'the first turn has no follow-up note');
+  assert.equal(await stateOf(resolves.eventId), 'replied');
+  const failed = await one(sql`select state, error_class, claim_epoch from alden_wake_attempts where event_id = ${exhausts.eventId}`);
+  assert.deepEqual({ state: failed.state, error_class: failed.error_class, epoch: Number(failed.claim_epoch) }, { state: 'failed', error_class: 'round_limit', epoch: 2 });
+  assert.equal((await one(sql`select count(*)::int as c from alden_wake_notice_outbox o join alden_wake_attempts a on a.item_id = o.item_id where a.event_id = ${exhausts.eventId} and o.state_reported = 'failed'`)).c, 1, 'the founder hears about it');
+  const released = await one(sql`select count(*)::int as c from alden_wake_attempt_audit au join alden_wake_attempts a on a.item_id = au.item_id where a.event_id = ${exhausts.eventId} and au.reason like 'round_limit:%'`);
+  assert.equal(released.c, 1, 'exactly one release');
+});
+
+test('a long round-limited wrap-up keeps its unverified marker in the stored notes (LR, #167)', async (context) => {
+  if (skipUnlessCi(context)) return;
+  await drain();
+  const item = await newThread('luca-claude-code', 'a long wrap-up');
+  await wake.seedWakeAttempts(db);
+  const claim = await wake.claimNextWakeItem('worker-long', {}, db);
+  assert.equal(claim.status, 'claimed');
+  const turn = scripted(async () => ({ response: 'w'.repeat(2500), roundLimitReached: true }));
+  assert.equal(await worker.runWakeTurn((claim as any).attempt, { db, generate: turn.generate, workerId: 'worker-long', env: {} }), 'follow_up:released');
+  const { notes, state } = await one(sql`select notes, state from alden_wake_attempts where event_id = ${item.eventId}`);
+  assert.equal(state, 'eligible');
+  assert.ok(notes.length <= 2000, `stored notes length ${notes.length}`);
+  assert.ok(notes.endsWith('The attempt ledger and audit are the record of what happened.'), 'the marker survives the store-side cut');
 });

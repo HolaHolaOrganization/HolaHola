@@ -141,6 +141,8 @@ interface AldenChatParams {
   modelOverride?: string;
   /** The ai_cost_logs context; defaults to 'alden-chat'. */
   costContext?: string;
+  /** Tool-round limit for this turn; defaults to MAX_AGENT_ROUNDS. */
+  maxRounds?: number;
 }
 
 interface ContinuationInfo {
@@ -160,6 +162,8 @@ interface AldenChatResponse {
   toolAllowlist?: AldenToolAllowlist;
   /** Set when the turn failed and the response is only the fallback text. */
   error?: string;
+  /** Set when the turn stopped on the tool-round limit; the response is its wrap-up summary. */
+  roundLimitReached?: boolean;
 }
 
 const MAX_AGENT_ROUNDS = 10;
@@ -245,7 +249,7 @@ async function generateAldenResponseAnthropic(params: AldenChatParams): Promise<
     let totalOutputTokens = 0;
     const turn = await runAldenAnthropicTurn({
       messages,
-      maxRounds: MAX_AGENT_ROUNDS,
+      maxRounds: params.maxRounds ?? MAX_AGENT_ROUNDS,
       maxTokens: ANTHROPIC_MAX_TOKENS,
       wrapMaxTokens: ANTHROPIC_WRAP_MAX_TOKENS,
       call: async ({ messages: turnMessages, maxTokens, withTools }) => claude.messages.create({
@@ -288,7 +292,8 @@ async function generateAldenResponseAnthropic(params: AldenChatParams): Promise<
     aldenActivity.push({ type: 'response_complete', timestamp: new Date().toISOString() });
 
     return { response: aldenResponse, toolsUsed, coordinationReadReceipts, continuation: pendingContinuation,
-      reviewSourceReferences: reviewReadSession.sourceReferences, reviewSourceEngine: "anthropic", toolAllowlist: params.toolAllowlist };
+      reviewSourceReferences: reviewReadSession.sourceReferences, reviewSourceEngine: "anthropic", toolAllowlist: params.toolAllowlist,
+      roundLimitReached: turn.roundLimitReached };
   } catch (error: any) {
     console.error('[Alden Chat/Claude] Error:', error.message);
     return {
@@ -391,7 +396,7 @@ async function generateAldenResponseGemini(params: AldenChatParams): Promise<Ald
     totalOutputTokens += geminiOutputTokens((response as any).usageMetadata);
 
     // ── Agentic tool-use loop ─────────────────────────────────────────────────
-    for (let round = 0; round < MAX_AGENT_ROUNDS; round++) {
+    for (let round = 0; round < (params.maxRounds ?? MAX_AGENT_ROUNDS); round++) {
       reviewReadSession.acknowledgeDelivery();
       const functionCalls = response.functionCalls;
 
@@ -457,6 +462,7 @@ async function generateAldenResponseGemini(params: AldenChatParams): Promise<Ald
     // ─────────────────────────────────────────────────────────────────────────
 
     // Hit the round limit mid-task — request a wrap-up summary
+    const roundLimitReached = !aldenResponse;
     if (!aldenResponse) {
       console.log(`[Alden Chat] Round limit hit — requesting wrap-up summary`);
       try {
@@ -482,7 +488,8 @@ async function generateAldenResponseGemini(params: AldenChatParams): Promise<Ald
 
     reviewReadSession.acknowledgeDelivery();
     return { response: aldenResponse, toolsUsed, coordinationReadReceipts, continuation: pendingContinuation,
-      reviewSourceReferences: reviewReadSession.sourceReferences, reviewSourceEngine: "gemini", toolAllowlist: params.toolAllowlist };
+      reviewSourceReferences: reviewReadSession.sourceReferences, reviewSourceEngine: "gemini", toolAllowlist: params.toolAllowlist,
+      roundLimitReached };
   } catch (error: any) {
     console.error('[Alden Chat] Error:', error.message);
     return {

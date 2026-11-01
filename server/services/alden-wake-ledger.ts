@@ -556,6 +556,33 @@ export async function recordWakeOutcome(
   });
 }
 
+/**
+ * Releases a claim whose turn stopped on the tool-round limit back to
+ * eligible for its one follow-up turn, carrying the turn's wrap-up as notes.
+ * Fenced like any outcome write; the next claim bumps the epoch, which is how
+ * the follow-up is recognised and capped (decideWakeOutcome).
+ */
+export async function releaseWakeForFollowUp(
+  input: { itemId: string; workerId: string; claimEpoch: number; notes: string; toolsUsed?: string[] },
+  db: Db = getSharedDb(),
+): Promise<'released' | 'superseded'> {
+  return db.transaction(async (tx: Db) => {
+    const [row] = rowsOf(await tx.execute(sql`select * from alden_wake_attempts where item_id = ${input.itemId} for update`));
+    const attempt = row ? toAttempt(row) : null;
+    const live = attempt && attempt.state === 'claimed' && attempt.claimEpoch === input.claimEpoch
+      && attempt.claimedBy === input.workerId && await leaseLive(tx, input.itemId);
+    if (!live) {
+      await audit(tx, input.itemId, input.claimEpoch, input.workerId, 'superseded', `fenced:${attempt?.state ?? 'missing'}`);
+      return 'superseded';
+    }
+    await tx.execute(sql`update alden_wake_attempts set state = 'eligible', claimed_by = null, claimed_at = null, lease_until = null,
+      notes = ${input.notes.slice(0, 2000)}, tools_used = ${jsonArray(input.toolsUsed ?? [])}, updated_at = clock_timestamp()
+      where item_id = ${input.itemId}`);
+    await audit(tx, input.itemId, input.claimEpoch, input.workerId, 'failed', 'round_limit: released for one follow-up turn');
+    return 'released';
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Reconcile and notices
 

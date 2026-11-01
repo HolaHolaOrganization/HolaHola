@@ -13,14 +13,14 @@ import { getSharedDb } from '../db';
 import { ALDEN_BACKGROUND_MODEL } from './alden-background-model';
 import { wakeAllowlist } from './alden-tool-profiles';
 import {
-  activateWake, claimNextWakeItem, deliverWakeNotices, reconcileWake, recordWakeOutcome,
+  activateWake, claimNextWakeItem, deliverWakeNotices, reconcileWake, recordWakeOutcome, releaseWakeForFollowUp,
   type AldenWakeTurn, type WakeAttempt, WAKE_COST_CONTEXT,
 } from './alden-wake-ledger';
-import { buildWakeMessage, decideWakeOutcome, wakeEngineConfig } from './alden-wake-rules';
+import { annotateUnpublishedNotes, buildFollowUpNote, buildTriggerText, buildWakeMessage, decideWakeOutcome, WAKE_MAX_ROUNDS, wakeEngineConfig } from './alden-wake-rules';
 
 export const WAKE_INTERVAL_MS = 60_000;
 
-type Generate = (params: Record<string, any>) => Promise<{ response: string; toolsUsed: string[]; error?: string }>;
+type Generate = (params: Record<string, any>) => Promise<{ response: string; toolsUsed: string[]; error?: string; roundLimitReached?: boolean }>;
 
 export interface WakeDeps {
   db?: any;
@@ -42,7 +42,7 @@ export async function runWakeTurn(attempt: WakeAttempt, deps: WakeDeps = {}): Pr
   const workerId = deps.workerId ?? defaultWorkerId();
   const generate = deps.generate ?? defaultGenerate;
   const [event] = ((await db.execute(sql`
-    select e.id, e.actor, e.created_at, t.title from alden_wake_attempts a
+    select e.id, e.actor, e.created_at, e.content, t.title, a.notes from alden_wake_attempts a
     join coordination_events e on e.id = a.event_id
     join coordination_threads t on t.id = e.thread_id
     where a.item_id = ${attempt.itemId}`)) as any).rows;
@@ -58,7 +58,11 @@ export async function runWakeTurn(attempt: WakeAttempt, deps: WakeDeps = {}): Pr
       userMessage: buildWakeMessage({
         eventId: event.id, threadId: attempt.targetThreadId, title: event.title, actor: event.actor,
         createdAt: new Date(event.created_at).toISOString(),
-      }),
+      // The trusted follow-up note comes before the quoted trigger text, so a
+      // crafted message cannot pose as it (LR, #167 review).
+      }) + (attempt.claimEpoch > 1 && event.notes ? buildFollowUpNote(event.notes) : '')
+        + buildTriggerText({ eventId: event.id, actor: event.actor, content: event.content }),
+      maxRounds: WAKE_MAX_ROUNDS,
       founderName: 'David',
       engineOverride: engine,
       modelOverride: model,
@@ -72,10 +76,17 @@ export async function runWakeTurn(attempt: WakeAttempt, deps: WakeDeps = {}): Pr
   if (turn.published) return `published:${(turn.published as any).status}`;
   const decision = decideWakeOutcome(turn, thrown ? { error: thrown } : response);
   if (!decision) return 'published';
+  if (decision.outcome === 'follow_up') {
+    const released = await releaseWakeForFollowUp({
+      itemId: attempt.itemId, workerId, claimEpoch: attempt.claimEpoch,
+      notes: annotateUnpublishedNotes(response?.response ?? ''), toolsUsed: response?.toolsUsed ?? [],
+    }, db);
+    return `follow_up:${released}`;
+  }
   const recorded = await recordWakeOutcome({
     itemId: attempt.itemId, workerId, claimEpoch: attempt.claimEpoch,
     outcome: decision.outcome, errorClass: decision.errorClass,
-    notes: (thrown ?? response?.error ?? response?.response ?? '').slice(0, 2000) || undefined,
+    notes: annotateUnpublishedNotes((thrown ?? response?.error ?? response?.response ?? '').slice(0, 1800)),
     toolsUsed: response?.toolsUsed ?? [],
   }, db);
   return `${decision.outcome}:${recorded}`;

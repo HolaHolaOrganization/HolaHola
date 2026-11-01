@@ -61,15 +61,66 @@ export function buildWakeMessage(event: { eventId: string; threadId: string; tit
 }
 
 /**
+ * Added to the wake message on a follow-up turn, so Alden continues from his
+ * own wrap-up instead of starting over. DRAFT wording by LCC, sent to Alden
+ * to reword (he words his own prompts).
+ */
+export function buildFollowUpNote(previousNotes: string): string {
+  return `\n\nThis is your follow-up turn on this item. Your previous unattended turn reached its tool limit before you replied, and you wrote this summary at the end of it:\n\n${previousNotes}\n\nThis is the last turn for this item: reply, notify David, or choose not to reply.`;
+}
+
+/** Tool rounds for a wake turn (chat keeps its own default). */
+export const WAKE_MAX_ROUNDS = 16;
+const TRIGGER_TEXT_LIMIT = 8000;
+
+/**
+ * The triggering event's own text, added to the wake message so Alden need
+ * not spend rounds fetching it. Long texts are cut with a stated pointer to
+ * the rest. DRAFT framing by LCC, for Alden to reword.
+ */
+export function buildTriggerText(event: { eventId: string; actor: string; content: string }): string {
+  const cut = event.content.length > TRIGGER_TEXT_LIMIT;
+  const body = cut ? event.content.slice(0, TRIGGER_TEXT_LIMIT) : event.content;
+  return `\n\nThe full text of event ${event.eventId}, from ${event.actor}${cut ? ` (first ${TRIGGER_TEXT_LIMIT} of ${event.content.length} characters; read_coordination_message with an offset gives the rest)` : ''}:\n\n${body}`;
+}
+
+/**
+ * Written by the server after the notes of any wake turn that published no
+ * reply, so a claim in Alden's own summary is never carried forward as fact.
+ */
+export const UNVERIFIED_NOTE = '[server] No reply was published in this turn; any claim of actions above is unverified. The attempt ledger and audit are the record of what happened.';
+
+/** The stored notes limit (alden_wake_attempts.notes is cut to this on every write). */
+export const WAKE_NOTES_LIMIT = 2000;
+
+/**
+ * The marker always survives: the body is cut first so body plus marker fit
+ * the stored limit (LR, #167 review: a long wrap-up must not lose it).
+ */
+export function annotateUnpublishedNotes(notes: string): string {
+  if (!notes) return UNVERIFIED_NOTE;
+  const room = WAKE_NOTES_LIMIT - UNVERIFIED_NOTE.length - 2;
+  return `${notes.slice(0, room)}\n\n${UNVERIFIED_NOTE}`;
+}
+
+/** A wake turn that stops on the tool-round limit gets exactly one follow-up turn. */
+export const WAKE_FOLLOW_UP_TURNS = 1;
+
+/**
  * The outcome of a wake turn that did not publish through the reply tool.
- * A publication records its own outcome, so it returns null.
+ * A publication records its own outcome, so it returns null. A turn that ran
+ * out of tool rounds before replying is not a decline: the first time it is
+ * released for one follow-up turn ('follow_up'); after that it fails visibly.
  */
 export function decideWakeOutcome(
-  turn: { itemKind: WakeItemKind; published?: unknown; notified?: boolean },
-  response: { error?: string } | null,
-): { outcome: 'declined' | 'needs_david' | 'failed' | 'observed'; errorClass?: string } | null {
+  turn: { itemKind: WakeItemKind; published?: unknown; notified?: boolean; claimEpoch?: number },
+  response: { error?: string; roundLimitReached?: boolean } | null,
+): { outcome: 'declined' | 'needs_david' | 'failed' | 'observed' | 'follow_up'; errorClass?: string } | null {
   if (turn.published) return null;
   if (!response || response.error) return { outcome: 'failed', errorClass: 'turn_error' };
+  if (response.roundLimitReached) {
+    return (turn.claimEpoch ?? 1) <= WAKE_FOLLOW_UP_TURNS ? { outcome: 'follow_up' } : { outcome: 'failed', errorClass: 'round_limit' };
+  }
   if (turn.itemKind === 'observe') return { outcome: 'observed' };
   return { outcome: turn.notified ? 'needs_david' : 'declined' };
 }
