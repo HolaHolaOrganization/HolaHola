@@ -130,6 +130,22 @@ test("list_shared_spec_reviews, called through Alden's real dispatch path, finds
     reviewId: decided.review.id, rationale: "looks good", idempotencyKey: `approve-decided-${runId}`,
   });
 
+  // (f) Assigned to alden and claimed by him, then superseded by a newer
+  //     revision -- must auto-close to state = "cancelled" with cancelledAt
+  //     in PostgreSQL and drop out of both list_shared_spec_reviews and
+  //     listReviewsForReviewer.
+  const superseded = await readyDocument("superseded", "alden");
+  await core.claimReview({ actorId: "alden" }, superseded.review.id, `claim-superseded-${runId}`);
+  await core.appendRevision(AUTHOR, {
+    documentId: superseded.document.id,
+    baseRevisionId: superseded.revision.id,
+    markdown: "# superseded v2\n",
+    idempotencyKey: `append-superseded-v2-${runId}`,
+  });
+  const supersededPersisted = await core.getReview(superseded.review.id);
+  assert.equal(supersededPersisted.state, "cancelled", "superseded pending review must auto-close to state = 'cancelled' in PostgreSQL");
+  assert.ok(supersededPersisted.cancelledAt instanceof Date, "superseded review must record cancelledAt in PostgreSQL");
+
   // The real tool dispatch path: executeAldenTool -> listAldenSharedSpecReviews
   // -> the tool's own PostgresSharedSpecRepository -> the same live database.
   const result = await executeAldenTool("list_shared_spec_reviews", {});
@@ -153,4 +169,5 @@ test("list_shared_spec_reviews, called through Alden's real dispatch path, finds
   assert.ok(!byReviewId.has(otherAssigned.review.id), "a review assigned to a different actor must never appear for alden");
   assert.ok(!byReviewId.has(otherClaimed.review.id), "a review claimed by a different actor must never appear for alden");
   assert.ok(!byReviewId.has(decided.review.id), "a review alden already decided must drop out once no longer pending");
+  assert.ok(!byReviewId.has(superseded.review.id), "a review superseded by a newer revision must auto-close and never appear for alden");
 });

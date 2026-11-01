@@ -86,6 +86,7 @@ export interface SharedSpecReview {
   readonly requestedAt: Date;
   readonly claimedAt?: Date;
   readonly decidedAt?: Date;
+  readonly cancelledAt?: Date;
   /** Immutable policy evidence captured at the decision, never re-resolved. */
   readonly decisionPolicyVersionId?: string;
   readonly decisionPolicyVersion?: number;
@@ -193,6 +194,13 @@ export interface SharedSpecTransaction {
    * shape of race.
    */
   compareAndSetReviewDecision(review: SharedSpecReview, expectedClaimedReviewerActorId: string): Promise<boolean>;
+  /**
+   * Transitions every still-`pending` review for `documentId` whose revision
+   * is not `currentRevisionId` to `state = 'cancelled'` with `cancelledAt`.
+   * Called inside the same transaction as `compareAndSetCurrentRevision` so a
+   * superseded revision's review request closes itself at write time.
+   */
+  cancelSupersededPendingReviews(documentId: string, currentRevisionId: string, cancelledAt: Date): Promise<number>;
   getActivePolicy(
     actorId: string,
     capability: ReviewerCapability,
@@ -477,6 +485,7 @@ export class SharedSpecCore {
             documentId: current.id, currentRevisionId: current.currentRevisionId,
           });
         }
+        await tx.cancelSupersededPendingReviews(existing.id, revision.id, at);
         await tx.insertIdempotency({ scope: "share-document", actorId: actor.actorId, key: input.idempotencyKey,
           requestDigest, resultType: "revision", resultId: revision.id });
         return { document: { ...existing, currentRevisionId: revision.id, state: "draft", updatedAt: at }, revision, created: false };
@@ -640,6 +649,7 @@ export class SharedSpecCore {
           submittedBaseRevisionId: input.baseRevisionId, currentRevisionId: current.currentRevisionId,
         });
       }
+      await tx.cancelSupersededPendingReviews(document.id, revision.id, at);
       await tx.insertIdempotency({ scope: `append:${document.id}`, actorId: actor.actorId, key: input.idempotencyKey,
         requestDigest, resultType: "revision", resultId: revision.id });
       return revision;
@@ -952,6 +962,16 @@ export class InMemorySharedSpecRepository implements SharedSpecRepository {
         if (!current || current.state !== "pending" || current.claimedReviewerActorId !== expectedClaimedReviewerActorId) return false;
         this.reviews.set(review.id, clone(review));
         return true;
+      },
+      cancelSupersededPendingReviews: async (documentId, currentRevisionId, cancelledAt) => {
+        let count = 0;
+        for (const [id, review] of this.reviews.entries()) {
+          if (review.documentId === documentId && review.state === "pending" && review.revisionId !== currentRevisionId) {
+            this.reviews.set(id, { ...review, state: "cancelled", cancelledAt: new Date(cancelledAt) });
+            count += 1;
+          }
+        }
+        return count;
       },
       getActivePolicy: async (actorId, capability, kind) => {
         const matches = [...this.policies.values()].filter(x => x.actorId === actorId && x.capability === capability && (!x.documentKind || x.documentKind === kind));
