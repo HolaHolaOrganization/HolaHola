@@ -13496,3 +13496,27 @@ export const claudeCodeProjectionShadow = pgTable("claude_code_projection_shadow
   check("claude_code_projection_shadow_state", sql`${table.state} in ('certified', 'provisional-candidate', 'open', 'retained')`),
   check("claude_code_projection_shadow_comparison", sql`${table.comparison} in ('body-match', 'mismatch', 'missing', 'ambiguous', 'not-applicable')`),
 ]);
+
+/**
+ * The exact text an episode row held before a reviewed rewrite of it (design
+ * 4994db25, Episode 35 ordered rebuild). Written in the same transaction as
+ * the rewrite, so the previous text can always be put back exactly. Insert
+ * only (triggers refuse UPDATE, DELETE and TRUNCATE); the CHECK binds old_content to
+ * its hash. Not a conversation_memories row, so it never enters embedding or
+ * retrieval.
+ */
+export const episodeContentSnapshots = pgTable("episode_content_snapshots", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  episodeId: varchar("episode_id").notNull(),
+  reason: varchar("reason", { length: 80 }).notNull(),
+  oldContent: text("old_content").notNull(),
+  oldContentSha256: varchar("old_content_sha256", { length: 64 }).notNull(),
+  newContentSha256: varchar("new_content_sha256", { length: 64 }).notNull(),
+  receiptListSha256: varchar("receipt_list_sha256", { length: 64 }).notNull(),
+  appliedAt: timestamp("applied_at").notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("uq_episode_content_snapshots_episode_old").on(table.episodeId, table.oldContentSha256),
+  check("episode_content_snapshots_old_hash_matches", sql`${table.oldContentSha256} = encode(sha256(convert_to(${table.oldContent}, 'UTF8')), 'hex')`),
+  check("episode_content_snapshots_new_sha256", sql`${table.newContentSha256} ~ '^[0-9a-f]{64}$'`),
+  check("episode_content_snapshots_receipt_sha256", sql`${table.receiptListSha256} ~ '^[0-9a-f]{64}$'`),
+]);

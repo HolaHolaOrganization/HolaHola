@@ -146,7 +146,8 @@ export async function runBackfill(pool: BackfillPool, receipt: EpisodeBackfillRe
   return { applied: outcome.status === 'appended', detail: describe(outcome, receipt.entries.length, embeddings) };
 }
 
-async function productionDeps(pool: BackfillPool): Promise<EmbeddingDeps> {
+/** Real embedding helpers; also used by rebuild-episode-ordered.ts. */
+export async function productionDeps(pool: BackfillPool): Promise<EmbeddingDeps> {
   // server/ modules open their own DB pool on import, so they load only here.
   const { splitIntoChunks, reformatSpeakerHeaders } = await import('../../server/services/memory-embedding-indexer');
   const { hashContent } = await import('../../server/services/semantic-memory-service');

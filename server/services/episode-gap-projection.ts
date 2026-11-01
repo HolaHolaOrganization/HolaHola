@@ -14,6 +14,27 @@
 
 import { canonicalTurnEpisodeMarker } from './inner-life-capture';
 
+/**
+ * CI harness markers are never legitimate episode dialogue. Prefixes are kept
+ * unbracketed because some hooks emit ordinary prose (for example Team Room and
+ * chat E2E sentinels) while others emit an HTML comment containing brackets.
+ */
+export const CI_SENTINEL_PREFIXES = [
+  'CI-AUTO-CAPTURE-',
+  'CI-SELF-CHECK-AUTO-CAPTURE-',
+  'CI-CONCURRENT-',
+  'CI-TEST-SENTINEL-',
+  'CI-SELF-CHECK-SENTINEL-',
+  'CI-CONCURRENT-SENTINEL-',
+  'CI-SELFCHECK-SENTINEL-',
+  'CI-CHAT-E2E-SENTINEL-',
+  'CI-TEAMROOM-E2E-',
+] as const;
+
+export function isCiSentinelExchange(exchange: string): boolean {
+  return CI_SENTINEL_PREFIXES.some(prefix => exchange.includes(prefix));
+}
+
 /** Normalise a string for fuzzy matching: collapse whitespace, lower-case. */
 export function normForGap(s: string): string {
   return s.replace(/\s+/g, ' ').trim().toLowerCase();
