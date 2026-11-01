@@ -58,6 +58,7 @@ const RECENT_ACTIVITY_WINDOW_MS = 24 * 60 * 60 * 1000;
 // AGENT_MEMORY_TEST_FILES_DIR -- see that function for why.
 const LIVE_STATE_DIR = path.join(process.cwd(), ".local");
 const STALE_CHANNEL_ALERT_PATH = path.join(LIVE_STATE_DIR, "stale-channel-alert.md");
+const LISTENER_BOOT_ALERT_PATH = path.join(LIVE_STATE_DIR, "listener-boot-alert.md");
 const EPISODE_CAPTURE_STATUS_PATH = path.join(LIVE_STATE_DIR, "episode-capture-status.md");
 
 function topicFilePath(topicSlug: string): string {
@@ -243,6 +244,14 @@ export async function computeLiveStatusBanner(): Promise<string> {
     lines.push(`🔴 **Unread stale-channel alert** (\`.local/stale-channel-alert.md\`): ${headline.replace(/\*/g, "").trim().slice(0, 200)}`);
   } catch {
     // ENOENT is the healthy/expected state -- no alert currently open.
+  }
+
+  try {
+    const boot = await fs.readFile(LISTENER_BOOT_ALERT_PATH, "utf8");
+    const headline = boot.split("\n").find((line) => line.trim().length > 0) ?? "";
+    if (headline) lines.push(`🔴 **Coordination listener boot failed** (\`.local/listener-boot-alert.md\`): ${headline.slice(0, 200)}`);
+  } catch {
+    // ENOENT is the healthy state -- no failed boot recorded.
   }
 
   try {

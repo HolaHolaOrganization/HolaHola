@@ -572,13 +572,21 @@ export class SharedSpecCore {
   async listReviewerQueue(actorId: string): Promise<readonly ReviewerQueueEntry[]> {
     this.required(actorId, "actorId");
     return this.repository.transaction(async tx => {
-      const own = await tx.listReviewsForReviewer(actorId);
-      const ownEntries: ReviewerQueueEntry[] = own.map(review => ({
-        review, relationship: review.claimedReviewerActorId === actorId ? "claimed" : "assigned",
-      }));
+      // A pending review can only be decided while its revision is still the
+      // document's current one and the document is awaiting review (the same
+      // precondition decideReview enforces). Once a newer revision exists or
+      // the document is approved at a later revision, the request is
+      // superseded: it can never be decided, so it is not queue work.
+      const ownEntries: ReviewerQueueEntry[] = [];
+      for (const review of await tx.listReviewsForReviewer(actorId)) {
+        const { document } = await this.reviewTarget(tx, review);
+        if (document.state !== "ready_for_review" || document.currentRevisionId !== review.revisionId) continue;
+        ownEntries.push({ review, relationship: review.claimedReviewerActorId === actorId ? "claimed" : "assigned" });
+      }
       const openEntries: ReviewerQueueEntry[] = [];
       for (const review of await tx.listOpenReviews()) {
         const { document, revision } = await this.reviewTarget(tx, review);
+        if (document.state !== "ready_for_review" || document.currentRevisionId !== review.revisionId) continue;
         if (await this.getEligibleReviewerPolicy(tx, actorId, document, revision)) {
           openEntries.push({ review, relationship: "open_eligible" });
         }
