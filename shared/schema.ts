@@ -13501,7 +13501,7 @@ export const claudeCodeProjectionShadow = pgTable("claude_code_projection_shadow
  * The exact text an episode row held before a reviewed rewrite of it (design
  * 4994db25, Episode 35 ordered rebuild). Written in the same transaction as
  * the rewrite, so the previous text can always be put back exactly. Insert
- * only (a trigger refuses UPDATE and DELETE); the CHECK binds old_content to
+ * only (triggers refuse UPDATE, DELETE and TRUNCATE); the CHECK binds old_content to
  * its hash. Not a conversation_memories row, so it never enters embedding or
  * retrieval.
  */

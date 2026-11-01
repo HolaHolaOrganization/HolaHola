@@ -31,3 +31,10 @@ CREATE TRIGGER "episode_content_snapshots_insert_only"
 BEFORE UPDATE OR DELETE ON "episode_content_snapshots"
 FOR EACH ROW
 EXECUTE FUNCTION "reject_episode_content_snapshot_mutation"();
+--> statement-breakpoint
+DROP TRIGGER IF EXISTS "episode_content_snapshots_no_truncate"
+  ON "episode_content_snapshots";
+CREATE TRIGGER "episode_content_snapshots_no_truncate"
+BEFORE TRUNCATE ON "episode_content_snapshots"
+FOR EACH STATEMENT
+EXECUTE FUNCTION "reject_episode_content_snapshot_mutation"();

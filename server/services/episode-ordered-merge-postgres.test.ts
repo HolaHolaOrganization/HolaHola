@@ -125,9 +125,10 @@ test('episode ordered rebuild: snapshot, insert-only table, shared row lock, rer
   assert.equal(snap.new_content_sha256, receipt.newContentSha256);
   assert.equal(snap.receipt_list_sha256, receipt.listSha256);
 
-  // 3. The snapshot table is insert only, and its CHECK binds old_content to its hash.
+  // 3. The snapshot table is insert only (UPDATE, DELETE and TRUNCATE refused), and its CHECK binds old_content to its hash.
   await assert.rejects(pool.query('update episode_content_snapshots set reason = $2 where id = $1', [snap.id, 'edited']), /insert-only/);
   await assert.rejects(pool.query('delete from episode_content_snapshots where id = $1', [snap.id]), /insert-only/);
+  await assert.rejects(pool.query('truncate episode_content_snapshots'), /insert-only/);
   await assert.rejects(pool.query(
     `insert into episode_content_snapshots (episode_id, reason, old_content, old_content_sha256, new_content_sha256, receipt_list_sha256) values ($1, 'test', 'x', $2, $2, $2)`,
     [randomUUID(), 'f'.repeat(64)],
