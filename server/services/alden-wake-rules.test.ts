@@ -118,3 +118,10 @@ test('the trigger text rides in the turn, cut with a pointer when long; unverifi
   assert.equal(annotateUnpublishedNotes(''), UNVERIFIED_NOTE);
   assert.match(UNVERIFIED_NOTE, /No reply was published in this turn/);
 });
+
+test('the unverified marker survives a long wrap-up (LR, #167)', () => {
+  const long = annotateUnpublishedNotes('w'.repeat(2500));
+  assert.ok(long.length <= 2000, `stored notes fit the limit (${long.length})`);
+  assert.ok(long.endsWith(UNVERIFIED_NOTE));
+  assert.equal(long.slice(0, 2000).endsWith(UNVERIFIED_NOTE), true, 'still there after the store-side cut');
+});

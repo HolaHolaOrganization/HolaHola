@@ -229,3 +229,18 @@ test('a turn stopped on the tool-round limit gets exactly one follow-up carrying
   const released = await one(sql`select count(*)::int as c from alden_wake_attempt_audit au join alden_wake_attempts a on a.item_id = au.item_id where a.event_id = ${exhausts.eventId} and au.reason like 'round_limit:%'`);
   assert.equal(released.c, 1, 'exactly one release');
 });
+
+test('a long round-limited wrap-up keeps its unverified marker in the stored notes (LR, #167)', async (context) => {
+  if (skipUnlessCi(context)) return;
+  await drain();
+  const item = await newThread('luca-claude-code', 'a long wrap-up');
+  await wake.seedWakeAttempts(db);
+  const claim = await wake.claimNextWakeItem('worker-long', {}, db);
+  assert.equal(claim.status, 'claimed');
+  const turn = scripted(async () => ({ response: 'w'.repeat(2500), roundLimitReached: true }));
+  assert.equal(await worker.runWakeTurn((claim as any).attempt, { db, generate: turn.generate, workerId: 'worker-long', env: {} }), 'follow_up:released');
+  const { notes, state } = await one(sql`select notes, state from alden_wake_attempts where event_id = ${item.eventId}`);
+  assert.equal(state, 'eligible');
+  assert.ok(notes.length <= 2000, `stored notes length ${notes.length}`);
+  assert.ok(notes.endsWith('The attempt ledger and audit are the record of what happened.'), 'the marker survives the store-side cut');
+});

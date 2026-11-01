@@ -58,8 +58,10 @@ export async function runWakeTurn(attempt: WakeAttempt, deps: WakeDeps = {}): Pr
       userMessage: buildWakeMessage({
         eventId: event.id, threadId: attempt.targetThreadId, title: event.title, actor: event.actor,
         createdAt: new Date(event.created_at).toISOString(),
-      }) + buildTriggerText({ eventId: event.id, actor: event.actor, content: event.content })
-        + (attempt.claimEpoch > 1 && event.notes ? buildFollowUpNote(event.notes) : ''),
+      // The trusted follow-up note comes before the quoted trigger text, so a
+      // crafted message cannot pose as it (LR, #167 review).
+      }) + (attempt.claimEpoch > 1 && event.notes ? buildFollowUpNote(event.notes) : '')
+        + buildTriggerText({ eventId: event.id, actor: event.actor, content: event.content }),
       maxRounds: WAKE_MAX_ROUNDS,
       founderName: 'David',
       engineOverride: engine,

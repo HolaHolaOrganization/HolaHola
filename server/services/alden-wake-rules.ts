@@ -90,8 +90,17 @@ export function buildTriggerText(event: { eventId: string; actor: string; conten
  */
 export const UNVERIFIED_NOTE = '[server] No reply was published in this turn; any claim of actions above is unverified. The attempt ledger and audit are the record of what happened.';
 
+/** The stored notes limit (alden_wake_attempts.notes is cut to this on every write). */
+export const WAKE_NOTES_LIMIT = 2000;
+
+/**
+ * The marker always survives: the body is cut first so body plus marker fit
+ * the stored limit (LR, #167 review: a long wrap-up must not lose it).
+ */
 export function annotateUnpublishedNotes(notes: string): string {
-  return notes ? `${notes}\n\n${UNVERIFIED_NOTE}` : UNVERIFIED_NOTE;
+  if (!notes) return UNVERIFIED_NOTE;
+  const room = WAKE_NOTES_LIMIT - UNVERIFIED_NOTE.length - 2;
+  return `${notes.slice(0, room)}\n\n${UNVERIFIED_NOTE}`;
 }
 
 /** A wake turn that stops on the tool-round limit gets exactly one follow-up turn. */
