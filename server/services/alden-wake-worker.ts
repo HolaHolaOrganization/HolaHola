@@ -42,10 +42,13 @@ export async function runWakeTurn(attempt: WakeAttempt, deps: WakeDeps = {}): Pr
   const workerId = deps.workerId ?? defaultWorkerId();
   const generate = deps.generate ?? defaultGenerate;
   const [event] = ((await db.execute(sql`
-    select e.id, e.actor, e.created_at, e.content, t.title, a.notes from alden_wake_attempts a
+    select e.id, e.actor, e.created_at, e.content, t.title, a.notes,
+      (select count(*)::int from alden_wake_attempt_audit au where au.item_id = a.item_id and au.reason like 'round_limit:%') as follow_ups_used
+    from alden_wake_attempts a
     join coordination_events e on e.id = a.event_id
     join coordination_threads t on t.id = e.thread_id
     where a.item_id = ${attempt.itemId}`)) as any).rows;
+  const followUpsUsed = Number(event.follow_ups_used ?? 0);
   const turn: AldenWakeTurn = {
     itemId: attempt.itemId, workerId, claimEpoch: attempt.claimEpoch,
     threadId: attempt.targetThreadId, targetSender: attempt.targetSender, itemKind: attempt.itemKind,
@@ -60,7 +63,7 @@ export async function runWakeTurn(attempt: WakeAttempt, deps: WakeDeps = {}): Pr
         createdAt: new Date(event.created_at).toISOString(),
       // The trusted follow-up note comes before the quoted trigger text, so a
       // crafted message cannot pose as it (LR, #167 review).
-      }) + (attempt.claimEpoch > 1 && event.notes ? buildFollowUpNote(event.notes) : '')
+      }) + (followUpsUsed > 0 && event.notes ? buildFollowUpNote(event.notes) : '')
         + buildTriggerText({ eventId: event.id, actor: event.actor, content: event.content }),
       maxRounds: WAKE_MAX_ROUNDS,
       founderName: 'David',
@@ -74,7 +77,7 @@ export async function runWakeTurn(attempt: WakeAttempt, deps: WakeDeps = {}): Pr
     thrown = String((err as Error)?.message ?? err);
   }
   if (turn.published) return `published:${(turn.published as any).status}`;
-  const decision = decideWakeOutcome(turn, thrown ? { error: thrown } : response);
+  const decision = decideWakeOutcome({ ...turn, followUpsUsed }, thrown ? { error: thrown } : response);
   if (!decision) return 'published';
   if (decision.outcome === 'follow_up') {
     const released = await releaseWakeForFollowUp({

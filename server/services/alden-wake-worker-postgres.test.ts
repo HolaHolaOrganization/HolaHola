@@ -244,3 +244,23 @@ test('a long round-limited wrap-up keeps its unverified marker in the stored not
   assert.ok(notes.length <= 2000, `stored notes length ${notes.length}`);
   assert.ok(notes.endsWith('The attempt ledger and audit are the record of what happened.'), 'the marker survives the store-side cut');
 });
+
+test('an item at claim_epoch > 1 with zero prior round_limit releases still gets its one follow-up turn (LR, #167)', async (context) => {
+  if (skipUnlessCi(context)) return;
+  await drain();
+  const item = await newThread('luca-claude-code', 'reclaimed before any round limit');
+  await wake.seedWakeAttempts(db);
+  await db.execute(sql`update alden_wake_attempts set claim_epoch = 1, notes = 'stale non-round-limit note' where event_id = ${item.eventId}`);
+  const seen: string[] = [];
+  const turn = scripted(async (params) => {
+    seen.push(params.userMessage);
+    return { response: `Turn ${seen.length} wrap-up`, roundLimitReached: true };
+  });
+  const pass = await worker.runWakePass({ db, generate: turn.generate, env: {} });
+  assert.deepEqual(pass.turns, ['follow_up:released', 'failed:recorded']);
+  assert.equal(seen.length, 2);
+  assert.ok(!seen[0].includes('follow-up turn'), 'epoch > 1 without a prior round_limit release does not inject a follow-up note');
+  assert.ok(seen[1].includes('Turn 1 wrap-up'), 'the real follow-up turn carries the round-limit wrap-up notes');
+  const finalRow = await one(sql`select state, error_class, claim_epoch from alden_wake_attempts where event_id = ${item.eventId}`);
+  assert.deepEqual({ state: finalRow.state, error_class: finalRow.error_class, epoch: Number(finalRow.claim_epoch) }, { state: 'failed', error_class: 'round_limit', epoch: 3 });
+});

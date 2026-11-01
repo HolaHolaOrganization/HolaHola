@@ -113,13 +113,14 @@ export const WAKE_FOLLOW_UP_TURNS = 1;
  * released for one follow-up turn ('follow_up'); after that it fails visibly.
  */
 export function decideWakeOutcome(
-  turn: { itemKind: WakeItemKind; published?: unknown; notified?: boolean; claimEpoch?: number },
+  turn: { itemKind: WakeItemKind; published?: unknown; notified?: boolean; claimEpoch?: number; followUpsUsed?: number },
   response: { error?: string; roundLimitReached?: boolean } | null,
 ): { outcome: 'declined' | 'needs_david' | 'failed' | 'observed' | 'follow_up'; errorClass?: string } | null {
   if (turn.published) return null;
   if (!response || response.error) return { outcome: 'failed', errorClass: 'turn_error' };
   if (response.roundLimitReached) {
-    return (turn.claimEpoch ?? 1) <= WAKE_FOLLOW_UP_TURNS ? { outcome: 'follow_up' } : { outcome: 'failed', errorClass: 'round_limit' };
+    const used = turn.followUpsUsed ?? ((turn.claimEpoch ?? 1) - 1);
+    return used < WAKE_FOLLOW_UP_TURNS ? { outcome: 'follow_up' } : { outcome: 'failed', errorClass: 'round_limit' };
   }
   if (turn.itemKind === 'observe') return { outcome: 'observed' };
   return { outcome: turn.notified ? 'needs_david' : 'declined' };

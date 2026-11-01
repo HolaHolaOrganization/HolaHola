@@ -99,6 +99,9 @@ test('a turn stopped on the tool-round limit gets one follow-up, then fails visi
   assert.deepEqual(decideWakeOutcome({ itemKind: 'addressed', claimEpoch: 1 }, { roundLimitReached: true }), { outcome: 'follow_up' });
   assert.deepEqual(decideWakeOutcome({ itemKind: 'observe', claimEpoch: 1 }, { roundLimitReached: true }), { outcome: 'follow_up' });
   assert.deepEqual(decideWakeOutcome({ itemKind: 'addressed', claimEpoch: 2 }, { roundLimitReached: true }), { outcome: 'failed', errorClass: 'round_limit' });
+  assert.deepEqual(decideWakeOutcome({ itemKind: 'addressed', claimEpoch: 2, followUpsUsed: 0 }, { roundLimitReached: true }), { outcome: 'follow_up' }, 'an epoch bump before any round-limit release still gets its one follow-up (LR, #167)');
+  assert.deepEqual(decideWakeOutcome({ itemKind: 'addressed', claimEpoch: 2, followUpsUsed: 1 }, { roundLimitReached: true }), { outcome: 'failed', errorClass: 'round_limit' });
+  assert.deepEqual(decideWakeOutcome({ itemKind: 'addressed', claimEpoch: 1, followUpsUsed: 0 }, { roundLimitReached: false }), { outcome: 'declined' }, 'an empty non-round-limited reply is declined, not mislabelled round_limit (LR, #167)');
   assert.equal(decideWakeOutcome({ itemKind: 'addressed', claimEpoch: 1, published: { status: 'replied' } }, { roundLimitReached: true }), null, 'a reply wins');
   assert.deepEqual(decideWakeOutcome({ itemKind: 'addressed', claimEpoch: 1 }, { error: 'boom', roundLimitReached: true }), { outcome: 'failed', errorClass: 'turn_error' });
   const note = buildFollowUpNote('I read seq 30 and 31; next I read 37.');

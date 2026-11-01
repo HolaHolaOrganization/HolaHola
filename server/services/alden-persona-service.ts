@@ -396,13 +396,15 @@ async function generateAldenResponseGemini(params: AldenChatParams): Promise<Ald
     totalOutputTokens += geminiOutputTokens((response as any).usageMetadata);
 
     // ── Agentic tool-use loop ─────────────────────────────────────────────────
+    let completedWithinRounds = false;
     for (let round = 0; round < (params.maxRounds ?? MAX_AGENT_ROUNDS); round++) {
       reviewReadSession.acknowledgeDelivery();
       const functionCalls = response.functionCalls;
 
       // No more tool calls — extract the text response and exit
       if (!functionCalls || functionCalls.length === 0) {
-        aldenResponse = response.text ?? null;
+        completedWithinRounds = true;
+        aldenResponse = response.text ?? '';
         break;
       }
 
@@ -455,15 +457,16 @@ async function generateAldenResponseGemini(params: AldenChatParams): Promise<Ald
 
       // If continuation was requested, let Gemini write its phase-completion text and exit
       if (pendingContinuation) {
-        aldenResponse = response.text ?? null;
+        completedWithinRounds = true;
+        aldenResponse = response.text ?? '';
         break;
       }
     }
     // ─────────────────────────────────────────────────────────────────────────
 
     // Hit the round limit mid-task — request a wrap-up summary
-    const roundLimitReached = !aldenResponse;
-    if (!aldenResponse) {
+    const roundLimitReached = !completedWithinRounds;
+    if (roundLimitReached) {
       console.log(`[Alden Chat] Round limit hit — requesting wrap-up summary`);
       try {
         const wrapUp = await chat.sendMessage({
@@ -476,6 +479,7 @@ async function generateAldenResponseGemini(params: AldenChatParams): Promise<Ald
         aldenResponse = "I've been researching but ran into my context limit. Ask me again to continue.";
       }
     }
+    aldenResponse = aldenResponse ?? '';
 
     const callCostUsd = costTracker.track(model, totalInputTokens, totalOutputTokens, params.costContext ?? 'alden-chat');
     console.log(`[Alden Chat] Response generated (${aldenResponse.length} chars, ${toolsUsed.length} tools used, ~$${callCostUsd.toFixed(4)} | ${(totalInputTokens/1000).toFixed(0)}k in / ${(totalOutputTokens/1000).toFixed(0)}k out)`);
