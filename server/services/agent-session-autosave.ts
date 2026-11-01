@@ -42,8 +42,10 @@ import { tryAcquireInnerLifeLock, releaseInnerLifeLock, waitForInnerLifeLock } f
 import { join, basename, dirname } from 'path';
 import { getUserDb } from '../db';
 import {
+  CI_SENTINEL_PREFIXES,
   EPISODE_PROJECTION_FLOOR_MARGIN_MS,
   type CanonicalTurn,
+  isCiSentinelExchange,
   appendTurnsInOrder,
   captureIdFromTags,
   createEpisodeGapAlarmLatch,
@@ -2382,23 +2384,6 @@ export async function withEpisodeFileLock<T>(filename: string, fn: () => T | Pro
 }
 
 /**
- * CI harness markers are never legitimate episode dialogue. Prefixes are kept
- * unbracketed because some hooks emit ordinary prose (for example Team Room and
- * chat E2E sentinels) while others emit an HTML comment containing brackets.
- */
-export const CI_SENTINEL_PREFIXES = [
-  'CI-AUTO-CAPTURE-',
-  'CI-SELF-CHECK-AUTO-CAPTURE-',
-  'CI-CONCURRENT-',
-  'CI-TEST-SENTINEL-',
-  'CI-SELF-CHECK-SENTINEL-',
-  'CI-CONCURRENT-SENTINEL-',
-  'CI-SELFCHECK-SENTINEL-',
-  'CI-CHAT-E2E-SENTINEL-',
-  'CI-TEAMROOM-E2E-',
-] as const;
-
-/**
  * Append exchange text through the canonical DB-first episode path.
  *
  * Markdown is replaced only with the exact content returned from the updated
@@ -4697,9 +4682,9 @@ export function mustRejectCiSentinelForEpisode(
   return rollingFilename === episodeFilename && isCiSentinelExchange(exchange);
 }
 
-export function isCiSentinelExchange(exchange: string): boolean {
-  return CI_SENTINEL_PREFIXES.some(prefix => exchange.includes(prefix));
-}
+// CI_SENTINEL_PREFIXES and isCiSentinelExchange live in episode-gap-projection
+// (pure, no database on import) and are re-exported here for existing callers.
+export { CI_SENTINEL_PREFIXES, isCiSentinelExchange };
 
 export function setEpisodeAppendPathOverrideForTest(path: string | null): void {
   _episodeAppendPathOverrideForTest = path;
