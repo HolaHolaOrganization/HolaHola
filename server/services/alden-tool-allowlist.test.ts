@@ -70,6 +70,7 @@ describe('wiring in both engines', () => {
   });
 
   test('the turn result returns the same allowlist for a continuation phase', () => {
-    assert.equal(persona.match(/toolAllowlist: params\.toolAllowlist \};/g)?.length, 2);
+    // Both engines also report whether the turn stopped on the tool-round limit (wake follow-up).
+    assert.equal(persona.match(/toolAllowlist: params\.toolAllowlist,\s+roundLimitReached(: turn\.roundLimitReached)? \};/g)?.length, 2);
   });
 });

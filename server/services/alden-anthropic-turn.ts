@@ -60,7 +60,7 @@ export async function runAldenAnthropicTurn(deps: {
   maxTokens: number;
   wrapMaxTokens: number;
   onModelResponse?: (resp: Anthropic.Message) => void;
-}): Promise<{ response: string; toolsRun: ToolRun[]; continuation?: unknown; refused: boolean }> {
+}): Promise<{ response: string; toolsRun: ToolRun[]; continuation?: unknown; refused: boolean; roundLimitReached?: boolean }> {
   const { messages, call, runTool } = deps;
   const toolsRun: ToolRun[] = [];
   let continuation: unknown;
@@ -110,8 +110,8 @@ export async function runAldenAnthropicTurn(deps: {
     messages.push({ role: 'user', content: '[SYSTEM] You have reached the tool-use limit for this turn. Summarise what you have found and discovered so far, and clearly state what you still intend to do next turn.' });
     const wrap = read(await call({ messages, maxTokens: deps.wrapMaxTokens, withTools: false }));
     if (wrap.refusal) return { response: wrap.refusal, toolsRun, continuation: undefined, refused: true };
-    return { response: wrap.text ?? ROUND_LIMIT_FALLBACK, toolsRun, continuation, refused: false };
+    return { response: wrap.text ?? ROUND_LIMIT_FALLBACK, toolsRun, continuation, refused: false, roundLimitReached: true };
   } catch {
-    return { response: ROUND_LIMIT_FALLBACK, toolsRun, continuation, refused: false };
+    return { response: ROUND_LIMIT_FALLBACK, toolsRun, continuation, refused: false, roundLimitReached: true };
   }
 }

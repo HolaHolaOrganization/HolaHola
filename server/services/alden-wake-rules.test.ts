@@ -5,7 +5,7 @@
  */
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { buildWakeMessage, decideWakeOutcome, isRepeatingExchange, loopHash, normalizeForLoop, noticeOwed, wakeEngineConfig } from './alden-wake-rules';
+import { buildFollowUpNote, buildWakeMessage, decideWakeOutcome, isRepeatingExchange, loopHash, normalizeForLoop, noticeOwed, wakeEngineConfig } from './alden-wake-rules';
 
 type Pair = Parameters<typeof isRepeatingExchange>[0][number];
 let sequence = 1000;
@@ -93,4 +93,15 @@ test('the wake engine is Gemini by default, Sonnet by configuration, and anythin
   assert.deepEqual(wakeEngineConfig(' Gemini ', 'claude-sonnet-5-5'), { engine: 'gemini' });
   assert.deepEqual(wakeEngineConfig('sonnet', 'claude-sonnet-5-5'), { engine: 'anthropic', model: 'claude-sonnet-5-5' });
   assert.throws(() => wakeEngineConfig('opus', 'claude-sonnet-5-5'), /must be "gemini" or "sonnet"/);
+});
+
+test('a turn stopped on the tool-round limit gets one follow-up, then fails visibly', () => {
+  assert.deepEqual(decideWakeOutcome({ itemKind: 'addressed', claimEpoch: 1 }, { roundLimitReached: true }), { outcome: 'follow_up' });
+  assert.deepEqual(decideWakeOutcome({ itemKind: 'observe', claimEpoch: 1 }, { roundLimitReached: true }), { outcome: 'follow_up' });
+  assert.deepEqual(decideWakeOutcome({ itemKind: 'addressed', claimEpoch: 2 }, { roundLimitReached: true }), { outcome: 'failed', errorClass: 'round_limit' });
+  assert.equal(decideWakeOutcome({ itemKind: 'addressed', claimEpoch: 1, published: { status: 'replied' } }, { roundLimitReached: true }), null, 'a reply wins');
+  assert.deepEqual(decideWakeOutcome({ itemKind: 'addressed', claimEpoch: 1 }, { error: 'boom', roundLimitReached: true }), { outcome: 'failed', errorClass: 'turn_error' });
+  const note = buildFollowUpNote('I read seq 30 and 31; next I read 37.');
+  assert.match(note, /follow-up turn/);
+  assert.ok(note.includes('I read seq 30 and 31; next I read 37.'));
 });

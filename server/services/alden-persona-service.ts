@@ -160,6 +160,8 @@ interface AldenChatResponse {
   toolAllowlist?: AldenToolAllowlist;
   /** Set when the turn failed and the response is only the fallback text. */
   error?: string;
+  /** Set when the turn stopped on the tool-round limit; the response is its wrap-up summary. */
+  roundLimitReached?: boolean;
 }
 
 const MAX_AGENT_ROUNDS = 10;
@@ -288,7 +290,8 @@ async function generateAldenResponseAnthropic(params: AldenChatParams): Promise<
     aldenActivity.push({ type: 'response_complete', timestamp: new Date().toISOString() });
 
     return { response: aldenResponse, toolsUsed, coordinationReadReceipts, continuation: pendingContinuation,
-      reviewSourceReferences: reviewReadSession.sourceReferences, reviewSourceEngine: "anthropic", toolAllowlist: params.toolAllowlist };
+      reviewSourceReferences: reviewReadSession.sourceReferences, reviewSourceEngine: "anthropic", toolAllowlist: params.toolAllowlist,
+      roundLimitReached: turn.roundLimitReached };
   } catch (error: any) {
     console.error('[Alden Chat/Claude] Error:', error.message);
     return {
@@ -457,6 +460,7 @@ async function generateAldenResponseGemini(params: AldenChatParams): Promise<Ald
     // ─────────────────────────────────────────────────────────────────────────
 
     // Hit the round limit mid-task — request a wrap-up summary
+    const roundLimitReached = !aldenResponse;
     if (!aldenResponse) {
       console.log(`[Alden Chat] Round limit hit — requesting wrap-up summary`);
       try {
@@ -482,7 +486,8 @@ async function generateAldenResponseGemini(params: AldenChatParams): Promise<Ald
 
     reviewReadSession.acknowledgeDelivery();
     return { response: aldenResponse, toolsUsed, coordinationReadReceipts, continuation: pendingContinuation,
-      reviewSourceReferences: reviewReadSession.sourceReferences, reviewSourceEngine: "gemini", toolAllowlist: params.toolAllowlist };
+      reviewSourceReferences: reviewReadSession.sourceReferences, reviewSourceEngine: "gemini", toolAllowlist: params.toolAllowlist,
+      roundLimitReached };
   } catch (error: any) {
     console.error('[Alden Chat] Error:', error.message);
     return {

@@ -61,15 +61,32 @@ export function buildWakeMessage(event: { eventId: string; threadId: string; tit
 }
 
 /**
+ * Added to the wake message on a follow-up turn, so Alden continues from his
+ * own wrap-up instead of starting over. DRAFT wording by LCC, sent to Alden
+ * to reword (he words his own prompts).
+ */
+export function buildFollowUpNote(previousNotes: string): string {
+  return `\n\nThis is your follow-up turn on this item. Your previous unattended turn reached its tool limit before you replied, and you wrote this summary at the end of it:\n\n${previousNotes}\n\nThis is the last turn for this item: reply, notify David, or choose not to reply.`;
+}
+
+/** A wake turn that stops on the tool-round limit gets exactly one follow-up turn. */
+export const WAKE_FOLLOW_UP_TURNS = 1;
+
+/**
  * The outcome of a wake turn that did not publish through the reply tool.
- * A publication records its own outcome, so it returns null.
+ * A publication records its own outcome, so it returns null. A turn that ran
+ * out of tool rounds before replying is not a decline: the first time it is
+ * released for one follow-up turn ('follow_up'); after that it fails visibly.
  */
 export function decideWakeOutcome(
-  turn: { itemKind: WakeItemKind; published?: unknown; notified?: boolean },
-  response: { error?: string } | null,
-): { outcome: 'declined' | 'needs_david' | 'failed' | 'observed'; errorClass?: string } | null {
+  turn: { itemKind: WakeItemKind; published?: unknown; notified?: boolean; claimEpoch?: number },
+  response: { error?: string; roundLimitReached?: boolean } | null,
+): { outcome: 'declined' | 'needs_david' | 'failed' | 'observed' | 'follow_up'; errorClass?: string } | null {
   if (turn.published) return null;
   if (!response || response.error) return { outcome: 'failed', errorClass: 'turn_error' };
+  if (response.roundLimitReached) {
+    return (turn.claimEpoch ?? 1) <= WAKE_FOLLOW_UP_TURNS ? { outcome: 'follow_up' } : { outcome: 'failed', errorClass: 'round_limit' };
+  }
   if (turn.itemKind === 'observe') return { outcome: 'observed' };
   return { outcome: turn.notified ? 'needs_david' : 'declined' };
 }
