@@ -250,6 +250,26 @@ test("listReviewerQueue adds fully-open reviews alden is eligible to claim, corr
   assert.equal((await core.listReviewerQueue("nobody-registered")).length, 0);
 });
 
+test("listReviewerQueue omits a pending review whose revision was superseded by a newer revision", async () => {
+  const { core, created: doc } = await setup();
+  const stale = await core.markRevisionReady(author, {
+    documentId: doc.document.id, revisionId: doc.revision.id,
+    requestedReviewerActorId: reviewer.actorId, idempotencyKey: "ready-superseded-v1",
+  });
+  assert.deepEqual((await core.listReviewerQueue(reviewer.actorId)).map(e => e.review.id), [stale.id]);
+
+  const v2 = await core.appendRevision(author, {
+    documentId: doc.document.id, baseRevisionId: doc.revision.id, markdown: "# v2\n", idempotencyKey: "revise-superseded-v2",
+  });
+  assert.equal((await core.listReviewerQueue(reviewer.actorId)).length, 0, "the v1 request can no longer be decided, so it is not queue work");
+
+  const fresh = await core.markRevisionReady(author, {
+    documentId: doc.document.id, revisionId: v2.id,
+    requestedReviewerActorId: reviewer.actorId, idempotencyKey: "ready-superseded-v2",
+  });
+  assert.deepEqual((await core.listReviewerQueue(reviewer.actorId)).map(e => e.review.id), [fresh.id]);
+});
+
 test("creation only accepts canonical repository and safe spec namespace", async () => {
   const core = new SharedSpecCore(new InMemorySharedSpecRepository());
   const input = { title: "x", kind: "design" as const, repository: "owner/repo", gitPath: "docs/superpowers/specs/safe.md", markdown: "# x", idempotencyKey: "x" };
