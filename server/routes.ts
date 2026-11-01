@@ -37828,7 +37828,11 @@ Under 250 words. Write as yourself.`;
           loadChatCaptureCursor,
         },
         { inspectCaptureWorkspace },
-        { evaluateCanonicalCaptureHealth, getCanonicalCaptureWorkerReadiness },
+        {
+          evaluateCanonicalCaptureHealth,
+          getCanonicalCaptureWorkerReadiness,
+          evaluateCanonicalEpisodeProjectionHealth,
+        },
         fs,
       ] = await Promise.all([
         import('./services/transcript-parser'),
@@ -37848,6 +37852,40 @@ Under 250 words. Write as yourself.`;
       const health = evaluateCanonicalCaptureHealth(workspaceReady, worker);
       const { historicalAttributionCaptureHealth } = await import('./services/historical-attribution-status');
       const recoveryHealth = historicalAttributionCaptureHealth(health);
+      // Keep source availability backward-compatible. Episode completeness is
+      // a separate claim: DB-only acknowledgement and an empty mirror queue
+      // are not evidence that a source exchange reached its episode.
+      // Do not import the autosave module merely to inspect a stopped worker.
+      let projection:
+        | ReturnType<typeof evaluateCanonicalEpisodeProjectionHealth>
+        | { state: 'not-inspected'; reasons: string[]; episodeCompletionProven: false } = {
+          state: 'not-inspected',
+          reasons: ['worker-not-armed'],
+          episodeCompletionProven: false,
+        };
+      if (worker.armed) {
+        const [
+          { getCanonicalEpisodeProjectionGates, getCanonicalEpisodeProjectionTarget },
+          { listEpisodeMirrorOutbox, EPISODE_MIRROR_OUTBOX_PATH },
+        ] =
+          await Promise.all([
+            import('./services/agent-session-autosave'),
+            import('./services/episode-mirror-outbox'),
+          ]);
+        let pendingMirrors: number | null = null;
+        let outboxDirectoryPresent: boolean | null = null;
+        try {
+          outboxDirectoryPresent = fs.existsSync(EPISODE_MIRROR_OUTBOX_PATH);
+          pendingMirrors = listEpisodeMirrorOutbox().length;
+        } catch {
+          // Do not expose filenames, dialogue or raw filesystem exceptions.
+        }
+        projection = evaluateCanonicalEpisodeProjectionHealth(
+          getCanonicalEpisodeProjectionGates(),
+          pendingMirrors,
+          { outboxDirectoryPresent, target: await getCanonicalEpisodeProjectionTarget() },
+        );
+      }
 
       return res.status(recoveryHealth.status).json({
         ok: recoveryHealth.ok,
@@ -37862,6 +37900,7 @@ Under 250 words. Write as yourself.`;
           cursorByteOffset: cursor.byteOffset,
           acknowledgementCursorByteOffset: acknowledgementCursor.byteOffset,
           pendingBytes,
+          projection,
         },
       });
     } catch (error: any) {

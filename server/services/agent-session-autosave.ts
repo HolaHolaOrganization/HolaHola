@@ -4234,6 +4234,32 @@ export async function seedInnerLifeTriggerState(
 export function setAutoCaptureEpisodeEnabled(val: boolean): void { _autoCaptureEpisodeEnabled = val; }
 let _autoCaptureEpisodeEnabled = true;
 export function getAutoCaptureEpisodeEnabled(): boolean { return _autoCaptureEpisodeEnabled; }
+/** Read-only snapshot of the exact gates used by canonical episode routing. */
+export function getCanonicalEpisodeProjectionGates() {
+  return {
+    liveModeRequested: existsSync(EPISODE_LIVE_PATH),
+    episodeWritesEnabled: _autoCaptureEpisodeEnabled,
+    routingValidated: !_rollingTagIsStale,
+  };
+}
+/** Uses the same read-only resolver as canonical capture; never appends. */
+export async function getCanonicalEpisodeProjectionTarget():
+  Promise<import('./canonical-capture-worker-readiness').CanonicalEpisodeProjectionTarget> {
+  const pinnedTargetSet = _pinnedRollingEpisodeFilename !== null;
+  const misrouteAlertActive = _rollingTagMisrouteAlert !== null;
+  if (_rollingTagIsStale) {
+    return { resolution: 'blocked', filename: null, pinnedTargetSet, misrouteAlertActive };
+  }
+  // Canonical chat capture does not use the inner-life pinned-target override.
+  // Null includes lookup failure; never interpret it as successful routing.
+  const filename = await getCurrentRollingEpisodeFilename();
+  return {
+    resolution: filename ? 'resolved' : 'unresolved',
+    filename,
+    pinnedTargetSet,
+    misrouteAlertActive,
+  };
+}
 export function setAutoCaptureDbEnabled(val: boolean): void { _autoCaptureDbEnabled = val; }
 export function setPinnedRollingEpisodeFilename(f: string | null): void { _pinnedRollingEpisodeFilename = f; }
 let _pinnedRollingEpisodeFilename: string | null = null;
