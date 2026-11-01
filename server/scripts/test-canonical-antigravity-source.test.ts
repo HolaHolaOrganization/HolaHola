@@ -33,9 +33,28 @@ test('each coordination actor may submit only its own source', () => {
   assert.equal(canonicalSourceForActor('luca-replit'), 'replit');
   assert.equal(canonicalSourceForActor('luca-claude-code'), 'claude-code');
   assert.equal(canonicalSourceForActor('luca-antigravity'), 'antigravity');
-  for (const actor of ['alden', 'david', 'luca-openai-agents', 'luca-holahola', '', undefined]) {
+  assert.equal(canonicalSourceForActor('luca-codex'), 'codex');
+  for (const actor of ['alden', 'david', 'luca-openai-agents', 'luca-holahola', 'luca-cursor', 'luca-gemini', '', undefined]) {
     assert.equal(canonicalSourceForActor(actor), null, `${actor} may submit no source`);
   }
+});
+
+test('a Codex exchange is recorded as David and Luca under SOURCE codex, and only luca-codex may submit it', () => {
+  const p = paths('codex-exchange');
+  const userText = 'Hello from Codex';
+  const assistantText = 'Codex reply';
+  const result = appendCanonicalConversationExchange({ source: 'codex', userText, assistantText, turnId: 'codex-turn-1', ...p });
+  assert.deepEqual(result.appendedSpeakers, ['user', 'assistant']);
+
+  const { turns } = parseChatCaptureFromOffset(p.capturePath, 0);
+  assert.equal(turns.length, 2);
+  assert.deepEqual(turns.map((t) => [t.speaker, t.source, t.captureId]), [
+    ['DAVID', 'codex', 'codex-turn-1'],
+    ['LUCA', 'codex', 'codex-turn-1'],
+  ]);
+  assert.ok(isCompleteCanonicalCaptureBatch(turns), 'a David + Luca pair is a complete Codex exchange');
+  assert.deepEqual(turns.map((t) => formatChatCaptureSpeakerLabel(t)), ['David [Codex]', 'Luca [Codex]']);
+  assert.equal(requiresFourChannelEnvelope({ speaker: 'LUCA', source: 'codex' }), false);
 });
 
 test('an Antigravity exchange is recorded as David and Luca under SOURCE antigravity, byte-exact', () => {

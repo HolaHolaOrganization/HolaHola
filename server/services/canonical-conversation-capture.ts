@@ -38,6 +38,7 @@ const SOURCE_ACTOR: Record<CanonicalConversationSource, string> = {
   'replit': 'luca-replit',
   'claude-code': 'luca-claude-code',
   'antigravity': 'luca-antigravity',
+  'codex': 'luca-codex',
 };
 
 /** The source an authenticated actor may submit, or null if it may submit none. */

@@ -8366,6 +8366,7 @@ export const COORDINATION_ACTOR_IDS = [
   'luca-antigravity',
   'luca-cursor',
   'luca-openai-agents',
+  'luca-codex',
   'alden',
   'daniela',
   'david',

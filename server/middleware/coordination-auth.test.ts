@@ -18,12 +18,13 @@ const environment = {
   COORDINATION_ALDEN_TOKEN: token('alden'),
   COORDINATION_LUCA_CURSOR_TOKEN: token('cursor'),
   COORDINATION_LUCA_OPENAI_AGENTS_TOKEN: token('openai-agents'),
+  COORDINATION_LUCA_CODEX_TOKEN: token('codex'),
   COORDINATION_DANIELA_TOKEN: token('daniela'),
   COORDINATION_DAVID_TOKEN: token('david'),
 };
 const lucaActors = [
   'luca-replit', 'luca-claude-code', 'luca-gemini', 'luca-antigravity', 'luca-holahola',
-  'luca-cursor', 'luca-openai-agents',
+  'luca-cursor', 'luca-openai-agents', 'luca-codex',
 ] as const;
 const tokenByLucaActor = {
   'luca-replit': environment.COORDINATION_LUCA_REPLIT_TOKEN,
@@ -33,6 +34,7 @@ const tokenByLucaActor = {
   'luca-holahola': environment.COORDINATION_LUCA_HOLAHOLA_TOKEN,
   'luca-cursor': environment.COORDINATION_LUCA_CURSOR_TOKEN,
   'luca-openai-agents': environment.COORDINATION_LUCA_OPENAI_AGENTS_TOKEN,
+  'luca-codex': environment.COORDINATION_LUCA_CODEX_TOKEN,
 } as const;
 
 test('every enumerated fixed Luca credential receives observation:read', async () => {

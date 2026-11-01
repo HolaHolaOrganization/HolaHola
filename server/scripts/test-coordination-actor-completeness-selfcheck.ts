@@ -122,7 +122,7 @@ function main() {
   ];
   for (const operationId of ordinaryLucaExecutorOperations) {
     const scope = extractActorScope(extractOperationBlock(catalogSource, operationId), operationId);
-    for (const actor of ['luca-cursor', 'luca-openai-agents']) {
+    for (const actor of ['luca-cursor', 'luca-openai-agents', 'luca-codex']) {
       assert.ok(
         scope.includes(actor),
         `Operation ${operationId} is missing ${actor} from its scoped Luca executor access`,
@@ -134,7 +134,9 @@ function main() {
     'capture.health',
   );
   assert.equal(
-    captureHealthScope.includes('luca-cursor') || captureHealthScope.includes('luca-openai-agents'),
+    captureHealthScope.includes('luca-cursor')
+      || captureHealthScope.includes('luca-openai-agents')
+      || captureHealthScope.includes('luca-codex'),
     false,
     'Canonical capture health is intentionally narrower than generic Luca executor operations.',
   );

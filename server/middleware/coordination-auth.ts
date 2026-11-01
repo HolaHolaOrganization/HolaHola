@@ -32,6 +32,7 @@ export const COORDINATION_TOKEN_ENV_BY_ACTOR: Record<
   'luca-holahola': 'COORDINATION_LUCA_HOLAHOLA_TOKEN',
   'luca-cursor': 'COORDINATION_LUCA_CURSOR_TOKEN',
   'luca-openai-agents': 'COORDINATION_LUCA_OPENAI_AGENTS_TOKEN',
+  'luca-codex': 'COORDINATION_LUCA_CODEX_TOKEN',
   alden: 'COORDINATION_ALDEN_TOKEN',
   daniela: 'COORDINATION_DANIELA_TOKEN',
   david: 'COORDINATION_DAVID_TOKEN',
@@ -58,6 +59,7 @@ export const COORDINATION_LEGACY_CAPABILITIES_BY_ACTOR: Readonly<
   'luca-holahola': ['coordination:read', 'coordination:write', 'coordination:inbox:ack', 'coordination:credential:renew', 'coordination:credential:revoke', 'observation:read'],
   'luca-cursor': ['coordination:read', 'coordination:write', 'coordination:inbox:ack', 'coordination:credential:renew', 'coordination:credential:revoke', 'observation:read'],
   'luca-openai-agents': ['coordination:read', 'coordination:write', 'coordination:inbox:ack', 'coordination:credential:renew', 'coordination:credential:revoke', 'observation:read'],
+  'luca-codex': ['coordination:read', 'coordination:write', 'coordination:inbox:ack', 'coordination:credential:renew', 'coordination:credential:revoke', 'observation:read'],
   // alden and david hold coordination:runtime:admin: standing founder-granted
   // authority to onboard/revoke OTHER actors' runtimes (e.g. bringing on a
   // new Luca-hat LLM), distinct from coordination:credential:revoke above

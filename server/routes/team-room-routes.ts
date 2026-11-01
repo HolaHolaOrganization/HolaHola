@@ -20,6 +20,7 @@ const LUCA_HAT_TEAM_ROOM_LABELS: Partial<Record<CoordinationActorId, string>> = 
   'luca-holahola': 'Luca [HolaHola]',
   'luca-cursor': 'Luca [Cursor]',
   'luca-openai-agents': 'Luca [OpenAI Agents]',
+  'luca-codex': 'Luca [Codex]',
 };
 
 export function lucaHatTeamRoomSpeaker(actor: CoordinationActorId): string {

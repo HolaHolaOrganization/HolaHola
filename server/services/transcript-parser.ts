@@ -135,8 +135,8 @@ export interface ExchangeDecisionRecord {
  * Interfaces whose dialogue enters the canonical record. A David/Luca turn's
  * source only picks its "[Interface]" suffix; it never changes the author.
  */
-export type ChatCaptureSource = 'replit' | 'claude-code' | 'antigravity';
-export const CHAT_CAPTURE_SOURCES: readonly ChatCaptureSource[] = ['replit', 'claude-code', 'antigravity'];
+export type ChatCaptureSource = 'replit' | 'claude-code' | 'antigravity' | 'codex';
+export const CHAT_CAPTURE_SOURCES: readonly ChatCaptureSource[] = ['replit', 'claude-code', 'antigravity', 'codex'];
 
 export interface TranscriptCursor {
   sessionId: string;
@@ -465,6 +465,9 @@ export function formatChatCaptureSpeakerLabel(
   }
   if (turn.source === 'antigravity') {
     return turn.speaker === 'DAVID' ? 'David [Antigravity]' : 'Luca [Antigravity]';
+  }
+  if (turn.source === 'codex') {
+    return turn.speaker === 'DAVID' ? 'David [Codex]' : 'Luca [Codex]';
   }
   return turn.speaker === 'DAVID' ? 'David' : 'Luca';
 }
@@ -933,7 +936,7 @@ export function parseChatCaptureFromOffset(
     lastCompleteCharPos = pos;
 
     const speakerMatch = /^SPEAKER:\s*(David|Luca Replit|Luca|Claude Code)\s*$/im.exec(headers);
-    const sourceMatch = /^SOURCE:\s*(replit|claude-code|antigravity)\s*$/im.exec(headers);
+    const sourceMatch = /^SOURCE:\s*(replit|claude-code|antigravity|codex)\s*$/im.exec(headers);
     const captureIdMatch = /^CAPTURE-ID:\s*([A-Za-z0-9-]+)\s*$/im.exec(headers);
     const partMatch = /^EXCHANGE-PART:\s*(user|assistant)\s*$/im.exec(headers);
     const occurredMatch = /^OCCURRED-AT:\s*(\S+)\s*$/im.exec(headers);
