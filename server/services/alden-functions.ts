@@ -61,6 +61,7 @@ import { coordinationMcpToolNames } from "./mcp-coordination-tools";
 import { applyHandoffSection, shareAldenHandoffNote } from "./alden-handoff-shared-spec";
 import { listAldenSharedSpecReviews, readAldenSharedSpecReview, claimAldenSharedSpecReview, decideAldenSharedSpecReview } from "./alden-shared-spec-review";
 import { buildAldenReviewSourcePage, type AldenReviewReadSession } from "./alden-review-source";
+import { aldenCoordinationDelivery } from "./alden-coordination-delivery";
 
 // Was hardcoded to '/home/runner/workspace' -- a Replit-only container path.
 // Once production ran on Render (post-DNS-swap), every file/shell tool here
@@ -3049,7 +3050,7 @@ export async function executeAldenTool(
               state: result.thread.state,
               sequence: result.thread.latestSequence,
               recipient: result.thread.intendedRecipient,
-              deliveryState: result.deliveryState,
+              delivery: aldenCoordinationDelivery(String(result.thread.intendedRecipient), result.deliveryState),
             },
           };
         } catch (e: any) {
@@ -3114,7 +3115,7 @@ export async function executeAldenTool(
               threadId: result.thread.id,
               state: result.thread.state,
               sequence: result.thread.latestSequence,
-              deliveryState: result.deliveryState,
+              delivery: aldenCoordinationDelivery(recipient, result.deliveryState),
             },
           };
         } catch (e: any) {
@@ -3160,7 +3161,7 @@ export async function executeAldenTool(
               threadId: result.thread.id,
               state: result.thread.state,
               sequence: result.thread.latestSequence,
-              deliveryState: result.deliveryState,
+              delivery: aldenCoordinationDelivery(recipient, result.deliveryState),
             },
           };
         } catch (e: any) {
@@ -3210,7 +3211,7 @@ export async function executeAldenTool(
                 runtimeId: registration.runtimeId,
                 capabilities: registration.capabilities,
               })),
-              deliveryState: result.deliveryState,
+              delivery: aldenCoordinationDelivery(recipient, result.deliveryState),
               postedContent: result.event.content,
               // True when this exact briefing was already posted: a retry returns that thread.
               alreadyPosted: result.deduplicated,
