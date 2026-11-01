@@ -13,7 +13,7 @@ export function registerLucaObserverRoute({
     'observation:read',
     [
       'luca-replit', 'luca-claude-code', 'luca-gemini', 'luca-antigravity', 'luca-holahola',
-      'luca-cursor', 'luca-openai-agents',
+      'luca-cursor', 'luca-openai-agents', 'luca-codex',
     ],
   ), async (req: any, res: Response) => {
     try {

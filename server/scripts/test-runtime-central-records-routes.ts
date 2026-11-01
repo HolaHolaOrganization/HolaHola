@@ -214,9 +214,9 @@ test("audit persistence projection excludes extra secret/content properties", ()
   assert.equal(value.eventType, "central_records_read");
 });
 test("same explicit allowlist validates audiences; no wildcard or implicit actors", () => {
-  assert.equal(validCentralReaderAudience(["alden", "luca-replit"]), true);
+  assert.equal(validCentralReaderAudience(["alden", "luca-replit", "luca-codex"]), true);
   for (const values of [[], ["alden", "alden"], ["david"], ["daniela"],
-    ["coordination-system"], ["student"], ["luca-codex"], ["luca-*"]]) {
+    ["coordination-system"], ["student"], ["luca-unknown"], ["luca-*"]]) {
     assert.equal(validCentralReaderAudience(values), false);
   }
 });

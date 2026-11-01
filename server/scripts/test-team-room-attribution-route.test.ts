@@ -27,6 +27,7 @@ const TOKENS = {
   'luca-claude-code': 'team-room-attribution-claude-token-'.repeat(2),
   'luca-cursor': 'team-room-attribution-cursor-token-'.repeat(2),
   'luca-openai-agents': 'team-room-attribution-openai-token-'.repeat(2),
+  'luca-codex': 'team-room-attribution-codex-token-'.repeat(2),
   alden: 'team-room-attribution-alden-token-'.repeat(2),
   daniela: 'team-room-attribution-daniela-token-'.repeat(2),
   david: 'team-room-attribution-david-token-'.repeat(2),
@@ -38,6 +39,7 @@ const TOKEN_ENVIRONMENT: Record<string, string> = {
   COORDINATION_LUCA_CLAUDE_CODE_TOKEN: TOKENS['luca-claude-code'],
   COORDINATION_LUCA_CURSOR_TOKEN: TOKENS['luca-cursor'],
   COORDINATION_LUCA_OPENAI_AGENTS_TOKEN: TOKENS['luca-openai-agents'],
+  COORDINATION_LUCA_CODEX_TOKEN: TOKENS['luca-codex'],
   COORDINATION_ALDEN_TOKEN: TOKENS.alden,
   COORDINATION_DANIELA_TOKEN: TOKENS.daniela,
   COORDINATION_DAVID_TOKEN: TOKENS.david,
@@ -158,6 +160,7 @@ test('lucaHatTeamRoomSpeaker derives a distinct label per hat, with a safe fallb
   assert.equal(lucaHatTeamRoomSpeaker('luca-claude-code'), 'Luca [Claude Code]');
   assert.equal(lucaHatTeamRoomSpeaker('luca-cursor'), 'Luca [Cursor]');
   assert.equal(lucaHatTeamRoomSpeaker('luca-openai-agents'), 'Luca [OpenAI Agents]');
+  assert.equal(lucaHatTeamRoomSpeaker('luca-codex'), 'Luca [Codex]');
   assert.notEqual(lucaHatTeamRoomSpeaker('luca-replit'), lucaHatTeamRoomSpeaker('luca-claude-code'));
   // A future hat not yet in the map still gets a "Luca [...]" label, never the bare "Luca" string.
   assert.equal(lucaHatTeamRoomSpeaker('luca-future-hat' as CoordinationActorId), 'Luca [future-hat]');
@@ -195,12 +198,16 @@ test('posting as two different Luca hats stores and returns each hat-specific sp
 test('new runtime hats post to Team Room with authenticated, attributed identities', async () => {
   const cursorPost = await post('luca-cursor', { content: 'Cursor runtime checking in.' });
   const openAiAgentsPost = await post('luca-openai-agents', { content: 'OpenAI Agents runtime checking in.' });
+  const codexPost = await post('luca-codex', { content: 'Codex runtime checking in.' });
 
   assert.equal(cursorPost.status, 200);
   assert.equal(cursorPost.body.speaker, 'Luca [Cursor]');
   assert.equal(openAiAgentsPost.status, 200);
   assert.equal(openAiAgentsPost.body.speaker, 'Luca [OpenAI Agents]');
+  assert.equal(codexPost.status, 200);
+  assert.equal(codexPost.body.speaker, 'Luca [Codex]');
   assert.notEqual(cursorPost.body.speaker, openAiAgentsPost.body.speaker);
+  assert.notEqual(openAiAgentsPost.body.speaker, codexPost.body.speaker);
 });
 
 test('a client-supplied speaker field is ignored -- the stored and returned speaker always reflects the authenticated actor', async () => {

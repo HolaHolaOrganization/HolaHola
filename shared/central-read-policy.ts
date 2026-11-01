@@ -11,7 +11,7 @@ export function isCentralReadScope(value: string): boolean {
 /** Shared by authentication and the future document audience validator. */
 export const CENTRAL_READER_ACTORS: readonly CoordinationActorId[] = Object.freeze([
   "luca-replit", "luca-claude-code", "luca-gemini", "luca-antigravity",
-  "luca-holahola", "luca-cursor", "luca-openai-agents", "alden",
+  "luca-holahola", "luca-cursor", "luca-openai-agents", "luca-codex", "alden",
 ]);
 
 export function validCentralReaderAudience(values: readonly string[]): boolean {

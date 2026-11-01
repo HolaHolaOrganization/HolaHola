@@ -37883,7 +37883,7 @@ Under 250 words. Write as yourself.`;
       const { canonicalSourceForActor } = await import('./services/canonical-conversation-capture');
       const actorSource = canonicalSourceForActor(req.coordinationActor);
       if (!actorSource) {
-        return res.status(403).json({ error: 'This endpoint requires the luca-replit, luca-claude-code or luca-antigravity coordination actor' });
+        return res.status(403).json({ error: 'This endpoint requires the luca-replit, luca-claude-code, luca-antigravity or luca-codex coordination actor' });
       }
       const { source, userText, assistantText, turnId, part, text, occurredAt } = req.body ?? {};
       // Each actor records only its own interface's dialogue.

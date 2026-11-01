@@ -5,7 +5,7 @@ import { workspaceResolution } from './workspace-root';
 
 type CapturedTurn = {
   speaker: 'DAVID' | 'LUCA' | 'CLAUDE_CODE';
-  source?: 'replit' | 'claude-code' | 'antigravity';
+  source?: 'replit' | 'claude-code' | 'antigravity' | 'codex';
   captureId?: string;
   text?: string;
 };

@@ -22,7 +22,7 @@ async function main() {
     'luca-replit': 'COORDINATION_LUCA_REPLIT_TOKEN', 'luca-claude-code': 'COORDINATION_LUCA_CLAUDE_CODE_TOKEN',
     'luca-gemini': 'COORDINATION_LUCA_GEMINI_TOKEN', 'luca-antigravity': 'COORDINATION_LUCA_ANTIGRAVITY_TOKEN',
     'luca-holahola': 'COORDINATION_LUCA_HOLAHOLA_TOKEN', 'luca-cursor': 'COORDINATION_LUCA_CURSOR_TOKEN',
-    'luca-openai-agents': 'COORDINATION_LUCA_OPENAI_AGENTS_TOKEN',
+    'luca-openai-agents': 'COORDINATION_LUCA_OPENAI_AGENTS_TOKEN', 'luca-codex': 'COORDINATION_LUCA_CODEX_TOKEN',
   };
   const token = process.env[tokenKey[actor]];
   if (!token) throw new TaskRegistryError('ACTOR_CREDENTIAL_REQUIRED');

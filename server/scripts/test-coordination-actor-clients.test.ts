@@ -40,6 +40,7 @@ const TOKENS = {
   'luca-holahola': 'h'.repeat(40),
   'luca-cursor': 'u'.repeat(40),
   'luca-openai-agents': 'o'.repeat(40),
+  'luca-codex': 'x'.repeat(40),
   alden: 'a'.repeat(40),
   daniela: 'd'.repeat(40),
   david: 'f'.repeat(40),
@@ -53,6 +54,7 @@ const ENVIRONMENT = {
   COORDINATION_LUCA_HOLAHOLA_TOKEN: TOKENS['luca-holahola'],
   COORDINATION_LUCA_CURSOR_TOKEN: TOKENS['luca-cursor'],
   COORDINATION_LUCA_OPENAI_AGENTS_TOKEN: TOKENS['luca-openai-agents'],
+  COORDINATION_LUCA_CODEX_TOKEN: TOKENS['luca-codex'],
   COORDINATION_ALDEN_TOKEN: TOKENS.alden,
   COORDINATION_DANIELA_TOKEN: TOKENS.daniela,
   COORDINATION_DAVID_TOKEN: TOKENS.david,
@@ -243,6 +245,7 @@ test('actor clients send only the selected actor dedicated credential', async ()
     TOKENS['luca-holahola'],
     TOKENS['luca-cursor'],
     TOKENS['luca-openai-agents'],
+    TOKENS['luca-codex'],
     TOKENS.alden,
     TOKENS.daniela,
     TOKENS.david,
@@ -721,7 +724,7 @@ test('direct clients and server enforce the same least-privilege lifecycle profi
   assert.equal(canCoordinationActorPerform('daniela', 'reassigned'), false);
 });
 
-test('Cursor and OpenAI Agents use independent credentials and the generic Luca lifecycle client', async () => {
+test('Cursor, OpenAI Agents, and Codex use independent credentials and the generic Luca lifecycle client', async () => {
   const seen: Array<{ token: string | null; url: string }> = [];
   const fetchImpl = async (input: string | URL, init?: RequestInit): Promise<Response> => {
     seen.push({
@@ -731,7 +734,7 @@ test('Cursor and OpenAI Agents use independent credentials and the generic Luca 
     return new Response(JSON.stringify({ ok: true }), { status: 200 });
   };
 
-  for (const actor of ['luca-cursor', 'luca-openai-agents'] as const) {
+  for (const actor of ['luca-cursor', 'luca-openai-agents', 'luca-codex'] as const) {
     const client = createCoordinationActorClient(actor, {
       apiUrl: 'https://coordination.example',
       environment: ENVIRONMENT,
@@ -744,11 +747,14 @@ test('Cursor and OpenAI Agents use independent credentials and the generic Luca 
   assert.deepEqual(seen.map((request) => request.token), [
     TOKENS['luca-cursor'], TOKENS['luca-cursor'],
     TOKENS['luca-openai-agents'], TOKENS['luca-openai-agents'],
+    TOKENS['luca-codex'], TOKENS['luca-codex'],
   ]);
   assert.equal(seen[0].url, 'https://coordination.example/api/coordination/threads');
   assert.equal(seen[1].url, 'https://coordination.example/api/coordination/threads/thread-1/events');
   assert.equal(seen[2].url, 'https://coordination.example/api/coordination/threads');
   assert.equal(seen[3].url, 'https://coordination.example/api/coordination/threads/thread-1/events');
+  assert.equal(seen[4].url, 'https://coordination.example/api/coordination/threads');
+  assert.equal(seen[5].url, 'https://coordination.example/api/coordination/threads/thread-1/events');
 });
 
 test('coordination CLI exposes every non-system actor as both a caller and recipient', () => {
