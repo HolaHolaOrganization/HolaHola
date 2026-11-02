@@ -40,6 +40,30 @@ runtime evidence. Another hat must verify its own supported mechanism before
 claiming automatic awareness. Durable offline replay is supported; waking an
 ended session is not established.
 
+## Turn-end listener guard (every hat)
+
+Re-arming by memory fails. Each runtime therefore runs a guard in its **own**
+lifecycle Stop hook. The guard reads local listener state only (no network) and
+fails open on any error. A runtime with no listener state directory is left
+alone.
+
+- **When it acts:** an event is pending in the local receipts, or the listener
+  is down (no `watch.lock`, or a heartbeat older than the listener's 90-second
+  staleness bound).
+- **What it does:** it blocks the turn from ending **once**, with a reason that
+  says what to do (read and mark the pending receipts, or re-arm). On the
+  follow-up stop it only warns, so it can never trap a session.
+- **It never spawns the listener itself.** The runtime's own background-task
+  owner must start the listener, so that the listener's exit wakes the agent.
+
+Where each hat's guard lives:
+
+| Hat | Hook | Notes |
+|---|---|---|
+| Claude Code | `.claude/settings.json` Stop → `node .claude/hooks/listener-guard.mjs` | `decision: "block"`, then `systemMessage` when `stop_hook_active` |
+| Antigravity | `.agents/hooks.json` or `~/.gemini/config/hooks.json` Stop | `decision: "continue"` with the re-arm reason when `terminationReason` is `NO_TOOL_CALL` (Luca [Antigravity]'s design, 2026-11-02) |
+| Codex | `~/.codex/hooks.json` Stop | Not yet: Codex has no listener. Add the guard when it does. On Windows the command must start with a bare program name, and David must trust the hook. |
+
 ## CLI and credentials
 
 Run from the checkout root with the existing installed `tsx` dependency:
@@ -142,8 +166,9 @@ On native completion, inspect the body-free outcome line and exit code:
 Mark pending receipts observed/finished **before** starting the next once-wait.
 Starting a once-wait with new pending receipts intentionally returns immediately;
 starting with only observed open receipts waits for a new message. Record the
-new native task ID after each re-arm. This is an operating rule, not an installed
-Stop hook: `.claude/settings.json` and user-wide configuration remain unchanged.
+new native task ID after each re-arm. The turn-end guard below enforces this:
+`.claude/settings.json` registers `.claude/hooks/listener-guard.mjs` as a Stop
+hook.
 
 ## Failure and recovery
 
