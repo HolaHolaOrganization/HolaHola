@@ -71,6 +71,47 @@ export function buildFollowUpNote(previousNotes: string): string {
 
 /** Tool rounds for a wake turn (chat keeps its own default). */
 export const WAKE_MAX_ROUNDS = 16;
+
+/** Upper bound on the tools line appended to an unattended reply. */
+export const WAKE_TOOLS_LINE_LIMIT = 1500;
+
+/**
+ * The line the server appends to every unattended Alden reply (Alden's
+ * wording, thread e9a7511a seq 4): the tool calls made before the reply, so a
+ * reader can tell a checked claim from a recollection. Written by the server,
+ * never by the model; "none" when no tool was called.
+ */
+export function wakeToolsLine(calls: readonly string[]): string {
+  if (calls.length === 0) return 'Tools this turn: none';
+  let line = 'Tools this turn: ';
+  for (let i = 0; i < calls.length; i++) {
+    const next = (i ? ', ' : '') + calls[i];
+    const rest = calls.length - i;
+    if (line.length + next.length > WAKE_TOOLS_LINE_LIMIT) return `${line} … and ${rest} more`;
+    line += next;
+  }
+  return line;
+}
+
+/** Argument names that say what a tool call was pointed at, in preference order. */
+const TOOL_TARGET_KEYS = ['thread_id', 'id', 'memory_id', 'record_id', 'event_id', 'item_id', 'document_id', 'review_id', 'revision_id', 'path', 'query'] as const;
+const TOOL_TARGET_LIMIT = 80;
+
+/**
+ * One wake tool call as recorded on the attempt: the tool name and what it was
+ * pointed at (an id, path or query), never free text such as a reply body, and
+ * never the tool's output. "name" alone when no target argument is present.
+ */
+export function wakeToolCallLabel(name: string, args: Record<string, unknown> | null | undefined): string {
+  for (const key of TOOL_TARGET_KEYS) {
+    const value = args?.[key];
+    if ((typeof value === 'string' && value.trim()) || typeof value === 'number') {
+      const text = String(value).replace(/\s+/g, ' ').trim();
+      return `${name}(${text.length > TOOL_TARGET_LIMIT ? `${text.slice(0, TOOL_TARGET_LIMIT)}…` : text})`;
+    }
+  }
+  return name;
+}
 const TRIGGER_TEXT_LIMIT = 8000;
 
 /**

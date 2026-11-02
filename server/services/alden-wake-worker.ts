@@ -13,7 +13,7 @@ import { getSharedDb } from '../db';
 import { ALDEN_BACKGROUND_MODEL } from './alden-background-model';
 import { wakeAllowlist } from './alden-tool-profiles';
 import {
-  activateWake, claimNextWakeItem, deliverWakeNotices, reconcileWake, recordWakeOutcome, releaseWakeForFollowUp,
+  activateWake, claimNextWakeItem, deliverWakeNotices, reconcileWake, recordWakeOutcome, recordWakeToolCalls, releaseWakeForFollowUp,
   type AldenWakeTurn, type WakeAttempt, WAKE_COST_CONTEXT,
 } from './alden-wake-ledger';
 import { annotateUnpublishedNotes, buildFollowUpNote, buildTriggerText, buildWakeMessage, decideWakeOutcome, WAKE_MAX_ROUNDS, wakeEngineConfig } from './alden-wake-rules';
@@ -52,6 +52,7 @@ export async function runWakeTurn(attempt: WakeAttempt, deps: WakeDeps = {}): Pr
   const turn: AldenWakeTurn = {
     itemId: attempt.itemId, workerId, claimEpoch: attempt.claimEpoch,
     threadId: attempt.targetThreadId, targetSender: attempt.targetSender, itemKind: attempt.itemKind,
+    toolCalls: [],
   };
   let response: Awaited<ReturnType<Generate>> | null = null;
   let thrown: string | null = null;
@@ -76,13 +77,18 @@ export async function runWakeTurn(attempt: WakeAttempt, deps: WakeDeps = {}): Pr
   } catch (err) {
     thrown = String((err as Error)?.message ?? err);
   }
-  if (turn.published) return `published:${(turn.published as any).status}`;
+  // The calls with their targets when the turn made any; else the engine's names.
+  const toolsUsed = turn.toolCalls?.length ? turn.toolCalls : response?.toolsUsed ?? [];
+  if (turn.published) {
+    await recordWakeToolCalls(attempt.itemId, toolsUsed, db);
+    return `published:${(turn.published as any).status}`;
+  }
   const decision = decideWakeOutcome({ ...turn, followUpsUsed }, thrown ? { error: thrown } : response);
   if (!decision) return 'published';
   if (decision.outcome === 'follow_up') {
     const released = await releaseWakeForFollowUp({
       itemId: attempt.itemId, workerId, claimEpoch: attempt.claimEpoch,
-      notes: annotateUnpublishedNotes(response?.response ?? ''), toolsUsed: response?.toolsUsed ?? [],
+      notes: annotateUnpublishedNotes(response?.response ?? ''), toolsUsed,
     }, db);
     return `follow_up:${released}`;
   }
@@ -90,7 +96,7 @@ export async function runWakeTurn(attempt: WakeAttempt, deps: WakeDeps = {}): Pr
     itemId: attempt.itemId, workerId, claimEpoch: attempt.claimEpoch,
     outcome: decision.outcome, errorClass: decision.errorClass,
     notes: annotateUnpublishedNotes((thrown ?? response?.error ?? response?.response ?? '').slice(0, 1800)),
-    toolsUsed: response?.toolsUsed ?? [],
+    toolsUsed,
   }, db);
   return `${decision.outcome}:${recorded}`;
 }
