@@ -1494,6 +1494,8 @@ export interface ShipOptions {
   fetchImpl?: typeof fetch;
   dryRun?: boolean;
   expectedConversationId?: string;
+  /** The canonical source to submit; the Codex adapter reuses this shipper with 'codex'. */
+  source?: 'antigravity' | 'codex';
 }
 
 export interface ShipReport {
@@ -1585,7 +1587,7 @@ export async function shipAntigravityExchanges(
           'x-coordination-token': options.authToken,
         },
         body: JSON.stringify({
-          source: 'antigravity',
+          source: options.source ?? 'antigravity',
           turnId: ex.turnId,
           userText: ex.userText,
           assistantText: ex.assistantText,
