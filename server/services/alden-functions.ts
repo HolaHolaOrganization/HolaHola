@@ -1051,40 +1051,49 @@ export function briefingIdempotencyKey(recipient: string, description: string): 
 /** Tools that act on David's behalf in his presence; refused in every unattended turn. */
 const CHAT_ONLY_TOOLS = new Set(['ack_coordination_item', 'resume_wake_thread', 'watch_coordination_thread', 'unwatch_coordination_thread']);
 
+type AldenToolContext = {
+  conversationId?: string; engine?: 'anthropic' | 'gemini'; reviewReadSession?: AldenReviewReadSession; toolAllowlist?: AldenToolAllowlist;
+  /** Set only by the founder chat route: David is in the conversation. */
+  founderPresent?: boolean;
+  /** Set only by the inbox wake worker: this turn answers one claimed item. */
+  wakeTurn?: AldenWakeTurn;
+};
+
 export async function executeAldenTool(
   toolName: string,
   args: Record<string, any>,
-  context?: {
-    conversationId?: string; engine?: 'anthropic' | 'gemini'; reviewReadSession?: AldenReviewReadSession; toolAllowlist?: AldenToolAllowlist;
-    /** Set only by the founder chat route: David is in the conversation. */
-    founderPresent?: boolean;
-    /** Set only by the inbox wake worker: this turn answers one claimed item. */
-    wakeTurn?: AldenWakeTurn;
-  }
+  context?: AldenToolContext,
 ): Promise<{ data: any; sideEffects?: Record<string, any> }> {
   // A wake turn records every tool call it makes, refused ones included, so a
   // published reply's claims can be checked against what was actually called.
-  // A refused call is marked, so it never reads as a check that ran.
+  // Any refusal (a result carrying `refused`, from the gates below or inside a
+  // handler) is marked, so it never reads as a check that ran.
   const calls = context?.wakeTurn ? (context.wakeTurn.toolCalls ??= []) : null;
   const callIndex = calls ? calls.push(wakeToolCallLabel(toolName, args)) - 1 : -1;
-  const markRefused = () => { if (calls) calls[callIndex] += WAKE_REFUSED_MARK; };
+  const result = await runAldenTool(toolName, args, context);
+  if (calls && typeof result?.data?.refused === 'string' && result.data.refused) calls[callIndex] += WAKE_REFUSED_MARK;
+  return result;
+}
+
+async function runAldenTool(
+  toolName: string,
+  args: Record<string, any>,
+  context?: AldenToolContext,
+): Promise<{ data: any; sideEffects?: Record<string, any> }> {
   // Per-turn allowlist: refuse before any tool code runs (both engines, nested
   // dispatch and continuations all pass through here).
   const refusal = aldenToolRefusal(toolName, context?.toolAllowlist, args);
   if (refusal) {
     console.warn(`[Alden Tool] refused ${toolName}: not in allowlist "${refusal.allowlist}"`);
-    markRefused();
     return { data: refusal };
   }
   // Production write boundary: file writes and shell only on a `dev` instance.
   const writeRefusal = aldenWriteToolRefusal(toolName);
   if (writeRefusal) {
     console.warn(`[Alden Tool] refused ${toolName}: ${writeRefusal.refused}`);
-    markRefused();
     return { data: writeRefusal };
   }
   if (CHAT_ONLY_TOOLS.has(toolName) && (!context?.founderPresent || context.wakeTurn)) {
-    markRefused();
     return { data: { error: `${toolName} is only available in chat with David`, refused: 'founder_not_present' } };
   }
   try {

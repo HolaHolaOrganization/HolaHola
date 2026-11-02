@@ -104,13 +104,14 @@ test('a wake turn replies through the bound path on the wake engine and profile'
   const result = await worker.runWakePass({ db, generate: turn.generate, env: {} });
   assert.deepEqual(result.turns, ['published:replied']);
   assert.equal(result.stop, 'none');
-  // A published turn's tool calls are recorded on its attempt, refused ones included.
+  // A published turn's tool calls are recorded on its attempt, refused ones included and marked,
+  // whether the gate refused them or the handler did (the wrong recipient).
   const recorded = await one(sql`select tools_used from alden_wake_attempts where event_id = ${item.eventId}`);
-  assert.match(recorded.tools_used[0], /^reply_to_coordination_thread\([0-9a-f-]{36}\)$/, 'the refused call to another thread is recorded too');
+  assert.match(recorded.tools_used[0], /^reply_to_coordination_thread\([0-9a-f-]{36}\) \[refused\]$/, 'the refused call to another thread is recorded too');
   assert.deepEqual(recorded.tools_used.slice(1), [
-    `reply_to_coordination_thread(${item.threadId})`,
-    `interject_on_coordination_thread(${item.threadId})`,
-    `ack_coordination_item(${item.eventId})`,
+    `reply_to_coordination_thread(${item.threadId}) [refused]`,
+    `interject_on_coordination_thread(${item.threadId}) [refused]`,
+    `ack_coordination_item(${item.eventId}) [refused]`,
     `reply_to_coordination_thread(${item.threadId})`,
   ]);
   // The published reply ends with the server-written tools line: the calls made before it.
