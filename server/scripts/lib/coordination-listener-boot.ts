@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { chmod, mkdir, open, readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { FileCoordinationCliCredentialCache } from '../../services/coordination-cli-credential-cache';
-import { ListenerStore, normalizeScope } from './coordination-listener';
+import { ListenerStore, normalizeScope, type ListenerScope } from './coordination-listener';
 import { parentState, readProcessIdentity, type ProcessIdentity } from './coordination-listener-identity';
 import { publishOwnershipRecord, withOwnershipGuard } from './coordination-listener-ownership';
 
@@ -12,14 +12,34 @@ export interface BootConfig {
   actor: string;
   runtimeId: string;
   apiUrl: string;
+  transport?: string;
   stateDir: string;
   cacheDir: string;
   listenerEntry: string;
 }
 export type IdentityReader = (pid: number) => Promise<ProcessIdentity>;
-type Owner = { actor: string; apiUrl: string; runtimeId: string; pid: number; created: string; owner: string };
+type Owner = { actor: string; apiUrl: string; runtimeId?: string; transport?: string; pid: number; created: string; owner: string };
 export type BootStatus = { state: string; at: string; pid?: number; created?: string; childPid?: number };
 const absent = (e: unknown) => (e as NodeJS.ErrnoException).code === 'ENOENT';
+
+export function bootScope(c: BootConfig): ListenerScope {
+  return normalizeScope({
+    actor: c.actor,
+    apiUrl: c.apiUrl,
+    runtimeId: c.runtimeId,
+    ...(c.transport ? { transport: c.transport } : {}),
+  }, {});
+}
+
+function scopeMatches(record: Record<string, unknown> | null | undefined, scope: ListenerScope): boolean {
+  if (!record || record.actor !== scope.actor || record.apiUrl !== scope.apiUrl) return false;
+  const storedTransport = record.transport === 'native-onboarding' ? 'native-onboarding' : 'file';
+  const currentTransport = scope.transport === 'native-onboarding' ? 'native-onboarding' : 'file';
+  if (storedTransport !== currentTransport) return false;
+  const storedRuntime = typeof record.runtimeId === 'string' ? record.runtimeId.trim() : '';
+  const currentRuntime = typeof scope.runtimeId === 'string' ? scope.runtimeId.trim() : '';
+  return storedRuntime === currentRuntime;
+}
 
 export function workspaceBootConfig(root: string): BootConfig {
   root = resolve(root);
@@ -54,7 +74,7 @@ export async function bootPreflight(c: BootConfig, now = Date.now()): Promise<'d
   if (!credential || !Number.isFinite(Date.parse(credential.expiresAt))
       || Date.parse(credential.expiresAt) <= now) throw new Error('boot_recovery_required');
   // A new/unscoped installation requires deliberate onboarding, not a replay from cursor zero.
-  const store = new ListenerStore(c.stateDir, c);
+  const store = new ListenerStore(c.stateDir, bootScope(c));
   await store.assertScope();
   await store.cursor();
   return 'eligible';
@@ -97,12 +117,13 @@ export async function writeBootFailure(c: BootConfig, reason?: BootFailureReason
 
 export async function postBootReady(c: BootConfig, childPid: number, started: number,
   reader: IdentityReader = readProcessIdentity) {
+  const scope = bootScope(c);
   const heartbeat = JSON.parse(await readFile(join(c.stateDir, 'heartbeat.json'), 'utf8'));
   if (heartbeat.state !== 'listening' || heartbeat.pid !== childPid
-      || heartbeat.actor !== c.actor || heartbeat.apiUrl !== c.apiUrl
+      || !scopeMatches(heartbeat, scope)
       || !Number.isFinite(Date.parse(heartbeat.at)) || Date.parse(heartbeat.at) < started) return false;
   const lock = JSON.parse(await readFile(join(c.stateDir, 'watch.lock'), 'utf8'));
-  return lock.actor === c.actor && lock.apiUrl === c.apiUrl && lock.pid === childPid
+  return scopeMatches(lock, scope) && lock.pid === childPid
     && typeof lock.created === 'string' && !!lock.created && await parentState(lock, reader) === 'present';
 }
 
@@ -110,7 +131,7 @@ export async function postBootReady(c: BootConfig, childPid: number, started: nu
 export async function supervisorLease(c: BootConfig, reader: IdentityReader = readProcessIdentity) {
   const directory = join(c.stateDir, 'boot');
   await mkdir(directory, { recursive: true, mode: 0o700 });
-  const scope = normalizeScope(c);
+  const scope = bootScope(c);
   const target = join(directory, 'supervisor.lock');
   let mine: Owner | undefined;
   await withOwnershipGuard(directory, scope, async () => {
@@ -118,7 +139,7 @@ export async function supervisorLease(c: BootConfig, reader: IdentityReader = re
     try { previous = JSON.parse(await readFile(target, 'utf8')); }
     catch (e) { if (!absent(e)) throw e; }
     if (previous) {
-      if (previous.actor !== c.actor || previous.apiUrl !== scope.apiUrl || previous.runtimeId !== c.runtimeId
+      if (!scopeMatches(previous, scope)
           || !Number.isSafeInteger(previous.pid) || previous.pid < 1
           || typeof previous.created !== 'string' || !previous.created || typeof previous.owner !== 'string') {
         throw new Error('boot_owner_unproven');
@@ -130,7 +151,7 @@ export async function supervisorLease(c: BootConfig, reader: IdentityReader = re
     }
     const identity = await reader(process.pid);
     if (identity.state !== 'present') throw new Error('boot_self_unproven');
-    mine = { ...scope, runtimeId: c.runtimeId, pid: process.pid, created: identity.created, owner: randomUUID() };
+    mine = { ...scope, pid: process.pid, created: identity.created, owner: randomUUID() };
     await publishOwnershipRecord(target, mine);
   });
   if (!mine) return null;
@@ -145,11 +166,12 @@ export async function supervisorLease(c: BootConfig, reader: IdentityReader = re
 }
 
 export async function prepareListener(c: BootConfig, reader: IdentityReader = readProcessIdentity) {
-  const store = new ListenerStore(c.stateDir, c);
+  const scope = bootScope(c);
+  const store = new ListenerStore(c.stateDir, scope);
   let lock: Owner;
   try { lock = JSON.parse(await readFile(join(c.stateDir, 'watch.lock'), 'utf8')); }
   catch (e) { if (absent(e)) return 'start' as const; throw e; }
-  if (lock.actor !== c.actor || lock.apiUrl !== normalizeScope(c).apiUrl || !Number.isSafeInteger(lock.pid)
+  if (!scopeMatches(lock, scope) || !Number.isSafeInteger(lock.pid)
       || lock.pid < 1 || typeof lock.created !== 'string' || !lock.created) throw new Error('listener_owner_unproven');
   const state = await parentState(lock, reader);
   if (state === 'present') return 'existing' as const;
@@ -160,6 +182,8 @@ export async function prepareListener(c: BootConfig, reader: IdentityReader = re
 
 export function listenerCommand(c: BootConfig, parentPid: number) {
   return ['--import', 'tsx', c.listenerEntry, 'listen', '--actor', c.actor, '--url', c.apiUrl,
+    '--runtime-id', c.runtimeId,
+    ...(c.transport ? ['--transport', c.transport] : []),
     '--state-dir', c.stateDir, '--mode', 'continuous', '--parent-pid', String(parentPid)];
 }
 

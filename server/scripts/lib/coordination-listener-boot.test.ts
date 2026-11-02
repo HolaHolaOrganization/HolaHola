@@ -7,16 +7,16 @@ import { pathToFileURL } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { FileCoordinationCliCredentialCache } from '../../services/coordination-cli-credential-cache';
 import { readProcessIdentity, parentState } from './coordination-listener-identity';
-import { classifyBootFailure, writeBootFailure, bootChildEnvironment, bootPreflight, launchBootSupervisor, listenerCommand, postBootReady,
+import { classifyBootFailure, writeBootFailure, bootChildEnvironment, bootPreflight, bootScope, launchBootSupervisor, listenerCommand, postBootReady,
   prepareListener, supervisorLease, workspaceBootConfig, type BootConfig } from './coordination-listener-boot';
 
 async function fixture(t: { after: (fn: () => Promise<void>) => void }) {
   const root = await mkdtemp(join(tmpdir(), 'listener-boot-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   const c = workspaceBootConfig(root);
-  assert.ok(c.stateDir.startsWith(root + '/'));
+  assert.ok(c.stateDir.startsWith(join(root, '.local')));
   await mkdir(join(c.stateDir, 'pending'), { recursive: true });
-  await writeFile(join(c.stateDir, 'scope.json'), JSON.stringify({ actor: c.actor, apiUrl: c.apiUrl }));
+  await writeFile(join(c.stateDir, 'scope.json'), JSON.stringify(bootScope(c)));
   await writeFile(join(c.stateDir, 'cursor.json'), JSON.stringify({ after: 0 }));
   await save(c, new Date(Date.now() + 3600_000).toISOString());
   return c;
@@ -27,12 +27,18 @@ async function save(c: BootConfig, expiresAt: string) {
   });
 }
 async function lock(c: BootConfig, pid: number, created: string) {
-  await writeFile(join(c.stateDir, 'watch.lock'), JSON.stringify({ actor: c.actor, apiUrl: c.apiUrl, pid, created }));
+  await writeFile(join(c.stateDir, 'watch.lock'), JSON.stringify({ ...bootScope(c), pid, created }));
 }
 test('preflight accepts only valid scoped cache and initialized cursor', async t => {
   const c = await fixture(t);
   assert.equal(await bootPreflight(c), 'eligible');
-  await writeFile(join(c.stateDir, 'scope.json'), JSON.stringify({ actor: 'other', apiUrl: c.apiUrl }));
+  await writeFile(join(c.stateDir, 'scope.json'), JSON.stringify({ ...bootScope(c), actor: 'other' }));
+  await assert.rejects(bootPreflight(c), /scope_mismatch/);
+  await writeFile(join(c.stateDir, 'scope.json'), JSON.stringify({ ...bootScope(c), runtimeId: 'other-runtime' }));
+  await assert.rejects(bootPreflight(c), /scope_mismatch/);
+  await writeFile(join(c.stateDir, 'scope.json'), JSON.stringify({ ...bootScope(c), transport: 'native-onboarding' }));
+  await assert.rejects(bootPreflight(c), /scope_mismatch/);
+  await writeFile(join(c.stateDir, 'scope.json'), JSON.stringify({ actor: c.actor, apiUrl: c.apiUrl }));
   await assert.rejects(bootPreflight(c), /scope_mismatch/);
 });
 test('explicit stop and disable win even with no cache', async t => {
@@ -69,6 +75,7 @@ test('child environment allowlist and supervisor-parent command have no fallback
   for (const key of excluded) assert.equal(env[key], undefined);
   const command = listenerCommand(c, 123);
   assert.equal(command.at(-1), '123');
+  assert.equal(command[command.indexOf('--runtime-id') + 1], c.runtimeId);
   assert.equal(command.includes('--resume'), false);
   assert.equal(command.some(s => /server\/index|npm|validation|capture/.test(s)), false);
 });
@@ -99,10 +106,10 @@ test('only identity-matched post-start listening heartbeat proves readiness', as
   if (self.state !== 'present') throw Error('identity unavailable');
   await lock(c, process.pid, self.created);
   const started = Date.now();
-  const beat = { actor: c.actor, apiUrl: c.apiUrl, pid: process.pid, state: 'listening',
+  const beat = { ...bootScope(c), pid: process.pid, state: 'listening',
     at: new Date(started).toISOString() };
   for (const change of [{ state: 'READY' }, { at: new Date(started - 1).toISOString() },
-    { pid: process.pid + 1 }, { actor: 'other' }]) {
+    { pid: process.pid + 1 }, { actor: 'other' }, { runtimeId: 'other-runtime' }, { transport: 'native-onboarding' }]) {
     await writeFile(join(c.stateDir, 'heartbeat.json'), JSON.stringify({ ...beat, ...change }));
     assert.equal(await postBootReady(c, process.pid, started), false);
   }
@@ -130,12 +137,13 @@ test('detached supervisor survives launcher, owns child, deduplicates and honors
     import {readProcessIdentity} from ${JSON.stringify(identity)};
     const dir=${JSON.stringify(c.stateDir)},id=await readProcessIdentity(process.pid);
     const parent=Number(process.argv[process.argv.indexOf('--parent-pid')+1]);
+    const runtimeId=process.argv[process.argv.indexOf('--runtime-id')+1];
     if(parent===process.pid || process.env.COORDINATION_RUNTIME_BOOTSTRAP_TOKEN
       || process.env.COORDINATION_LUCA_REPLIT_TOKEN || process.env.NEON_SHARED_DATABASE_URL)process.exit(90);
     await writeFile(dir+'/watch.lock',JSON.stringify({actor:${JSON.stringify(c.actor)},
-      apiUrl:${JSON.stringify(c.apiUrl)},pid:process.pid,created:id.created,parent}));
+      apiUrl:${JSON.stringify(c.apiUrl)},runtimeId,pid:process.pid,created:id.created,parent}));
     await writeFile(dir+'/heartbeat.json',JSON.stringify({actor:${JSON.stringify(c.actor)},
-      apiUrl:${JSON.stringify(c.apiUrl)},pid:process.pid,state:'listening',at:new Date().toISOString()}));
+      apiUrl:${JSON.stringify(c.apiUrl)},runtimeId,pid:process.pid,state:'listening',at:new Date().toISOString()}));
     setInterval(async()=>{try{await access(dir+'/stop');await unlink(dir+'/watch.lock');process.exit(72);}catch{}},50);
   `);
   const entry = join(c.stateDir, 'fixture-launcher.mjs');

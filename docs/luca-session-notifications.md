@@ -75,19 +75,23 @@ node --import tsx server/scripts/coordination-listener.ts <command>
 ```
 
 Always pass actor, API origin and state directory explicitly. State is bound
-to the actor and origin. Use a separate directory for each runtime; do not
-share a local cursor across hats or origins. Keep it under ignored `.local/`.
+to the actor, origin, and (when set) `--runtime-id` and `--transport`. Use a
+separate directory for each runtime; do not share a local cursor across hats or
+origins. Keep it under ignored `.local/`.
 Authenticated API transport uses the existing `coordination-cli`, its inherited
-runtime environment, and `FileCoordinationCliCredentialCache`. Credentials never
-appear in listener logs or local receipts. No new `.env` or credentials are
-created. Windows may launch Node with its existing approved `--env-file` option
-if that runtime needs it; do not put secrets in command arguments.
+runtime environment, and `FileCoordinationCliCredentialCache` (or
+`--transport native-onboarding` with `NativeStoreCoordinationCredentialCache`).
+Credentials never appear in listener logs or local receipts. No new `.env` or
+credentials are created. Windows may launch Node with its existing approved
+`--env-file` option if that runtime needs it; do not put secrets in command
+arguments.
 
 Commands:
 
 | Command | Extra options | Meaning |
 |---|---|---|
 | `listen` | `--mode continuous\|once --parent-pid <stable-parent> [--after <initial-sequence>] [--resume]` | Intake/notify until new receipts, explicit stop, parent absence or failure |
+| `migrate-scope` | `--runtime-id <runtime-id> [--transport native-onboarding]` | One-way in-place upgrade of an existing `{actor, apiUrl}` `scope.json` to bind `runtimeId` (and optionally `transport: 'native-onboarding'`); refuses if locked, preserves `cursor.json` and `pending/` |
 | `status` | none | Cursor, all pending/observed receipts, coverage, health and reported arming |
 | `observed` | `--event-id <UUID>` | Retain open work without re-firing |
 | `processed` | `--event-id <UUID>` | Remove exactly one finished local receipt; no remote ack |
