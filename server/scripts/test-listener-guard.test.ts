@@ -55,7 +55,9 @@ test('the hook blocks the first stop with a reason, then only warns, and prints 
   const second = runHook(down, { hook_event_name: 'Stop', stop_hook_active: true });
   assert.equal(second.out.decision, undefined, 'never blocks twice in one turn');
   assert.match(second.out.systemMessage, /not blocking again this turn/);
-  const fine = stateDir({ lock: true, heartbeatAgoMs: 0 });
+  // A real-time heartbeat (the hook process uses the wall clock, not NOW).
+  const fine = mkdtempSync(join(tmpdir(), 'listener-guard-'));
+  writeFileSync(join(fine, 'watch.lock'), '{}');
   writeFileSync(join(fine, 'heartbeat.json'), JSON.stringify({ at: new Date().toISOString() }));
   assert.deepEqual(runHook(fine, { hook_event_name: 'Stop' }), { status: 0, out: null });
 });
