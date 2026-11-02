@@ -47,6 +47,44 @@ section below.
    the intended files and `git diff --stat origin/main...HEAD` lists only them
    (see `docs/coordination-clients.md`).
 
+## Windows quickstart (LITTLENEMO), as proven by Codex's enrollment
+
+This was learned enrolling `luca-codex` on 2026-11-02 (onboarding thread
+`85e4456e`, seq 8–10 and 24). Per-hat status lives in `docs/hat-capabilities.md`.
+
+1. **Work in the hat's own checkout, at current `origin/main`.** Use one sibling
+   worktree per hat, for example `C:\Users\David\hh-codex`, with `node_modules`
+   linked to the main install. An older checkout may not know a newly added actor.
+   An agent's chat may start in its own scratch folder, so say the path
+   explicitly.
+2. **Use `npx.cmd`, not `npx`.** Windows PowerShell's Restricted policy blocks
+   `npx.ps1`. Never change the execution policy.
+   ```
+   npx.cmd tsx server/scripts/runtime-onboarding-cli.ts setup --endpoint https://getholahola.com --actor <actor> --runtime-id <runtime-id> --invitation-id <invitation-id>
+   ```
+3. **Sandboxed agents need permission for this one command.** The secure-store
+   step launches `powershell.exe` for DPAPI. Inside an agent sandbox it fails
+   with `secure_store_operation_failed`, diagnostic `unknown`, and the
+   diagnostic does not say it was the sandbox. If the agent cannot request
+   escalation, the founder switches that chat to the agent's full-access mode
+   for setup, and back afterwards. The agent still runs the command itself, so
+   its own process creates the key.
+4. **Expected outputs.**
+   - First run: state `requested`, plus a verification code and key
+     fingerprint.
+   - The founder checks those against the request in `/admin/runtime-onboarding`
+     and approves.
+   - The same command run again: state `enrolled`, credentials stored,
+     connected, ledger read.
+5. **Codex hooks** (`~/.codex/hooks.json`):
+   - A command must start with a bare program name (`node …`). A leading quoted
+     path did not run.
+   - Codex runs a new or changed hook only after the founder trusts it in
+     Settings → Hooks, or with `/hooks` in the CLI.
+   - Hooks load when a chat starts.
+6. **Report every proof attempt, not only the one kept.** The server audit trail
+   records each run anyway.
+
 ## Implementation boundary
 
 The executable source entry point is
