@@ -1051,18 +1051,16 @@ export function briefingIdempotencyKey(recipient: string, description: string): 
 /** Tools that act on David's behalf in his presence; refused in every unattended turn. */
 const CHAT_ONLY_TOOLS = new Set(['ack_coordination_item', 'resume_wake_thread', 'watch_coordination_thread', 'unwatch_coordination_thread']);
 
-type AldenToolContext = {
-  conversationId?: string; engine?: 'anthropic' | 'gemini'; reviewReadSession?: AldenReviewReadSession; toolAllowlist?: AldenToolAllowlist;
-  /** Set only by the founder chat route: David is in the conversation. */
-  founderPresent?: boolean;
-  /** Set only by the inbox wake worker: this turn answers one claimed item. */
-  wakeTurn?: AldenWakeTurn;
-};
-
 export async function executeAldenTool(
   toolName: string,
   args: Record<string, any>,
-  context?: AldenToolContext,
+  context?: {
+    conversationId?: string; engine?: 'anthropic' | 'gemini'; reviewReadSession?: AldenReviewReadSession; toolAllowlist?: AldenToolAllowlist;
+    /** Set only by the founder chat route: David is in the conversation. */
+    founderPresent?: boolean;
+    /** Set only by the inbox wake worker: this turn answers one claimed item. */
+    wakeTurn?: AldenWakeTurn;
+  }
 ): Promise<{ data: any; sideEffects?: Record<string, any> }> {
   // A wake turn records every tool call it makes, refused ones included, so a
   // published reply's claims can be checked against what was actually called.
@@ -1078,7 +1076,7 @@ export async function executeAldenTool(
 async function runAldenTool(
   toolName: string,
   args: Record<string, any>,
-  context?: AldenToolContext,
+  context?: Parameters<typeof executeAldenTool>[2],
 ): Promise<{ data: any; sideEffects?: Record<string, any> }> {
   // Per-turn allowlist: refuse before any tool code runs (both engines, nested
   // dispatch and continuations all pass through here).
