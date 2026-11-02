@@ -2,7 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { aldenToolRefusal, type AldenToolAllowlist } from './alden-tool-allowlist';
 import { aldenWriteToolRefusal } from './alden-write-boundary';
 import type { AldenWakeTurn } from './alden-wake-ledger';
-import { wakeToolCallLabel, wakeToolsLine } from './alden-wake-rules';
+import { WAKE_REFUSED_MARK, wakeToolCallLabel, wakeToolsLine } from './alden-wake-rules';
 import { aldenReadablePath, aldenSearchRoots, classifyAldenReadPath, resolveAldenReadPath, secretContentReason, secretPathReason } from './alden-read-policy';
 import { getSharedDb } from "../neon-db";
 import { getUserDb, getMonitoringDb } from "../db";
@@ -1064,21 +1064,27 @@ export async function executeAldenTool(
 ): Promise<{ data: any; sideEffects?: Record<string, any> }> {
   // A wake turn records every tool call it makes, refused ones included, so a
   // published reply's claims can be checked against what was actually called.
-  if (context?.wakeTurn) (context.wakeTurn.toolCalls ??= []).push(wakeToolCallLabel(toolName, args));
+  // A refused call is marked, so it never reads as a check that ran.
+  const calls = context?.wakeTurn ? (context.wakeTurn.toolCalls ??= []) : null;
+  const callIndex = calls ? calls.push(wakeToolCallLabel(toolName, args)) - 1 : -1;
+  const markRefused = () => { if (calls) calls[callIndex] += WAKE_REFUSED_MARK; };
   // Per-turn allowlist: refuse before any tool code runs (both engines, nested
   // dispatch and continuations all pass through here).
   const refusal = aldenToolRefusal(toolName, context?.toolAllowlist, args);
   if (refusal) {
     console.warn(`[Alden Tool] refused ${toolName}: not in allowlist "${refusal.allowlist}"`);
+    markRefused();
     return { data: refusal };
   }
   // Production write boundary: file writes and shell only on a `dev` instance.
   const writeRefusal = aldenWriteToolRefusal(toolName);
   if (writeRefusal) {
     console.warn(`[Alden Tool] refused ${toolName}: ${writeRefusal.refused}`);
+    markRefused();
     return { data: writeRefusal };
   }
   if (CHAT_ONLY_TOOLS.has(toolName) && (!context?.founderPresent || context.wakeTurn)) {
+    markRefused();
     return { data: { error: `${toolName} is only available in chat with David`, refused: 'founder_not_present' } };
   }
   try {

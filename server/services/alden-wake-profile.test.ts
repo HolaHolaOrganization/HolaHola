@@ -13,12 +13,12 @@ test('the wake profile lists exactly the design\'s unattended tools', () => {
   assert.deepEqual([...WAKE_TOOLS].sort(), [
     'get_current_episode', 'get_system_health', 'list_coordination_inbox', 'list_shared_spec_reviews', 'list_wake_pending',
     'notify_david', 'read_agent_notes', 'read_conversation_memories', 'read_conversation_memory_content', 'read_coordination_message',
-    'read_express_lane_session', 'read_shared_spec_review', 'reply_to_coordination_thread', 'search_editor_memories',
+    'read_express_lane_session', 'read_shared_spec_review', 'reply_to_coordination_thread', 'save_to_memory', 'search_editor_memories',
     'search_express_lane', 'steward_pause',
   ]);
 });
 
-test('excluded tools are refused; steward_pause and notify_david are allowed', () => {
+test('excluded tools are refused; steward_pause, notify_david and save_to_memory are allowed', () => {
   const allowlist = wakeAllowlist('thread-1');
   for (const tool of ['interject_on_coordination_thread', 'brief_new_actor', 'read_file', 'search_code', 'request_continuation',
     'ack_coordination_item', 'resume_wake_thread', 'watch_coordination_thread', 'unwatch_coordination_thread',
@@ -27,6 +27,7 @@ test('excluded tools are refused; steward_pause and notify_david are allowed', (
   }
   assert.equal(aldenToolRefusal('steward_pause', allowlist, { friction: 'x', question: 'y' }), null);
   assert.equal(aldenToolRefusal('notify_david', allowlist, { message: 'x' }), null);
+  assert.equal(aldenToolRefusal('save_to_memory', allowlist, { title: 'x' }), null);
 });
 
 test('the reply is bound to the claimed item\'s thread', () => {
