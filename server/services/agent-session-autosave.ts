@@ -46,6 +46,8 @@ import {
   EPISODE_PROJECTION_FLOOR_MARGIN_MS,
   type CanonicalTurn,
   isCiSentinelExchange,
+  NAIVE_UTC_TEXT_SQL,
+  naiveUtcTextToMs,
   appendTurnsInOrder,
   captureIdFromTags,
   createEpisodeGapAlarmLatch,
@@ -3682,20 +3684,22 @@ export async function projectRollingEpisodeGaps(
   report.episodeFilename = episodeFilename;
 
   const db = getUserDb();
+  // created_at is naive UTC: compared and converted as text, never through a
+  // local-time Date (which shifted the window by the host's UTC offset).
   const episode = rowsOf(await db.execute(sql`
-    SELECT content, created_at FROM conversation_memories WHERE id = ${memoryId}
+    SELECT content, ${sql.raw(NAIVE_UTC_TEXT_SQL)} AS created_at FROM conversation_memories WHERE id = ${memoryId}
   `))[0];
   if (typeof episode?.content !== 'string' || !episode.created_at) return report;
-  const episodeStart = new Date(episode.created_at).toISOString();
+  const episodeStart = episode.created_at as string;
 
   // Scoped to this episode's own window, so turns from a prior episode are
   // never appended here.
   const turns: CanonicalTurn[] = rowsOf(await db.execute(sql`
-    SELECT id, content, created_at, tags
+    SELECT id, content, ${sql.raw(NAIVE_UTC_TEXT_SQL)} AS created_at, tags
     FROM conversation_memories
     WHERE arc_name = 'david-luca-chat'
       AND 'per-turn' = ANY(tags)
-      AND created_at >= ${episodeStart}::timestamptz
+      AND created_at >= ${episodeStart}::timestamp
     ORDER BY created_at ASC, id ASC
   `))
     .filter((r) => typeof r.content === 'string' && !isCiSentinelExchange(r.content))
@@ -3703,7 +3707,7 @@ export async function projectRollingEpisodeGaps(
       id: r.id as string,
       captureId: captureIdFromTags(r.tags as string[] | null),
       content: (r.content as string).trim(),
-      createdAtMs: new Date(r.created_at).getTime(),
+      createdAtMs: naiveUtcTextToMs(r.created_at as string),
     }));
   report.checked = turns.length;
 

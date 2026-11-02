@@ -85,6 +85,22 @@ export function rollingEpisodeFilenameFromTitle(title: string): string {
   return title.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '') + '.md';
 }
 
+/** The rolling episode's name without ".md" (e.g. "episode-35", also for a subtitled title). */
+export function rollingEpisodeNameFromTitle(title: string): string {
+  return rollingEpisodeFilenameFromTitle(title).replace(/\.md$/, '');
+}
+
+/**
+ * created_at is naive UTC. Render it in SQL with NAIVE_UTC_TEXT_SQL and read
+ * it here, so the instant never depends on the process time zone (the pg
+ * driver parses a naive timestamp as local time).
+ */
+export const NAIVE_UTC_TEXT_SQL = `to_char(created_at, 'YYYY-MM-DD HH24:MI:SS.US')`;
+export function naiveUtcTextToMs(text: string): number {
+  if (!/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{6}$/.test(text)) throw new Error(`not a naive UTC timestamp: ${text}`);
+  return Date.parse(text.replace(' ', 'T') + 'Z');
+}
+
 /** Turns absent from the episode longer than this raise the alarm. */
 export const EPISODE_GAP_ALARM_AFTER_MS = 15 * 60_000;
 /** How far before process start automatic projection reaches. */
