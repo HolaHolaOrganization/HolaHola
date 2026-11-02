@@ -234,6 +234,7 @@ const ALLOWLIST: AllowlistEntry[] = [
   { kind: 'unresolved', file: 'coordination-listener-lifecycle-probe.ts', fn: 'writeFile', argExprText: 'temporary', reason: 'temporary = `${actionFile}.${randomUUID()}.tmp`, a sibling of actionFile = localPath(--action-file); localPath() resolves the operator-supplied flag and throws unless it is inside .local/, so the temp file is too (written wx, then linked and unlinked); verified by reading the file' },
   { kind: 'unresolved', file: 'coordination-listener-lifecycle-probe.ts', fn: 'writeFile', argExprText: 'output', reason: 'output = localPath(--output), an operator-supplied CLI flag that localPath() resolves and rejects unless it is inside .local/ (and it must also end in .json and differ from the action file); written wx, so it never overwrites; verified by reading the file' },
 
+  { kind: 'unresolved', file: 'codex-rollout-shipper.ts', fn: 'appendFileSync', argExprText: "join(options.stateBaseDir, 'hook.log')", reason: 'options.stateBaseDir = resolve(--state-dir || join(CODEX_HOME || ~/.codex, "holahola-shipper")) from parseCodexShipperArgs: an operator-supplied flag or the Codex home directory outside any repository; hook-mode log only; verified by reading parseCodexShipperArgs' },
   // ── Unresolved: a local `const`/function-parameter identifier that this
   //    single-file evaluator cannot trace back to its origin (a fixture
   //    object property, a loop variable, a member access on a plain local

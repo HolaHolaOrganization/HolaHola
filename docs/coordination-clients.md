@@ -208,6 +208,35 @@ When working interactively as `luca-antigravity` inside the Antigravity IDE:
    that `git diff --stat origin/main...HEAD` lists only the files belonging to
    that PR.
 
+## Codex recording adapter
+
+Native Codex (`luca-codex`, design 4860f832 step 3) records its exchanges with
+`server/scripts/codex-rollout-shipper.ts`. It reads the Codex session rollout
+(`~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl`) and ships each completed turn as
+source `codex` ("David [Codex]" / "Luca [Codex]"), with the canonical turn id
+`codex-<Codex turn_id>`. Checkpointing and fail-closed shipping are the
+Antigravity journal shipper's.
+
+- **What counts.** David's words are user messages whose provenance is `user`.
+  Codex's reply is the `final_answer` message, and it must equal the turn's
+  `task_complete.last_agent_message`. Injected context, `commentary` and
+  unfinished, aborted or mismatched turns are never shipped as complete.
+- **Identity.** Only luca-codex's own enrolled access credential from the
+  native runtime onboarding store (step 5). There is no default runtime id and
+  no legacy token; before enrollment only `--dry-run` works.
+- **Trigger.** A Codex `Stop` hook in `~/.codex/hooks.json`, installed only
+  after enrollment. On Windows the command must start with a bare program name
+  (a leading quoted path does not run), for example
+  `node --import tsx C:/path/to/HolaHola/server/scripts/codex-rollout-shipper.ts --hook --runtime-id <id>`.
+  Hooks run with the Codex session folder as cwd, so the exact command (how
+  `tsx` resolves from there) is fixed and proven when the hook is installed.
+  Codex runs a new or changed hook only after David trusts it (Settings → Hooks,
+  or `/hooks` in the CLI). Hook mode always exits 0 and logs to
+  `~/.codex/holahola-shipper/hook.log`.
+- **Not sent yet.** The runtime reports `turn_context.model` and
+  `session_meta.model_provider`, but the intake endpoint has no metadata field,
+  so they are not recorded rather than inferred.
+
 ## Direct coordination ledger clients
 
 The canonical coordination ledger is available to Alden, Daniela, and Luca
