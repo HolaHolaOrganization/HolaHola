@@ -112,6 +112,9 @@ export function wakeToolCallLabel(name: string, args: Record<string, unknown> | 
   }
   return name;
 }
+
+/** Appended to a recorded call the server refused, so a refusal never reads as a check that ran. */
+export const WAKE_REFUSED_MARK = ' [refused]';
 const TRIGGER_TEXT_LIMIT = 8000;
 
 /**

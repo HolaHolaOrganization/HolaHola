@@ -57,10 +57,12 @@ export function consultWelcomeAllowlist(threadId: string): AldenToolAllowlist {
  * recipient to the item's sender by the reply handler. Excluded: interject,
  * brief_new_actor, file reads and code search, request_continuation (a wake
  * turn is exactly one phase), and the chat-only ack and resume tools.
+ * save_to_memory is allowed: every hat keeps its own notes (founder,
+ * 2026-11-02).
  */
 export const WAKE_TOOLS: readonly string[] = Object.freeze([
   'list_coordination_inbox', 'read_coordination_message', 'reply_to_coordination_thread',
-  'read_conversation_memories', 'read_conversation_memory_content', 'get_current_episode', 'search_editor_memories',
+  'read_conversation_memories', 'read_conversation_memory_content', 'get_current_episode', 'search_editor_memories', 'save_to_memory',
   'search_express_lane', 'read_express_lane_session',
   'read_agent_notes', 'list_shared_spec_reviews', 'read_shared_spec_review',
   'get_system_health', 'notify_david', 'steward_pause',

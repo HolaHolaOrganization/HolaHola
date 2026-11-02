@@ -42,6 +42,20 @@ describe('enforcement in executeAldenTool', () => {
     }
   });
 
+  test('a wake turn records every call and marks the refused ones', async () => {
+    const { executeAldenTool } = await import('./alden-functions');
+    const list = makeAldenToolAllowlist('test', ['ack_coordination_item', 'no_such_tool', 'update_support_pattern']);
+    const wakeTurn = { itemId: 'i', workerId: 'w', claimEpoch: 0, threadId: 't', targetSender: 's', itemKind: 'addressed' } as any;
+    await executeAldenTool('search_code', { query: 'x' }, { toolAllowlist: list, wakeTurn });
+    await executeAldenTool('ack_coordination_item', { event_id: 'e1' }, { toolAllowlist: list, wakeTurn });
+    // Refused inside its handler (no triage pattern bound), not at the gate.
+    const handler = await executeAldenTool('update_support_pattern', { pattern_id: 'p1' }, { toolAllowlist: list, wakeTurn });
+    assert.equal(handler.data.refused, 'no_triage_pattern');
+    await executeAldenTool('no_such_tool', {}, { toolAllowlist: list, wakeTurn });
+    // Gate and handler refusals are marked; a call that ran (here, to an error) is not.
+    assert.deepEqual(wakeTurn.toolCalls, ['search_code(x) [refused]', 'ack_coordination_item(e1) [refused]', 'update_support_pattern [refused]', 'no_such_tool']);
+  });
+
   test('nested dispatch carries the allowlist: an allowed tool cannot reach an unlisted one', async () => {
     const { executeAldenTool } = await import('./alden-functions');
     const list = makeAldenToolAllowlist('test', ['post_report_to_team_room']);
