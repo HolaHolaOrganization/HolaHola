@@ -59,6 +59,7 @@ import {
   maybeAppendDelegationExchange,
   safeWriteTrigger,
 } from '../services/team-room-episode-hook';
+import { rollingEpisodeNameFromTitle } from '../services/episode-gap-projection';
 
 // ── CLI ───────────────────────────────────────────────────────────────────────
 
@@ -158,9 +159,7 @@ async function runNormalMode(): Promise<void> {
   console.log(Y(`  ℹ  Rolling episode: "${title}" (id ${rowId.slice(0, 8)}…)`));
 
   // Derive the slug form that getRollingEpisodeName returns
-  const expectedSlug = /^Episode (\d+)$/i.test(title)
-    ? `episode-${parseInt(title.match(/\d+/)![0], 10)}`
-    : title.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+  const expectedSlug = rollingEpisodeNameFromTitle(title);
   console.log(Y(`  ℹ  Expected slug: "${expectedSlug}"`));
 
   try {
@@ -285,9 +284,7 @@ async function runSelfCheck(): Promise<void> {
   if (!rollingRow) return;
 
   const { id: rowId, title } = rollingRow;
-  const expectedSlug = /^Episode (\d+)$/i.test(title)
-    ? `episode-${parseInt(title.match(/\d+/)![0], 10)}`
-    : title.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+  const expectedSlug = rollingEpisodeNameFromTitle(title);
   console.log(Y(`  ℹ  Rolling episode: "${title}" → slug "${expectedSlug}"`));
 
   try {

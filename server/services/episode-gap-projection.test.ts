@@ -16,6 +16,8 @@ import {
   overdueTurns,
   planEpisodeGapProjection,
   rollingEpisodeFilenameFromTitle,
+  rollingEpisodeNameFromTitle,
+  naiveUtcTextToMs,
   turnEpisodeMarker,
   turnPresentInEpisode,
 } from './episode-gap-projection';
@@ -191,5 +193,33 @@ describe('agent-session-autosave wiring', () => {
 
   test('automatic projection starts at the process floor; older turns are backlog only', () => {
     assert.match(source, /floorMs: number = PROCESS_STARTED_AT_MS - EPISODE_PROJECTION_FLOOR_MARGIN_MS/);
+  });
+});
+
+describe('naive UTC time and the rolling name (LA, thread 9d81b37c seq 42)', () => {
+  test('a naive UTC created_at maps to the same instant whatever the process time zone', () => {
+    assert.equal(naiveUtcTextToMs('2026-10-26 17:34:51.590173'), Date.parse('2026-10-26T17:34:51.590Z'));
+    assert.equal(naiveUtcTextToMs('2026-11-01 00:00:00.000000'), Date.UTC(2026, 10, 1));
+    assert.throws(() => naiveUtcTextToMs('2026-10-26T17:34:51Z'), /not a naive UTC timestamp/);
+    assert.throws(() => naiveUtcTextToMs('2026-10-26 17:34:51'), /not a naive UTC timestamp/);
+  });
+
+  test('the projection reads created_at as text and compares it as a naive timestamp, never through a local Date', () => {
+    const source = readFileSync('server/services/agent-session-autosave.ts', 'utf8');
+    const body = source.slice(source.indexOf('export async function projectRollingEpisodeGaps'), source.indexOf('const plan = planEpisodeGapProjection('));
+    assert.match(body, /\$\{sql\.raw\(NAIVE_UTC_TEXT_SQL\)\} AS created_at FROM conversation_memories/);
+    assert.match(body, /created_at >= \$\{episodeStart\}::timestamp\n/);
+    assert.match(body, /createdAtMs: naiveUtcTextToMs\(r\.created_at as string\)/);
+    assert.doesNotMatch(body, /new Date\((episode|r)\.created_at\)/);
+    assert.doesNotMatch(body, /::timestamptz/);
+  });
+
+  test('a subtitled rolling title is still its episode name, in the projection and the Team Room hook', () => {
+    assert.equal(rollingEpisodeNameFromTitle("Episode 35: Alden's Entry into the Record"), 'episode-35');
+    assert.equal(rollingEpisodeNameFromTitle('Episode 27'), 'episode-27');
+    assert.equal(rollingEpisodeNameFromTitle('Prequel Episode 1'), 'prequel-episode-1');
+    const hook = readFileSync('server/services/team-room-episode-hook.ts', 'utf8');
+    assert.match(hook, /name = rollingEpisodeNameFromTitle\(row\.title as string\);/);
+    assert.doesNotMatch(hook, /\/\^Episode \(\d\+\)\$\/i/);
   });
 });

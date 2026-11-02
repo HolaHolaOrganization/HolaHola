@@ -20,6 +20,7 @@ import { join } from 'path';
 import { getUserDb } from '../db';
 import { sql } from 'drizzle-orm';
 import { workspaceResolution } from './workspace-root';
+import { rollingEpisodeNameFromTitle } from './episode-gap-projection';
 
 const WORKSPACE    = workspaceResolution.root;
 const TRIGGER_PATH = join(WORKSPACE, '.local', '.episode_append');
@@ -68,10 +69,9 @@ export async function getRollingEpisodeName(): Promise<string | null> {
     const row = (rows as any).rows?.[0] ?? (rows as any)[0];
     let name: string | null = null;
     if (row?.title) {
-      const m = /^Episode (\d+)$/i.exec(row.title as string);
-      name = m
-        ? `episode-${parseInt(m[1], 10)}`
-        : (row.title as string).toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+      // The same mapping as the projection, so a subtitled rolling title
+      // ("Episode 35: Alden's Entry into the Record") is still episode-35.
+      name = rollingEpisodeNameFromTitle(row.title as string);
     }
     _cache = { name, expiresAt: now + CACHE_TTL_MS };
     return name;
