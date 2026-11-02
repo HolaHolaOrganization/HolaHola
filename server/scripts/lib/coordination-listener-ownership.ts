@@ -3,7 +3,7 @@ import { link, mkdir, open, readFile, readdir, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { parentState, readProcessIdentity, type ProcessIdentity } from './coordination-listener-identity';
 
-type Scope = { actor: string; apiUrl: string };
+type Scope = { actor: string; apiUrl: string; runtimeId?: string; transport?: string };
 const markerPattern = /^guard-recovery-[a-f0-9-]{36}\.json$/;
 const missing = (e: unknown) => (e as NodeJS.ErrnoException)?.code === 'ENOENT';
 export class GuardBlocked extends Error { readonly code = 'GUARD_BLOCKED'; }
@@ -36,7 +36,12 @@ async function identityRecord(scope: Scope) {
   return { ...scope, pid: process.pid, created: identity.created, owner: randomUUID() };
 }
 function validate(record: any, scope: Scope) {
+  const storedTransport = record?.transport === 'native-onboarding' ? 'native-onboarding' : 'file';
+  const currentTransport = scope.transport === 'native-onboarding' ? 'native-onboarding' : 'file';
+  const storedRuntime = typeof record?.runtimeId === 'string' ? record.runtimeId.trim() : '';
+  const currentRuntime = typeof scope.runtimeId === 'string' ? scope.runtimeId.trim() : '';
   if (record?.actor !== scope.actor || record?.apiUrl !== scope.apiUrl ||
+      storedTransport !== currentTransport || storedRuntime !== currentRuntime ||
       !Number.isSafeInteger(record.pid) || record.pid < 1 ||
       typeof record.created !== 'string' || !record.created || typeof record.owner !== 'string') {
     throw new GuardBlocked('guard_identity_unknown');

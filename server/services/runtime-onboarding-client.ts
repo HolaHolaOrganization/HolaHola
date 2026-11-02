@@ -630,6 +630,17 @@ export class RuntimeOnboardingClient {
     return response;
   }
 
+  /**
+   * @internal Used only in-process by NativeStoreCoordinationCredentialCache.load()
+   * to bridge RuntimeOnboardingClient.usableCredential() into CoordinationActorClient.
+   * Never exposed to CLI output. Returns only the four fields required by
+   * CoordinationCredentialCacheEntry.
+   */
+  async getValidCredential(): Promise<Pick<StoredCredential, 'actor' | 'runtimeId' | 'accessToken' | 'expiresAt'>> {
+    const { actor, runtimeId, accessToken, expiresAt } = await this.usableCredential();
+    return { actor, runtimeId, accessToken, expiresAt };
+  }
+
   /** Credential stays inside the adapter and is never returned to CLI output. */
   async authenticatedFetch(
     input: RequestInfo | URL,

@@ -94,6 +94,11 @@ export type CoordinationActorClientOptions = {
    * separately opt into `tokenCachePath` above.
    */
   credentialCache?: CoordinationCredentialCache;
+  /**
+   * When true, uses credentialCache exclusively: ignores ambient legacy tokens,
+   * ignores tokenCachePath, and fails closed without falling back to bootstrap exchange.
+   */
+  exclusiveCredentialCache?: boolean;
 };
 
 type CachedCredential = {
@@ -233,6 +238,8 @@ export class CoordinationActorClient {
 
   private readonly credentialCache: CoordinationCredentialCache | undefined;
 
+  private readonly exclusiveCredentialCache: boolean;
+
   constructor(
     actor: CoordinationClientActor,
     options: CoordinationActorClientOptions,
@@ -240,12 +247,18 @@ export class CoordinationActorClient {
     this.actor = actor;
     this.baseUrl = options.apiUrl.replace(/\/+$/, '');
     if (!this.baseUrl) throw new Error('Coordination API URL is required');
+    this.exclusiveCredentialCache = Boolean(options.exclusiveCredentialCache);
     this.environment = options.environment ?? process.env;
-    const legacyToken = legacyTokenForActor(actor, this.environment);
-    this.credential = legacyToken ? { token: legacyToken, expiresAt: null, broker: false } : null;
+    if (this.exclusiveCredentialCache) {
+      this.credential = null;
+      this.tokenCachePath = undefined;
+    } else {
+      const legacyToken = legacyTokenForActor(actor, this.environment);
+      this.credential = legacyToken ? { token: legacyToken, expiresAt: null, broker: false } : null;
+      this.tokenCachePath =
+        options.tokenCachePath?.trim() || this.environment.COORDINATION_RUNTIME_TOKEN_CACHE_PATH?.trim() || undefined;
+    }
     this.fetchImpl = options.fetchImpl ?? fetch;
-    this.tokenCachePath =
-      options.tokenCachePath?.trim() || this.environment.COORDINATION_RUNTIME_TOKEN_CACHE_PATH?.trim() || undefined;
     this.credentialCache = options.credentialCache;
   }
 
@@ -268,9 +281,8 @@ export class CoordinationActorClient {
         if (Number.isFinite(expiresAt) && expiresAt > Date.now()) {
           return { token: cached.accessToken, expiresAt, broker: true };
         }
-        // Already expired: fall through exactly as if no cache entry existed
-        // rather than ever presenting a stale credential anywhere.
       }
+      if (this.exclusiveCredentialCache) return null;
     }
 
     if (this.tokenCachePath) {
@@ -321,7 +333,7 @@ export class CoordinationActorClient {
    * perfectly valid in-memory credential regardless of what happens here.
    */
   private async persistCredential(credential: CachedCredential): Promise<void> {
-    if (!credential.broker) return;
+    if (this.exclusiveCredentialCache || !credential.broker) return;
     const runtimeId = this.environment.COORDINATION_RUNTIME_ID?.trim();
     if (!runtimeId) return;
 
@@ -422,6 +434,36 @@ export class CoordinationActorClient {
   }
 
   private async currentCredential(): Promise<CachedCredential> {
+    if (this.exclusiveCredentialCache) {
+      // When <60s remain on the in-memory credential, reload through credentialCache.load(),
+      // which delegates to RuntimeOnboardingClient.usableCredential() (whose 5-minute renewal
+      // skew renews the credential immediately under single-flight coalescing; if the credential
+      // lacks renewal capability, load() simply returns the existing non-expired store entry).
+      if (
+        !this.credential
+        || (this.credential.expiresAt !== null && this.credential.expiresAt - Date.now() < 60_000)
+      ) {
+        this.renewalPromise ??= (async () => {
+          const loaded = await this.loadCachedCredential();
+          if (!loaded) {
+            const runtimeId = this.environment.COORDINATION_RUNTIME_ID?.trim() || '(unknown)';
+            throw new Error(
+              `Coordination native credential unavailable for ${this.actor} (runtime: ${runtimeId}); refusing fallback to bootstrap or environment tokens`,
+            );
+          }
+          return loaded;
+        })();
+        try {
+          const fresh = await this.renewalPromise;
+          this.credential = fresh;
+          return fresh;
+        } finally {
+          this.renewalPromise = null;
+        }
+      }
+      return this.credential;
+    }
+
     if (!this.credential && !this.cacheLoadAttempted) {
       this.cacheLoadAttempted = true;
       this.credential = await this.loadCachedCredential();
