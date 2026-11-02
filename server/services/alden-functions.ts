@@ -2,7 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { aldenToolRefusal, type AldenToolAllowlist } from './alden-tool-allowlist';
 import { aldenWriteToolRefusal } from './alden-write-boundary';
 import type { AldenWakeTurn } from './alden-wake-ledger';
-import { wakeToolCallLabel } from './alden-wake-rules';
+import { wakeToolCallLabel, wakeToolsLine } from './alden-wake-rules';
 import { aldenReadablePath, aldenSearchRoots, classifyAldenReadPath, resolveAldenReadPath, secretContentReason, secretPathReason } from './alden-read-policy';
 import { getSharedDb } from "../neon-db";
 import { getUserDb, getMonitoringDb } from "../db";
@@ -3223,9 +3223,12 @@ export async function executeAldenTool(
           if (target.threadId !== threadId || target.sender !== recipient) {
             return { data: { error: `this item's reply goes to ${target.sender} on thread ${target.threadId}`, refused: 'reply_binding_mismatch' } };
           }
+          // An unattended reply ends with the tool calls made before it (the
+          // last recorded call is this reply), fixed at the turn's first reply.
+          if (turn) turn.replyToolsLine ??= wakeToolsLine((turn.toolCalls ?? []).slice(0, -1));
           const result = await publishAldenItemResponse({
             itemId: itemId!, mode: turn ? 'wake' : 'chat', workerId: turn?.workerId ?? 'alden-chat', claimEpoch: turn?.claimEpoch,
-            content, model, covers: rest,
+            content: turn ? `${content}\n\n${turn.replyToolsLine}` : content, model, covers: rest,
           });
           if (turn) turn.published = result;
           console.log(`[Alden Tool] reply_to_coordination_thread (${turn ? 'wake' : 'chat, covers'}): item ${itemId} → ${result.status}`);

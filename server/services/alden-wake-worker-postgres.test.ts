@@ -113,6 +113,9 @@ test('a wake turn replies through the bound path on the wake engine and profile'
     `ack_coordination_item(${item.eventId})`,
     `reply_to_coordination_thread(${item.threadId})`,
   ]);
+  // The published reply ends with the server-written tools line: the calls made before it.
+  const replyEvent = await one(sql`select e.content from alden_wake_attempts a join coordination_events e on e.id = a.reply_event_id where a.event_id = ${item.eventId}`);
+  assert.equal(replyEvent.content, `Confirmed. (Unattended turn.)\n\nTools this turn: ${recorded.tools_used.slice(0, 4).join(', ')}`);
   const [params] = turn.seen;
   assert.equal(params.engineOverride, 'gemini');
   assert.equal(params.modelOverride, undefined, 'Gemini runs on its configured Flash model');

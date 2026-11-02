@@ -53,6 +53,8 @@ export interface AldenWakeTurn {
   notified?: boolean;
   /** Every tool call made in this turn (wakeToolCallLabel), recorded on the attempt whatever the outcome. */
   toolCalls?: string[];
+  /** The tools line fixed at this turn's first reply, so a retried reply has identical text. */
+  replyToolsLine?: string;
 }
 
 export interface WakeAttempt {

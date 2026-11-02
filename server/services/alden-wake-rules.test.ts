@@ -5,7 +5,7 @@
  */
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { annotateUnpublishedNotes, buildFollowUpNote, buildTriggerText, buildWakeMessage, decideWakeOutcome, UNVERIFIED_NOTE, WAKE_MAX_ROUNDS, isRepeatingExchange, loopHash, normalizeForLoop, noticeOwed, wakeEngineConfig, wakeToolCallLabel } from './alden-wake-rules';
+import { annotateUnpublishedNotes, buildFollowUpNote, buildTriggerText, buildWakeMessage, decideWakeOutcome, UNVERIFIED_NOTE, WAKE_MAX_ROUNDS, isRepeatingExchange, loopHash, normalizeForLoop, noticeOwed, wakeEngineConfig, wakeToolCallLabel, wakeToolsLine, WAKE_TOOLS_LINE_LIMIT } from './alden-wake-rules';
 
 type Pair = Parameters<typeof isRepeatingExchange>[0][number];
 let sequence = 1000;
@@ -136,4 +136,13 @@ test('a wake tool call is recorded as its name and target, never free text or ou
   assert.equal(wakeToolCallLabel('search_memory', { query: 'line one\n  line two' }), 'search_memory(line one line two)');
   assert.equal(wakeToolCallLabel('read_file', { path: 'x'.repeat(100) }), `read_file(${'x'.repeat(80)}…)`);
   assert.equal(wakeToolCallLabel('tool', null), 'tool');
+});
+
+test('the tools line on an unattended reply: the calls, "none", and a bounded tail', () => {
+  assert.equal(wakeToolsLine([]), 'Tools this turn: none');
+  assert.equal(wakeToolsLine(['read_conversation_memories(69b37df4)', 'list_wake_pending']), 'Tools this turn: read_conversation_memories(69b37df4), list_wake_pending');
+  const many = Array.from({ length: 100 }, (_, i) => `read_file(path-${'x'.repeat(30)}-${i})`);
+  const line = wakeToolsLine(many);
+  assert.ok(line.length <= WAKE_TOOLS_LINE_LIMIT + 20);
+  assert.match(line, / … and \d+ more$/);
 });
