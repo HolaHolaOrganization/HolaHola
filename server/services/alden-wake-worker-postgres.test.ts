@@ -104,6 +104,15 @@ test('a wake turn replies through the bound path on the wake engine and profile'
   const result = await worker.runWakePass({ db, generate: turn.generate, env: {} });
   assert.deepEqual(result.turns, ['published:replied']);
   assert.equal(result.stop, 'none');
+  // A published turn's tool calls are recorded on its attempt, refused ones included.
+  const recorded = await one(sql`select tools_used from alden_wake_attempts where event_id = ${item.eventId}`);
+  assert.match(recorded.tools_used[0], /^reply_to_coordination_thread\([0-9a-f-]{36}\)$/, 'the refused call to another thread is recorded too');
+  assert.deepEqual(recorded.tools_used.slice(1), [
+    `reply_to_coordination_thread(${item.threadId})`,
+    `interject_on_coordination_thread(${item.threadId})`,
+    `ack_coordination_item(${item.eventId})`,
+    `reply_to_coordination_thread(${item.threadId})`,
+  ]);
   const [params] = turn.seen;
   assert.equal(params.engineOverride, 'gemini');
   assert.equal(params.modelOverride, undefined, 'Gemini runs on its configured Flash model');

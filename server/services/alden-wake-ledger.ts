@@ -51,6 +51,8 @@ export interface AldenWakeTurn {
   itemKind: WakeItemKind;
   published?: PublishResult;
   notified?: boolean;
+  /** Every tool call made in this turn (wakeToolCallLabel), recorded on the attempt whatever the outcome. */
+  toolCalls?: string[];
 }
 
 export interface WakeAttempt {
@@ -68,6 +70,16 @@ export interface WakeAttempt {
 }
 
 const rowsOf = (result: any): any[] => result?.rows ?? result ?? [];
+/**
+ * Record the tool calls of a published wake turn on its attempt. The publish
+ * path decides the attempt inside the reply tool, before the turn ends, so the
+ * calls are written once the turn returns. Only this item's row is touched.
+ */
+export async function recordWakeToolCalls(itemId: string, toolCalls: readonly string[], db: Db = getSharedDb()): Promise<void> {
+  await db.execute(sql`update alden_wake_attempts set tools_used = ${jsonArray(toolCalls)}, updated_at = clock_timestamp()
+    where item_id = ${itemId}`);
+}
+
 const jsonArray = (values: readonly string[]) => sql`(select coalesce(array_agg(value), '{}') from jsonb_array_elements_text(${JSON.stringify(values)}::jsonb) as value)`;
 
 function toAttempt(row: any): WakeAttempt {

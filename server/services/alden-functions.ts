@@ -2,6 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { aldenToolRefusal, type AldenToolAllowlist } from './alden-tool-allowlist';
 import { aldenWriteToolRefusal } from './alden-write-boundary';
 import type { AldenWakeTurn } from './alden-wake-ledger';
+import { wakeToolCallLabel } from './alden-wake-rules';
 import { aldenReadablePath, aldenSearchRoots, classifyAldenReadPath, resolveAldenReadPath, secretContentReason, secretPathReason } from './alden-read-policy';
 import { getSharedDb } from "../neon-db";
 import { getUserDb, getMonitoringDb } from "../db";
@@ -1061,6 +1062,9 @@ export async function executeAldenTool(
     wakeTurn?: AldenWakeTurn;
   }
 ): Promise<{ data: any; sideEffects?: Record<string, any> }> {
+  // A wake turn records every tool call it makes, refused ones included, so a
+  // published reply's claims can be checked against what was actually called.
+  if (context?.wakeTurn) (context.wakeTurn.toolCalls ??= []).push(wakeToolCallLabel(toolName, args));
   // Per-turn allowlist: refuse before any tool code runs (both engines, nested
   // dispatch and continuations all pass through here).
   const refusal = aldenToolRefusal(toolName, context?.toolAllowlist, args);
