@@ -213,10 +213,15 @@ test('observe items: addressed items are claimed first, a reply is a steward com
   };
   await worker.runWakePass({ db, generate, env: {} });
   assert.equal(order[0], addressedThread.event.id, 'the addressed item is claimed before older observe items');
-  assert.deepEqual(order.slice(1), [quiet.id, answered.id]);
+  assert.deepEqual(order.slice(1), [answered.id], 'a watched thread wakes Alden once, for its newest waiting message');
 
   const states = Object.fromEntries((await rows(sql`select event_id, state from alden_wake_attempts where event_id in (${quiet.id}, ${answered.id})`)).map((r) => [r.event_id, r.state]));
   assert.deepEqual(states, { [quiet.id]: 'observed', [answered.id]: 'replied' });
+  const coalesced = await one(sql`select a.notes, a.decided_by, d.result, d.reason from alden_wake_attempts a
+    join alden_wake_attempt_audit d on d.item_id = a.item_id where a.event_id = ${quiet.id}`);
+  assert.match(coalesced.notes, new RegExp(`^Coalesced: a newer message on this thread \\(event ${answered.id}\\)`));
+  assert.ok(coalesced.decided_by, 'the coalescing worker is recorded');
+  assert.deepEqual([coalesced.result, coalesced.reason], ['superseded', `coalesced: newer event ${answered.id} on this thread`]);
   const reply = await one(sql`select e.event_type, e.recipient_actor from alden_wake_attempts a join coordination_events e on e.id = a.reply_event_id where a.event_id = ${answered.id}`);
   assert.deepEqual(reply, { event_type: 'steward_comment', recipient_actor: 'luca-replit' });
   assert.equal((await one(sql`select count(*)::int as c from alden_wake_notice_outbox o join alden_wake_attempts a on a.item_id = o.item_id where a.event_id = ${quiet.id}`)).c, 0, 'no notice for an observed item');
@@ -228,4 +233,22 @@ test('observe items: addressed items are claimed first, a reply is a steward com
   assert.equal(pass.stop, 'spending');
   assert.equal((await one(sql`select state from alden_wake_attempts where event_id = ${held.id}`)).state, 'eligible', 'held, not claimed');
   await db.execute(sql`delete from ai_cost_logs where id = ${cost.id}`);
+});
+
+test('messages addressed to Alden are never coalesced: two on one thread still get two turns, oldest first', async (context) => {
+  if (skipUnlessCi(context)) return;
+  const first = await ledger.createCoordinationThread({ actor: 'luca-claude-code', intendedRecipient: 'alden', title: `watch test ${runId} two addressed`,
+    description: 'the first addressed message', idempotencyKey: `watch-test:${runId}:${n++}` });
+  threads.push(first.thread.id);
+  const second = await comment(first.thread.id, 'luca-claude-code', 'the second addressed message', 'alden');
+  await wake.seedWakeAttempts(db);
+  const order: string[] = [];
+  const generate = async (params: any) => {
+    order.push(/Coordination event (\S+) on thread/.exec(params.userMessage)![1]);
+    return { response: 'ok', toolsUsed: [] };
+  };
+  await worker.runWakePass({ db, generate, env: {} });
+  assert.deepEqual(order.filter((id) => id === first.event.id || id === second.id), [first.event.id, second.id]);
+  const states = (await rows(sql`select state from alden_wake_attempts where event_id in (${first.event.id}, ${second.id})`)).map((r) => r.state);
+  assert.ok(!states.includes('observed') && !states.includes('eligible'), `both were turned, not coalesced: ${states}`);
 });
