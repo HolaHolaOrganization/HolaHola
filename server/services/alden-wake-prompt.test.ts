@@ -19,9 +19,9 @@ function returnedTemplate(fnName: string): string {
   return rules.slice(ret + '  return '.length, rules.indexOf('`;\n', ret + 10) + 1);
 }
 
-test('the three texts are byte-for-byte the ones Alden sent at seq 11', () => {
+test('the three texts are byte-for-byte Alden\'s (seq 11; the wake message\'s reading sentence from seq 15)', () => {
   assert.equal(sha256(ALDEN_WAKE_SECTION), '3696aa89b166aec5e1b941fdb501a7065a922f6486b61b99ee8e04afbf4b38b9');
-  assert.equal(sha256(returnedTemplate('buildWakeMessage')), '3ec4989a0a047b045fd288e91599b3b1b547dbb8e65bb3616227dd85118364e4');
+  assert.equal(sha256(returnedTemplate('buildWakeMessage')), 'cf6b587be2916873974e228b0dfab5e0aa634c594a1ec8d34ed77c4097ee0b6b');
   assert.equal(sha256(returnedTemplate('buildFollowUpNote')), 'd2754ded2c8e3e1425eb3adb6f1db8ba31c898dc33420319ebbbdef921fff651');
 });
 
