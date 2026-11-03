@@ -11,6 +11,7 @@ import { randomUUID } from 'node:crypto';
 import test, { after, before } from 'node:test';
 import { sql } from 'drizzle-orm';
 import { getVerifiedCiDatabaseUrl } from '../ci-database';
+import { buildFollowUpNote } from './alden-wake-rules';
 
 const url = getVerifiedCiDatabaseUrl();
 const runId = randomUUID().slice(0, 8);
@@ -218,7 +219,8 @@ test('a turn stopped on the tool-round limit gets exactly one follow-up carrying
   const turn = scripted(async (params) => {
     const eventId = /Coordination event (\S+) on thread/.exec(params.userMessage)![1];
     seen.set(eventId, [...(seen.get(eventId) ?? []), params]);
-    const followUp = params.userMessage.includes('This is your follow-up turn on this item.');
+    // The note's own opening, so a rewording of Alden's text can't silently break this check.
+    const followUp = params.userMessage.includes(buildFollowUpNote('').split('\n\n')[1]);
     if (eventId === resolves.eventId && followUp) {
       const reply = await call(params, 'reply_to_coordination_thread', { thread_id: resolves.threadId, recipient: 'luca-claude-code', content: 'Done on the follow-up. (Unattended turn.)', model: 'gemini-test' });
       assert.equal(reply.data.status, 'replied');
