@@ -319,10 +319,39 @@ export type ClaimResult =
   | { status: 'claimed'; attempt: WakeAttempt; held: number };
 
 /**
+ * On a watched thread, only the newest waiting message wakes Alden. Older
+ * eligible observe items on that thread are closed as 'observed', each with an
+ * audit row naming the newer event, and the newest item is returned to claim.
+ * Replying to an old message after newer ones had arrived was the main source
+ * of stale unattended replies (28 of 51 on 2026-11-02/03). Addressed items are
+ * never coalesced: each one still gets its own turn. Runs under the claim's
+ * advisory lock, so no other claimer can race it.
+ */
+async function coalesceWatchedThread(tx: Db, threadId: string, oldestItemId: string, workerId: string): Promise<string> {
+  const [newest] = rowsOf(await tx.execute(sql`
+    select item_id, event_id, event_global_sequence from alden_wake_attempts
+    where state = 'eligible' and item_kind = 'observe' and target_thread_id = ${threadId}
+    order by event_global_sequence desc limit 1`));
+  if (!newest || newest.item_id === oldestItemId) return oldestItemId;
+  const closed = rowsOf(await tx.execute(sql`
+    update alden_wake_attempts set state = 'observed',
+      notes = ${`Coalesced: a newer message on this thread (event ${newest.event_id}) is handled instead.`},
+      decided_by = ${workerId}, decided_at = clock_timestamp(), updated_at = clock_timestamp()
+    where state = 'eligible' and item_kind = 'observe' and target_thread_id = ${threadId}
+      and event_global_sequence < ${newest.event_global_sequence}
+    returning item_id, claim_epoch`));
+  for (const item of closed) {
+    await audit(tx, item.item_id, Number(item.claim_epoch), workerId, 'superseded', `coalesced: newer event ${newest.event_id} on this thread`);
+  }
+  return newest.item_id;
+}
+
+/**
  * Claims the next eligible item in one transaction: the wake advisory lock,
  * the emergency stop read under FOR SHARE, the spending guard, the loop
  * breaker per thread, then a CAS from eligible. Addressed items are claimed
- * before observe items, oldest first. Held items stay eligible.
+ * before observe items, oldest first; a watched thread coalesces to its newest
+ * waiting message (coalesceWatchedThread). Held items stay eligible.
  */
 export async function claimNextWakeItem(
   workerId: string,
@@ -355,7 +384,7 @@ export async function claimNextWakeItem(
     let held = 0;
     for (;;) {
       const candidates = rowsOf(await tx.execute(sql`
-        select item_id, target_thread_id from alden_wake_attempts
+        select item_id, target_thread_id, item_kind from alden_wake_attempts
         where state = 'eligible'
           and target_thread_id not in (select value from jsonb_array_elements_text(${JSON.stringify(heldThreads)}::jsonb) as value)
           and item_id not in (select value from jsonb_array_elements_text(${JSON.stringify(passed)}::jsonb) as value)
@@ -370,14 +399,17 @@ export async function claimNextWakeItem(
           if (!heldThreads.includes(candidate.target_thread_id)) heldThreads.push(candidate.target_thread_id);
           continue;
         }
+        const itemId = candidate.item_kind === 'observe'
+          ? await coalesceWatchedThread(tx, candidate.target_thread_id, candidate.item_id, workerId)
+          : candidate.item_id;
         const [row] = rowsOf(await tx.execute(sql`
           update alden_wake_attempts set state = 'claimed', claim_epoch = claim_epoch + 1, claimed_by = ${workerId},
             claimed_at = clock_timestamp(), lease_until = clock_timestamp() + make_interval(secs => ${leaseMs / 1000}),
             claim_day = (clock_timestamp() at time zone 'UTC')::date, updated_at = clock_timestamp()
-          where item_id = ${candidate.item_id} and state = 'eligible'
+          where item_id = ${itemId} and state = 'eligible'
           returning *`));
         if (row) return { status: 'claimed', attempt: toAttempt(row), held } as const;
-        passed.push(candidate.item_id);
+        passed.push(itemId);
       }
     }
     return { status: 'none', held } as const;
