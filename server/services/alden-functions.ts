@@ -3,6 +3,7 @@ import { aldenToolRefusal, type AldenToolAllowlist } from './alden-tool-allowlis
 import { aldenWriteToolRefusal } from './alden-write-boundary';
 import type { AldenWakeTurn } from './alden-wake-ledger';
 import { WAKE_REFUSED_MARK, wakeToolCallLabel, wakeToolsLine } from './alden-wake-rules';
+import { signatureRefusal } from './coordination-signature';
 import { aldenReadablePath, aldenSearchRoots, classifyAldenReadPath, resolveAldenReadPath, secretContentReason, secretPathReason } from './alden-read-policy';
 import { getSharedDb } from "../neon-db";
 import { getUserDb, getMonitoringDb } from "../db";
@@ -3215,6 +3216,8 @@ async function runAldenTool(
         if (!threadId || !recipient) return { data: { error: 'thread_id and recipient are required' } };
         if (recipient === 'alden') return { data: { error: 'recipient cannot be alden — you cannot address a reply to yourself' } };
         if (!content) return { data: { error: 'content is required' } };
+        const replySignature = signatureRefusal(content, 'alden');
+        if (replySignature) return { data: replySignature };
         if (!model) return { data: { error: 'model is required' } };
         const covers = Array.isArray(args.covers) ? args.covers.map(String).filter(Boolean) : [];
 
@@ -3294,6 +3297,8 @@ async function runAldenTool(
         if (!threadId || !recipient) return { data: { error: 'thread_id and recipient are required' } };
         if (recipient === 'alden') return { data: { error: 'recipient cannot be alden — you cannot address an interjection to yourself' } };
         if (!content) return { data: { error: 'content is required' } };
+        const interjectSignature = signatureRefusal(content, 'alden');
+        if (interjectSignature) return { data: interjectSignature };
 
         const attempt = async () => {
           const { thread } = await getCoordinationThread(threadId, 'alden');
