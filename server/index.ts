@@ -1109,6 +1109,13 @@ const listeningPromise = new Promise<void>((resolve, reject) => {
       startCentralGrantExpiryWarnings();
     }, 120000));
 
+    // +125s: Episode backup — hourly one-way copy of the episode and story arcs to
+    // the R2 bucket; the first run is 10 minutes after this (design fc90e95a, Phase B).
+    backgroundTasks.run('episode-backup', () => setTimeout(async () => {
+      const { startEpisodeBackupScheduler } = await import('./services/episode-backup-scheduler');
+      startEpisodeBackupScheduler();
+    }, 125000));
+
     // +108s: Shadow Auditor Stale-Session Reaper — suspends any active pedagogical
     // loops whose GL sessions closed without a clean stop() call (e.g., tab closed,
     // network drop). Runs every 30 minutes. Loops are marked 'suspended' so they
