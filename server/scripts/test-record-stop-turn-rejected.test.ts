@@ -11,7 +11,7 @@ import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 // @ts-expect-error -- plain ESM hook script without type declarations
-import { deliverOutbox, queueExchange, rejectedStatusMessage } from '../../.claude/hooks/record-stop-turn.mjs';
+import { deliverOutbox, queueExchange, rejectedStatusMessage, stalePendingMessage } from '../../.claude/hooks/record-stop-turn.mjs';
 import { CHANGED_CONTENT_REJECTION_EXIT, isChangedContentRejection } from './record-exchange';
 
 const HOOK = fileURLToPath(new URL('../../.claude/hooks/record-stop-turn.mjs', import.meta.url));
@@ -158,7 +158,7 @@ test('the founder-visible status names the unresolved count, and is silent when 
     assert.equal(rejectedStatusMessage(rejectedDir), null);
     writeFileSync(join(rejectedDir, 'cc-s-1.0000000000000000.json'), '{}');
     writeFileSync(join(rejectedDir, 'cc-s-2.0000000000000000.json'), '{}');
-    assert.match(rejectedStatusMessage(rejectedDir) ?? '', /^Turn recorder: 2 exchange version\(s\) were rejected/);
+    assert.match(rejectedStatusMessage(rejectedDir) ?? '', /^Turn recorder: 2 exchange version\(s\) could not be recorded .*each file states why\.$/);
   } finally { rmSync(rejectedDir, { recursive: true, force: true }); }
 });
 
@@ -192,7 +192,7 @@ test('through the real hook: an exit-3 rejection is kept aside and reported in a
     assert.deepEqual(list(b.outbox), []);
     assert.equal(list(b.rejected).length, 1);
     assert.equal(JSON.parse(readFileSync(join(b.rejected, list(b.rejected)[0]), 'utf8')).reason, REASON);
-    assert.match(JSON.parse(r.stdout).systemMessage, /1 exchange version\(s\) were rejected/);
+    assert.match(JSON.parse(r.stdout).systemMessage, /1 exchange version\(s\) could not be recorded/);
   } finally { b.done(); }
 });
 
@@ -204,5 +204,35 @@ test('through the real hook: an ordinary failure stays queued, with no systemMes
     assert.equal(list(b.outbox).length, 1);
     assert.deepEqual(list(b.rejected), []);
     assert.equal(r.stdout, '');
+  } finally { b.done(); }
+});
+
+test('a pending exchange is reported once it has waited more than an hour, and not before', () => {
+  const b = box();
+  try {
+    const now = Date.now();
+    assert.equal(stalePendingMessage(join(b.root, 'absent'), now), null);
+    queueExchange(b.outbox, item('cc-s-1', 'recent'));
+    assert.equal(stalePendingMessage(b.outbox, now), null, 'a just-queued exchange is not stale');
+    queueExchange(b.outbox, item('cc-s-2', 'stuck'));
+    const stuck = list(b.outbox).find(n => n.startsWith('cc-s-2.'))!;
+    const twoHoursAgo = (now - 2 * 60 * 60 * 1000) / 1000;
+    utimesSync(join(b.outbox, stuck), twoHoursAgo, twoHoursAgo);
+    const message = stalePendingMessage(b.outbox, now) ?? '';
+    assert.match(message, /^Turn recorder: 1 exchange\(s\) have waited more than an hour to be recorded \(oldest queued \d{4}-\d{2}-\d{2}T/);
+    assert.equal(stalePendingMessage(b.outbox, now, 3 * 60 * 60 * 1000), null, 'the threshold is respected');
+  } finally { b.done(); }
+});
+
+test('through the real hook: an exchange stuck for hours is reported even while each send just fails', () => {
+  const b = box();
+  try {
+    queueExchange(b.outbox, item('cc-old-1', 'blocked at the edge'));
+    const old = (Date.now() - 6 * 24 * 60 * 60 * 1000) / 1000;
+    for (const n of list(b.outbox)) utimesSync(join(b.outbox, n), old, old);
+    const r = runRealHook(b, 1, '[record-exchange] ERROR: Remote endpoint rejected the exchange (403): {}');
+    assert.equal(r.status, 0);
+    assert.equal(list(b.outbox).length, 2, 'the stuck exchange and the new one both stay queued');
+    assert.match(JSON.parse(r.stdout).systemMessage, /1 exchange\(s\) have waited more than an hour/);
   } finally { b.done(); }
 });
