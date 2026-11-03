@@ -225,22 +225,48 @@ function main() {
     }
   }
   deliverOutbox({ outboxDir: OUTBOX_DIR, rejectedDir: REJECTED_DIR, send: recordExchange });
-  reportRejected(REJECTED_DIR);
+  reportStatus(OUTBOX_DIR, REJECTED_DIR);
 }
 
 /**
- * While any rejected version is unresolved, say so where the founder sees it:
+ * While any version is set aside unrecorded, say so where the founder sees it:
  * a Stop hook's JSON systemMessage is shown in the session, unlike its stderr.
+ * Each kept file records its own reason (a canonical-record rejection, or a
+ * founder-approved set-aside), so the message does not assume one.
  */
 export function rejectedStatusMessage(rejectedDir) {
   const count = safeList(rejectedDir).length;
   if (!count) return null;
-  return `Turn recorder: ${count} exchange version(s) were rejected by the canonical record because it already holds different text for the same turn. They are kept, unrecorded, in .local/record-stop-turn/rejected for review.`;
+  return `Turn recorder: ${count} exchange version(s) could not be recorded and are kept, unrecorded, in .local/record-stop-turn/rejected for review; each file states why.`;
 }
 
-function reportRejected(rejectedDir) {
-  const message = rejectedStatusMessage(rejectedDir);
-  if (message) process.stdout.write(JSON.stringify({ systemMessage: message }));
+/**
+ * An exchange still pending after STALE_PENDING_MS is reported, so a delivery
+ * that fails every Stop (an expired credential, an outage, an edge block) is
+ * seen the same day. One stuck exchange went unnoticed for six days.
+ */
+export function stalePendingMessage(outboxDir, now = Date.now(), staleMs = STALE_PENDING_MS) {
+  let stale = 0;
+  let oldest = Infinity;
+  for (const name of safeList(outboxDir)) {
+    let mtime;
+    try {
+      mtime = statSync(join(outboxDir, name)).mtimeMs;
+    } catch {
+      continue; // removed by another process since the listing
+    }
+    if (now - mtime > staleMs) {
+      stale++;
+      oldest = Math.min(oldest, mtime);
+    }
+  }
+  if (!stale) return null;
+  return `Turn recorder: ${stale} exchange(s) have waited more than an hour to be recorded (oldest queued ${new Date(oldest).toISOString()}). They stay in .local/record-stop-turn/outbox and are retried at every Stop, but each try is failing.`;
+}
+
+function reportStatus(outboxDir, rejectedDir) {
+  const messages = [stalePendingMessage(outboxDir), rejectedStatusMessage(rejectedDir)].filter(Boolean);
+  if (messages.length) process.stdout.write(JSON.stringify({ systemMessage: messages.join(' ') }));
 }
 
 // Tests that run the real hook point this at a private temporary directory, so
@@ -250,6 +276,8 @@ const OUTBOX_DIR = process.env.HOLAHOLA_STOP_HOOK_OUTBOX || join(PROJECT_ROOT, '
 const REJECTED_DIR = join(dirname(OUTBOX_DIR), 'rejected');
 /** The registered Stop hook timeout is 25 s; leave room to exit cleanly. */
 const DELIVERY_BUDGET_MS = 21000;
+/** A pending exchange older than this is reported in the session. */
+const STALE_PENDING_MS = 60 * 60 * 1000;
 /** Below this, a send cannot complete in time, so it is left for the next Stop. */
 const MIN_SEND_MS = 4000;
 const PER_SEND_MAX_MS = 20000;
