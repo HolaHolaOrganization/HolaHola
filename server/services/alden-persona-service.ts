@@ -201,7 +201,7 @@ async function generateAldenResponseAnthropic(params: AldenChatParams): Promise<
       ?? await loadAldenReviewSourceReferences("anthropic", conversationId));
     const claude = getAnthropicClient();
     const model = params.modelOverride ?? ANTHROPIC_MODEL;
-    const systemPrompt = buildAldenSystemPrompt({ founderName, timezone, engine: 'anthropic', modelId: model });
+    const systemPrompt = buildAldenSystemPrompt({ founderName, timezone, engine: 'anthropic', modelId: model, mode: params.wakeTurn ? 'wake' : 'chat' });
     const anthropicTools = toAnthropicAldenTools().filter((tool) => !params.toolAllowlist || params.toolAllowlist.has(tool.name));
 
     const messages: Anthropic.MessageParam[] = [];
@@ -316,7 +316,7 @@ async function generateAldenResponseGemini(params: AldenChatParams): Promise<Ald
       ?? await loadAldenReviewSourceReferences("gemini", conversationId));
     const ai = getGeminiClient();
     const model = params.modelOverride ?? GEMINI_MODEL;
-    const systemPrompt = buildAldenSystemPrompt({ founderName, timezone, engine: 'gemini', modelId: model });
+    const systemPrompt = buildAldenSystemPrompt({ founderName, timezone, engine: 'gemini', modelId: model, mode: params.wakeTurn ? 'wake' : 'chat' });
 
     // ── Build Gemini-format history ───────────────────────────────────────────
     const history: Array<{ role: string; parts: Array<{ text: string }> }> = [];
