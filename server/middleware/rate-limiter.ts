@@ -87,6 +87,63 @@ export const strictLimiter = rateLimit({
   skip: () => process.env.NODE_ENV === 'development',
 });
 
+// Credential renewal and GitHub token minting happen after authentication,
+// so they are limited per authenticated runtime (renewal) or actor (minting)
+// rather than per IP: several hats on one machine share an IP, and one shared
+// 10/hour bucket let one hat's PR work starve every hat's renewals (founder,
+// 2026-11-03). Each route keeps its own bucket. A generous per-IP guard still
+// runs before authentication on the same routes.
+export function authenticatedRuntimeKey(req: Request): string {
+  const credential = (req as any).coordinationCredential as { actor?: string; runtimeId?: string } | undefined;
+  const actor = credential?.actor ?? (req as any).coordinationActor;
+  if (!actor) return `ip:${req.ip ?? 'unknown'}`;
+  return credential?.runtimeId ? `runtime:${actor}:${credential.runtimeId}` : `actor:${actor}`;
+}
+
+export function authenticatedActorKey(req: Request): string {
+  const actor = (req as any).coordinationActor ?? (req as any).coordinationCredential?.actor;
+  return actor ? `actor:${actor}` : `ip:${req.ip ?? 'unknown'}`;
+}
+
+const credentialLimitDefaults = {
+  windowMs: 60 * 60 * 1000,
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: rateLimitHandler,
+  validate: { keyGeneratorIpFallback: false },
+  skip: () => process.env.NODE_ENV === 'development',
+} as const;
+
+/** Before authentication on renew: per IP, sized for several runtimes on one machine. */
+export const credentialRenewIpLimiter = rateLimit({
+  ...credentialLimitDefaults,
+  max: 120,
+  message: 'Too many credential renewals from this address, please try again later',
+});
+
+/** After authentication on renew: per runtime credential. */
+export const credentialRenewLimiter = rateLimit({
+  ...credentialLimitDefaults,
+  max: 30,
+  keyGenerator: authenticatedRuntimeKey,
+  message: 'Too many credential renewals for this runtime, please try again later',
+});
+
+/** Before authentication on GitHub token minting: per IP, sized for several actors on one machine. */
+export const githubTokenIpLimiter = rateLimit({
+  ...credentialLimitDefaults,
+  max: 120,
+  message: 'Too many GitHub token requests from this address, please try again later',
+});
+
+/** After authentication on GitHub token minting: per actor. */
+export const githubTokenLimiter = rateLimit({
+  ...credentialLimitDefaults,
+  max: 40,
+  keyGenerator: authenticatedActorKey,
+  message: 'Too many GitHub token requests for this actor, please try again later',
+});
+
 export const hiveExternalLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 10,

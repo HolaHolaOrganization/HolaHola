@@ -20,7 +20,7 @@ import {
 import { requireFounder, loadAuthenticatedUser, type AuthenticatedRequest } from '../middleware/rbac';
 import { isAuthenticated } from '../replitAuth';
 import { storage } from '../storage';
-import { strictLimiter } from '../middleware/rate-limiter';
+import { githubTokenIpLimiter, githubTokenLimiter, strictLimiter } from '../middleware/rate-limiter';
 import { csrfAndSameOrigin, sessionCsrfToken } from './runtime-onboarding-routes';
 import {
   GITHUB_GRANT_ACTORS,
@@ -114,7 +114,7 @@ export function registerGithubTokenBrokerRoutes(app: Application, mintDeps?: Par
     }
   }));
 
-  app.post('/api/coordination/github-token', strictLimiter, agentGate, handle(async (req, res) => {
+  app.post('/api/coordination/github-token', githubTokenIpLimiter, agentGate, githubTokenLimiter, handle(async (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
     const actor = req.coordinationActor;
     if (!actor) {

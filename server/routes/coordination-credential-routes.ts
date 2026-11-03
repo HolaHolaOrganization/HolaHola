@@ -23,7 +23,7 @@ import {
   adminRevokeRuntimeCredentials,
   listCoordinationRuntimeRegistrations,
 } from '../services/coordination-credential-broker';
-import { strictLimiter } from '../middleware/rate-limiter';
+import { credentialRenewIpLimiter, credentialRenewLimiter, strictLimiter } from '../middleware/rate-limiter';
 import {
   COORDINATION_ACTOR_IDS,
   COORDINATION_CREDENTIAL_CAPABILITIES,
@@ -114,7 +114,7 @@ export function registerCoordinationCredentialRoutes(
     }
   });
 
-  app.post('/api/coordination/credentials/renew', strictLimiter, requireCoordinationAuth, async (req: CoordinationAuthenticatedRequest, res: Response) => {
+  app.post('/api/coordination/credentials/renew', credentialRenewIpLimiter, requireCoordinationAuth, credentialRenewLimiter, async (req: CoordinationAuthenticatedRequest, res: Response) => {
     try {
       if (req.coordinationAuthType !== 'broker' || !req.coordinationCredential) {
         res.status(403).json({ error: 'Only a broker credential can renew itself' });
