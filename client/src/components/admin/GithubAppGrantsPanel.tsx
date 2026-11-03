@@ -18,6 +18,7 @@ const AGENTS = [
   "luca-gemini",
   "luca-cursor",
   "luca-openai-agents",
+  "luca-codex",
   "alden",
 ];
 

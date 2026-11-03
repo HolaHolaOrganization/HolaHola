@@ -5,6 +5,7 @@ import { readFileSync } from 'node:fs';
 import type { GithubAppGrant } from '@shared/schema';
 import {
   AGENT_TOKEN_PERMISSIONS,
+  GITHUB_GRANT_ACTORS,
   GRANT_TRANSITIONS,
   HOLAHOLA_INSTALLATION_ACCOUNT_IDS,
   HOLAHOLA_ORGANIZATION_ACCOUNT_ID,
@@ -382,9 +383,26 @@ test('grant proposals accept only eligible agents and positive integer IDs', () 
   }
 });
 
+test('luca-codex is an eligible agent: its proposal is accepted and its own grant mints', async () => {
+  assert.deepEqual(validateGrantProposal({ actor: 'luca-codex', appId: 7, installationId: 8 }),
+    { ok: true, proposal: { actor: 'luca-codex', appId: 7, installationId: 8 } });
+  const codex = { ...AGENT, actor: 'luca-codex' };
+  const result = await mintAgentGithubToken(codex, harness({ grant: grant({ actor: 'luca-codex' }) }).deps);
+  assert.equal(result.ok, true);
+  await expectDenied(harness({ grant: grant({ actor: 'luca-codex' }) }), AGENT, 403, 'no_active_grant');
+});
+
 // ── Route wiring (static) ───────────────────────────────────────────────────
 
 const ROUTES = readFileSync(new URL('../routes/github-token-broker-routes.ts', import.meta.url), 'utf8');
+
+test('the admin grant panel offers exactly the grant-eligible actors', () => {
+  const panel = readFileSync(new URL('../../client/src/components/admin/GithubAppGrantsPanel.tsx', import.meta.url), 'utf8');
+  const list = panel.match(/const AGENTS = \[([^\]]*)\]/);
+  assert.ok(list, 'AGENTS list not found in GithubAppGrantsPanel.tsx');
+  const offered = [...list[1].matchAll(/"([^"]+)"/g)].map((m) => m[1]).sort();
+  assert.deepEqual(offered, [...GITHUB_GRANT_ACTORS].sort());
+});
 
 test('the mint route takes the principal from the credential and reads no request body', () => {
   const mint = ROUTES.slice(ROUTES.indexOf("'/api/coordination/github-token'"));

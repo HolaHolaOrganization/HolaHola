@@ -78,6 +78,7 @@ export const GITHUB_GRANT_ACTORS = [
   'luca-antigravity',
   'luca-cursor',
   'luca-openai-agents',
+  'luca-codex',
   'alden',
 ] as const;
 
