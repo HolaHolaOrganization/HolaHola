@@ -76,7 +76,7 @@ test('notices: observe items only on failure-like outcomes; addressed items on e
 test('the wake message fills the event into Alden\'s words', () => {
   const message = buildWakeMessage({ eventId: 'ev-1', threadId: 'th-1', title: 'Onboarding', actor: 'luca-codex', createdAt: '2026-10-31T09:00:00.000Z' });
   assert.ok(message.startsWith('[INBOX WAKE — David is not present] Coordination event ev-1 on thread th-1 ("Onboarding") from luca-codex, created 2026-10-31T09:00:00.000Z.'));
-  assert.ok(message.endsWith('Only items listed there count as covered, and only items on this thread from the same sender.'));
+  assert.ok(message.endsWith('Only items listed there count as covered, and only items on this thread from the same sender count.'));
 });
 
 test('outcome without a publication: failed on error, observed for observe items, needs_david only after notify', () => {
