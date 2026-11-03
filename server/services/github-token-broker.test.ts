@@ -382,6 +382,15 @@ test('grant proposals accept only eligible agents and positive integer IDs', () 
   }
 });
 
+test('luca-codex is an eligible agent: its proposal is accepted and its own grant mints', async () => {
+  assert.deepEqual(validateGrantProposal({ actor: 'luca-codex', appId: 7, installationId: 8 }),
+    { ok: true, proposal: { actor: 'luca-codex', appId: 7, installationId: 8 } });
+  const codex = { ...AGENT, actor: 'luca-codex' };
+  const result = await mintAgentGithubToken(codex, harness({ grant: grant({ actor: 'luca-codex' }) }).deps);
+  assert.equal(result.ok, true);
+  await expectDenied(harness({ grant: grant({ actor: 'luca-codex' }) }), AGENT, 403, 'no_active_grant');
+});
+
 // ── Route wiring (static) ───────────────────────────────────────────────────
 
 const ROUTES = readFileSync(new URL('../routes/github-token-broker-routes.ts', import.meta.url), 'utf8');
