@@ -29,6 +29,7 @@ import {
 } from '@shared/schema';
 import { getSharedDb } from '../db';
 import { replyToAgentNoteAndVerifyInTransaction } from './agent-notes';
+import { signatureRefusal } from './coordination-signature';
 
 const ACTOR_SET = new Set<string>(COORDINATION_ACTOR_IDS);
 const EVENT_TYPE_SET = new Set<string>(COORDINATION_EVENT_TYPES);
@@ -83,6 +84,14 @@ function assertCoordinationActorCanCreate(actor: CoordinationActorId): void {
       403,
       'operation_not_allowed',
     );
+  }
+}
+
+/** A message may not open signed as someone other than its poster (coordination-signature.ts). */
+function assertSignatureMatchesActor(actor: CoordinationActorId, ...texts: string[]): void {
+  for (const text of texts) {
+    const refusal = signatureRefusal(text, actor);
+    if (refusal) throw new CoordinationError(refusal.error, 422, refusal.refused, { signedAs: refusal.signedAs });
   }
 }
 
@@ -519,6 +528,7 @@ export async function createCoordinationThread(
     throw new CoordinationError('Invalid origin actor', 400, 'invalid_actor');
   }
   assertCoordinationActorCanCreate(input.actor);
+  assertSignatureMatchesActor(input.actor, input.description, input.content);
   if (!isCoordinationActorId(input.intendedRecipient) || input.intendedRecipient === 'coordination-system') {
     throw new CoordinationError('Invalid intended recipient', 400, 'invalid_actor');
   }
@@ -619,6 +629,7 @@ export async function appendCoordinationEvent(
   if (!isCoordinationActorId(input.actor)) {
     throw new CoordinationError('Invalid actor', 400, 'invalid_actor');
   }
+  assertSignatureMatchesActor(input.actor, input.content);
   if (!isCoordinationEventType(input.eventType)) {
     throw new CoordinationError('Invalid event type', 400, 'invalid_event_type');
   }
@@ -849,6 +860,7 @@ export async function completeWithLinkedOutcome(
   if (!isCoordinationActorId(input.actor)) {
     throw new CoordinationError('Invalid actor', 400, 'invalid_actor');
   }
+  assertSignatureMatchesActor(input.actor, input.content, input.reply.body);
   if (!Number.isInteger(input.expectedSequence) || input.expectedSequence < 1) {
     throw new CoordinationError('expectedSequence must be a positive integer', 400, 'invalid_sequence');
   }
