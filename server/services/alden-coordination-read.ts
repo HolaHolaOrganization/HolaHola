@@ -4,7 +4,10 @@ import type { listCoordinationInbox } from "./coordination-inbox-service";
 import { ALDEN_TOOL_RESULT_LIMIT, serializeAldenToolResult } from "./alden-tool-result";
 
 export const ALDEN_INBOX_PAGE_SIZE = 5;
-export const ALDEN_MESSAGE_CHUNK_SIZE = 1000;
+// Most messages fit in one read. It was 1000, which cost a 16-round wake turn
+// 3–8 rounds per ordinary message (founder, 2026-11-03). A chunk still shrinks
+// below this when escaping would push the result past ALDEN_TOOL_RESULT_LIMIT.
+export const ALDEN_MESSAGE_CHUNK_SIZE = 8000;
 
 function integer(value: unknown, fallback: number, min: number): number {
   if (value === undefined) return fallback;
@@ -112,23 +115,33 @@ export async function readAldenCoordinationMessage(
   if (offset > source.length || surrogateBoundary(source, offset) !== offset) {
     throw new Error("invalid_request: offset is outside the message or splits a surrogate pair");
   }
-  const end = surrogateBoundary(source, Math.min(source.length, offset + ALDEN_MESSAGE_CHUNK_SIZE));
-  const complete = end === source.length;
-  const data = {
-    threadId,
-    eventId,
-    from: event.actor,
-    recipient: event.recipientActor,
-    eventType: event.eventType,
-    sequence: event.sequence,
-    globalSequence: event.globalSequence,
-    content: source.slice(offset, end),
-    offset,
-    nextOffset: complete ? null : end,
-    totalCharacters: source.length,
-    contentSha256: sha256(source),
-    complete,
+  const build = (end: number) => {
+    const complete = end === source.length;
+    return {
+      threadId,
+      eventId,
+      from: event.actor,
+      recipient: event.recipientActor,
+      eventType: event.eventType,
+      sequence: event.sequence,
+      globalSequence: event.globalSequence,
+      content: source.slice(offset, end),
+      offset,
+      nextOffset: complete ? null : end,
+      totalCharacters: source.length,
+      contentSha256: sha256(source),
+      complete,
+    };
   };
+  let data = build(surrogateBoundary(source, Math.min(source.length, offset + ALDEN_MESSAGE_CHUNK_SIZE)));
+  if (JSON.stringify(data).length > ALDEN_TOOL_RESULT_LIMIT) {
+    // Escaping expanded the chunk: keep the largest prefix whose escaped form
+    // fits beside the rest of the result. The envelope is measured with the
+    // widest nextOffset, so the final result can only be shorter.
+    const envelope = JSON.stringify({ ...data, content: "", nextOffset: source.length }).length;
+    const prefix = jsonPrefix(data.content, ALDEN_TOOL_RESULT_LIMIT - envelope);
+    data = build(offset + prefix.length);
+  }
   serializeAldenToolResult("read_coordination_message", data);
   return data;
 }

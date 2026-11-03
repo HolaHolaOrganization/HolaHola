@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { listAldenCoordinationInbox, readAldenCoordinationMessage } from "../services/alden-coordination-read";
+import { ALDEN_MESSAGE_CHUNK_SIZE, listAldenCoordinationInbox, readAldenCoordinationMessage } from "../services/alden-coordination-read";
 import { aldenCoordinationReadReceipt, aldenWatchToolResultContent, serializeAldenToolResult, ALDEN_TOOL_RESULT_LIMIT } from "../services/alden-tool-result";
 import type { listCoordinationInbox } from "../services/coordination-inbox-service";
 import type { getCoordinationThread } from "../services/coordination-ledger-service";
@@ -163,9 +163,23 @@ test("empty message terminates and a chunk boundary never splits an emoji", asyn
   assert.equal(empty.nextOffset, null);
   const first = await readAldenCoordinationMessage({
     thread_id: "thread", event_id: "event-1",
-  }, getFixture("a".repeat(999) + "🙂tail"));
-  assert.equal(first.nextOffset, 999);
-  assert.equal(first.content, "a".repeat(999));
+  }, getFixture("a".repeat(ALDEN_MESSAGE_CHUNK_SIZE - 1) + "🙂tail"));
+  assert.equal(first.nextOffset, ALDEN_MESSAGE_CHUNK_SIZE - 1);
+  assert.equal(first.content, "a".repeat(ALDEN_MESSAGE_CHUNK_SIZE - 1));
+});
+
+test("an ordinary message is read in one call, and an escape-heavy chunk shrinks to fit the result limit", async () => {
+  // A 7,400-character message (the size of a long colleague message) used to take 8 calls.
+  const prose = "Alden reads this whole message in one call. ".repeat(168);
+  const whole = await readAldenCoordinationMessage({ thread_id: "thread", event_id: "event-1" }, getFixture(prose));
+  assert.equal(whole.complete, true);
+  assert.equal(whole.content, prose);
+  // Control characters escape six-fold, so the chunk must shrink, but never to nothing.
+  const heavy = "\u0001".repeat(ALDEN_MESSAGE_CHUNK_SIZE);
+  const chunk = await readAldenCoordinationMessage({ thread_id: "thread", event_id: "event-1" }, getFixture(heavy));
+  assert.ok(serializeAldenToolResult("read_coordination_message", chunk).length <= ALDEN_TOOL_RESULT_LIMIT);
+  assert.ok(chunk.content.length > 1000 && chunk.content.length < ALDEN_MESSAGE_CHUNK_SIZE, `chunk ${chunk.content.length}`);
+  assert.equal(chunk.nextOffset, chunk.content.length);
 });
 
 test("oversized structured results fail closed; unrelated tools retain existing behavior", () => {
