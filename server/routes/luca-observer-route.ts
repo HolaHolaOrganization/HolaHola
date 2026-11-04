@@ -307,6 +307,7 @@ export function registerLucaObserverRoute({
           sources: (observation.visionSources ?? []).map(v => ({
             source: v.source,
             frames: v.frames,
+            oversizedFrames: v.oversizedFrames,
             lastFrameAt: new Date(v.lastFrameMs).toISOString(),
             secsAgo: Math.round((Date.now() - v.lastFrameMs) / 1000),
           })),

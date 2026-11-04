@@ -9,6 +9,8 @@ import {
   getObservation,
   getVisionFrame,
   heldVisionFrameConversations,
+  MAX_SHOWN_IMAGE_URL_CHARS,
+  MAX_VISION_FRAME_BASE64_CHARS,
   OBSERVED_PAYLOAD_CHARS,
   observeModelAndUsage,
   observeOutboundVisuals,
@@ -124,4 +126,16 @@ test('an ended session expires after the retention window', (t) => {
   t.after(() => { Date.now = realNow; });
   Date.now = () => realNow() + ENDED_RETENTION_MS + 1000;
   assert.equal(getEndedObservation(id), null);
+});
+
+test('an oversized frame is counted but its bytes are not held; a huge inline image URL is clipped', () => {
+  const id = start();
+  observeVisionFrame(id, 'webcam', 'c21hbGw=');
+  observeVisionFrame(id, 'webcam', 'x'.repeat(MAX_VISION_FRAME_BASE64_CHARS + 1));
+  assert.equal(getVisionFrame(id, 'webcam')!.base64Jpeg, 'c21hbGw=', 'the last frame that fit is still served');
+  assert.deepEqual(getObservation(id)!.visionSources.map((v) => [v.frames, v.oversizedFrames]), [[2, 1]]);
+  observeOutboundVisuals(id, { type: 'show', imageUrl: 'data:image/png;base64,' + 'A'.repeat(MAX_SHOWN_IMAGE_URL_CHARS * 3) });
+  const url = getObservation(id)!.shownVisuals[0].imageUrl;
+  assert.ok(url.length < MAX_SHOWN_IMAGE_URL_CHARS + 40);
+  assert.match(url, /\[clipped, \d+ chars\]$/);
 });

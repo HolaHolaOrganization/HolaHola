@@ -45,6 +45,10 @@ export interface VisionFrame {
 
 /** Bound on each observed payload, so one large tool result cannot bloat the snapshot. */
 export const OBSERVED_PAYLOAD_CHARS = 4000;
+/** A frame larger than this (base64 characters, about 1.5 MB of JPEG) is counted but its bytes are not held. */
+export const MAX_VISION_FRAME_BASE64_CHARS = 2 * 1024 * 1024;
+/** Image URLs can be inline data: URLs; keep at most this much of one. */
+export const MAX_SHOWN_IMAGE_URL_CHARS = 2000;
 
 function clipJson(value: unknown): string {
   let text: string;
@@ -183,7 +187,7 @@ export interface SessionObservation {
   /** Images Daniela showed the student (last 20). */
   shownVisuals: ShownVisualRecord[];
   /** When each vision source last delivered a frame; the frames themselves are held apart from the snapshot. */
-  visionSources: { source: 'webcam' | 'screen'; lastFrameMs: number; frames: number }[];
+  visionSources: { source: 'webcam' | 'screen'; lastFrameMs: number; frames: number; oversizedFrames: number }[];
   /** The Gemini Live model this session connected with. */
   model: string | null;
   /** The newest usageMetadata Gemini Live reported (token counts). */
@@ -352,7 +356,8 @@ export function observeOutboundVisuals(conversationId: string | undefined, messa
       if (IMAGE_URL_KEYS.has(key) && typeof value === 'string' && value && !seen.has(value)) {
         seen.add(value);
         const labelKey = LABEL_KEYS.find((k) => typeof record[k] === 'string' && record[k]);
-        found.push({ ts: now(), messageType, imageUrl: value, label: labelKey ? String(record[labelKey]).slice(0, 200) : null });
+        const imageUrl = value.length > MAX_SHOWN_IMAGE_URL_CHARS ? `${value.slice(0, MAX_SHOWN_IMAGE_URL_CHARS)}… [clipped, ${value.length} chars]` : value;
+        found.push({ ts: now(), messageType, imageUrl, label: labelKey ? String(record[labelKey]).slice(0, 200) : null });
       } else if (value && typeof value === 'object') {
         visit(value, depth + 1);
       }
@@ -374,13 +379,16 @@ export function observeVisionFrame(conversationId: string | undefined, source: V
   const entry = touch(conversationId);
   if (!entry) return;
   const ts = now();
-  const frames = visionFrames.get(conversationId) ?? {};
-  frames[source] = { source, ts, base64Jpeg };
-  frames.latest = source;
-  visionFrames.set(conversationId, frames);
+  const oversized = base64Jpeg.length > MAX_VISION_FRAME_BASE64_CHARS;
+  if (!oversized) {
+    const frames = visionFrames.get(conversationId) ?? {};
+    frames[source] = { source, ts, base64Jpeg };
+    frames.latest = source;
+    visionFrames.set(conversationId, frames);
+  }
   const prior = entry.visionSources.find((v) => v.source === source);
   entry.visionSources = [
-    { source, lastFrameMs: ts, frames: (prior?.frames ?? 0) + 1 },
+    { source, lastFrameMs: ts, frames: (prior?.frames ?? 0) + 1, oversizedFrames: (prior?.oversizedFrames ?? 0) + (oversized ? 1 : 0) },
     ...entry.visionSources.filter((v) => v.source !== source),
   ];
   entry.lastUpdatedMs = ts;
