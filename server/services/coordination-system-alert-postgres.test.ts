@@ -10,7 +10,7 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import test, { after, before } from 'node:test';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { coordinationEvents, coordinationThreads } from '@shared/schema';
 import { getVerifiedCiDatabaseUrl } from '../ci-database';
 
@@ -50,6 +50,12 @@ before(async () => {
   db = await import('../db');
   ledger = await import('./coordination-ledger-service');
   CHANNEL = [...ledger.SYSTEM_ALERT_CHANNEL_THREAD_IDS][0];
+  // A fresh CI database seeds the inbox as 'preparing', which pauses recipient-addressed writes.
+  const inbox = await import('./coordination-inbox-service');
+  process.env.COORDINATION_INBOX_TOKEN_SECRET ??= 'w'.repeat(32);
+  await getSharedDb().execute(sql`insert into coordination_inbox_activation (id, schema_version, recipient_rule_version, state)
+    values (${inbox.COORDINATION_INBOX_ACTIVATION_ID}, ${inbox.COORDINATION_INBOX_SCHEMA_VERSION}, ${inbox.COORDINATION_INBOX_RECIPIENT_RULE_VERSION}, 'active')
+    on conflict (id) do update set state = 'active', schema_version = excluded.schema_version, recipient_rule_version = excluded.recipient_rule_version`);
   await getSharedDb().delete(coordinationThreads).where(eq(coordinationThreads.id, CHANNEL));
   await getSharedDb().insert(coordinationThreads).values({
     id: CHANNEL, title: 'Episode backup alerts (test copy)', description: 'test', originActor: 'luca-claude-code',
