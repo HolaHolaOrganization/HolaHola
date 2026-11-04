@@ -96,6 +96,7 @@ commands.splice(safetyInsertion, 0,
   'npx tsx --test server/services/episode-ordered-merge.test.ts server/services/episode-ordered-merge-postgres.test.ts',
   'npx tsx --test server/services/episode-backup.test.ts server/services/episode-backup-scheduler.test.ts',
   'npx tsx --test server/services/coordination-system-alert-postgres.test.ts',
+  'npx tsx --test server/services/session-observation-store-visibility.test.ts',
   'npx tsx --test server/services/alden-propose-fix-schema-postgres.test.ts server/services/alden-propose-fix-postgres.test.ts server/services/alden-tool-profiles-postgres.test.ts server/services/alden-wake-schema-postgres.test.ts',
   'npx tsx --test server/services/alden-wake-rules.test.ts server/services/alden-wake-profile.test.ts server/services/alden-founder-present.test.ts server/services/alden-wake-prompt.test.ts server/services/coordination-signature.test.ts server/services/credential-rate-limits.test.ts',
   // Its own command: a wake claim takes the oldest eligible Alden item globally.
