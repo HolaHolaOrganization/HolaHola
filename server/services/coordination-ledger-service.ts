@@ -334,6 +334,9 @@ function assertParticipant(
   // outcome_acknowledged/reassigned/comment stay exactly as participant-gated
   // as every other actor's. See docs/alden-steward-role-design.md section 3.2.
   if (actor === 'alden' && (eventType === undefined || eventType === 'steward_comment')) return;
+  // A system alert channel addresses several hats who are not its participants;
+  // any of them may read it. Writing to it stays participant-gated.
+  if (eventType === undefined && SYSTEM_ALERT_CHANNEL_THREAD_IDS.has(thread.id)) return;
   if (
     actor !== thread.originActor
     && actor !== thread.intendedRecipient

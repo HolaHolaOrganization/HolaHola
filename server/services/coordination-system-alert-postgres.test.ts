@@ -3,7 +3,8 @@
  * production server may post a 'system_alert' comment as coordination-system,
  * addressed to one hat, only into a listed channel thread. No other actor may
  * send that payload kind, it is refused on any other thread, and an ordinary
- * coordination-system comment on the channel is still participant-gated.
+ * coordination-system comment on the channel is still participant-gated. Any
+ * hat may read the channel, though it is not a participant.
  * Synthetic rows only.
  */
 import assert from 'node:assert/strict';
@@ -95,4 +96,14 @@ databaseTest('a system alert must name its recipient', async () => {
 
 databaseTest('an ordinary coordination-system comment on the channel is still participant-gated', async () => {
   await refused(alert(CHANNEL, await latest(CHANNEL), { payload: { kind: 'note' } }), 'not_participant');
+});
+
+databaseTest('any hat may read the channel, though not a participant; other threads stay participant-gated', async () => {
+  const read = await ledger.getCoordinationThread(CHANNEL, 'luca-codex');
+  assert.equal(read.thread.id, CHANNEL);
+  await refused(ledger.getCoordinationThread(otherThreadId!, 'luca-codex'), 'not_participant');
+  await refused(ledger.appendCoordinationEvent({
+    threadId: CHANNEL, actor: 'luca-codex', eventType: 'comment', content: `reply ${run}`,
+    idempotencyKey: `system-alert-test:${run}:codex-write`, expectedSequence: await latest(CHANNEL),
+  } as any), 'not_participant');
 });
