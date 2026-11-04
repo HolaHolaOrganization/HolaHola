@@ -207,6 +207,10 @@ export interface SessionObservation {
 }
 
 const store = new Map<string, SessionObservation>();
+/** How long an ended session stays readable (explicitly, with includeEnded) after the call ends. */
+export const ENDED_RETENTION_MS = 30 * 60 * 1000;
+/** Sessions that ended normally, kept briefly so the hats can finish reading after David hangs up. */
+const ended = new Map<string, { observation: SessionObservation; endedAtMs: number }>();
 /** Latest frame per source, per conversation. Kept out of SessionObservation so a snapshot never carries image bytes. */
 const visionFrames = new Map<string, Partial<Record<VisionFrame['source'], VisionFrame>> & { latest?: VisionFrame['source'] }>();
 
@@ -283,6 +287,7 @@ export function observeSessionStart(opts: {
     },
   });
   if (!sameSession) visionFrames.delete(opts.conversationId);
+  ended.delete(opts.conversationId);
 }
 
 export function observeActflUpdate(conversationId: string, level: string | null): void {
@@ -576,8 +581,24 @@ export function observeSessionEnd(
       return;
     }
   }
+  const entry = store.get(conversationId);
+  if (entry) ended.set(conversationId, { observation: entry, endedAtMs: now() });
   store.delete(conversationId);
   visionFrames.delete(conversationId);
+}
+
+/**
+ * A session that ended within ENDED_RETENTION_MS, with when it ended. Its vision
+ * frames are already gone; everything else is as it was at hang-up.
+ */
+export function getEndedObservation(conversationId: string): { observation: SessionObservation; endedAtMs: number } | null {
+  const record = ended.get(conversationId);
+  if (!record) return null;
+  if (now() - record.endedAtMs > ENDED_RETENTION_MS) {
+    ended.delete(conversationId);
+    return null;
+  }
+  return record;
 }
 
 export function getObservation(conversationId: string): SessionObservation | null {

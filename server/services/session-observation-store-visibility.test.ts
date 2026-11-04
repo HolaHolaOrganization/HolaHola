@@ -4,6 +4,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  ENDED_RETENTION_MS,
+  getEndedObservation,
   getObservation,
   getVisionFrame,
   heldVisionFrameConversations,
@@ -99,4 +101,27 @@ test('nothing is recorded for a conversation that is not being observed', () => 
   observeOutboundVisuals('not-observed', { imageUrl: 'https://img.example/x.jpg' });
   assert.equal(getObservation('not-observed'), null);
   assert.equal(getVisionFrame('not-observed'), null);
+});
+
+test('after hang-up the session stays readable as ended (frames gone), and a new session clears it', () => {
+  const id = start();
+  observeToolCall(id, 'recall', undefined, { q: 'Wayne' });
+  observeVisionFrame(id, 'webcam', 'ZnJhbWU=');
+  observeSessionEnd(id);
+  assert.equal(getObservation(id), null, 'the live projection is gone, as before');
+  const ended = getEndedObservation(id);
+  assert.ok(ended, 'but the ended session is still readable');
+  assert.equal(ended!.observation.recentToolCalls[0].args, '{"q":"Wayne"}');
+  assert.equal(getVisionFrame(id), null, 'its frames were released at hang-up');
+  observeSessionStart({ conversationId: id, dbSessionId: 'next', transientSessionId: 'next', userId: 'u', language: 'en', actflLevel: null });
+  assert.equal(getEndedObservation(id), null, 'a new session replaces the ended one');
+});
+
+test('an ended session expires after the retention window', (t) => {
+  const id = start();
+  observeSessionEnd(id);
+  const realNow = Date.now;
+  t.after(() => { Date.now = realNow; });
+  Date.now = () => realNow() + ENDED_RETENTION_MS + 1000;
+  assert.equal(getEndedObservation(id), null);
 });

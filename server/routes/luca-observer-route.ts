@@ -51,6 +51,7 @@ export function registerLucaObserverRoute({
     try {
       const {
         getAllActiveObservations,
+        getEndedObservation,
         getObservation,
         getContextLineageObservationAvailability,
       } = await import('../services/session-observation-store');
@@ -60,6 +61,16 @@ export function registerLucaObserverRoute({
       let observation = conversationId
         ? getObservation(conversationId)
         : getAllActiveObservations().sort((a, b) => b.lastUpdatedMs - a.lastUpdatedMs)[0] ?? null;
+      // After David hangs up, a hat that asks for this exact conversation with
+      // ?includeEnded=1 can keep reading it for ENDED_RETENTION_MS.
+      let endedAtMs: number | null = null;
+      if (!observation && conversationId && req.query.includeEnded === '1') {
+        const endedRecord = getEndedObservation(conversationId);
+        if (endedRecord) {
+          observation = endedRecord.observation;
+          endedAtMs = endedRecord.endedAtMs;
+        }
+      }
 
       const { sql: rawSql } = await import('drizzle-orm');
       const obsDb = getSharedDb();
@@ -219,8 +230,43 @@ export function registerLucaObserverRoute({
       }
       const guardianEvidence = projectGuardianEvidence(guardianRows, guardianSession);
 
+      // Every pipeline event for this session (barge-ins, audio resets, ghost-turn
+      // suppressions, tool-call rows, ...), newest 40, not only Guardian fires.
+      const sessionIds = [observation.dbSessionId, observation.transientSessionId].filter((id): id is string => Boolean(id));
+      const pipelineResult = sessionIds.length
+        ? await obsDb.execute(rawSql`
+            SELECT id, event_type, event_data, created_at
+            FROM voice_pipeline_events
+            WHERE session_id IN (SELECT value FROM jsonb_array_elements_text(${JSON.stringify(sessionIds)}::jsonb) AS value)
+            ORDER BY created_at DESC
+            LIMIT 40`)
+        : { rows: [] };
+      const clip = (value: unknown, max: number) => {
+        const text = typeof value === 'string' ? value : JSON.stringify(value ?? null);
+        return text.length > max ? `${text.slice(0, max)}… [clipped, ${text.length} chars]` : text;
+      };
+      const recentPipelineEvents = (((pipelineResult as any).rows ?? []) as any[]).reverse().map(row => ({
+        id: row.id,
+        eventType: row.event_type,
+        at: row.created_at,
+        data: clip(row.event_data, 1000),
+      }));
+
+      // The text the ledger recorded for each observed lineage event (ledger ON only).
+      const lineageIds = (observation.contextLineage?.events ?? []).map(event => event.id);
+      const payloadResult = lineageIds.length
+        ? await obsDb.execute(rawSql`
+            SELECT id, payload_text
+            FROM context_lineage_events
+            WHERE id IN (SELECT value FROM jsonb_array_elements_text(${JSON.stringify(lineageIds)}::jsonb) AS value)`)
+        : { rows: [] };
+      const lineagePayloads = new Map<string, string | null>(
+        (((payloadResult as any).rows ?? []) as any[]).map(row => [row.id, row.payload_text == null ? null : clip(row.payload_text, 2000)]),
+      );
+
       res.json({
-        status: 'active',
+        status: endedAtMs === null ? 'active' : 'ended',
+        endedAt: endedAtMs === null ? null : new Date(endedAtMs).toISOString(),
         elapsedMin,
         conversationId: observation.conversationId,
         dbSessionId: observation.dbSessionId,
@@ -296,6 +342,7 @@ export function registerLucaObserverRoute({
           carryForwardInjectedCount: observation.guardianFireLog.filter(f => f.path === 'carry-forward-injected').length,
         },
         guardianEvidence,
+        recentPipelineEvents,
         // Exact evidence chain for grounding interventions. These are not inferred
         // "heard/missed" labels: each timeline names what the system observed.
         guardianAttemptTimeline: (observation.guardianAttempts ?? []).slice(-10).map(attempt => ({
@@ -359,6 +406,7 @@ export function registerLucaObserverRoute({
             deliveryStatus: event.deliveryStatus,
             studentTurnEpoch: event.studentTurnEpoch,
             payloadSha256: event.payloadSha256,
+            payloadText: lineagePayloads.get(event.id) ?? null,
             observedAt: event.observedAt,
           })),
           links: (lineage?.links ?? []).map(link => ({
