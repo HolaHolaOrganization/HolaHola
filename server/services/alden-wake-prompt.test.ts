@@ -19,10 +19,11 @@ function returnedTemplate(fnName: string): string {
   return rules.slice(ret + '  return '.length, rules.indexOf('`;\n', ret + 10) + 1);
 }
 
-test('the three texts are byte-for-byte Alden\'s (seq 11; the wake message\'s reading sentence from seq 15)', () => {
+test('the texts are byte-for-byte Alden\'s (seq 11; the wake message\'s reading sentence from seq 15; the watched-thread note and the follow-up\'s last sentence from 48d10847 seq 50)', () => {
   assert.equal(sha256(ALDEN_WAKE_SECTION), '3696aa89b166aec5e1b941fdb501a7065a922f6486b61b99ee8e04afbf4b38b9');
   assert.equal(sha256(returnedTemplate('buildWakeMessage')), 'cf6b587be2916873974e228b0dfab5e0aa634c594a1ec8d34ed77c4097ee0b6b');
-  assert.equal(sha256(returnedTemplate('buildFollowUpNote')), 'd2754ded2c8e3e1425eb3adb6f1db8ba31c898dc33420319ebbbdef921fff651');
+  assert.equal(sha256(returnedTemplate('buildFollowUpNote')), '0b07a6505ad88145e6774b7322b1143c0a0c4432359b026b60aa5251aec858e8');
+  assert.equal(sha256(returnedTemplate('buildWatchedThreadNote')), 'e8310501f6f3ddefae0485cedfb1ddc867b4e8296be488fc528cae51550c8bb2');
 });
 
 test('wake mode keeps identity, runtime and style, adds the wake section and drops the chat-only guidance', () => {
