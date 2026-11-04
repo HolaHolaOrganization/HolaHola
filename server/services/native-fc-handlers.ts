@@ -212,7 +212,7 @@ export class NativeFunctionCallHandler {
   async handle(sessionId: string, session: StreamingSession, fn: ExtractedFunctionCall): Promise<void> {
     console.log(`[Native Function Call] Processing: ${fn.name} -> ${fn.legacyType}`);
     const _convId = (session as any).conversationId as string | undefined;
-    if (_convId) observeToolCall(_convId, fn.name);
+    if (_convId) observeToolCall(_convId, fn.name, undefined, fn.args);
     
     const fnText = (fn.args.text || fn.args.spoken_text) as string | undefined;
     if (fnText && fnText.includes('**')) {

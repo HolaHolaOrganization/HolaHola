@@ -5239,7 +5239,7 @@ ${lastNote.tutorNotes}`);
           if (!isAuthenticated || !session) break;
           const videoMsg = message as { type: 'video_frame'; data: string; source: 'webcam' | 'screen' };
           if (geminiLiveSession && videoMsg.data) {
-            geminiLiveSession.sendVideoFrame(videoMsg.data);
+            geminiLiveSession.sendVideoFrame(videoMsg.data, videoMsg.source === 'screen' ? 'screen' : 'webcam');
           }
           break;
         }

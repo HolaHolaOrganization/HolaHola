@@ -64,6 +64,10 @@ import {
   observeContextLineageEvent,
   observeContextLineageHealth,
   observeContextLineageLink,
+  observeModelAndUsage,
+  observeOutboundVisuals,
+  observeToolResults,
+  observeVisionFrame,
 } from './session-observation-store';
 import {
   ContextLineageRecorder,
@@ -1019,9 +1023,16 @@ export class GeminiLiveSession {
     private session: StreamingSession,
     private sendWsMessage: (ws: any, message: any, session?: any) => void,
   ) {
-    this.enrichment = new PostResponseEnrichmentService(storage as unknown as IStorage, sendWsMessage);
+    // Read-only tap: every image Daniela puts on the student's screen also
+    // reaches the hats' observer. Observation never blocks or alters delivery.
+    const deliver = sendWsMessage;
+    this.sendWsMessage = (ws: any, message: any, s?: any) => {
+      try { observeOutboundVisuals(this.session.conversationId, message); } catch { /* observation only */ }
+      deliver(ws, message, s);
+    };
+    this.enrichment = new PostResponseEnrichmentService(storage as unknown as IStorage, this.sendWsMessage);
     this.fcHandler = new NativeFunctionCallHandler(
-      sendWsMessage,
+      this.sendWsMessage,
       (_ws: any, code: string, message: string, _recoverable: boolean) => {
         console.error(`[GeminiLive] FC error: ${code} — ${message}`);
       },
@@ -1675,6 +1686,7 @@ LEXICAL CONSTRAINT: Do not use regional slang, fillers, or interjections from yo
         language: this.session.targetLanguage ?? null,
         actflLevel: this.session.studentActflLevel ?? null,
       });
+      observeModelAndUsage(this.session.conversationId, { model: (this.session as any).glModel || GEMINI_LIVE_MODEL });
     }
     // Instantiation is local-only and performs no I/O. It keeps an enabled
     // Observation Bench honest even before the first student utterance arrives.
@@ -1779,13 +1791,15 @@ LEXICAL CONSTRAINT: Do not use regional slang, fillers, or interjections from yo
    * The model receives the frame as ambient visual context; no system prompt
    * scripting — Daniela decides what to do with what she sees.
    */
-  sendVideoFrame(base64Jpeg: string): void {
+  sendVideoFrame(base64Jpeg: string, source: 'webcam' | 'screen' = 'webcam'): void {
     if (!this.liveSession || this.isStopped) return;
     try {
       this.liveSession.sendRealtimeInput({
         video: { data: base64Jpeg, mimeType: 'image/jpeg' },
       } as any);
       this.videoFramesSent++;
+      // The hats see the same frame Daniela was just sent (memory only, never stored).
+      observeVisionFrame(this.session.conversationId, source, base64Jpeg);
     } catch (err) {
       // Non-fatal — log and continue; audio must not be affected
       console.warn('[GeminiLive] sendVideoFrame error (non-fatal):', (err as Error).message);
@@ -3903,6 +3917,7 @@ LEXICAL CONSTRAINT: Do not use regional slang, fillers, or interjections from yo
       const usageMeta = (msg as any)?.usageMetadata;
       if (usageMeta) {
         console.log(`[GeminiLive] generationComplete usageMetadata: ${JSON.stringify(usageMeta)}`);
+        observeModelAndUsage(this.session.conversationId, { usage: usageMeta });
         voiceTelemetry.log(this.session.id, String(this.session.userId ?? ''), 'gl_usage_metadata', {
           turnId: this.currentTurnId,
           promptTokenCount: usageMeta.promptTokenCount ?? null,
@@ -5421,6 +5436,7 @@ LEXICAL CONSTRAINT: Do not use regional slang, fillers, or interjections from yo
           // the turn is resolved regardless of what happens to the connection next.
           this.pendingFunctionCallIds = [];
           this.liveSession.sendToolResponse({ functionResponses: responses });
+          observeToolResults(this.session.conversationId, responses as any[]);
           const directSendEventId = this._recordDirectLineageAttempt({
             traceId: toolCallTraceId ?? undefined,
             studentTurnEpoch: toolCallStudentTurnEpoch,

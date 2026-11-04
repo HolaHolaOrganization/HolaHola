@@ -11,6 +11,51 @@ export interface ToolCallRecord {
   name: string;
   ts: number;
   note?: string;
+  /** The call's arguments as JSON, clipped to OBSERVED_PAYLOAD_CHARS. */
+  args?: string;
+}
+
+/** What went back to Gemini Live for one function call, clipped to OBSERVED_PAYLOAD_CHARS. */
+export interface ToolResultRecord {
+  name: string;
+  ts: number;
+  callId: string | null;
+  response: string;
+}
+
+/** An image Daniela put on the student's screen (whiteboard, scene, vocabulary card, ...). */
+export interface ShownVisualRecord {
+  ts: number;
+  /** The client message type that carried it, e.g. 'whiteboard_update'. */
+  messageType: string;
+  imageUrl: string;
+  label: string | null;
+}
+
+/**
+ * The newest frame of what Daniela is shown through the student's webcam or
+ * screen share. Held in memory only, for the live session: never written to
+ * the database, and dropped when the session ends.
+ */
+export interface VisionFrame {
+  source: 'webcam' | 'screen';
+  ts: number;
+  base64Jpeg: string;
+}
+
+/** Bound on each observed payload, so one large tool result cannot bloat the snapshot. */
+export const OBSERVED_PAYLOAD_CHARS = 4000;
+
+function clipJson(value: unknown): string {
+  let text: string;
+  try {
+    text = typeof value === 'string' ? value : JSON.stringify(value) ?? String(value);
+  } catch {
+    text = String(value);
+  }
+  return text.length > OBSERVED_PAYLOAD_CHARS
+    ? `${text.slice(0, OBSERVED_PAYLOAD_CHARS)}… [clipped, ${text.length} chars]`
+    : text;
 }
 
 export interface GuardianFireRecord {
@@ -133,6 +178,16 @@ export interface SessionObservation {
   sceneImageUrl: string | null;
   sceneProps: string[];
   recentToolCalls: ToolCallRecord[];
+  /** Function responses sent back to Gemini Live (last 20). */
+  recentToolResults: ToolResultRecord[];
+  /** Images Daniela showed the student (last 20). */
+  shownVisuals: ShownVisualRecord[];
+  /** When each vision source last delivered a frame; the frames themselves are held apart from the snapshot. */
+  visionSources: { source: 'webcam' | 'screen'; lastFrameMs: number; frames: number }[];
+  /** The Gemini Live model this session connected with. */
+  model: string | null;
+  /** The newest usageMetadata Gemini Live reported (token counts). */
+  latestUsage: Record<string, unknown> | null;
   lastUpdatedMs: number;
   sessionStartedMs: number;
   // Archive Guardian A/B state
@@ -152,6 +207,8 @@ export interface SessionObservation {
 }
 
 const store = new Map<string, SessionObservation>();
+/** Latest frame per source, per conversation. Kept out of SessionObservation so a snapshot never carries image bytes. */
+const visionFrames = new Map<string, Partial<Record<VisionFrame['source'], VisionFrame>> & { latest?: VisionFrame['source'] }>();
 
 function touch(conversationId: string): SessionObservation | undefined {
   return store.get(conversationId);
@@ -188,6 +245,11 @@ export function observeSessionStart(opts: {
     sceneImageUrl: sameSession ? existing?.sceneImageUrl ?? null : null,
     sceneProps: sameSession ? existing?.sceneProps ?? [] : [],
     recentToolCalls: sameSession ? existing?.recentToolCalls ?? [] : [],
+    recentToolResults: sameSession ? existing?.recentToolResults ?? [] : [],
+    shownVisuals: sameSession ? existing?.shownVisuals ?? [] : [],
+    visionSources: sameSession ? existing?.visionSources ?? [] : [],
+    model: sameSession ? existing?.model ?? null : null,
+    latestUsage: sameSession ? existing?.latestUsage ?? null : null,
     lastUpdatedMs: now(),
     sessionStartedMs: sameSession ? existing?.sessionStartedMs ?? now() : now(),
     guardianChannel: sameSession ? existing?.guardianChannel ?? 'concat' : 'concat',
@@ -220,6 +282,7 @@ export function observeSessionStart(opts: {
       },
     },
   });
+  if (!sameSession) visionFrames.delete(opts.conversationId);
 }
 
 export function observeActflUpdate(conversationId: string, level: string | null): void {
@@ -236,13 +299,106 @@ export function observeExchangeCount(conversationId: string, count: number): voi
   entry.lastUpdatedMs = now();
 }
 
-export function observeToolCall(conversationId: string, toolName: string, note?: string): void {
+export function observeToolCall(conversationId: string, toolName: string, note?: string, args?: unknown): void {
   const entry = touch(conversationId);
   if (!entry) return;
   entry.recentToolCalls = [
-    { name: toolName, ts: now(), note },
+    { name: toolName, ts: now(), note, ...(args === undefined ? {} : { args: clipJson(args) }) },
     ...entry.recentToolCalls,
   ].slice(0, 15);
+  entry.lastUpdatedMs = now();
+}
+
+/** Record the function responses one sendToolResponse carried back to Gemini Live. */
+export function observeToolResults(
+  conversationId: string | undefined,
+  responses: readonly { id?: string; name?: string; response?: unknown }[],
+): void {
+  if (!conversationId) return;
+  const entry = touch(conversationId);
+  if (!entry || responses.length === 0) return;
+  const ts = now();
+  const records = responses.map((r): ToolResultRecord => ({
+    name: r.name ?? 'unknown', ts, callId: r.id ?? null, response: clipJson(r.response ?? null),
+  }));
+  entry.recentToolResults = [...records.reverse(), ...entry.recentToolResults].slice(0, 20);
+  entry.lastUpdatedMs = ts;
+}
+
+const IMAGE_URL_KEYS = new Set(['imageUrl', 'environmentImageUrl', 'propImageUrl', 'image_url']);
+const LABEL_KEYS = ['word', 'label', 'environmentLabel', 'title', 'description', 'content'];
+
+/**
+ * Record every image URL in a message sent to the student's client, so the hats
+ * see what Daniela put on screen. The message is only read, never changed.
+ */
+export function observeOutboundVisuals(conversationId: string | undefined, message: unknown): void {
+  if (!conversationId || !message || typeof message !== 'object') return;
+  const entry = touch(conversationId);
+  if (!entry) return;
+  const messageType = String((message as Record<string, unknown>).type ?? 'unknown');
+  const found: ShownVisualRecord[] = [];
+  const seen = new Set<string>();
+  const visit = (node: unknown, depth: number) => {
+    if (!node || typeof node !== 'object' || depth > 6 || found.length >= 10) return;
+    if (Array.isArray(node)) { for (const item of node) visit(item, depth + 1); return; }
+    const record = node as Record<string, unknown>;
+    for (const [key, value] of Object.entries(record)) {
+      if (IMAGE_URL_KEYS.has(key) && typeof value === 'string' && value && !seen.has(value)) {
+        seen.add(value);
+        const labelKey = LABEL_KEYS.find((k) => typeof record[k] === 'string' && record[k]);
+        found.push({ ts: now(), messageType, imageUrl: value, label: labelKey ? String(record[labelKey]).slice(0, 200) : null });
+      } else if (value && typeof value === 'object') {
+        visit(value, depth + 1);
+      }
+    }
+  };
+  visit(message, 0);
+  if (found.length === 0) return;
+  // A full-scene update repeats every image already on screen; record only what is new.
+  const known = new Set(entry.shownVisuals.map((v) => v.imageUrl));
+  const fresh = found.filter((v) => !known.has(v.imageUrl));
+  if (fresh.length === 0) return;
+  entry.shownVisuals = [...fresh.reverse(), ...entry.shownVisuals].slice(0, 20);
+  entry.lastUpdatedMs = now();
+}
+
+/** Keep the newest webcam or screen-share frame Daniela was sent (memory only). */
+export function observeVisionFrame(conversationId: string | undefined, source: VisionFrame['source'], base64Jpeg: string): void {
+  if (!conversationId || !base64Jpeg) return;
+  const entry = touch(conversationId);
+  if (!entry) return;
+  const ts = now();
+  const frames = visionFrames.get(conversationId) ?? {};
+  frames[source] = { source, ts, base64Jpeg };
+  frames.latest = source;
+  visionFrames.set(conversationId, frames);
+  const prior = entry.visionSources.find((v) => v.source === source);
+  entry.visionSources = [
+    { source, lastFrameMs: ts, frames: (prior?.frames ?? 0) + 1 },
+    ...entry.visionSources.filter((v) => v.source !== source),
+  ];
+  entry.lastUpdatedMs = ts;
+}
+
+/** The newest frame for a source, or for whichever source sent last. */
+export function getVisionFrame(conversationId: string, source?: VisionFrame['source']): VisionFrame | null {
+  if (!getObservation(conversationId)) return null;
+  const frames = visionFrames.get(conversationId);
+  if (!frames) return null;
+  const pick = source ?? frames.latest;
+  return pick ? frames[pick] ?? null : null;
+}
+
+export function observeModelAndUsage(
+  conversationId: string | undefined,
+  update: { model?: string | null; usage?: Record<string, unknown> | null },
+): void {
+  if (!conversationId) return;
+  const entry = touch(conversationId);
+  if (!entry) return;
+  if (update.model !== undefined) entry.model = update.model;
+  if (update.usage !== undefined) entry.latestUsage = update.usage;
   entry.lastUpdatedMs = now();
 }
 
@@ -411,10 +567,12 @@ export function observeSessionEnd(
       // canonical write may be missing. Retain this bounded projection until
       // its normal expiry rather than deleting the partial-evidence signal.
       entry.lastUpdatedMs = now();
+      visionFrames.delete(conversationId);
       return;
     }
   }
   store.delete(conversationId);
+  visionFrames.delete(conversationId);
 }
 
 export function getObservation(conversationId: string): SessionObservation | null {
@@ -422,6 +580,7 @@ export function getObservation(conversationId: string): SessionObservation | nul
   if (!entry) return null;
   if (now() - entry.lastUpdatedMs > EXPIRY_MS) {
     store.delete(conversationId);
+    visionFrames.delete(conversationId);
     return null;
   }
   return entry;
@@ -433,6 +592,7 @@ export function getAllActiveObservations(): SessionObservation[] {
   for (const [id, entry] of store.entries()) {
     if (entry.lastUpdatedMs < cutoff) {
       store.delete(id);
+      visionFrames.delete(id);
     } else {
       active.push(entry);
     }

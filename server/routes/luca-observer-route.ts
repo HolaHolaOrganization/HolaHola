@@ -1,4 +1,5 @@
 import type { Application, Response } from 'express';
+import { getReleaseIdentity } from '../services/release-identity';
 
 export function registerLucaObserverRoute({
   app, storage, getSharedDb, loadAuthenticatedUser, requireFounderOrCoordinationCapability, requireFounder,
@@ -8,14 +9,45 @@ export function registerLucaObserverRoute({
   // Observation bench — Luca reads the live session state from the Replit chat window.
   // Returns in-memory GL state + last N DB messages for the active conversation.
   // Auth: x-coordination-token header OR authenticated founder browser session.
-  app.get("/api/admin/luca/observe", loadAuthenticatedUser(storage), requireFounderOrCoordinationCapability(
+  const observerAuth = [loadAuthenticatedUser(storage), requireFounderOrCoordinationCapability(
     requireFounder,
     'observation:read',
     [
       'luca-replit', 'luca-claude-code', 'luca-gemini', 'luca-antigravity', 'luca-holahola',
       'luca-cursor', 'luca-openai-agents', 'luca-codex',
     ],
-  ), async (req: any, res: Response) => {
+  )];
+
+  // What Daniela is being shown through the student's webcam or screen share:
+  // the newest frame, as image/jpeg, straight from memory (never stored).
+  // ?conversationId= pins the session (default: the most recently active one);
+  // ?source=webcam|screen picks a source (default: whichever sent last).
+  app.get("/api/admin/luca/observe/vision", ...observerAuth, async (req: any, res: Response) => {
+    try {
+      const { getAllActiveObservations, getVisionFrame } = await import('../services/session-observation-store');
+      const source = req.query.source === 'screen' || req.query.source === 'webcam' ? req.query.source : undefined;
+      const conversationId = (req.query.conversationId as string | undefined)
+        ?? getAllActiveObservations().sort((a, b) => b.lastUpdatedMs - a.lastUpdatedMs)[0]?.conversationId;
+      const frame = conversationId ? getVisionFrame(conversationId, source) : null;
+      if (!frame) {
+        res.status(404).json({ status: 'no_frame', conversationId: conversationId ?? null, source: source ?? null });
+        return;
+      }
+      res.set({
+        'Content-Type': 'image/jpeg',
+        'Cache-Control': 'no-store',
+        'X-Vision-Source': frame.source,
+        'X-Vision-Frame-At': new Date(frame.ts).toISOString(),
+        'X-Conversation-Id': conversationId!,
+      });
+      res.send(Buffer.from(frame.base64Jpeg, 'base64'));
+    } catch (err: any) {
+      console.error('[Luca Observe] Vision error:', err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get("/api/admin/luca/observe", ...observerAuth, async (req: any, res: Response) => {
     try {
       const {
         getAllActiveObservations,
@@ -109,18 +141,21 @@ export function registerLucaObserverRoute({
         });
       }
 
-      // Pull the last 10 messages from this conversation
+      // The last 20 messages from this conversation, in full, with their IDs and
+      // Daniela's recorded thinking, so the hats read exactly what was said.
       const convId = observation.conversationId;
       const recentMessages = await obsDb.execute(
-        rawSql`SELECT role, content, created_at
+        rawSql`SELECT id, role, content, thought_content, created_at
                FROM messages
                WHERE conversation_id = ${convId}
                ORDER BY created_at DESC
-               LIMIT 10`
+               LIMIT 20`
       );
       const msgs = ((recentMessages.rows ?? []) as any[]).reverse().map((m: any) => ({
+        id: m.id,
         role: m.role,
-        content: typeof m.content === 'string' ? m.content.slice(0, 500) : '[non-text]',
+        content: typeof m.content === 'string' ? m.content : '[non-text]',
+        thoughtContent: typeof m.thought_content === 'string' ? m.thought_content : null,
         at: m.created_at,
       }));
 
@@ -188,6 +223,11 @@ export function registerLucaObserverRoute({
         status: 'active',
         elapsedMin,
         conversationId: observation.conversationId,
+        dbSessionId: observation.dbSessionId,
+        transientSessionId: observation.transientSessionId,
+        model: observation.model,
+        releaseCommit: getReleaseIdentity().commitSha,
+        latestUsage: observation.latestUsage,
         language: observation.language,
         actflLevel: observation.actflLevel,
         exchangeCount: observation.exchangeCount,
@@ -195,11 +235,37 @@ export function registerLucaObserverRoute({
         sceneEnvironment: observation.sceneEnvironment,
         sceneVisionDescription,
         sceneProps: observation.sceneProps,
-        recentToolCalls: observation.recentToolCalls.slice(0, 8).map(t => ({
+        recentToolCalls: observation.recentToolCalls.map(t => ({
           name: t.name,
+          at: new Date(t.ts).toISOString(),
           secsAgo: Math.round((Date.now() - t.ts) / 1000),
           note: t.note,
+          args: t.args ?? null,
         })),
+        // What went back to Daniela for each call, including any Archive Guardian text attached to it.
+        recentToolResults: (observation.recentToolResults ?? []).map(r => ({
+          name: r.name,
+          callId: r.callId,
+          at: new Date(r.ts).toISOString(),
+          response: r.response,
+        })),
+        // Images Daniela put on the student's screen.
+        shownVisuals: (observation.shownVisuals ?? []).map(v => ({
+          at: new Date(v.ts).toISOString(),
+          messageType: v.messageType,
+          imageUrl: v.imageUrl,
+          label: v.label,
+        })),
+        // What Daniela is shown through the webcam or screen share; fetch the frame itself from /api/admin/luca/observe/vision.
+        vision: {
+          sources: (observation.visionSources ?? []).map(v => ({
+            source: v.source,
+            frames: v.frames,
+            lastFrameAt: new Date(v.lastFrameMs).toISOString(),
+            secsAgo: Math.round((Date.now() - v.lastFrameMs) / 1000),
+          })),
+          frameUrl: `/api/admin/luca/observe/vision?conversationId=${encodeURIComponent(observation.conversationId)}`,
+        },
         lastUpdatedSecsAgo: Math.round((Date.now() - observation.lastUpdatedMs) / 1000),
         recentMessages: msgs,
         // Archive Guardian — live state + fire log for this session (all four protocols)
