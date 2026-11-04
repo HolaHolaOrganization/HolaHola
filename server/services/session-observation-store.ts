@@ -390,6 +390,11 @@ export function getVisionFrame(conversationId: string, source?: VisionFrame['sou
   return pick ? frames[pick] ?? null : null;
 }
 
+/** How many conversations still hold frame bytes in memory (for tests and leak checks). */
+export function heldVisionFrameConversations(): number {
+  return visionFrames.size;
+}
+
 export function observeModelAndUsage(
   conversationId: string | undefined,
   update: { model?: string | null; usage?: Record<string, unknown> | null },

@@ -6,6 +6,7 @@ import test from 'node:test';
 import {
   getObservation,
   getVisionFrame,
+  heldVisionFrameConversations,
   OBSERVED_PAYLOAD_CHARS,
   observeModelAndUsage,
   observeOutboundVisuals,
@@ -68,8 +69,10 @@ test('the newest webcam and screen frames are served from memory, never carried 
   const snapshot = JSON.stringify(getObservation(id));
   assert.ok(!snapshot.includes('d2ViY2Ft') && !snapshot.includes('c2NyZWVu'), 'no image bytes in the observation');
   assert.deepEqual(getObservation(id)!.visionSources.map((v) => [v.source, v.frames]), [['screen', 1], ['webcam', 2]]);
+  const held = heldVisionFrameConversations();
   observeSessionEnd(id);
   assert.equal(getVisionFrame(id), null);
+  assert.equal(heldVisionFrameConversations(), held - 1, 'the frame bytes are released, not just hidden');
 });
 
 test('a new session on the same conversation starts with no frames, results or visuals from the old one', () => {
