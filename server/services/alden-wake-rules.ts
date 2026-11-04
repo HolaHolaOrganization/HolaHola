@@ -62,11 +62,21 @@ export function buildWakeMessage(event: { eventId: string; threadId: string; tit
 }
 
 /**
+ * Added to the wake message for a watched-thread item (one not addressed to
+ * him), so a reply is clearly optional and needs little reading. Alden's
+ * wording (48d10847 seq 50).
+ */
+export function buildWatchedThreadNote(): string {
+  return `\n\nThis message is from a watched thread and is not addressed to you; replying is optional, and choosing not to reply is a preferred, efficient outcome if the thread does not require your specific input.`;
+}
+
+/**
  * Added to the wake message on a follow-up turn, so Alden continues from his
- * own wrap-up instead of starting over. Alden's wording (69dba459 seq 11).
+ * own wrap-up instead of starting over. Alden's wording (69dba459 seq 11; final
+ * sentence 48d10847 seq 50, so a follow-up answers instead of searching again).
  */
 export function buildFollowUpNote(previousNotes: string): string {
-  return `\n\nThis is a follow-up turn. Your previous attempt reached the tool limit without replying, and you recorded these notes at the end of it:\n\n${previousNotes}\n\nThis is your final turn for this item: you may reply, notify David, or choose not to reply.`;
+  return `\n\nThis is a follow-up turn. Your previous attempt reached the tool limit without replying, and you recorded these notes at the end of it:\n\n${previousNotes}\n\nThis is your final turn: answer now using your notes without starting new searches, and clearly state if there is context you could not check.`;
 }
 
 /** Tool rounds for a wake turn (chat keeps its own default). */

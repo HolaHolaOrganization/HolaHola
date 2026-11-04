@@ -16,7 +16,7 @@ import {
   activateWake, claimNextWakeItem, deliverWakeNotices, reconcileWake, recordWakeOutcome, recordWakeToolCalls, releaseWakeForFollowUp,
   type AldenWakeTurn, type WakeAttempt, WAKE_COST_CONTEXT,
 } from './alden-wake-ledger';
-import { annotateUnpublishedNotes, buildFollowUpNote, buildTriggerText, buildWakeMessage, decideWakeOutcome, WAKE_MAX_ROUNDS, wakeEngineConfig } from './alden-wake-rules';
+import { annotateUnpublishedNotes, buildFollowUpNote, buildTriggerText, buildWakeMessage, buildWatchedThreadNote, decideWakeOutcome, WAKE_MAX_ROUNDS, wakeEngineConfig } from './alden-wake-rules';
 
 export const WAKE_INTERVAL_MS = 60_000;
 
@@ -64,7 +64,8 @@ export async function runWakeTurn(attempt: WakeAttempt, deps: WakeDeps = {}): Pr
         createdAt: new Date(event.created_at).toISOString(),
       // The trusted follow-up note comes before the quoted trigger text, so a
       // crafted message cannot pose as it (LR, #167 review).
-      }) + (followUpsUsed > 0 && event.notes ? buildFollowUpNote(event.notes) : '')
+      }) + (attempt.itemKind === 'observe' ? buildWatchedThreadNote() : '')
+        + (followUpsUsed > 0 && event.notes ? buildFollowUpNote(event.notes) : '')
         + buildTriggerText({ eventId: event.id, actor: event.actor, content: event.content }),
       maxRounds: WAKE_MAX_ROUNDS,
       founderName: 'David',

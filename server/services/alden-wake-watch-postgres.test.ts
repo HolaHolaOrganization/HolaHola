@@ -12,6 +12,7 @@ import { randomUUID } from 'node:crypto';
 import test, { after, before } from 'node:test';
 import { sql } from 'drizzle-orm';
 import { getVerifiedCiDatabaseUrl } from '../ci-database';
+import { buildWatchedThreadNote } from './alden-wake-rules';
 
 const url = getVerifiedCiDatabaseUrl();
 const runId = randomUUID().slice(0, 8);
@@ -201,9 +202,11 @@ test('observe items: addressed items are claimed first, a reply is a steward com
   threads.push(addressedThread.thread.id);
 
   const order: string[] = [];
+  const watchedNote = new Map<string, boolean>();
   const generate = async (params: any) => {
     const eventId = /Coordination event (\S+) on thread/.exec(params.userMessage)![1];
     order.push(eventId);
+    watchedNote.set(eventId, params.userMessage.includes(buildWatchedThreadNote().trim()));
     if (eventId === answered.id) {
       const reply = await tools.executeAldenTool('reply_to_coordination_thread', { thread_id: threadId, recipient: 'luca-replit', content: 'Noted. (Unattended turn.)', model: 'gemini-test' },
         { toolAllowlist: params.toolAllowlist, wakeTurn: params.wakeTurn });
@@ -214,6 +217,8 @@ test('observe items: addressed items are claimed first, a reply is a steward com
   await worker.runWakePass({ db, generate, env: {} });
   assert.equal(order[0], addressedThread.event.id, 'the addressed item is claimed before older observe items');
   assert.deepEqual(order.slice(1), [answered.id], 'a watched thread wakes Alden once, for its newest waiting message');
+  assert.equal(watchedNote.get(addressedThread.event.id), false, 'an addressed item is not told its reply is optional');
+  assert.equal(watchedNote.get(answered.id), true, 'a watched-thread item is told replying is optional (Alden, 48d10847 seq 50)');
 
   const states = Object.fromEntries((await rows(sql`select event_id, state from alden_wake_attempts where event_id in (${quiet.id}, ${answered.id})`)).map((r) => [r.event_id, r.state]));
   assert.deepEqual(states, { [quiet.id]: 'observed', [answered.id]: 'replied' });
