@@ -56,7 +56,8 @@ before(async () => {
     intendedRecipient: 'luca-replit', priority: 'normal', state: 'created', latestSequence: 1, latestGlobalSequence: 0,
   } as any);
   await getSharedDb().insert(coordinationEvents).values({
-    threadId: CHANNEL, sequence: 1, actor: 'luca-claude-code', recipientActor: 'luca-replit', eventType: 'created',
+    // No recipient: a named one needs a materialized inbox item (migration 0032's guard), which this seed row doesn't need.
+    threadId: CHANNEL, sequence: 1, actor: 'luca-claude-code', recipientActor: null, eventType: 'created',
     content: 'test channel', payload: {}, evidence: [], idempotencyKey: `system-alert-test:${run}:created`,
   } as any);
   const other = await ledger.createCoordinationThread({
