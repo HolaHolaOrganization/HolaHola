@@ -50,6 +50,24 @@ test('a first run uploads every row, publishes a manifest and advances last-good
   assert.equal(keys(store, 'last-good').length, 2, 'each advance is a new pointer object, never an overwrite');
 });
 
+test('manifests are content-addressed: an unchanged run writes only a new pointer, which records when and what it verified', async () => {
+  const store = memoryStore();
+  const rows = [row('a', 'A'), row('b', 'B')];
+  const first = await run(store, rows);
+  const second = await run(store, rows);
+  assert.equal(second.manifestKey, first.manifestKey);
+  assert.equal(keys(store, 'manifests').length, 1, 'no second manifest for unchanged content');
+  const pointers = keys(store, 'last-good').sort();
+  assert.equal(pointers.length, 2);
+  const newest = JSON.parse(store.objects.get(pointers[1])!.bytes.toString('utf8'));
+  assert.equal(newest.manifestKey, first.manifestKey);
+  assert.equal(newest.previousManifestKey, first.manifestKey);
+  const lastGood = await readLastGood(store, BACKUP_PREFIX_DEFAULT);
+  assert.equal(lastGood!.takenAt, newest.takenAt);
+  await run(store, [row('a', 'A'), row('b', 'B, grown')]);
+  assert.equal(keys(store, 'manifests').length, 2, 'changed content gets its own manifest');
+});
+
 test('growth at the end of a row (including multi-byte text) is not flagged; a new row is not flagged', async () => {
   const store = memoryStore();
   await run(store, [row('a', 'Episode — ñ start'), row('b', 'B')]);

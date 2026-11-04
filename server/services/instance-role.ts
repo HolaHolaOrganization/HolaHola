@@ -106,6 +106,7 @@ export const BACKGROUND_TASKS = {
   'goal-capability-indexer': { roles: PRODUCTION_ONLY, what: 'learning goal capability indexer' },
   'operation-skill-indexer': { roles: PRODUCTION_ONLY, what: 'agent operation skill indexer' },
   'central-read-expiry-warnings': { roles: PRODUCTION_ONLY, what: 'founder central-read grant expiry warnings' },
+  'episode-backup': { roles: PRODUCTION_ONLY, what: 'hourly episode backup to the R2 bucket, with alerts to the hats (design fc90e95a, Phase B)' },
   'shadow-auditor-reaper': { roles: PRODUCTION_ONLY, what: 'shadow auditor stale-session reaper' },
   'madrigal-indexing': { roles: PRODUCTION_ONLY, what: 'Madrigal unit embedding indexer' },
   'memory-consolidator': { roles: PRODUCTION_ONLY, what: 'memory consolidator' },

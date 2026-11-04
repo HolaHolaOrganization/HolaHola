@@ -334,6 +334,9 @@ function assertParticipant(
   // outcome_acknowledged/reassigned/comment stay exactly as participant-gated
   // as every other actor's. See docs/alden-steward-role-design.md section 3.2.
   if (actor === 'alden' && (eventType === undefined || eventType === 'steward_comment')) return;
+  // A system alert channel addresses several hats who are not its participants;
+  // any of them may read it. Writing to it stays participant-gated.
+  if (eventType === undefined && SYSTEM_ALERT_CHANNEL_THREAD_IDS.has(thread.id)) return;
   if (
     actor !== thread.originActor
     && actor !== thread.intendedRecipient
@@ -504,6 +507,16 @@ async function mutationResultFromExisting(event: CoordinationEvent): Promise<Coo
     deliveryState: delivery?.status ?? 'not_applicable',
   };
 }
+
+/**
+ * Standing threads the production server posts alerts into as coordination-system
+ * (comment events with payload kind 'system_alert', each naming its recipient).
+ * - 9e442310…: "Episode backup alerts (standing thread)", opened by luca-claude-code
+ *   2026-11-03 for the episode backup scheduler (episode-backup-scheduler.ts).
+ */
+export const SYSTEM_ALERT_CHANNEL_THREAD_IDS: ReadonlySet<string> = new Set([
+  '9e442310-8e80-4c4c-bfbb-449f627efffd',
+]);
 
 function shouldCreateInboxDelivery(actor: CoordinationActorId): boolean {
   return actor === 'luca-replit' || actor === 'luca-claude-code';
@@ -703,7 +716,25 @@ export async function appendCoordinationEvent(
           'reserved_observation_payload',
         );
       }
-      if (!isNeutralObservationCapture) validateLifecycle(thread, input);
+      // A system alert is a comment the server itself posts, as coordination-system,
+      // into a standing alert channel. coordination-system is never a participant,
+      // so only the listed channels accept it, and no other actor may send the kind.
+      const isSystemAlert =
+        input.actor === 'coordination-system'
+        && input.eventType === 'comment'
+        && payloadKind === 'system_alert'
+        && SYSTEM_ALERT_CHANNEL_THREAD_IDS.has(thread.id);
+      if (payloadKind === 'system_alert' && !isSystemAlert) {
+        throw new CoordinationError(
+          'system_alert comments are reserved for coordination-system in a listed alert channel',
+          403,
+          'reserved_system_alert_payload',
+        );
+      }
+      if (isSystemAlert && (!input.recipientActor || input.recipientActor === 'coordination-system')) {
+        throw new CoordinationError('A system alert must name the actor it is for', 400, 'invalid_actor');
+      }
+      if (!isNeutralObservationCapture && !isSystemAlert) validateLifecycle(thread, input);
 
       if (input.eventType === 'completed' && (input.evidence?.length ?? 0) === 0) {
         const [priorEvidence] = await tx

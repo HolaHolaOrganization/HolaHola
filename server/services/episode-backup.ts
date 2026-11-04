@@ -16,6 +16,8 @@
  *      flagged, advances the last-good pointer by writing a new pointer object.
  *      A flagged run stores its manifest beside the last good one and never
  *      replaces it.
+ * Manifests are content-addressed too: a run that finds nothing changed writes
+ * only a new pointer (when and what it verified), not another manifest.
  * All writes go through BackupStore.putNew, which refuses to replace an object,
  * so the export cannot overwrite or delete anything.
  */
@@ -53,12 +55,18 @@ export interface ManifestEntry {
 export interface BackupManifest {
   format: 'holahola-episode-backup';
   version: 1;
-  takenAt: string;
   arcs: string[];
   rowCount: number;
   totalBytes: number;
   entries: ManifestEntry[];
   flags: BackupFlag[];
+}
+
+/** A last-good pointer: which verified manifest, and when a run last confirmed it. */
+export interface LastGoodPointer {
+  manifestKey: string;
+  manifestSha256: string;
+  takenAt: string;
   previousManifestKey: string | null;
 }
 
@@ -86,7 +94,7 @@ export const objectKeyFor = (prefix: string, contentSha256: string) => `${prefix
 /** Pointer keys sort by time, so the newest pointer is the last good one. */
 const pointerPrefix = (prefix: string) => `${prefix}/last-good/`;
 
-export function buildManifest(rows: readonly InventoryRow[], prefix: string, takenAt: string, previous: BackupManifest | null, previousManifestKey: string | null): BackupManifest {
+export function buildManifest(rows: readonly InventoryRow[], prefix: string, previous: BackupManifest | null): BackupManifest {
   const entries = rows.map((row): ManifestEntry => {
     const bytes = Buffer.from(row.content, 'utf8');
     const digest = sha256(bytes);
@@ -97,9 +105,9 @@ export function buildManifest(rows: readonly InventoryRow[], prefix: string, tak
     };
   }).sort((a, b) => a.id.localeCompare(b.id));
   return {
-    format: 'holahola-episode-backup', version: 1, takenAt, arcs: [...BACKUP_ARCS],
+    format: 'holahola-episode-backup', version: 1, arcs: [...BACKUP_ARCS],
     rowCount: entries.length, totalBytes: entries.reduce((sum, e) => sum + e.bytes, 0),
-    entries, flags: compareWithPrevious(rows, entries, previous), previousManifestKey,
+    entries, flags: compareWithPrevious(rows, entries, previous),
   };
 }
 
@@ -143,16 +151,16 @@ export async function takeInventory(db: any, arcs: readonly string[] = BACKUP_AR
   });
 }
 
-export async function readLastGood(store: BackupStore, prefix: string): Promise<{ manifest: BackupManifest; manifestKey: string } | null> {
+export async function readLastGood(store: BackupStore, prefix: string): Promise<{ manifest: BackupManifest; manifestKey: string; takenAt: string } | null> {
   const pointers = (await store.list(pointerPrefix(prefix))).sort();
   const newest = pointers.at(-1);
   if (!newest) return null;
   const pointer = await store.get(newest);
   if (!pointer) throw new Error(`episode backup: pointer ${newest} vanished`);
-  const { manifestKey, manifestSha256 } = JSON.parse(pointer.bytes.toString('utf8'));
+  const { manifestKey, manifestSha256, takenAt } = JSON.parse(pointer.bytes.toString('utf8')) as LastGoodPointer;
   const stored = await store.get(manifestKey);
   if (!stored || sha256(stored.bytes) !== manifestSha256) throw new Error(`episode backup: last-good manifest ${manifestKey} failed verification`);
-  return { manifest: JSON.parse(stored.bytes.toString('utf8')), manifestKey };
+  return { manifest: JSON.parse(stored.bytes.toString('utf8')), manifestKey, takenAt };
 }
 
 /** Writes an object unless an identical one already exists, then reads it back and verifies it. */
@@ -190,7 +198,7 @@ export async function runEpisodeBackup(deps: {
   const takenAt = (deps.now ?? (() => new Date()))().toISOString();
   const previous = await readLastGood(deps.store, prefix);
   const rows = await deps.inventory();
-  const manifest = buildManifest(rows, prefix, takenAt, previous?.manifest ?? null, previous?.manifestKey ?? null);
+  const manifest = buildManifest(rows, prefix, previous?.manifest ?? null);
   const base = { rowCount: manifest.rowCount, totalBytes: manifest.totalBytes, flags: manifest.flags };
   if (deps.dryRun) return { outcome: 'dry_run', manifestKey: null, uploaded: 0, alreadyPresent: 0, ...base };
 
@@ -203,13 +211,14 @@ export async function runEpisodeBackup(deps: {
     else alreadyPresent++;
   }
   const manifestBody = Buffer.from(JSON.stringify(manifest), 'utf8');
+  const manifestSha256 = sha256(manifestBody);
   const stamp = takenAt.replace(/[:.]/g, '-');
   const flagged = manifest.flags.length > 0;
-  const manifestKey = `${prefix}/${flagged ? 'flagged' : 'manifests'}/${stamp}-${sha256(manifestBody).slice(0, 16)}.json`;
+  const manifestKey = `${prefix}/${flagged ? 'flagged' : 'manifests'}/${manifestSha256}.json`;
   await putVerified(deps.store, manifestKey, manifestBody, 'application/json');
   if (!flagged) {
-    const pointer = Buffer.from(JSON.stringify({ manifestKey, manifestSha256: sha256(manifestBody), takenAt }), 'utf8');
-    await putVerified(deps.store, `${pointerPrefix(prefix)}${stamp}.json`, pointer, 'application/json');
+    const pointer: LastGoodPointer = { manifestKey, manifestSha256, takenAt, previousManifestKey: previous?.manifestKey ?? null };
+    await putVerified(deps.store, `${pointerPrefix(prefix)}${stamp}.json`, Buffer.from(JSON.stringify(pointer), 'utf8'), 'application/json');
   }
   return { outcome: flagged ? 'flagged' : 'advanced', manifestKey, uploaded, alreadyPresent, ...base };
 }
