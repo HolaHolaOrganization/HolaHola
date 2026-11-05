@@ -54,6 +54,7 @@ export function registerLucaObserverRoute({
         getEndedObservation,
         getObservation,
         getContextLineageObservationAvailability,
+        OBSERVED_LINEAGE_EVENT_LIMIT,
       } = await import('../services/session-observation-store');
       const conversationId = req.query.conversationId as string | undefined;
 
@@ -235,10 +236,10 @@ export function registerLucaObserverRoute({
       const sessionIds = [observation.dbSessionId, observation.transientSessionId].filter((id): id is string => Boolean(id));
       const pipelineResult = sessionIds.length
         ? await obsDb.execute(rawSql`
-            SELECT id, event_type, event_data, created_at
+            SELECT id, event_type, event_data, created_at, COUNT(*) OVER ()::int AS session_total
             FROM voice_pipeline_events
             WHERE session_id IN (SELECT value FROM jsonb_array_elements_text(${JSON.stringify(sessionIds)}::jsonb) AS value)
-            ORDER BY created_at DESC
+            ORDER BY created_at DESC, id DESC
             LIMIT 40`)
         : { rows: [] };
       const clip = (value: unknown, max: number) => {
@@ -263,6 +264,13 @@ export function registerLucaObserverRoute({
       const lineagePayloads = new Map<string, string | null>(
         (((payloadResult as any).rows ?? []) as any[]).map(row => [row.id, row.payload_text == null ? null : clip(row.payload_text, 2000)]),
       );
+      const activeTraceId = lineage?.activeTraceId ?? null;
+      const lineageCountResult = activeTraceId
+        ? await obsDb.execute(rawSql`
+            SELECT COUNT(*)::int AS recorded_total
+            FROM context_lineage_events
+            WHERE trace_id = ${activeTraceId} AND conversation_id = ${convId}`)
+        : null;
 
       res.json({
         status: endedAtMs === null ? 'active' : 'ended',
@@ -344,6 +352,23 @@ export function registerLucaObserverRoute({
         },
         guardianEvidence,
         recentPipelineEvents,
+        observationCoverage: {
+          // The observer can switch sessions within one conversation after a reconnect.
+          scope: 'observer-session',
+          pipelineEvents: {
+            returned: recentPipelineEvents.length,
+            sessionTotal: sessionIds.length ? Number(pipelineResult.rows?.[0]?.session_total ?? 0) : null,
+          },
+          guardianAttempts: {
+            returned: Math.min(observation.guardianAttempts?.length ?? 0, 10),
+            sessionTotal: observation.guardianAttempts?.length ?? 0,
+          },
+          lineageEvents: {
+            returned: lineage?.events.length ?? 0,
+            retentionLimit: OBSERVED_LINEAGE_EVENT_LIMIT,
+            recordedForActiveTrace: activeTraceId ? Number(lineageCountResult?.rows?.[0]?.recorded_total ?? 0) : null,
+          },
+        },
         // Exact evidence chain for grounding interventions. These are not inferred
         // "heard/missed" labels: each timeline names what the system observed.
         guardianAttemptTimeline: (observation.guardianAttempts ?? []).slice(-10).map(attempt => ({
@@ -396,7 +421,7 @@ export function registerLucaObserverRoute({
         // nothing was sent or that Daniela did not receive it.
         contextLineage: {
           availability: lineageAvailability,
-          activeTraceId: lineage?.activeTraceId ?? null,
+          activeTraceId,
           events: (lineage?.events ?? []).map(event => ({
             id: event.id,
             traceId: event.traceId,

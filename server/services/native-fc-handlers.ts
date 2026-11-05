@@ -9341,6 +9341,15 @@ export class NativeFunctionCallHandler {
             new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timeout')), 1500)),
           ]);
           const urArm1DurationMs = Date.now() - urArm1Start;
+          const formatted = result.results.length > 0 ? formatMemoryForConversation(result) : null;
+          observeMemorySearch(session.conversationId, {
+            tool: 'unified_recall',
+            query,
+            resultCount: result.results.length,
+            durationMs: urArm1DurationMs,
+            domainsSearched: [],
+            formattedChars: formatted?.length ?? 0,
+          });
           // Telemetry — log this student-memory search so zero-result misses are visible
           // in the truth-pipeline report alongside memory_lookup misses.
           const urArm1SessionId = (session as any).dbSessionId ?? session.id ?? null;
@@ -9357,7 +9366,7 @@ export class NativeFunctionCallHandler {
             INSERT INTO voice_pipeline_events (id, session_id, user_id, event_type, event_data, created_at)
             VALUES (gen_random_uuid(), ${urArm1SessionId}, ${urArm1UserId}, 'gl_student_memory_search', ${urArm1Payload}::jsonb, NOW())
           `).catch(() => {});
-          return result.results.length > 0 ? formatMemoryForConversation(result) : null;
+          return formatted;
         } catch (err: any) {
           console.warn(`[UnifiedRecall] Structured arm failed: ${err.message}`);
           return null;
