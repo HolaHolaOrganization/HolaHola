@@ -563,7 +563,7 @@ export async function runAutoGrounding(
   // Falls through to keyword phases for supplemental coverage.
   if (userId && matchedPhrase.length > 4) {
     try {
-      const semResults = await semanticSearch(userId, matchedPhrase, 4, ['conversation_memory', 'conversation_summary']);
+      const semResults = await semanticSearch(userId, matchedPhrase, 4, ['conversation_memory', 'conversation_summary'], { storedVectors: true });
       const highConf = semResults.filter(r => r.similarity > 0.42);
       if (highConf.length > 0) {
         const ids = highConf.map(r => r.memoryId);

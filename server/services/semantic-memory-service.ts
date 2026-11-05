@@ -19,7 +19,7 @@
 import { createHash } from 'crypto';
 import { getSharedDb } from '../db';
 import { memoryEmbeddings, learnerPersonalFacts } from '@shared/schema';
-import { eq, and, isNull, inArray, desc } from 'drizzle-orm';
+import { eq, and, isNull, inArray, desc, sql, type SQL } from 'drizzle-orm';
 import { computeDecayMultiplier } from './memory-decay-service';
 
 const EMBEDDING_MODEL = 'text-embedding-3-small';
@@ -343,6 +343,157 @@ export async function semanticSearchOperationSkills(
     .slice(0, boundedLimit);
 }
 
+export interface ScoredCandidate {
+  memoryType: string;
+  memoryId: string;
+  contentHash: string;
+  similarity: number;
+  effectiveScore: number;
+}
+
+// ─── Stored-vector search (memory_embeddings.embedding_vec, migration 0077) ───
+//
+// Scoring in Postgres over the stored pgvector column avoids pulling every candidate
+// row (768 floats each, ~67 MB for one user's conversation pool) into Node. It is used
+// only for type sets whose rows are all filled; until the backfill data-op finishes,
+// or where pgvector is absent, callers keep the jsonb path. Readiness is checked in the
+// background so a lookup never waits on it.
+
+export interface SemanticSearchOptions {
+  /** Score in Postgres over embedding_vec once every row of the requested types has one. */
+  storedVectors?: boolean;
+}
+
+const STORED_VECTOR_TOP_K = 50;
+const STORED_VECTOR_RECHECK_MS = 60_000;
+const EMBEDDING_VEC = sql.raw('"memory_embeddings"."embedding_vec"');
+
+interface StoredVectorReadiness { ready: boolean; checkedAt: number; checking?: Promise<void> }
+const storedVectorReadiness = new Map<string, StoredVectorReadiness>();
+
+async function storedVectorsFilled(types: string[]): Promise<boolean> {
+  const db = getSharedDb();
+  const column: any = await db.execute(sql`SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'memory_embeddings' AND column_name = 'embedding_vec'`);
+  if ((column.rows ?? column).length === 0) return false;
+  const unfilled = await db
+    .select({ one: sql<number>`1` })
+    .from(memoryEmbeddings)
+    .where(and(
+      inArray(memoryEmbeddings.memoryType, types),
+      sql`${EMBEDDING_VEC} IS NULL`,
+      sql`jsonb_typeof(${memoryEmbeddings.embedding}) = 'array'`,
+      sql`jsonb_array_length(${memoryEmbeddings.embedding}) = 768`,
+    ))
+    .limit(1);
+  return unfilled.length === 0;
+}
+
+/** Non-blocking: answers from the cache and refreshes it in the background. */
+export function storedVectorsReady(types: string[], check = storedVectorsFilled, now = Date.now): boolean {
+  const key = [...types].sort().join(',');
+  let state = storedVectorReadiness.get(key);
+  if (!state) storedVectorReadiness.set(key, state = { ready: false, checkedAt: -Infinity });
+  if (state.ready) return true;
+  if (!state.checking && now() - state.checkedAt >= STORED_VECTOR_RECHECK_MS) {
+    const current = state;
+    current.checking = check(types)
+      .then(ready => { current.ready = ready; })
+      .catch(err => console.warn('[SemanticSearch] Stored-vector readiness check failed:', (err as Error).message))
+      .finally(() => { current.checkedAt = now(); current.checking = undefined; });
+  }
+  return false;
+}
+
+export function resetStoredVectorReadinessForTests(): void {
+  storedVectorReadiness.clear();
+}
+
+export async function scoreWithStoredVectors(
+  queryVec: number[],
+  userCondition: SQL,
+  globalTypes: string[],
+): Promise<ScoredCandidate[]> {
+  const db = getSharedDb();
+  const literal = `[${queryVec.map(v => (Number.isFinite(v) ? v : 0)).join(',')}]`;
+  const distance = sql`(${EMBEDDING_VEC} <=> ${literal}::vector)`;
+  const select = {
+    memoryType: memoryEmbeddings.memoryType,
+    memoryId: memoryEmbeddings.memoryId,
+    contentHash: memoryEmbeddings.contentHash,
+    strength: memoryEmbeddings.strength,
+    lastReinforcedAt: memoryEmbeddings.lastReinforcedAt,
+    pinned: memoryEmbeddings.pinned,
+    similarity: sql<number>`1 - ${distance}`,
+  };
+  const [userRows, globalRows] = await Promise.all([
+    db.select(select).from(memoryEmbeddings)
+      .where(and(userCondition, sql`${EMBEDDING_VEC} IS NOT NULL`))
+      .orderBy(distance).limit(STORED_VECTOR_TOP_K),
+    // Same ownership guard as the jsonb path: userId IS NULL and GLOBAL_RECALL_TYPES only.
+    globalTypes.length > 0
+      ? db.select(select).from(memoryEmbeddings)
+        .where(and(isNull(memoryEmbeddings.userId), inArray(memoryEmbeddings.memoryType, globalTypes),
+          sql`${EMBEDDING_VEC} IS NOT NULL`))
+        .orderBy(distance).limit(STORED_VECTOR_TOP_K)
+      : Promise.resolve([]),
+  ]);
+  return [...userRows, ...globalRows].map(row => {
+    const similarity = Number(row.similarity) || 0;
+    return {
+      memoryType: row.memoryType,
+      memoryId: row.memoryId,
+      contentHash: row.contentHash,
+      similarity,
+      effectiveScore: similarity * computeDecayMultiplier(row.strength ?? 1.0, row.lastReinforcedAt ?? null, row.pinned ?? false),
+    };
+  });
+}
+
+
+/** Shared tail of semanticSearch: decay ranking, raw-cosine threshold, expired-fact filter. */
+async function rankScoredCandidates(scored: ScoredCandidate[], limit: number): Promise<SemanticSearchResult[]> {
+  // Sort by effective score (recently reinforced memories rank higher at equal relevance).
+  // Threshold applied to raw cosine so highly relevant but faded memories still pass.
+  scored.sort((a, b) => b.effectiveScore - a.effectiveScore);
+  // T001 Ghost Facts fix: post-filter expired personal facts.
+  // memory_embeddings has no expiry field — once embedded, a fact lives in the
+  // vector index forever even if invalidated via valid_to in learner_personal_facts.
+  // This check removes stale entries before they reach the LLM.
+  const aboveThreshold = scored.filter(r => r.similarity > 0.65);
+
+  const personalFactIds = aboveThreshold
+    .filter(r => r.memoryType === 'learner_personal_fact')
+    .map(r => r.memoryId);
+
+  let expiredIds = new Set<string>();
+  if (personalFactIds.length > 0) {
+    try {
+      const db = getSharedDb();
+      const now = new Date();
+      const facts = await db
+        .select({ id: learnerPersonalFacts.id, validTo: learnerPersonalFacts.validTo })
+        .from(learnerPersonalFacts)
+        .where(inArray(learnerPersonalFacts.id, personalFactIds));
+      for (const fact of facts) {
+        if (fact.validTo !== null && fact.validTo < now) {
+          expiredIds.add(fact.id);
+        }
+      }
+      if (expiredIds.size > 0) {
+        console.log(`[SemanticSearch] Filtered ${expiredIds.size} expired personal fact(s) from results`);
+      }
+    } catch (err: any) {
+      console.warn('[SemanticSearch] Ghost facts validity check failed — returning unfiltered:', err.message);
+    }
+  }
+
+  return aboveThreshold
+    .filter(r => !expiredIds.has(r.memoryId))
+    .slice(0, limit)
+    .map(r => ({ memoryType: r.memoryType, memoryId: r.memoryId, similarity: r.similarity, contentHash: r.contentHash }));
+}
+
 /**
  * Find the top-k memories most semantically similar to the query string.
  *
@@ -361,6 +512,7 @@ export async function semanticSearch(
   query: string,
   limit: number = 5,
   memoryTypes?: string[],
+  options?: SemanticSearchOptions,
 ): Promise<SemanticSearchResult[]> {
   const db = getSharedDb();
 
@@ -381,6 +533,13 @@ export async function semanticSearch(
     ? (wantsCollabMessages ? memoryTypes : memoryTypes.filter(t => t !== 'collaboration_message'))
     : GLOBAL_RECALL_TYPES
   ).filter(t => GLOBAL_RECALL_TYPES.includes(t));
+
+  if (options?.storedVectors && userTypeCondition && storedVectorsReady([...new Set([...memoryTypes!, ...globalTypes])])) {
+    return rankScoredCandidates(
+      await scoreWithStoredVectors(await embedText(query), and(eq(memoryEmbeddings.userId, userId), userTypeCondition)!, globalTypes),
+      limit,
+    );
+  }
 
   // Run both queries in parallel
   const [userRows, globalRows] = await Promise.all([
@@ -454,45 +613,7 @@ export async function semanticSearch(
     };
   });
 
-  // Sort by effective score (recently reinforced memories rank higher at equal relevance).
-  // Threshold applied to raw cosine so highly relevant but faded memories still pass.
-  scored.sort((a, b) => b.effectiveScore - a.effectiveScore);
-  // T001 Ghost Facts fix: post-filter expired personal facts.
-  // memory_embeddings has no expiry field — once embedded, a fact lives in the
-  // vector index forever even if invalidated via valid_to in learner_personal_facts.
-  // This check removes stale entries before they reach the LLM.
-  const aboveThreshold = scored.filter(r => r.similarity > 0.65);
-
-  const personalFactIds = aboveThreshold
-    .filter(r => r.memoryType === 'learner_personal_fact')
-    .map(r => r.memoryId);
-
-  let expiredIds = new Set<string>();
-  if (personalFactIds.length > 0) {
-    try {
-      const db = getSharedDb();
-      const now = new Date();
-      const facts = await db
-        .select({ id: learnerPersonalFacts.id, validTo: learnerPersonalFacts.validTo })
-        .from(learnerPersonalFacts)
-        .where(inArray(learnerPersonalFacts.id, personalFactIds));
-      for (const fact of facts) {
-        if (fact.validTo !== null && fact.validTo < now) {
-          expiredIds.add(fact.id);
-        }
-      }
-      if (expiredIds.size > 0) {
-        console.log(`[SemanticSearch] Filtered ${expiredIds.size} expired personal fact(s) from results`);
-      }
-    } catch (err: any) {
-      console.warn('[SemanticSearch] Ghost facts validity check failed — returning unfiltered:', err.message);
-    }
-  }
-
-  return aboveThreshold
-    .filter(r => !expiredIds.has(r.memoryId))
-    .slice(0, limit)
-    .map(r => ({ memoryType: r.memoryType, memoryId: r.memoryId, similarity: r.similarity, contentHash: r.contentHash }));
+  return rankScoredCandidates(scored, limit);
 }
 
 /**
