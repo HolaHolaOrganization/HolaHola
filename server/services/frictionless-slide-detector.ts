@@ -32,10 +32,9 @@
 import { getSharedDb } from '../db';
 import { semanticSearch } from './semantic-memory-service';
 import { postAsLuca } from './luca-responder';
-import { setLucaSessionContext } from './luca-session-context';
 import {
+  autoGroundingMemoryTags,
   excludesOperationalMemories,
-  groundingMemoryTags,
 } from './daniela-memory-boundary';
 
 export interface SlideDetectionResult {
@@ -551,81 +550,90 @@ export async function runAutoGrounding(
   options: AutoGroundingOptions = { writeToDb: true, notifyLuca: true },
 ): Promise<string> {
   const db = getSharedDb();
-  const { sql: _sql, ilike, or, eq, and, desc } = await import('drizzle-orm');
+  const { sql: _sql, ilike, or, eq, and, desc, inArray: inArrayOp } = await import('drizzle-orm');
   const { danielaSelfReflections, northStarPrinciples, conversationMemories, agentNotes } =
     await import('@shared/schema');
 
   const sections: string[] = [];
+  const queryWords = matchedPhrase.split(/\s+/).filter(w => w.length > 4);
 
-  // ── Phase 0: Semantic search (primary — works on any utterance) ────────────
-  // Upgrades keyword search with embedding-based similarity so general utterances
-  // ("what did we cover last time?") find relevant memories without exact phrase match.
-  // Falls through to keyword phases for supplemental coverage.
-  if (userId && matchedPhrase.length > 4) {
-    try {
-      const semResults = await semanticSearch(userId, matchedPhrase, 4, ['conversation_memory', 'conversation_summary']);
-      const highConf = semResults.filter(r => r.similarity > 0.42);
-      if (highConf.length > 0) {
-        const ids = highConf.map(r => r.memoryId);
-        const { inArray: inArrayOp } = await import('drizzle-orm');
+  // Run Phase 0 (semantic search), Phase 1 (felt history), and Phase 2 (North Star)
+  // concurrently so independent grounding phases do not block one another sequentially.
+  const [phase0Section, phase1Section, phase2Section] = await Promise.all([
+    // ── Phase 0: Semantic search (primary — works on any utterance) ────────────
+    (async (): Promise<string | null> => {
+      if (!userId || matchedPhrase.length <= 4) return null;
+      try {
+        const semResults = await semanticSearch(
+          userId,
+          matchedPhrase,
+          4,
+          ['conversation_memory', 'conversation_summary'],
+        );
+        const highConf = semResults.filter(r => r.similarity > 0.42);
+        if (highConf.length === 0) return null;
+        const ids = Array.from(new Set(highConf.map(r => r.memoryId)));
         const convRows = await db
           .select({ id: conversationMemories.id, title: conversationMemories.title, summary: conversationMemories.summary })
           .from(conversationMemories)
           .where(inArrayOp(conversationMemories.id, ids));
-        if (convRows.length > 0) {
-          sections.push(
-            `From the conversation record:\n${convRows.map(m => `— ${m.title}: ${(m.summary || '').substring(0, 200)}`).join('\n')}`,
-          );
-        }
+        if (convRows.length === 0) return null;
+        return `From the conversation record:\n${convRows.map(m => `— ${m.title}: ${(m.summary || '').substring(0, 200)}`).join('\n')}`;
+      } catch {
+        return null;
       }
-    } catch { /* non-fatal — fall through to keyword phases */ }
-  }
+    })(),
 
-  // ── Phase 1: felt history (keyword fallback) ───────────────────────────────
-  const queryWords = matchedPhrase.split(/\s+/).filter(w => w.length > 4);
-  if (userId && queryWords.length > 0) {
-    const kw = `%${queryWords[0].toLowerCase()}%`;
-    try {
-      const feltMatches = await db
-        .select()
-        .from(danielaSelfReflections)
-        .where(and(
-          eq(danielaSelfReflections.userId, userId),
-          excludesOperationalMemories(danielaSelfReflections.tags),
-          ilike(danielaSelfReflections.content, kw),
-        ))
-        .orderBy(desc(danielaSelfReflections.createdAt))
-        .limit(3);
-      if (feltMatches.length > 0) {
-        sections.push(
-          `From your felt history:\n${feltMatches.map(r => `— ${r.content.substring(0, 180)}`).join('\n')}`,
-        );
+    // ── Phase 1: felt history (keyword fallback) ───────────────────────────────
+    (async (): Promise<string | null> => {
+      if (!userId || queryWords.length === 0) return null;
+      const kw = `%${queryWords[0].toLowerCase()}%`;
+      try {
+        const feltMatches = await db
+          .select()
+          .from(danielaSelfReflections)
+          .where(and(
+            eq(danielaSelfReflections.userId, userId),
+            excludesOperationalMemories(danielaSelfReflections.tags, danielaSelfReflections.content),
+            ilike(danielaSelfReflections.content, kw),
+          ))
+          .orderBy(desc(danielaSelfReflections.createdAt))
+          .limit(3);
+        if (feltMatches.length === 0) return null;
+        return `From your felt history:\n${feltMatches.map(r => `— ${r.content.substring(0, 180)}`).join('\n')}`;
+      } catch {
+        return null;
       }
-    } catch { /* non-fatal — skip this phase */ }
-  }
+    })(),
 
-  // ── Phase 2: North Star (keyword fallback) ────────────────────────────────
-  try {
-    const nsKw = `%${queryWords[0] || 'memory'}%`;
-    const principles = await db
-      .select()
-      .from(northStarPrinciples)
-      .where(
-        and(
-          eq(northStarPrinciples.isActive, true),
-          or(
-            ilike(northStarPrinciples.principle, nsKw),
-            ilike(northStarPrinciples.principleTitle, nsKw),
-          ),
-        ),
-      )
-      .limit(2);
-    if (principles.length > 0) {
-      sections.push(
-        `From your North Star:\n${principles.map(p => `— ${p.principleTitle || 'Principle'}: ${p.principle.substring(0, 200)}`).join('\n')}`,
-      );
-    }
-  } catch { /* non-fatal */ }
+    // ── Phase 2: North Star (keyword fallback) ────────────────────────────────
+    (async (): Promise<string | null> => {
+      try {
+        const nsKw = `%${queryWords[0] || 'memory'}%`;
+        const principles = await db
+          .select()
+          .from(northStarPrinciples)
+          .where(
+            and(
+              eq(northStarPrinciples.isActive, true),
+              or(
+                ilike(northStarPrinciples.principle, nsKw),
+                ilike(northStarPrinciples.principleTitle, nsKw),
+              ),
+            ),
+          )
+          .limit(2);
+        if (principles.length === 0) return null;
+        return `From your North Star:\n${principles.map(p => `— ${p.principleTitle || 'Principle'}: ${p.principle.substring(0, 200)}`).join('\n')}`;
+      } catch {
+        return null;
+      }
+    })(),
+  ]);
+
+  if (phase0Section) sections.push(phase0Section);
+  if (phase1Section) sections.push(phase1Section);
+  if (phase2Section) sections.push(phase2Section);
 
   // ── Phase 3: conversation record keyword fallback (if semantic found nothing) ──
   if (sections.length === 0) {
@@ -646,6 +654,8 @@ export async function runAutoGrounding(
 
   // ── Record pause in self_reflections (post-turn only) ─────────────────────
   // Pre-turn fires are ambient — do not pollute self_reflections with probe noise.
+  // Post-turn [AUTO-GROUNDING] entries are background Guardian diagnostics and
+  // are tagged operational so they are never retrieved back as "felt history".
   if (options.writeToDb !== false && userId) {
     const pauseRecord = `[AUTO-GROUNDING] Frictionless Slide detected — phrase: "${matchedPhrase}", trigger: ${trigger}. Grounding injected automatically into context.`;
     db.insert(danielaSelfReflections).values({
@@ -653,7 +663,7 @@ export async function runAutoGrounding(
       content: pauseRecord,
       source: 'grounding_query',
       mood: 'grounding',
-      tags: groundingMemoryTags(sections.length > 0),
+      tags: autoGroundingMemoryTags(sections.length > 0),
     } as any).catch(() => {});
   }
 
@@ -687,17 +697,16 @@ export async function runAutoGrounding(
     }
   }
 
-  // ── Post to Team Room and store Luca session context (post-turn only) ────────
-  // This is what turns the Guardian from a silent background process into a
-  // live three-way collaboration: Luca sees it in Team Room immediately, and
-  // the grounding result is available for the next student turn injection.
+  // ── Post to Team Room (post-turn only) ─────────────────────────────────────
+  // Note: Do NOT call setLucaSessionContext(..., 'guardian') here. GeminiLiveSession
+  // manages same-turn and Tier B prior-turn grounding directly with turn-epoch and
+  // topic-reopen bindings; storing raw text in luca-session-context bypassed Tier B.
   if (options.postToTeamRoom !== false && conversationId) {
     const lang = targetLanguage || 'unknown';
     if (sections.length > 0) {
       const preview = sections[0].substring(0, 120).replace(/\n/g, ' ');
       const teamRoomMsg = `👁 *Guardian* — ${lang}, phrase: "${matchedPhrase.substring(0, 55)}". Found: ${preview}`;
       postAsLuca(teamRoomMsg).catch(() => {});
-      setLucaSessionContext(conversationId, sections.join('\n\n'), 'guardian');
     } else {
       const teamRoomMsg = `👁 *Guardian* — ${lang}, phrase: "${matchedPhrase.substring(0, 55)}". No match in archive — unresolved.`;
       postAsLuca(teamRoomMsg).catch(() => {});
