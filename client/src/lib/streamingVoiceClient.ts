@@ -56,6 +56,7 @@ import {
 } from '../../../shared/streaming-voice-types';
 import { isVerboseLoggingEnabled } from './audioUtils';
 import { getGlobalPlaybackState } from './playbackStateStore';
+import { canSendVideoFrame } from './vision-session-state';
 
 // ============================================================================
 // CLIENT TELEMETRY EMITTER (End-to-End Voice Diagnostics)
@@ -1045,7 +1046,8 @@ export class StreamingVoiceClient {
    * Called at ~0.5fps by the useVisionCapture hook.
    */
   sendVideoFrame(base64Jpeg: string, source: 'webcam' | 'screen'): void {
-    if (this.isReady()) {
+    // Not isReady(): that excludes 'streaming', which dropped every frame while Daniela was speaking.
+    if (canSendVideoFrame(this.state, this.socket?.connected ?? false)) {
       this.socket!.emit('message', {
         type: 'video_frame',
         data: base64Jpeg,
