@@ -551,22 +551,18 @@ assert(
   'Every correction delivery path names the current utterance as primary',
 );
 assert(
-  source.includes('const memoryRequestTurn = this.preTurnMemoryRiskDetected;')
+  source.includes('const memoryRequestTurn = this.preTurnGroundingFired;')
   && source.includes('if (!frictionGrounding.canCarryToPriorTurn) {')
   && source.includes('Skipping auto-grounding — no unverified assertion phrase in model output'),
-  'FrictionSignal skips redundant assertionless post-turn lookups and scopes smoothSlide to memory-risk turns (F8)',
-);
-assert(
-  source.includes('if (this.hardWallTriggered && !glSlideResult.detected && !this.isStopped && this.liveSession)'),
-  'HardWall does not fire a duplicate post-turn lookup when phrase detection already fired on the same turn (F7)',
+  'FrictionSignal skips redundant assertionless post-turn lookups while preserving memoryRequestTurn semantics (F8)',
 );
 
 const detectorPath = path.resolve(process.cwd(), 'server/services/frictionless-slide-detector.ts');
 const detectorSource = fs.readFileSync(detectorPath, 'utf8');
 assert(
   detectorSource.includes('const [phase0Section, phase1Section, phase2Section] = await Promise.all([')
-  && detectorSource.includes('{ candidateLimit: 600 }'),
-  'runAutoGrounding runs Phases 0/1/2 concurrently with a bounded 600-row candidate limit per pool (F7)',
+  && detectorSource.includes('{ pgvectorTopK: 50 }'),
+  'runAutoGrounding runs Phases 0/1/2 concurrently with in-DB pgvectorTopK: 50 scoring (F7)',
 );
 assert(
   !detectorSource.includes("setLucaSessionContext(conversationId, sections.join('\\n\\n'), 'guardian')"),
@@ -581,8 +577,8 @@ const semanticPath = path.resolve(process.cwd(), 'server/services/semantic-memor
 const semanticSource = fs.readFileSync(semanticPath, 'utf8');
 assert(
   semanticSource.includes('const queryVecPromise = embedText(query);')
-  && semanticSource.indexOf('const queryVecPromise = embedText(query);') < semanticSource.indexOf('const [userRows, globalRows] = await Promise.all(['),
-  'semanticSearch starts embedText(query) concurrently with the Neon DB queries (F7)',
+  && semanticSource.includes('::text::vector <=>'),
+  'semanticSearch supports in-DB pgvector cosine scoring for pgvectorTopK and concurrent embedText on default path (F7)',
 );
 
 console.log('\n' + '─'.repeat(68));

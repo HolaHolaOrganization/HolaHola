@@ -19,7 +19,7 @@
 import { createHash } from 'crypto';
 import { getSharedDb } from '../db';
 import { memoryEmbeddings, learnerPersonalFacts } from '@shared/schema';
-import { eq, and, isNull, inArray, desc } from 'drizzle-orm';
+import { eq, and, isNull, inArray, desc, sql } from 'drizzle-orm';
 import { computeDecayMultiplier } from './memory-decay-service';
 
 const EMBEDDING_MODEL = 'text-embedding-3-small';
@@ -42,8 +42,13 @@ export interface SemanticSearchResult {
 }
 
 export interface SemanticSearchOptions {
-  /** Optional tighter candidate cap per pool for latency-critical voice grounding (<2s budget). */
-  candidateLimit?: number;
+  /**
+   * When set, score the full candidate pool in Postgres via pgvector cosine distance
+   * (`embedding::text::vector <=> $query::vector`), return the top `pgvectorTopK`
+   * candidates per pool without transferring 768-float embedding JSONB over the wire,
+   * and re-rank those top candidates with JS decay weighting.
+   */
+  pgvectorTopK?: number;
 }
 
 // ─── Core math ────────────────────────────────────────────────────────────────
@@ -419,6 +424,97 @@ export async function semanticSearch(
     : GLOBAL_RECALL_TYPES
   ).filter(t => GLOBAL_RECALL_TYPES.includes(t));
 
+  if (options?.pgvectorTopK && options.pgvectorTopK > 0) {
+    const topK = Math.max(1, Math.min(200, Math.floor(options.pgvectorTopK)));
+    const queryVec = await embedText(query);
+    const vectorLiteral = `[${queryVec.map(v => (Number.isFinite(v) ? v : 0)).join(',')}]`;
+    const distanceExpr = sql`(${memoryEmbeddings.embedding}::text::vector <=> ${vectorLiteral}::vector)`;
+    const similarityExpr = sql<number>`(1 - (${memoryEmbeddings.embedding}::text::vector <=> ${vectorLiteral}::vector))`;
+    const pgvectorSelect = {
+      memoryType: memoryEmbeddings.memoryType,
+      memoryId: memoryEmbeddings.memoryId,
+      contentHash: memoryEmbeddings.contentHash,
+      strength: memoryEmbeddings.strength,
+      lastReinforcedAt: memoryEmbeddings.lastReinforcedAt,
+      pinned: memoryEmbeddings.pinned,
+      importance: memoryEmbeddings.importance,
+      similarity: similarityExpr,
+    } as const;
+
+    const [userTopRows, globalTopRows] = await Promise.all([
+      db
+        .select(pgvectorSelect)
+        .from(memoryEmbeddings)
+        .where(
+          userTypeCondition
+            ? and(eq(memoryEmbeddings.userId, userId), userTypeCondition)
+            : eq(memoryEmbeddings.userId, userId),
+        )
+        .orderBy(distanceExpr)
+        .limit(topK),
+      globalTypes.length > 0
+        ? db
+          .select(pgvectorSelect)
+          .from(memoryEmbeddings)
+          .where(and(
+            isNull(memoryEmbeddings.userId),
+            inArray(memoryEmbeddings.memoryType, globalTypes),
+          ))
+          .orderBy(distanceExpr)
+          .limit(topK)
+        : Promise.resolve([]),
+    ]);
+
+    const pgRows = [...userTopRows, ...globalTopRows];
+    if (pgRows.length === 0) return [];
+
+    const scoredPg = pgRows.map(row => {
+      const similarity = Number(row.similarity) || 0;
+      const decay = computeDecayMultiplier(
+        row.strength ?? 1.0,
+        row.lastReinforcedAt ?? null,
+        row.pinned ?? false,
+      );
+      return {
+        memoryType: row.memoryType,
+        memoryId: row.memoryId,
+        contentHash: row.contentHash,
+        similarity,
+        effectiveScore: similarity * decay,
+      };
+    });
+
+    scoredPg.sort((a, b) => b.effectiveScore - a.effectiveScore);
+    const aboveThresholdPg = scoredPg.filter(r => r.similarity > 0.65);
+
+    const personalFactIdsPg = aboveThresholdPg
+      .filter(r => r.memoryType === 'learner_personal_fact')
+      .map(r => r.memoryId);
+
+    const expiredIdsPg = new Set<string>();
+    if (personalFactIdsPg.length > 0) {
+      try {
+        const now = new Date();
+        const facts = await db
+          .select({ id: learnerPersonalFacts.id, validTo: learnerPersonalFacts.validTo })
+          .from(learnerPersonalFacts)
+          .where(inArray(learnerPersonalFacts.id, personalFactIdsPg));
+        for (const fact of facts) {
+          if (fact.validTo !== null && fact.validTo < now) {
+            expiredIdsPg.add(fact.id);
+          }
+        }
+      } catch (err: any) {
+        console.warn('[SemanticSearch] Ghost facts validity check failed — returning unfiltered:', err.message);
+      }
+    }
+
+    return aboveThresholdPg
+      .filter(r => !expiredIdsPg.has(r.memoryId))
+      .slice(0, limit)
+      .map(r => ({ memoryType: r.memoryType, memoryId: r.memoryId, similarity: r.similarity, contentHash: r.contentHash }));
+  }
+
   // Start OpenAI query embedding concurrently with the Neon DB queries so the
   // ~400-800ms network round-trip overlaps DB transfer rather than running serially.
   const queryVecPromise = embedText(query);
@@ -426,24 +522,22 @@ export async function semanticSearch(
   // Run both queries in parallel
   const [userRows, globalRows] = await Promise.all([
     // User-specific: ordered by pinned → strength → recency, capped at 8000
-    (() => {
-      const q = db
-        .select(EMBED_SELECT)
-        .from(memoryEmbeddings)
-        .where(
-          userTypeCondition
-            ? and(eq(memoryEmbeddings.userId, userId), userTypeCondition)
-            : eq(memoryEmbeddings.userId, userId),
-        )
-        // Sort by pinned first, then by recency (lastReinforcedAt) rather than raw strength.
-        // Raw strength is the un-decayed value — a memory reinforced 2 years ago but never
-        // touched since can have strength=1.0 while a fresh memory has strength=0.2, causing
-        // the stale memory to displace the fresh one in the 8000-row buffer BEFORE JS decay
-        // is applied.  Using recency as the primary sort puts recently-active memories first
-        // so they are never cut from the buffer by long-forgotten high-strength entries.
-        .orderBy(desc(memoryEmbeddings.pinned), desc(memoryEmbeddings.lastReinforcedAt), desc(memoryEmbeddings.strength));
-      return options?.candidateLimit ? q.limit(options.candidateLimit) : q.limit(8000);
-    })(),
+    db
+      .select(EMBED_SELECT)
+      .from(memoryEmbeddings)
+      .where(
+        userTypeCondition
+          ? and(eq(memoryEmbeddings.userId, userId), userTypeCondition)
+          : eq(memoryEmbeddings.userId, userId),
+      )
+      // Sort by pinned first, then by recency (lastReinforcedAt) rather than raw strength.
+      // Raw strength is the un-decayed value — a memory reinforced 2 years ago but never
+      // touched since can have strength=1.0 while a fresh memory has strength=0.2, causing
+      // the stale memory to displace the fresh one in the 8000-row buffer BEFORE JS decay
+      // is applied.  Using recency as the primary sort puts recently-active memories first
+      // so they are never cut from the buffer by long-forgotten high-strength entries.
+      .orderBy(desc(memoryEmbeddings.pinned), desc(memoryEmbeddings.lastReinforcedAt), desc(memoryEmbeddings.strength))
+      .limit(8000),
 
     // Global (userId IS NULL): only safe types unless collaboration explicitly requested.
     // Cap raised from 1000 → 5000: the global pool now holds 73K+ embeddings across
@@ -462,17 +556,15 @@ export async function semanticSearch(
     // importance DESC ensures high-importance rows always land in the buffer before
     // the cap fires; strength and recency break ties within the same importance tier.
     globalTypes.length > 0
-      ? (() => {
-        const q = db
-          .select(EMBED_SELECT)
-          .from(memoryEmbeddings)
-          .where(and(
-            isNull(memoryEmbeddings.userId),
-            inArray(memoryEmbeddings.memoryType, globalTypes),
-          ))
-          .orderBy(desc(memoryEmbeddings.pinned), desc(memoryEmbeddings.importance), desc(memoryEmbeddings.strength), desc(memoryEmbeddings.lastReinforcedAt));
-        return options?.candidateLimit ? q.limit(options.candidateLimit) : q.limit(5000);
-      })()
+      ? db
+        .select(EMBED_SELECT)
+        .from(memoryEmbeddings)
+        .where(and(
+          isNull(memoryEmbeddings.userId),
+          inArray(memoryEmbeddings.memoryType, globalTypes),
+        ))
+        .orderBy(desc(memoryEmbeddings.pinned), desc(memoryEmbeddings.importance), desc(memoryEmbeddings.strength), desc(memoryEmbeddings.lastReinforcedAt))
+        .limit(5000)
       : Promise.resolve([]),
   ]);
 

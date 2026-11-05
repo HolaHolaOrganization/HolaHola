@@ -569,7 +569,7 @@ export async function runAutoGrounding(
           matchedPhrase,
           4,
           ['conversation_memory', 'conversation_summary'],
-          { candidateLimit: 600 },
+          { pgvectorTopK: 50 },
         );
         const highConf = semResults.filter(r => r.similarity > 0.42);
         if (highConf.length === 0) return null;
@@ -595,7 +595,7 @@ export async function runAutoGrounding(
           .from(danielaSelfReflections)
           .where(and(
             eq(danielaSelfReflections.userId, userId),
-            excludesOperationalMemories(danielaSelfReflections.tags),
+            excludesOperationalMemories(danielaSelfReflections.tags, danielaSelfReflections.content),
             ilike(danielaSelfReflections.content, kw),
           ))
           .orderBy(desc(danielaSelfReflections.createdAt))

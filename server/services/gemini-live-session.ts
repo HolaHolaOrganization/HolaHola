@@ -460,7 +460,6 @@ export class GeminiLiveSession {
   // injection label so Daniela understands SHE IS BEING GIVEN RELATIONAL HISTORY, not facts.
   private preTurnGroundingIsEmotional = false;
   private preTurnIsNamedRecord = false;   // true when utterance contains a Named Record phrase
-  private preTurnMemoryRiskDetected = false; // true when student utterance matched a memory-risk or Named Record phrase
   // Late-arrival carry-forward: if the 150ms fallback fires while Daniela is already generating,
   // the grounding is stored here instead of interrupting her. Injected at the START of the next
   // student turn (student is still speaking — GL not generating yet — safe injection window).
@@ -3496,7 +3495,6 @@ LEXICAL CONSTRAINT: Do not use regional slang, fillers, or interjections from yo
           this.preTurnIsNamedRecord = NAMED_RECORD_PHRASES.some(
             p => queryText.toLowerCase().includes(p)
           );
-          this.preTurnMemoryRiskDetected = risk.detected || this.preTurnIsNamedRecord;
           console.log(`[PreTurnGuardian] Firing — ${logLabel}`);
           this.guardianFireLog.push({ ts: new Date().toISOString(), path: 'pre-turn', phrase: logLabel.slice(0, 60), charsInjected: null, channel: null, outcome: null, groundingPreview: null, attemptId: preTurnAttemptId });
           this._observeGuardian();
@@ -3844,15 +3842,6 @@ LEXICAL CONSTRAINT: Do not use regional slang, fillers, or interjections from yo
           if (emotionalRecheck.detected) {
             this.preTurnGroundingIsEmotional = true;
             console.log(`[PreTurnGuardian] Emotional valence detected on re-scan — phrase: "${emotionalRecheck.valencePhrase}"`);
-          }
-        }
-        if (this.preTurnGroundingFired && !this.preTurnMemoryRiskDetected) {
-          const lowerPending = this.pendingInputTranscript.toLowerCase();
-          if (NAMED_RECORD_PHRASES.some(p => lowerPending.includes(p))) {
-            this.preTurnIsNamedRecord = true;
-            this.preTurnMemoryRiskDetected = true;
-          } else if (detectStudentMemoryRisk(this.pendingInputTranscript).detected) {
-            this.preTurnMemoryRiskDetected = true;
           }
         }
 
@@ -4340,7 +4329,7 @@ LEXICAL CONSTRAINT: Do not use regional slang, fillers, or interjections from yo
             // which is worse than HIGH friction (which means she's genuinely grappling).
             // If the pre-turn Guardian already fired, a CLEAN/LOW score with no Archive access
             // means the grounding didn't interrupt the pull — fire again for the next turn.
-            const memoryRequestTurn = this.preTurnMemoryRiskDetected;
+            const memoryRequestTurn = this.preTurnGroundingFired;
             const smoothSlide = memoryRequestTurn
               && !friction.archiveAccess
               && (friction.label === 'CLEAN' || friction.label === 'LOW');
@@ -4541,19 +4530,16 @@ LEXICAL CONSTRAINT: Do not use regional slang, fillers, or interjections from yo
         this.sessionStudentTurnCount++;
         this.preTurnGroundingFired = false;
         this.preTurnIsNamedRecord = false;
-        this.preTurnMemoryRiskDetected = false;
         this.preTurnGroundingResult = null;
         this.preTurnGroundingPromise = null;
         this.preTurnGroundingBinding = null;
         this.preTurnGroundingIsEmotional = false;
         // Hard wall correction — fires if slide was detected mid-output (memory assertion
-        // with no Archive access) and post-turn phrase detection did not already fire.
-        // Injects grounding for the NEXT turn via tool-result channel.
-        if (this.hardWallTriggered && !glSlideResult.detected && !this.isStopped && this.liveSession) {
+        // with no Archive access). Injects grounding for the NEXT turn via sendClientContent.
+        if (this.hardWallTriggered && !this.isStopped && this.liveSession) {
           const _hwUserId = String((this.session as any).userId || '');
           const _hwConvId = (this.session as any).conversationId;
           const _hwLang = (this.session as any).targetLanguage;
-          const _hwStartMs = Date.now();
           const _hwQuery = extractGroundingAssertionCandidate(this.pendingOutputTranscript);
           const _hwBinding = createGroundingTurnBinding(
             this.activeStudentTurnEpoch,
@@ -4565,15 +4551,7 @@ LEXICAL CONSTRAINT: Do not use regional slang, fillers, or interjections from yo
           console.warn('[HardWall] Injecting grounding correction for next turn');
           runAutoGrounding(_hwUserId, _hwQuery, 'memory_assertion', _hwConvId, _hwLang, { writeToDb: true, notifyLuca: true })
             .then(groundingResult => {
-              if (this.isStopped || !this.liveSession || Date.now() - _hwStartMs > 2000) {
-                this._traceGuardianAttempt(hardWallAttemptId, {
-                  type: 'stale_discarded',
-                  detail: (this.isStopped || !this.liveSession)
-                    ? 'Session stopped before lookup delivery.'
-                    : 'Hard-wall lookup exceeded the two-second freshness budget.',
-                });
-                return;
-              }
+              if (this.isStopped || !this.liveSession) return;
               if (!isGroundingBindingCurrent(_hwBinding, this.activeStudentTurnEpoch)) {
                 const stagedPrior = createPriorTurnGroundingCorrection(
                   groundingResult,

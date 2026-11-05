@@ -34,11 +34,18 @@ export function autoGroundingMemoryTags(foundGrounding: boolean): string[] {
  * diagnostic rows written before operational tagging). Provenance (`source`) is a
  * separate axis and must not be used as a proxy for autobiographical meaning.
  */
-export function excludesOperationalMemories(tagsColumn: unknown): SQL {
-  return sql`NOT (
+export function excludesOperationalMemories(
+  tagsColumn: unknown,
+  contentColumn: unknown = (tagsColumn as any)?.table?.content,
+): SQL {
+  const tagPredicate = sql`NOT (
     COALESCE(${tagsColumn as any}, ARRAY[]::text[])
     @> ARRAY[${OPERATIONAL_MEMORY_TAG}]::text[]
-  ) AND COALESCE(daniela_self_reflections.content, '') NOT LIKE '[AUTO-GROUNDING]%'`;
+  )`;
+  if (!contentColumn) {
+    return tagPredicate;
+  }
+  return sql`${tagPredicate} AND COALESCE(${contentColumn as any}, '') NOT LIKE '[AUTO-GROUNDING]%'`;
 }
 
 export function isOperationalLookupFailure(tags?: string[] | null): boolean {
