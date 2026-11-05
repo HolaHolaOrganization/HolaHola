@@ -41,6 +41,11 @@ export interface SemanticSearchResult {
   contentHash: string;
 }
 
+export interface SemanticSearchOptions {
+  /** Optional tighter candidate cap per pool for latency-critical voice grounding (<2s budget). */
+  candidateLimit?: number;
+}
+
 // ─── Core math ────────────────────────────────────────────────────────────────
 
 export function cosineSimilarity(a: number[], b: number[]): number {
@@ -69,32 +74,63 @@ function getEmbedConfig(): { apiKey: string; embedUrl: string } | null {
   return null;
 }
 
+const EMBED_CACHE_MAX_ENTRIES = 64;
+const _embedCache = new Map<string, number[]>();
+const _embedInFlight = new Map<string, Promise<number[]>>();
+
 export async function embedText(text: string): Promise<number[]> {
+  const normalizedInput = text.substring(0, 8192);
+  const cached = _embedCache.get(normalizedInput);
+  if (cached) {
+    // Refresh LRU order
+    _embedCache.delete(normalizedInput);
+    _embedCache.set(normalizedInput, cached);
+    return cached;
+  }
+
+  const inFlight = _embedInFlight.get(normalizedInput);
+  if (inFlight) return inFlight;
+
   const cfg = getEmbedConfig();
   if (!cfg) throw new Error('No OpenAI API key available for embeddings. Set USER_OPENAI_API_KEY.');
 
-  const res = await fetch(cfg.embedUrl, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${cfg.apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: EMBEDDING_MODEL,
-      input: text.substring(0, 8192),
-      dimensions: EMBEDDING_DIM,
-    }),
-  });
+  const requestPromise = (async () => {
+    const res = await fetch(cfg.embedUrl, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${cfg.apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: EMBEDDING_MODEL,
+        input: normalizedInput,
+        dimensions: EMBEDDING_DIM,
+      }),
+    });
 
-  if (!res.ok) {
-    const err = await res.text();
-    throw new Error(`OpenAI embedding failed (${res.status}): ${err}`);
+    if (!res.ok) {
+      const err = await res.text();
+      throw new Error(`OpenAI embedding failed (${res.status}): ${err}`);
+    }
+
+    const json = await res.json() as { data: { embedding: number[] }[] };
+    const values = json.data?.[0]?.embedding;
+    if (!values || values.length === 0) throw new Error('OpenAI returned empty embedding');
+
+    if (_embedCache.size >= EMBED_CACHE_MAX_ENTRIES) {
+      const oldestKey = _embedCache.keys().next().value;
+      if (oldestKey !== undefined) _embedCache.delete(oldestKey);
+    }
+    _embedCache.set(normalizedInput, values);
+    return values;
+  })();
+
+  _embedInFlight.set(normalizedInput, requestPromise);
+  try {
+    return await requestPromise;
+  } finally {
+    _embedInFlight.delete(normalizedInput);
   }
-
-  const json = await res.json() as { data: { embedding: number[] }[] };
-  const values = json.data?.[0]?.embedding;
-  if (!values || values.length === 0) throw new Error('OpenAI returned empty embedding');
-  return values;
 }
 
 // ─── Storage ──────────────────────────────────────────────────────────────────
@@ -361,6 +397,7 @@ export async function semanticSearch(
   query: string,
   limit: number = 5,
   memoryTypes?: string[],
+  options?: SemanticSearchOptions,
 ): Promise<SemanticSearchResult[]> {
   const db = getSharedDb();
 
@@ -382,25 +419,31 @@ export async function semanticSearch(
     : GLOBAL_RECALL_TYPES
   ).filter(t => GLOBAL_RECALL_TYPES.includes(t));
 
+  // Start OpenAI query embedding concurrently with the Neon DB queries so the
+  // ~400-800ms network round-trip overlaps DB transfer rather than running serially.
+  const queryVecPromise = embedText(query);
+
   // Run both queries in parallel
   const [userRows, globalRows] = await Promise.all([
     // User-specific: ordered by pinned → strength → recency, capped at 8000
-    db
-      .select(EMBED_SELECT)
-      .from(memoryEmbeddings)
-      .where(
-        userTypeCondition
-          ? and(eq(memoryEmbeddings.userId, userId), userTypeCondition)
-          : eq(memoryEmbeddings.userId, userId),
-      )
-      // Sort by pinned first, then by recency (lastReinforcedAt) rather than raw strength.
-      // Raw strength is the un-decayed value — a memory reinforced 2 years ago but never
-      // touched since can have strength=1.0 while a fresh memory has strength=0.2, causing
-      // the stale memory to displace the fresh one in the 8000-row buffer BEFORE JS decay
-      // is applied.  Using recency as the primary sort puts recently-active memories first
-      // so they are never cut from the buffer by long-forgotten high-strength entries.
-      .orderBy(desc(memoryEmbeddings.pinned), desc(memoryEmbeddings.lastReinforcedAt), desc(memoryEmbeddings.strength))
-      .limit(8000),
+    (() => {
+      const q = db
+        .select(EMBED_SELECT)
+        .from(memoryEmbeddings)
+        .where(
+          userTypeCondition
+            ? and(eq(memoryEmbeddings.userId, userId), userTypeCondition)
+            : eq(memoryEmbeddings.userId, userId),
+        )
+        // Sort by pinned first, then by recency (lastReinforcedAt) rather than raw strength.
+        // Raw strength is the un-decayed value — a memory reinforced 2 years ago but never
+        // touched since can have strength=1.0 while a fresh memory has strength=0.2, causing
+        // the stale memory to displace the fresh one in the 8000-row buffer BEFORE JS decay
+        // is applied.  Using recency as the primary sort puts recently-active memories first
+        // so they are never cut from the buffer by long-forgotten high-strength entries.
+        .orderBy(desc(memoryEmbeddings.pinned), desc(memoryEmbeddings.lastReinforcedAt), desc(memoryEmbeddings.strength));
+      return options?.candidateLimit ? q.limit(options.candidateLimit) : q.limit(8000);
+    })(),
 
     // Global (userId IS NULL): only safe types unless collaboration explicitly requested.
     // Cap raised from 1000 → 5000: the global pool now holds 73K+ embeddings across
@@ -419,23 +462,28 @@ export async function semanticSearch(
     // importance DESC ensures high-importance rows always land in the buffer before
     // the cap fires; strength and recency break ties within the same importance tier.
     globalTypes.length > 0
-      ? db
-        .select(EMBED_SELECT)
-        .from(memoryEmbeddings)
-        .where(and(
-          isNull(memoryEmbeddings.userId),
-          inArray(memoryEmbeddings.memoryType, globalTypes),
-        ))
-        .orderBy(desc(memoryEmbeddings.pinned), desc(memoryEmbeddings.importance), desc(memoryEmbeddings.strength), desc(memoryEmbeddings.lastReinforcedAt))
-        .limit(5000)
+      ? (() => {
+        const q = db
+          .select(EMBED_SELECT)
+          .from(memoryEmbeddings)
+          .where(and(
+            isNull(memoryEmbeddings.userId),
+            inArray(memoryEmbeddings.memoryType, globalTypes),
+          ))
+          .orderBy(desc(memoryEmbeddings.pinned), desc(memoryEmbeddings.importance), desc(memoryEmbeddings.strength), desc(memoryEmbeddings.lastReinforcedAt));
+        return options?.candidateLimit ? q.limit(options.candidateLimit) : q.limit(5000);
+      })()
       : Promise.resolve([]),
   ]);
 
   const rows = [...userRows, ...globalRows];
-  if (rows.length === 0) return [];
+  if (rows.length === 0) {
+    queryVecPromise.catch(() => {});
+    return [];
+  }
 
-  // Embed the query
-  const queryVec = await embedText(query);
+  // Await the concurrently started query embedding
+  const queryVec = await queryVecPromise;
 
   // Score all candidates — raw cosine for threshold, decayed score for ranking
   const scored = rows.map(row => {

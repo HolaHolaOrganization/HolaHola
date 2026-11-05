@@ -28,6 +28,11 @@ import {
   doesStudentExplicitlyReopenGroundingTopic,
   extractGroundingAssertionCandidate,
 } from '../services/frictionless-slide-detector';
+import {
+  clearLucaSessionContext,
+  consumeLucaSessionContext,
+  setLucaSessionContext,
+} from '../services/luca-session-context';
 
 let failures = 0;
 
@@ -333,6 +338,23 @@ assert(
   !assertionlessFrictionSource.canCarryToPriorTurn,
   'An assertionless friction signal fails closed for prior-turn carry',
 );
+assert(
+  assertionlessFrictionSource.binding.candidateAssertion === '',
+  'An assertionless friction signal never falls back to the student utterance as candidateAssertion (F8)',
+);
+
+const testConvId = 'test-f12-luca-context-guard';
+clearLucaSessionContext(testConvId);
+setLucaSessionContext(testConvId, 'Guardian auto-grounding payload', 'guardian');
+assert(
+  consumeLucaSessionContext(testConvId) === null,
+  'Guardian auto-grounding cannot populate un-gated luca-session-context and bypass Tier B (F12)',
+);
+setLucaSessionContext(testConvId, 'External observer note', 'observer');
+assert(
+  consumeLucaSessionContext(testConvId) === 'External observer note',
+  'Non-guardian observer notes continue to flow through luca-session-context',
+);
 
 for (const sourceLabel of ['frictionless-slide', 'friction-signal', 'hard-wall']) {
   const staged = createPriorTurnGroundingCorrection(
@@ -527,6 +549,40 @@ assert(
 assert(
   source.includes('CURRENT STUDENT TURN — PRIMARY SUBJECT:'),
   'Every correction delivery path names the current utterance as primary',
+);
+assert(
+  source.includes('const memoryRequestTurn = this.preTurnMemoryRiskDetected;')
+  && source.includes('if (!frictionGrounding.canCarryToPriorTurn) {')
+  && source.includes('Skipping auto-grounding — no unverified assertion phrase in model output'),
+  'FrictionSignal skips redundant assertionless post-turn lookups and scopes smoothSlide to memory-risk turns (F8)',
+);
+assert(
+  source.includes('if (this.hardWallTriggered && !glSlideResult.detected && !this.isStopped && this.liveSession)'),
+  'HardWall does not fire a duplicate post-turn lookup when phrase detection already fired on the same turn (F7)',
+);
+
+const detectorPath = path.resolve(process.cwd(), 'server/services/frictionless-slide-detector.ts');
+const detectorSource = fs.readFileSync(detectorPath, 'utf8');
+assert(
+  detectorSource.includes('const [phase0Section, phase1Section, phase2Section] = await Promise.all([')
+  && detectorSource.includes('{ candidateLimit: 600 }'),
+  'runAutoGrounding runs Phases 0/1/2 concurrently with a bounded 600-row candidate limit per pool (F7)',
+);
+assert(
+  !detectorSource.includes("setLucaSessionContext(conversationId, sections.join('\\n\\n'), 'guardian')"),
+  'runAutoGrounding no longer writes Guardian text into un-gated luca-session-context (F12)',
+);
+assert(
+  detectorSource.includes('tags: autoGroundingMemoryTags(sections.length > 0)'),
+  'runAutoGrounding tags background [AUTO-GROUNDING] entries as operational diagnostics (F13)',
+);
+
+const semanticPath = path.resolve(process.cwd(), 'server/services/semantic-memory-service.ts');
+const semanticSource = fs.readFileSync(semanticPath, 'utf8');
+assert(
+  semanticSource.includes('const queryVecPromise = embedText(query);')
+  && semanticSource.indexOf('const queryVecPromise = embedText(query);') < semanticSource.indexOf('const [userRows, globalRows] = await Promise.all(['),
+  'semanticSearch starts embedText(query) concurrently with the Neon DB queries (F7)',
 );
 
 console.log('\n' + '─'.repeat(68));

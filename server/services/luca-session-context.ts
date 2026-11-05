@@ -27,8 +27,14 @@ const _store = new Map<string, LucaContextEntry>();
 export function setLucaSessionContext(
   conversationId: string,
   context: string,
-  source: LucaContextEntry['source'] = 'guardian',
+  source: LucaContextEntry['source'] = 'observer',
 ): void {
+  if (source === 'guardian') {
+    // Archive Guardian results must go through GeminiLiveSession's turn-bound
+    // and Tier B (doesStudentExplicitlyReopenGroundingTopic) gates, never via
+    // an un-gated session-wide buffer.
+    return;
+  }
   _store.set(conversationId, {
     conversationId,
     context,
@@ -45,6 +51,11 @@ export function setLucaSessionContext(
 export function consumeLucaSessionContext(conversationId: string): string | null {
   const entry = _store.get(conversationId);
   if (!entry) return null;
+
+  if (entry.source === 'guardian') {
+    _store.delete(conversationId);
+    return null;
+  }
 
   // Expire stale entries
   if (Date.now() - entry.createdAt > EXPIRY_MS) {

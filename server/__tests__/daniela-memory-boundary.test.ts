@@ -3,9 +3,11 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import {
+  AUTO_GROUNDING_DIAGNOSTIC_TAG,
   AUTOBIOGRAPHICAL_MEMORY_TAG,
   LOOKUP_FAILURE_TAG,
   OPERATIONAL_MEMORY_TAG,
+  autoGroundingMemoryTags,
   groundingMemoryTags,
   isAutobiographicalMemory,
   isOperationalLookupFailure,
@@ -73,4 +75,38 @@ test("grounding classification happens only after the lookup result is known", (
 
   assert.ok(foundIndex >= 0, "groundingFound assignment must exist");
   assert.ok(tagsIndex > foundIndex, "pause classification must happen after the lookup result is known");
+});
+
+test("background [AUTO-GROUNDING] diagnostic entries are always operational and excluded from felt history", () => {
+  assert.deepEqual(autoGroundingMemoryTags(true), [
+    OPERATIONAL_MEMORY_TAG,
+    AUTO_GROUNDING_DIAGNOSTIC_TAG,
+  ]);
+  assert.deepEqual(autoGroundingMemoryTags(false), [
+    OPERATIONAL_MEMORY_TAG,
+    AUTO_GROUNDING_DIAGNOSTIC_TAG,
+    LOOKUP_FAILURE_TAG,
+  ]);
+  assert.equal(isAutobiographicalMemory(autoGroundingMemoryTags(true)), false);
+  assert.equal(isAutobiographicalMemory(autoGroundingMemoryTags(false)), false);
+  assert.equal(
+    isAutobiographicalMemory(
+      [AUTOBIOGRAPHICAL_MEMORY_TAG],
+      '[AUTO-GROUNDING] Frictionless Slide detected — phrase: "So I\'ve got my webcam on"',
+    ),
+    false,
+  );
+
+  const detectorSource = readFileSync("server/services/frictionless-slide-detector.ts", "utf8");
+  assert.match(
+    detectorSource,
+    /tags:\s*autoGroundingMemoryTags\(sections\.length\s*>\s*0\)/,
+    "runAutoGrounding must tag background [AUTO-GROUNDING] rows as operational diagnostics",
+  );
+  const boundarySource = readFileSync("server/services/daniela-memory-boundary.ts", "utf8");
+  assert.match(
+    boundarySource,
+    /NOT LIKE '\[AUTO-GROUNDING\]%'/,
+    "excludesOperationalMemories SQL must also filter legacy [AUTO-GROUNDING] rows",
+  );
 });
