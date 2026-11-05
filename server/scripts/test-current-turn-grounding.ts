@@ -560,9 +560,8 @@ assert(
 const detectorPath = path.resolve(process.cwd(), 'server/services/frictionless-slide-detector.ts');
 const detectorSource = fs.readFileSync(detectorPath, 'utf8');
 assert(
-  detectorSource.includes('const [phase0Section, phase1Section, phase2Section] = await Promise.all([')
-  && detectorSource.includes('{ pgvectorTopK: 50 }'),
-  'runAutoGrounding runs Phases 0/1/2 concurrently with in-DB pgvectorTopK: 50 scoring (F7)',
+  detectorSource.includes('const [phase0Section, phase1Section, phase2Section] = await Promise.all(['),
+  'runAutoGrounding runs Phases 0/1/2 concurrently',
 );
 assert(
   !detectorSource.includes("setLucaSessionContext(conversationId, sections.join('\\n\\n'), 'guardian')"),
@@ -571,14 +570,6 @@ assert(
 assert(
   detectorSource.includes('tags: autoGroundingMemoryTags(sections.length > 0)'),
   'runAutoGrounding tags background [AUTO-GROUNDING] entries as operational diagnostics (F13)',
-);
-
-const semanticPath = path.resolve(process.cwd(), 'server/services/semantic-memory-service.ts');
-const semanticSource = fs.readFileSync(semanticPath, 'utf8');
-assert(
-  semanticSource.includes('const queryVecPromise = embedText(query);')
-  && semanticSource.includes('::text::vector <=>'),
-  'semanticSearch supports in-DB pgvector cosine scoring for pgvectorTopK and concurrent embedText on default path (F7)',
 );
 
 console.log('\n' + '─'.repeat(68));

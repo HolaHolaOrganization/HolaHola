@@ -558,7 +558,7 @@ export async function runAutoGrounding(
   const queryWords = matchedPhrase.split(/\s+/).filter(w => w.length > 4);
 
   // Run Phase 0 (semantic search), Phase 1 (felt history), and Phase 2 (North Star)
-  // concurrently so real-time voice grounding completes well within the 2s freshness budget.
+  // concurrently so independent grounding phases do not block one another sequentially.
   const [phase0Section, phase1Section, phase2Section] = await Promise.all([
     // ── Phase 0: Semantic search (primary — works on any utterance) ────────────
     (async (): Promise<string | null> => {
@@ -569,7 +569,6 @@ export async function runAutoGrounding(
           matchedPhrase,
           4,
           ['conversation_memory', 'conversation_summary'],
-          { pgvectorTopK: 50 },
         );
         const highConf = semResults.filter(r => r.similarity > 0.42);
         if (highConf.length === 0) return null;

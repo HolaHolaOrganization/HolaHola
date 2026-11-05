@@ -19,7 +19,7 @@
 import { createHash } from 'crypto';
 import { getSharedDb } from '../db';
 import { memoryEmbeddings, learnerPersonalFacts } from '@shared/schema';
-import { eq, and, isNull, inArray, desc, sql } from 'drizzle-orm';
+import { eq, and, isNull, inArray, desc } from 'drizzle-orm';
 import { computeDecayMultiplier } from './memory-decay-service';
 
 const EMBEDDING_MODEL = 'text-embedding-3-small';
@@ -39,16 +39,6 @@ export interface SemanticSearchResult {
   memoryId: string;
   similarity: number; // 0-1 cosine similarity
   contentHash: string;
-}
-
-export interface SemanticSearchOptions {
-  /**
-   * When set, score the full candidate pool in Postgres via pgvector cosine distance
-   * (`embedding::text::vector <=> $query::vector`), return the top `pgvectorTopK`
-   * candidates per pool without transferring 768-float embedding JSONB over the wire,
-   * and re-rank those top candidates with JS decay weighting.
-   */
-  pgvectorTopK?: number;
 }
 
 // ─── Core math ────────────────────────────────────────────────────────────────
@@ -79,63 +69,32 @@ function getEmbedConfig(): { apiKey: string; embedUrl: string } | null {
   return null;
 }
 
-const EMBED_CACHE_MAX_ENTRIES = 64;
-const _embedCache = new Map<string, number[]>();
-const _embedInFlight = new Map<string, Promise<number[]>>();
-
 export async function embedText(text: string): Promise<number[]> {
-  const normalizedInput = text.substring(0, 8192);
-  const cached = _embedCache.get(normalizedInput);
-  if (cached) {
-    // Refresh LRU order
-    _embedCache.delete(normalizedInput);
-    _embedCache.set(normalizedInput, cached);
-    return cached;
-  }
-
-  const inFlight = _embedInFlight.get(normalizedInput);
-  if (inFlight) return inFlight;
-
   const cfg = getEmbedConfig();
   if (!cfg) throw new Error('No OpenAI API key available for embeddings. Set USER_OPENAI_API_KEY.');
 
-  const requestPromise = (async () => {
-    const res = await fetch(cfg.embedUrl, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${cfg.apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: EMBEDDING_MODEL,
-        input: normalizedInput,
-        dimensions: EMBEDDING_DIM,
-      }),
-    });
+  const res = await fetch(cfg.embedUrl, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${cfg.apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: EMBEDDING_MODEL,
+      input: text.substring(0, 8192),
+      dimensions: EMBEDDING_DIM,
+    }),
+  });
 
-    if (!res.ok) {
-      const err = await res.text();
-      throw new Error(`OpenAI embedding failed (${res.status}): ${err}`);
-    }
-
-    const json = await res.json() as { data: { embedding: number[] }[] };
-    const values = json.data?.[0]?.embedding;
-    if (!values || values.length === 0) throw new Error('OpenAI returned empty embedding');
-
-    if (_embedCache.size >= EMBED_CACHE_MAX_ENTRIES) {
-      const oldestKey = _embedCache.keys().next().value;
-      if (oldestKey !== undefined) _embedCache.delete(oldestKey);
-    }
-    _embedCache.set(normalizedInput, values);
-    return values;
-  })();
-
-  _embedInFlight.set(normalizedInput, requestPromise);
-  try {
-    return await requestPromise;
-  } finally {
-    _embedInFlight.delete(normalizedInput);
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`OpenAI embedding failed (${res.status}): ${err}`);
   }
+
+  const json = await res.json() as { data: { embedding: number[] }[] };
+  const values = json.data?.[0]?.embedding;
+  if (!values || values.length === 0) throw new Error('OpenAI returned empty embedding');
+  return values;
 }
 
 // ─── Storage ──────────────────────────────────────────────────────────────────
@@ -402,7 +361,6 @@ export async function semanticSearch(
   query: string,
   limit: number = 5,
   memoryTypes?: string[],
-  options?: SemanticSearchOptions,
 ): Promise<SemanticSearchResult[]> {
   const db = getSharedDb();
 
@@ -423,101 +381,6 @@ export async function semanticSearch(
     ? (wantsCollabMessages ? memoryTypes : memoryTypes.filter(t => t !== 'collaboration_message'))
     : GLOBAL_RECALL_TYPES
   ).filter(t => GLOBAL_RECALL_TYPES.includes(t));
-
-  if (options?.pgvectorTopK && options.pgvectorTopK > 0) {
-    const topK = Math.max(1, Math.min(200, Math.floor(options.pgvectorTopK)));
-    const queryVec = await embedText(query);
-    const vectorLiteral = `[${queryVec.map(v => (Number.isFinite(v) ? v : 0)).join(',')}]`;
-    const distanceExpr = sql`(${memoryEmbeddings.embedding}::text::vector <=> ${vectorLiteral}::vector)`;
-    const similarityExpr = sql<number>`(1 - (${memoryEmbeddings.embedding}::text::vector <=> ${vectorLiteral}::vector))`;
-    const pgvectorSelect = {
-      memoryType: memoryEmbeddings.memoryType,
-      memoryId: memoryEmbeddings.memoryId,
-      contentHash: memoryEmbeddings.contentHash,
-      strength: memoryEmbeddings.strength,
-      lastReinforcedAt: memoryEmbeddings.lastReinforcedAt,
-      pinned: memoryEmbeddings.pinned,
-      importance: memoryEmbeddings.importance,
-      similarity: similarityExpr,
-    } as const;
-
-    const [userTopRows, globalTopRows] = await Promise.all([
-      db
-        .select(pgvectorSelect)
-        .from(memoryEmbeddings)
-        .where(
-          userTypeCondition
-            ? and(eq(memoryEmbeddings.userId, userId), userTypeCondition)
-            : eq(memoryEmbeddings.userId, userId),
-        )
-        .orderBy(distanceExpr)
-        .limit(topK),
-      globalTypes.length > 0
-        ? db
-          .select(pgvectorSelect)
-          .from(memoryEmbeddings)
-          .where(and(
-            isNull(memoryEmbeddings.userId),
-            inArray(memoryEmbeddings.memoryType, globalTypes),
-          ))
-          .orderBy(distanceExpr)
-          .limit(topK)
-        : Promise.resolve([]),
-    ]);
-
-    const pgRows = [...userTopRows, ...globalTopRows];
-    if (pgRows.length === 0) return [];
-
-    const scoredPg = pgRows.map(row => {
-      const similarity = Number(row.similarity) || 0;
-      const decay = computeDecayMultiplier(
-        row.strength ?? 1.0,
-        row.lastReinforcedAt ?? null,
-        row.pinned ?? false,
-      );
-      return {
-        memoryType: row.memoryType,
-        memoryId: row.memoryId,
-        contentHash: row.contentHash,
-        similarity,
-        effectiveScore: similarity * decay,
-      };
-    });
-
-    scoredPg.sort((a, b) => b.effectiveScore - a.effectiveScore);
-    const aboveThresholdPg = scoredPg.filter(r => r.similarity > 0.65);
-
-    const personalFactIdsPg = aboveThresholdPg
-      .filter(r => r.memoryType === 'learner_personal_fact')
-      .map(r => r.memoryId);
-
-    const expiredIdsPg = new Set<string>();
-    if (personalFactIdsPg.length > 0) {
-      try {
-        const now = new Date();
-        const facts = await db
-          .select({ id: learnerPersonalFacts.id, validTo: learnerPersonalFacts.validTo })
-          .from(learnerPersonalFacts)
-          .where(inArray(learnerPersonalFacts.id, personalFactIdsPg));
-        for (const fact of facts) {
-          if (fact.validTo !== null && fact.validTo < now) {
-            expiredIdsPg.add(fact.id);
-          }
-        }
-      } catch (err: any) {
-        console.warn('[SemanticSearch] Ghost facts validity check failed — returning unfiltered:', err.message);
-      }
-    }
-
-    return aboveThresholdPg
-      .filter(r => !expiredIdsPg.has(r.memoryId))
-      .slice(0, limit)
-      .map(r => ({ memoryType: r.memoryType, memoryId: r.memoryId, similarity: r.similarity, contentHash: r.contentHash }));
-  }
-
-  // Start OpenAI query embedding concurrently with the Neon DB queries so the
-  // ~400-800ms network round-trip overlaps DB transfer rather than running serially.
-  const queryVecPromise = embedText(query);
 
   // Run both queries in parallel
   const [userRows, globalRows] = await Promise.all([
@@ -569,13 +432,10 @@ export async function semanticSearch(
   ]);
 
   const rows = [...userRows, ...globalRows];
-  if (rows.length === 0) {
-    queryVecPromise.catch(() => {});
-    return [];
-  }
+  if (rows.length === 0) return [];
 
-  // Await the concurrently started query embedding
-  const queryVec = await queryVecPromise;
+  // Embed the query
+  const queryVec = await embedText(query);
 
   // Score all candidates — raw cosine for threshold, decayed score for ranking
   const scored = rows.map(row => {
