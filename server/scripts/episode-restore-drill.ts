@@ -6,8 +6,9 @@
  * The target must be a disposable database, such as a schema-only Neon branch
  * from `npm run db:branch -- create <name> --schema-only --task-ref <ref>`. It
  * is refused when it points at the same host and database as
- * NEON_SHARED_DATABASE_URL. The backup is read with the same store as the
- * export (episode-backup-s3.ts), read-only. Exit 0 when the drill passed, 2
+ * NEON_SHARED_DATABASE_URL (or DATABASE_URL), and when neither is set. The
+ * backup is read with the same store as the export (episode-backup-s3.ts),
+ * read-only. Exit 0 when the drill passed, 2
  * when it failed or there is no backup, 1 on error.
  */
 import pg from 'pg';
@@ -26,7 +27,10 @@ export async function episodeRestoreDrillCli(argv = process.argv.slice(2), env =
   const at = argv.indexOf('--target-url');
   const targetUrl = at >= 0 ? argv[at + 1] : undefined;
   if (!targetUrl) throw new Error('--target-url <postgres url of a disposable database> is required');
-  if (env.NEON_SHARED_DATABASE_URL && databaseIdentity(env.NEON_SHARED_DATABASE_URL) === databaseIdentity(targetUrl)) {
+  // Fail closed: without the shared database's URL the drill can't prove the target isn't it.
+  const shared = [env.NEON_SHARED_DATABASE_URL, env.DATABASE_URL].filter((u): u is string => Boolean(u));
+  if (shared.length === 0) throw new Error('NEON_SHARED_DATABASE_URL is not set, so the target cannot be checked against it; run with --env-file=.env');
+  if (shared.some((u) => databaseIdentity(u) === databaseIdentity(targetUrl))) {
     throw new Error('refusing to restore into the shared database; use a disposable Neon branch');
   }
   const target = new pg.Client({ connectionString: targetUrl });

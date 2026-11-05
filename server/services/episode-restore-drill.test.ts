@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { BACKUP_PREFIX_DEFAULT, runEpisodeBackup, type BackupStore, type InventoryRow, type StoredObject } from './episode-backup';
 import { runRestoreDrill, type RestoreTarget } from './episode-restore-drill';
-import { databaseIdentity } from '../scripts/episode-restore-drill';
+import { databaseIdentity, episodeRestoreDrillCli } from '../scripts/episode-restore-drill';
 
 function memoryStore() {
   const objects = new Map<string, StoredObject>();
@@ -90,4 +90,13 @@ test('the CLI identifies the shared database through its pooled and direct hostn
   const branch = 'postgres://u:p@ep-other-branch-456.us-east-2.aws.neon.tech/neondb?sslmode=require';
   assert.equal(databaseIdentity(pooled), databaseIdentity(direct));
   assert.notEqual(databaseIdentity(pooled), databaseIdentity(branch));
+});
+
+test('the CLI refuses the shared database, and refuses to run at all when it cannot tell', async () => {
+  const shared = 'postgres://u:p@ep-cool-name-123-pooler.us-east-2.aws.neon.tech/neondb';
+  const direct = 'postgres://u:p@ep-cool-name-123.us-east-2.aws.neon.tech/neondb';
+  await assert.rejects(episodeRestoreDrillCli(['--target-url', direct], { NEON_SHARED_DATABASE_URL: shared }), /refusing to restore into the shared database/);
+  await assert.rejects(episodeRestoreDrillCli(['--target-url', direct], { DATABASE_URL: shared }), /refusing to restore into the shared database/);
+  await assert.rejects(episodeRestoreDrillCli(['--target-url', direct], {}), /NEON_SHARED_DATABASE_URL is not set/);
+  await assert.rejects(episodeRestoreDrillCli([], { NEON_SHARED_DATABASE_URL: shared }), /--target-url/);
 });
