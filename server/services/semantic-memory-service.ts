@@ -382,8 +382,8 @@ async function storedVectorsFilled(types: string[]): Promise<boolean> {
     .where(and(
       inArray(memoryEmbeddings.memoryType, types),
       sql`${EMBEDDING_VEC} IS NULL`,
-      sql`jsonb_typeof(${memoryEmbeddings.embedding}) = 'array'`,
-      sql`jsonb_array_length(${memoryEmbeddings.embedding}) = 768`,
+      // Rows the shared conversion rejects stay NULL forever; they are not "unfilled".
+      sql`memory_embeddings_vec_or_null(${memoryEmbeddings.embedding}) IS NOT NULL`,
     ))
     .limit(1);
   return unfilled.length === 0;

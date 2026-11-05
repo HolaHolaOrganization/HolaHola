@@ -34,12 +34,13 @@ async function fillPass(pool: Queryable, types: string[] | null, deadline: numbe
     if (batch.rows.length === 0) return { filled, complete: true };
     const ids = batch.rows.map((r: { id: string }) => r.id);
     after = ids[ids.length - 1];
-    // Same guard as the trigger: anything that is not a 768-element array stays NULL.
+    // Same conversion as the trigger (migration 0077): rows that are not a 768-element
+    // numeric array stay NULL and can never fail the run.
     const updated = await pool.query(
-      `UPDATE memory_embeddings SET embedding_vec = (embedding::text)::vector(768)
+      `UPDATE memory_embeddings SET embedding_vec = memory_embeddings_vec_or_null(embedding)
         WHERE id IN (SELECT jsonb_array_elements_text($1::jsonb))
           AND embedding_vec IS NULL
-          AND jsonb_typeof(embedding) = 'array' AND jsonb_array_length(embedding) = 768`,
+          AND memory_embeddings_vec_or_null(embedding) IS NOT NULL`,
       [JSON.stringify(ids)],
     );
     filled += updated.rowCount ?? 0;

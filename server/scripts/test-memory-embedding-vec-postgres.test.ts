@@ -83,8 +83,12 @@ after(async () => {
 databaseTest('the trigger fills 768-dim rows, leaves stubs NULL and follows updates and upserts', async () => {
   await insert(`full-${tag}`, OWNER, 'conversation_memory', vec(3));
   await insert(`stub-${tag}`, OWNER, 'conversation_memory', [0.5, 0.5]);
+  const malformed: unknown[] = vec(4);
+  malformed[10] = 'not-a-number';
+  await insert(`malformed-${tag}`, OWNER, 'conversation_memory', malformed);
   assert.ok((await storedVec(`full-${tag}`))?.startsWith('[0.05,0.05,0.05,1,'));
   assert.equal(await storedVec(`stub-${tag}`), null);
+  assert.equal(await storedVec(`malformed-${tag}`), null, 'a malformed 768-element array is stored without a vector, not rejected');
 
   await getSharedDb().update(memoryEmbeddings).set({ embedding: vec(9) })
     .where(eq(memoryEmbeddings.memoryId, `full-${tag}`));
@@ -145,6 +149,7 @@ databaseTest('the stored-vector scorer ranks by similarity and keeps the ownersh
   const mine = scored.filter(r => r.memoryId.endsWith(tag));
   const ids = mine.map(r => r.memoryId);
   assert.ok(ids.includes(`near-${tag}`) && ids.includes(`far-${tag}`) && ids.includes(`global-ok-${tag}`));
+  assert.equal(new Set(ids).size, ids.length, 'the global and in-window batches are de-duplicated');
   assert.ok(!ids.includes(`foreign-${tag}`), 'another user\'s private row must never be returned');
   assert.ok(!ids.includes(`global-collab-${tag}`), 'types outside the allowed global list must never be returned');
   const near = mine.find(r => r.memoryId === `near-${tag}`)!;
