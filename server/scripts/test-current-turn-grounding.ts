@@ -28,6 +28,11 @@ import {
   doesStudentExplicitlyReopenGroundingTopic,
   extractGroundingAssertionCandidate,
 } from '../services/frictionless-slide-detector';
+import {
+  clearLucaSessionContext,
+  consumeLucaSessionContext,
+  setLucaSessionContext,
+} from '../services/luca-session-context';
 
 let failures = 0;
 
@@ -333,6 +338,23 @@ assert(
   !assertionlessFrictionSource.canCarryToPriorTurn,
   'An assertionless friction signal fails closed for prior-turn carry',
 );
+assert(
+  assertionlessFrictionSource.binding.candidateAssertion === '',
+  'An assertionless friction signal never falls back to the student utterance as candidateAssertion (F8)',
+);
+
+const testConvId = 'test-f12-luca-context-guard';
+clearLucaSessionContext(testConvId);
+setLucaSessionContext(testConvId, 'Guardian auto-grounding payload', 'guardian');
+assert(
+  consumeLucaSessionContext(testConvId) === null,
+  'Guardian auto-grounding cannot populate un-gated luca-session-context and bypass Tier B (F12)',
+);
+setLucaSessionContext(testConvId, 'External observer note', 'observer');
+assert(
+  consumeLucaSessionContext(testConvId) === 'External observer note',
+  'Non-guardian observer notes continue to flow through luca-session-context',
+);
 
 for (const sourceLabel of ['frictionless-slide', 'friction-signal', 'hard-wall']) {
   const staged = createPriorTurnGroundingCorrection(
@@ -527,6 +549,27 @@ assert(
 assert(
   source.includes('CURRENT STUDENT TURN — PRIMARY SUBJECT:'),
   'Every correction delivery path names the current utterance as primary',
+);
+assert(
+  source.includes('const memoryRequestTurn = this.preTurnGroundingFired;')
+  && source.includes('if (!frictionGrounding.canCarryToPriorTurn) {')
+  && source.includes('Skipping auto-grounding — no unverified assertion phrase in model output'),
+  'FrictionSignal skips redundant assertionless post-turn lookups while preserving memoryRequestTurn semantics (F8)',
+);
+
+const detectorPath = path.resolve(process.cwd(), 'server/services/frictionless-slide-detector.ts');
+const detectorSource = fs.readFileSync(detectorPath, 'utf8');
+assert(
+  detectorSource.includes('const [phase0Section, phase1Section, phase2Section] = await Promise.all(['),
+  'runAutoGrounding runs Phases 0/1/2 concurrently',
+);
+assert(
+  !detectorSource.includes("setLucaSessionContext(conversationId, sections.join('\\n\\n'), 'guardian')"),
+  'runAutoGrounding no longer writes Guardian text into un-gated luca-session-context (F12)',
+);
+assert(
+  detectorSource.includes('tags: autoGroundingMemoryTags(sections.length > 0)'),
+  'runAutoGrounding tags background [AUTO-GROUNDING] entries as operational diagnostics (F13)',
 );
 
 console.log('\n' + '─'.repeat(68));

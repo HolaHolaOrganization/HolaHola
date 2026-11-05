@@ -4372,8 +4372,8 @@ LEXICAL CONSTRAINT: Do not use regional slang, fillers, or interjections from yo
               }
               // Use the specific unverified assertion sentence when one exists.
               // If the friction signal was triggered without an assertion phrase,
-              // keep it same-turn only so unrelated response words can never carry
-              // forward as a reopenable topic on Turn N+1.
+              // do not fire a redundant post-turn lookup using the student's utterance
+              // (UniversalPreTurn already grounded the student's utterance on this turn).
               const userId = String((this.session as any).userId || '');
               const conversationId = (this.session as any).conversationId;
               const targetLanguage = (this.session as any).targetLanguage;
@@ -4384,117 +4384,123 @@ LEXICAL CONSTRAINT: Do not use regional slang, fillers, or interjections from yo
                 transcript,
                 friction.unverifiedAssertions,
               );
-              const groundingBinding = frictionGrounding.binding;
-              const frictionAttemptId = this._startGuardianAttempt('friction-signal', groundingBinding);
-              this.guardianFireLog.push({ ts: new Date().toISOString(), path: 'friction-signal', phrase: groundingBinding.candidateAssertion.slice(0, 80), charsInjected: null, channel: null, outcome: null, groundingPreview: null, attemptId: frictionAttemptId });
-              this._observeGuardian();
-              runAutoGrounding(userId, groundingBinding.candidateAssertion, 'memory_assertion', conversationId, targetLanguage)
-                .then(groundingResult => {
-                  if (this.isStopped || Date.now() - startMs > 2000) {
-                    this._traceGuardianAttempt(frictionAttemptId, {
-                      type: 'stale_discarded',
-                      detail: this.isStopped ? 'Session stopped before lookup delivery.' : 'Lookup exceeded the two-second freshness budget.',
-                    });
-                    return;
-                  }
-                  if (!isGroundingBindingCurrent(groundingBinding, this.activeStudentTurnEpoch)) {
-                    const stagedPrior = frictionGrounding.canCarryToPriorTurn
-                      ? createPriorTurnGroundingCorrection(
-                        groundingResult,
-                        groundingBinding,
-                        this.activeStudentTurnEpoch,
-                      )
-                      : null;
-                    if (stagedPrior) {
-                      if (
-                        this.pendingPriorTurnGroundingAttemptId
-                        && this.pendingPriorTurnGroundingAttemptId !== frictionAttemptId
-                      ) {
-                        this._traceGuardianAttempt(this.pendingPriorTurnGroundingAttemptId, {
-                          type: 'superseded',
-                          detail: 'A newer prior-turn correction replaced this dormant correction.',
-                        });
-                      }
-                      this.pendingPriorTurnGrounding = stagedPrior;
-                      this.pendingPriorTurnGroundingAttemptId = frictionAttemptId;
+              if (!frictionGrounding.canCarryToPriorTurn) {
+                console.log(
+                  `[FrictionSignal/GL] Skipping auto-grounding — no unverified assertion phrase in model output`,
+                );
+              } else {
+                const groundingBinding = frictionGrounding.binding;
+                const frictionAttemptId = this._startGuardianAttempt('friction-signal', groundingBinding);
+                this.guardianFireLog.push({ ts: new Date().toISOString(), path: 'friction-signal', phrase: groundingBinding.candidateAssertion.slice(0, 80), charsInjected: null, channel: null, outcome: null, groundingPreview: null, attemptId: frictionAttemptId });
+                this._observeGuardian();
+                runAutoGrounding(userId, groundingBinding.candidateAssertion, 'memory_assertion', conversationId, targetLanguage)
+                  .then(groundingResult => {
+                    if (this.isStopped || Date.now() - startMs > 2000) {
                       this._traceGuardianAttempt(frictionAttemptId, {
-                        type: 'lookup_completed',
-                        detail: `${groundingResult.length} characters returned from Archive lookup.`,
+                        type: 'stale_discarded',
+                        detail: this.isStopped ? 'Session stopped before lookup delivery.' : 'Lookup exceeded the two-second freshness budget.',
                       });
-                      console.log(
-                        `[FrictionSignal/GL] Holding stale grounding from student turn `
-                        + `${groundingBinding.studentTurnEpoch} dormant for turn ${this.activeStudentTurnEpoch}.`,
-                      );
                       return;
                     }
-                    console.warn(`[FrictionSignal/GL] Discarding stale grounding from student turn ${groundingBinding.studentTurnEpoch}.`);
-                    this._traceGuardianAttempt(frictionAttemptId, {
-                      type: 'stale_discarded',
-                      detail: 'Friction-signal lookup completed after the bound student turn ended.',
-                    });
-                    return;
-                  }
-                  this._traceGuardianAttempt(frictionAttemptId, {
-                    type: 'lookup_completed',
-                    detail: `${groundingResult.length} characters returned from Archive lookup.`,
-                  });
-                  const fsLogEntry = this.guardianFireLog.findLast(e => e.path === 'friction-signal');
-                  if (fsLogEntry) fsLogEntry.charsInjected = groundingResult.length;
-                  this._replacePendingWeeOoGrounding(
-                    groundingResult,
-                    groundingBinding,
-                    frictionAttemptId,
-                    'A friction-signal Guardian lookup replaced this queued payload before delivery.',
-                  );
-                  this._traceGuardianAttempt(frictionAttemptId, {
-                    type: 'queued',
-                    channel: 'tool-response',
-                    detail: 'Friction-signal correction queued for a safe tool-response delivery.',
-                  });
-                  console.log(`[FrictionSignal/GL] Grounding queued from Gemini friction signal (${groundingResult.length} chars, ${Date.now() - startMs}ms)`);
-                  // Same 500ms fallback as phrase detection — gated on !generationStartedThisTurn
-                  // to prevent mid-sentence restarts from sendClientContent while GL generates.
-                  setTimeout(() => {
-                    if (this.isStopped || !this.liveSession || !this.pendingWeeOoGrounding) return;
-                    if (
-                      this.pendingWeeOoGroundingBinding !== groundingBinding
-                      || !isGroundingBindingCurrent(groundingBinding, this.activeStudentTurnEpoch)
-                    ) {
-                      return;
-                    }
-                    if (this.generationStartedThisTurn) {
-                      if (!this.pendingCarryForwardGrounding) {
-                        this.pendingCarryForwardGrounding = this.pendingWeeOoGrounding;
-                        this.pendingCarryForwardGroundingBinding = groundingBinding;
-                        this.pendingCarryForwardGroundingAttemptId = frictionAttemptId;
-                      } else {
+                    if (!isGroundingBindingCurrent(groundingBinding, this.activeStudentTurnEpoch)) {
+                      const stagedPrior = frictionGrounding.canCarryToPriorTurn
+                        ? createPriorTurnGroundingCorrection(
+                          groundingResult,
+                          groundingBinding,
+                          this.activeStudentTurnEpoch,
+                        )
+                        : null;
+                      if (stagedPrior) {
+                        if (
+                          this.pendingPriorTurnGroundingAttemptId
+                          && this.pendingPriorTurnGroundingAttemptId !== frictionAttemptId
+                        ) {
+                          this._traceGuardianAttempt(this.pendingPriorTurnGroundingAttemptId, {
+                            type: 'superseded',
+                            detail: 'A newer prior-turn correction replaced this dormant correction.',
+                          });
+                        }
+                        this.pendingPriorTurnGrounding = stagedPrior;
+                        this.pendingPriorTurnGroundingAttemptId = frictionAttemptId;
                         this._traceGuardianAttempt(frictionAttemptId, {
-                          type: 'superseded',
-                          detail: 'An existing carry-forward payload retained the only deferred-delivery slot.',
+                          type: 'lookup_completed',
+                          detail: `${groundingResult.length} characters returned from Archive lookup.`,
                         });
+                        console.log(
+                          `[FrictionSignal/GL] Holding stale grounding from student turn `
+                          + `${groundingBinding.studentTurnEpoch} dormant for turn ${this.activeStudentTurnEpoch}.`,
+                        );
+                        return;
                       }
-                      this.pendingWeeOoGrounding = null;
-                      this.pendingWeeOoGroundingBinding = null;
-                      this.pendingWeeOoGroundingAttemptId = null;
+                      console.warn(`[FrictionSignal/GL] Discarding stale grounding from student turn ${groundingBinding.studentTurnEpoch}.`);
                       this._traceGuardianAttempt(frictionAttemptId, {
-                        type: 'queued',
-                        channel: 'tool-response',
-                        detail: 'Friction-signal correction moved to carry-forward while generation was active.',
+                        type: 'stale_discarded',
+                        detail: 'Friction-signal lookup completed after the bound student turn ended.',
                       });
-                      console.log(`[FrictionSignal/GL] Suppressed mid-generation sendClientContent — carried forward`);
                       return;
                     }
-                    // sendClientContent is unsafe — leave pendingWeeOoGrounding set for tool-result delivery.
-                    console.log(`[FrictionSignal/GL] Grounding stays queued for tool channel (${this.pendingWeeOoGrounding!.length} chars — no sendClientContent)`);
-                  }, 500);
-                })
-                .catch(err => {
-                  this._traceGuardianAttempt(frictionAttemptId, {
-                    type: 'lookup_failed',
-                    detail: (err as Error).message,
+                    this._traceGuardianAttempt(frictionAttemptId, {
+                      type: 'lookup_completed',
+                      detail: `${groundingResult.length} characters returned from Archive lookup.`,
+                    });
+                    const fsLogEntry = this.guardianFireLog.findLast(e => e.path === 'friction-signal');
+                    if (fsLogEntry) fsLogEntry.charsInjected = groundingResult.length;
+                    this._replacePendingWeeOoGrounding(
+                      groundingResult,
+                      groundingBinding,
+                      frictionAttemptId,
+                      'A friction-signal Guardian lookup replaced this queued payload before delivery.',
+                    );
+                    this._traceGuardianAttempt(frictionAttemptId, {
+                      type: 'queued',
+                      channel: 'tool-response',
+                      detail: 'Friction-signal correction queued for a safe tool-response delivery.',
+                    });
+                    console.log(`[FrictionSignal/GL] Grounding queued from Gemini friction signal (${groundingResult.length} chars, ${Date.now() - startMs}ms)`);
+                    // Same 500ms fallback as phrase detection — gated on !generationStartedThisTurn
+                    // to prevent mid-sentence restarts from sendClientContent while GL generates.
+                    setTimeout(() => {
+                      if (this.isStopped || !this.liveSession || !this.pendingWeeOoGrounding) return;
+                      if (
+                        this.pendingWeeOoGroundingBinding !== groundingBinding
+                        || !isGroundingBindingCurrent(groundingBinding, this.activeStudentTurnEpoch)
+                      ) {
+                        return;
+                      }
+                      if (this.generationStartedThisTurn) {
+                        if (!this.pendingCarryForwardGrounding) {
+                          this.pendingCarryForwardGrounding = this.pendingWeeOoGrounding;
+                          this.pendingCarryForwardGroundingBinding = groundingBinding;
+                          this.pendingCarryForwardGroundingAttemptId = frictionAttemptId;
+                        } else {
+                          this._traceGuardianAttempt(frictionAttemptId, {
+                            type: 'superseded',
+                            detail: 'An existing carry-forward payload retained the only deferred-delivery slot.',
+                          });
+                        }
+                        this.pendingWeeOoGrounding = null;
+                        this.pendingWeeOoGroundingBinding = null;
+                        this.pendingWeeOoGroundingAttemptId = null;
+                        this._traceGuardianAttempt(frictionAttemptId, {
+                          type: 'queued',
+                          channel: 'tool-response',
+                          detail: 'Friction-signal correction moved to carry-forward while generation was active.',
+                        });
+                        console.log(`[FrictionSignal/GL] Suppressed mid-generation sendClientContent — carried forward`);
+                        return;
+                      }
+                      // sendClientContent is unsafe — leave pendingWeeOoGrounding set for tool-result delivery.
+                      console.log(`[FrictionSignal/GL] Grounding stays queued for tool channel (${this.pendingWeeOoGrounding!.length} chars — no sendClientContent)`);
+                    }, 500);
+                  })
+                  .catch(err => {
+                    this._traceGuardianAttempt(frictionAttemptId, {
+                      type: 'lookup_failed',
+                      detail: (err as Error).message,
+                    });
+                    console.warn('[FrictionSignal/GL] Auto-grounding failed:', (err as Error).message);
                   });
-                  console.warn('[FrictionSignal/GL] Auto-grounding failed:', (err as Error).message);
-                });
+              }
             } else if (friction.label !== 'CLEAN') {
               console.log(`[FrictionSignal/GL] Friction ${friction.label} (score: ${friction.totalScore}) — below grounding threshold, monitoring`);
             }
@@ -6606,7 +6612,7 @@ export function createFrictionSignalGroundingBinding(
   );
   const candidateAssertion = matchedAssertionPhrase
     ? extractGroundingAssertionCandidate(modelTranscript, matchedAssertionPhrase)
-    : studentUtterance.trim().slice(0, 240);
+    : '';
   return {
     binding: createGroundingTurnBinding(studentTurnEpoch, studentUtterance, candidateAssertion),
     canCarryToPriorTurn: Boolean(matchedAssertionPhrase && candidateAssertion),
