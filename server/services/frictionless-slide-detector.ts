@@ -569,6 +569,7 @@ export async function runAutoGrounding(
           matchedPhrase,
           4,
           ['conversation_memory', 'conversation_summary'],
+          { storedVectors: true },
         );
         const highConf = semResults.filter(r => r.similarity > 0.42);
         if (highConf.length === 0) return null;
