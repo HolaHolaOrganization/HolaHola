@@ -156,7 +156,7 @@ export function LucaObserverPanel({ isOpen, onToggle, sessionId }: LucaObserverP
                   {latestFriction && (
                     <div className={`flex items-center gap-1.5 text-xs ${frictionColor}`}>
                       <AlertTriangle className="h-3 w-3 shrink-0" />
-                      <span>Friction: {latestFriction.label} ({latestFriction.score?.toFixed?.(2) ?? latestFriction.score})</span>
+                      <span>Last friction reading{latestFriction.turnId != null ? ` (turn ${latestFriction.turnId})` : ""}: {latestFriction.label} ({latestFriction.score?.toFixed?.(2) ?? latestFriction.score})</span>
                     </div>
                   )}
 

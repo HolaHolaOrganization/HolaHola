@@ -126,11 +126,22 @@ databaseTest('real Luca observer route enforces auth and isolates DB evidence', 
     language: 'Spanish',
     actflLevel: 'novice-low',
   });
+  await query(sql`
+    INSERT INTO voice_pipeline_events (id, session_id, user_id, event_type, event_data, created_at)
+    SELECT ${prefix + '-snapshot-'} || n::text, ${sessionB}, ${userId},
+           'gl_session_heartbeat', '{}'::jsonb, NOW()
+    FROM generate_series(1, 41) AS series(n)
+  `);
   const activeResponse = await get(
     `/api/admin/luca/observe?conversationId=${conversationId}`,
     lucaToken,
   );
   assert.equal(activeResponse.body.status, 'active');
+  assert.equal(activeResponse.body.recentPipelineEvents.length, 40);
+  assert.deepEqual(activeResponse.body.observationCoverage.pipelineEvents, {
+    returned: 40,
+    sessionTotal: 42,
+  });
   assert.deepEqual(
     activeResponse.body.guardianEvidence.recentEvents.map((event: any) => event.sessionId),
     [sessionB],

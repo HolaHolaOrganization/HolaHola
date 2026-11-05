@@ -65,6 +65,7 @@ import {
   observeContextLineageHealth,
   observeContextLineageLink,
   observeModelAndUsage,
+  observeExchangeCount,
   observeOutboundVisuals,
   observeToolResults,
   observeVisionFrame,
@@ -2312,6 +2313,7 @@ LEXICAL CONSTRAINT: Do not use regional slang, fillers, or interjections from yo
 
     this.lastCountedStudentTurnEpoch = result.lastCountedStudentTurnEpoch;
     this.completedExchanges++;
+    observeExchangeCount(this.session.conversationId, this.completedExchanges);
     console.log(`[GeminiLive] Completed exchange counted at ${source} — student epoch ${this.activeStudentTurnEpoch}, total ${this.completedExchanges}`);
     return true;
   }
@@ -4073,7 +4075,6 @@ LEXICAL CONSTRAINT: Do not use regional slang, fillers, or interjections from yo
       const usageMeta = (msg as any)?.usageMetadata;
       if (usageMeta) {
         console.log(`[GeminiLive] generationComplete usageMetadata: ${JSON.stringify(usageMeta)}`);
-        observeModelAndUsage(this.session.conversationId, { usage: usageMeta });
         voiceTelemetry.log(this.session.id, String(this.session.userId ?? ''), 'gl_usage_metadata', {
           turnId: this.currentTurnId,
           promptTokenCount: usageMeta.promptTokenCount ?? null,
@@ -5910,6 +5911,7 @@ LEXICAL CONSTRAINT: Do not use regional slang, fillers, or interjections from yo
     // Feeds the burn report and Daniela's compass credit display.
     if (msg.usageMetadata) {
       const meta = msg.usageMetadata;
+      observeModelAndUsage(this.session.conversationId, { usage: { ...meta } });
       if (meta.promptTokenCount) {
         this.session.telemetryLlmInputTokens =
           (this.session.telemetryLlmInputTokens || 0) + meta.promptTokenCount;
