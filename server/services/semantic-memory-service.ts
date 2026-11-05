@@ -426,19 +426,34 @@ export async function scoreWithStoredVectors(
     pinned: memoryEmbeddings.pinned,
     similarity: sql<number>`1 - ${distance}`,
   };
-  const [userRows, globalRows] = await Promise.all([
-    db.select(select).from(memoryEmbeddings)
-      .where(and(userCondition, sql`${EMBEDDING_VEC} IS NOT NULL`))
-      .orderBy(distance).limit(STORED_VECTOR_TOP_K),
-    // Same ownership guard as the jsonb path: userId IS NULL and GLOBAL_RECALL_TYPES only.
-    globalTypes.length > 0
-      ? db.select(select).from(memoryEmbeddings)
-        .where(and(isNull(memoryEmbeddings.userId), inArray(memoryEmbeddings.memoryType, globalTypes),
-          sql`${EMBEDDING_VEC} IS NOT NULL`))
-        .orderBy(distance).limit(STORED_VECTOR_TOP_K)
-      : Promise.resolve([]),
+  const nearest = (pool: SQL) => db.select(select).from(memoryEmbeddings)
+    .where(and(pool, sql`${EMBEDDING_VEC} IS NOT NULL`))
+    .orderBy(distance).limit(STORED_VECTOR_TOP_K);
+  // Also take the nearest rows inside the window the jsonb path scores (same caps and
+  // ordering), so a recent, moderately similar memory that decay would rank first can
+  // never be crowded out of the top-k by many older, closer matches. The result is a
+  // superset of what the jsonb path would consider for ranking.
+  const nearestInWindow = (pool: SQL, order: SQL[], cap: number) => db.select(select).from(memoryEmbeddings)
+    .where(and(sql`${EMBEDDING_VEC} IS NOT NULL`, inArray(memoryEmbeddings.id,
+      db.select({ id: memoryEmbeddings.id }).from(memoryEmbeddings).where(pool).orderBy(...order).limit(cap))))
+    .orderBy(distance).limit(STORED_VECTOR_TOP_K);
+  // Same ownership guard as the jsonb path: userId IS NULL and GLOBAL_RECALL_TYPES only.
+  const globalPool = globalTypes.length > 0
+    ? and(isNull(memoryEmbeddings.userId), inArray(memoryEmbeddings.memoryType, globalTypes))!
+    : null;
+  const batches = await Promise.all([
+    nearest(userCondition),
+    nearestInWindow(userCondition,
+      [desc(memoryEmbeddings.pinned), desc(memoryEmbeddings.lastReinforcedAt), desc(memoryEmbeddings.strength)], 8000),
+    ...(globalPool ? [
+      nearest(globalPool),
+      nearestInWindow(globalPool,
+        [desc(memoryEmbeddings.pinned), desc(memoryEmbeddings.importance), desc(memoryEmbeddings.strength), desc(memoryEmbeddings.lastReinforcedAt)], 5000),
+    ] : []),
   ]);
-  return [...userRows, ...globalRows].map(row => {
+  const unique = new Map<string, (typeof batches)[number][number]>();
+  for (const row of batches.flat()) unique.set(`${row.memoryType}:${row.memoryId}`, row);
+  return [...unique.values()].map(row => {
     const similarity = Number(row.similarity) || 0;
     return {
       memoryType: row.memoryType,
