@@ -151,12 +151,29 @@ assert(
 console.log('\n[4] An explicit return safely releases the guitar correction');
 
 const guitarReturnUtterance = 'Can we go back to the guitar claim from earlier?';
+const guitarContinuationUtterance = "Yeah, I've been practicing guitar chords all week.";
 assert(
   doesStudentExplicitlyReopenGroundingTopic(
     guitarReturnUtterance,
     guitarTurn.candidateAssertion,
   ),
   'Explicit return cue plus the bound guitar topic passes the release gate',
+);
+assert(
+  doesStudentExplicitlyReopenGroundingTopic(
+    guitarContinuationUtterance,
+    guitarTurn.candidateAssertion,
+  ),
+  'Same-topic continuation on Turn N+1 with the bound guitar topic passes the release gate (Gemini Stage 1 Q2)',
+);
+assert(
+  releasePriorTurnGroundingCorrection(
+    createPriorTurnGroundingCorrection('Verified Archive record: David plays piano, not guitar.', guitarTurn, countingTurn.studentTurnEpoch)!,
+    countingTurn.studentTurnEpoch,
+    guitarContinuationUtterance,
+    true,
+  ) !== null,
+  'Production release helper releases the Turn N correction when Turn N+1 continues the bound topic',
 );
 assert(
   !doesStudentExplicitlyReopenGroundingTopic(

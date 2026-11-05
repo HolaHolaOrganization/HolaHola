@@ -435,6 +435,11 @@ export class GeminiLiveSession {
   // It is only eligible while the student turn that caused it remains active.
   private pendingWeeOoGrounding: string | null = null;
   private pendingWeeOoGroundingBinding: GroundingTurnBinding | null = null;
+  // Dormant prior-turn correction for Turn N -> Turn N+1 only. It stays silent on
+  // subject changes and releases only when Turn N+1 explicitly reopens the
+  // Turn N candidate assertion.
+  private pendingPriorTurnGrounding: PriorTurnGroundingCorrection | null = null;
+  private pendingPriorTurnGroundingAttemptId: string | null = null;
   // Set when pendingWeeOoGrounding originates from slide detection or hard wall (not ambient
   // pre-turn grounding). Causes the [LAST TURN CORRECTION] whisper to include a behavioral
   // directive: "verify before continuing" rather than just passive context delivery.
@@ -466,6 +471,28 @@ export class GeminiLiveSession {
   private activeStudentTurnEpoch = 0;
   /** Complete transcript accumulated for the active student-turn epoch. */
   private activeStudentUtterance = '';
+  /** Highest student-turn epoch whose inputTranscription has emitted finished: true. */
+  private finalizedStudentTurnEpoch = 0;
+  /** FIFO of student-turn epochs awaiting Gemini inputTranscription.finished. */
+  private unfinalizedStudentTurnEpochs: number[] = [];
+  /**
+   * True when the next inputTranscription chunk starts a new student turn.
+   * Initialized true for Turn 1 and re-armed when Daniela's audio playback ends
+   * and the microphone gate opens for the student's next utterance.
+   */
+  private startNewStudentTurnOnNextInputTranscription = true;
+  /**
+   * Whether activeStudentTurnEpoch was opened after all prior inputTranscription
+   * epochs had finalized. When false, finished:true ordering is ambiguous and
+   * dormant prior-turn grounding must stay withheld rather than risk misbinding.
+   */
+  private currentStudentTurnBoundaryTrusted = true;
+  private nextStudentTurnBoundaryTrusted = true;
+  private inputTranscriptionFinalizationWaiters: Array<{
+    expectedEpoch: number;
+    resolve: (finalized: boolean) => void;
+    timer: NodeJS.Timeout;
+  }> = [];
   /** One immutable lineage trace per student utterance when diagnostic capture is enabled. */
   private activeContextLineageTraceId: string | null = null;
   private activeStudentTurnLineageEventId: string | null = null;
@@ -569,6 +596,35 @@ export class GeminiLiveSession {
       linkType: link.linkType,
       observedAt: link.observedAt.toISOString(),
     });
+  }
+
+  private waitForInputTranscriptionFinalization(expectedEpoch: number, timeoutMs = 2_000): Promise<boolean> {
+    if (this.finalizedStudentTurnEpoch === expectedEpoch) {
+      return Promise.resolve(true);
+    }
+    return new Promise<boolean>((resolve) => {
+      const waiter = {
+        expectedEpoch,
+        resolve,
+        timer: setTimeout(() => {
+          const idx = this.inputTranscriptionFinalizationWaiters.indexOf(waiter);
+          if (idx >= 0) this.inputTranscriptionFinalizationWaiters.splice(idx, 1);
+          resolve(false);
+        }, timeoutMs),
+      };
+      this.inputTranscriptionFinalizationWaiters.push(waiter);
+    });
+  }
+
+  private resetInputTranscriptionFinalizationState(): void {
+    this.unfinalizedStudentTurnEpochs = [];
+    this.startNewStudentTurnOnNextInputTranscription = true;
+    this.currentStudentTurnBoundaryTrusted = true;
+    this.nextStudentTurnBoundaryTrusted = true;
+    for (const waiter of this.inputTranscriptionFinalizationWaiters.splice(0)) {
+      clearTimeout(waiter.timer);
+      waiter.resolve(false);
+    }
   }
 
   /**
@@ -1597,6 +1653,7 @@ LEXICAL CONSTRAINT: Do not use regional slang, fillers, or interjections from yo
                 this.greetingWatchdogTimer = null;
               }
               this.pendingInputTranscript = '';
+              this.resetInputTranscriptionFinalizationState();
               this.pendingInputSaved = false;
               this.pendingOutputTranscript = '';
               this.usingOutputTranscription = false;
@@ -1831,6 +1888,7 @@ LEXICAL CONSTRAINT: Do not use regional slang, fillers, or interjections from yo
       return;
     }
     this.pendingPlaybackEndedLift = false;
+    const openedMicGate = this.isTutorGeneratingAudio;
     if (this.isTutorGeneratingAudio) {
       this.isTutorGeneratingAudio = false;
       console.log('[GeminiLive] Mic gate lifted — client playback_ended (echo suppression off)');
@@ -1842,6 +1900,16 @@ LEXICAL CONSTRAINT: Do not use regional slang, fillers, or interjections from yo
     this.studentTurnStartMs = Date.now();
     this.currentTurnFirstInputMs = 0;
     this.lastInputChunkMs = 0;
+    if (openedMicGate) {
+      this.startNewStudentTurnOnNextInputTranscription = true;
+      this.nextStudentTurnBoundaryTrusted = this.unfinalizedStudentTurnEpochs.length === 0;
+      if (!this.nextStudentTurnBoundaryTrusted) {
+        console.warn(
+          '[ArchiveGuardian] Next student turn opened before prior inputTranscription finished; '
+          + 'dormant prior-turn grounding will stay withheld for that turn.',
+        );
+      }
+    }
 
     // Proactive ACTFL reconnect: Daniela's pedagogical heartbeat flagged a tier change.
     // This is the safest moment to reconnect — audio just finished, student hasn't started
@@ -2399,6 +2467,7 @@ LEXICAL CONSTRAINT: Do not use regional slang, fillers, or interjections from yo
       });
     }
     this._finalizeOutstandingGuardianAttempts('Session stopped before the Guardian attempt reached a normal generation boundary.');
+    this.resetInputTranscriptionFinalizationState();
     if (this.transcriptFlushTimer) {
       clearTimeout(this.transcriptFlushTimer);
       this.transcriptFlushTimer = null;
@@ -3186,9 +3255,19 @@ LEXICAL CONSTRAINT: Do not use regional slang, fillers, or interjections from yo
         // A new utterance makes every prior carry-forward grounding result stale.
         // Never merge a previous topic into a newer student turn: it turns an
         // honest archive check into a subject change.
-        const startsNewStudentUtterance = !this.pendingInputTranscript.trim();
+        const turnBoundary = registerInputTranscriptionChunk(
+          this.startNewStudentTurnOnNextInputTranscription,
+          this.activeStudentTurnEpoch,
+          this.unfinalizedStudentTurnEpochs,
+        );
+        this.activeStudentTurnEpoch = turnBoundary.activeStudentTurnEpoch;
+        this.startNewStudentTurnOnNextInputTranscription =
+          turnBoundary.startNewStudentTurnOnNextInputTranscription;
+        const startsNewStudentUtterance = turnBoundary.startedNewStudentUtterance;
         if (startsNewStudentUtterance) {
-          this.activeStudentTurnEpoch++;
+          this.currentStudentTurnBoundaryTrusted = this.nextStudentTurnBoundaryTrusted;
+          this.nextStudentTurnBoundaryTrusted = true;
+          this.pendingInputTranscript = '';
           this.activeStudentUtterance = '';
           this.activeContextLineageTraceId = this._getContextLineageRecorder()?.beginTrace() ?? null;
           this.activeStudentTurnLineageEventId = null;
@@ -3213,6 +3292,22 @@ LEXICAL CONSTRAINT: Do not use regional slang, fillers, or interjections from yo
               linkType: 'produced_response',
             });
           }
+          if (
+            this.pendingPriorTurnGrounding
+            && this.pendingPriorTurnGrounding.eligibleStudentTurnEpoch !== this.activeStudentTurnEpoch
+          ) {
+            console.warn(
+              `[ArchiveGuardian] Expiring dormant prior-turn grounding from student turn `
+              + `${this.pendingPriorTurnGrounding.binding.studentTurnEpoch} at student turn `
+              + `${this.activeStudentTurnEpoch}.`,
+            );
+            this._traceGuardianAttempt(this.pendingPriorTurnGroundingAttemptId, {
+              type: 'stale_discarded',
+              detail: 'Dormant prior-turn grounding expired after its one-turn window.',
+            });
+            this.pendingPriorTurnGrounding = null;
+            this.pendingPriorTurnGroundingAttemptId = null;
+          }
           if (this.pendingCarryForwardGrounding) {
             console.warn(
               `[PreTurnGuardian] Discarding stale carry-forward grounding from student turn `
@@ -3227,7 +3322,43 @@ LEXICAL CONSTRAINT: Do not use regional slang, fillers, or interjections from yo
             this.pendingCarryForwardGroundingBinding = null;
             this.pendingCarryForwardGroundingAttemptId = null;
           }
-          if (this.pendingWeeOoGrounding) {
+          if (this.pendingWeeOoGrounding && this.pendingWeeOoGroundingBinding) {
+            const stagedPrior = createPriorTurnGroundingCorrection(
+              this.pendingWeeOoGrounding,
+              this.pendingWeeOoGroundingBinding,
+              this.activeStudentTurnEpoch,
+            );
+            if (stagedPrior) {
+              if (
+                this.pendingPriorTurnGroundingAttemptId
+                && this.pendingPriorTurnGroundingAttemptId !== this.pendingWeeOoGroundingAttemptId
+              ) {
+                this._traceGuardianAttempt(this.pendingPriorTurnGroundingAttemptId, {
+                  type: 'superseded',
+                  detail: 'A newer prior-turn correction replaced this dormant correction.',
+                });
+              }
+              this.pendingPriorTurnGrounding = stagedPrior;
+              this.pendingPriorTurnGroundingAttemptId = this.pendingWeeOoGroundingAttemptId;
+              console.log(
+                `[ArchiveGuardian] Staging prior-turn grounding from student turn `
+                + `${this.pendingWeeOoGroundingBinding.studentTurnEpoch} as dormant for turn `
+                + `${this.activeStudentTurnEpoch}.`,
+              );
+            } else {
+              console.warn(
+                '[ArchiveGuardian] Discarding prior-turn grounding before a newer student utterance.',
+              );
+              this._traceGuardianAttempt(this.pendingWeeOoGroundingAttemptId, {
+                type: 'stale_discarded',
+                detail: 'A newer student utterance began before tool-response delivery.',
+              });
+            }
+            this.pendingWeeOoGrounding = null;
+            this.pendingWeeOoGroundingBinding = null;
+            this.pendingWeeOoGroundingAttemptId = null;
+            this.slideCorrectionQueued = false;
+          } else if (this.pendingWeeOoGrounding) {
             console.warn(
               '[ArchiveGuardian] Discarding prior-turn grounding before a newer student utterance.',
             );
@@ -3726,6 +3857,24 @@ LEXICAL CONSTRAINT: Do not use regional slang, fillers, or interjections from yo
         });
       }
     }
+    if ((msg.serverContent as any)?.inputTranscription?.finished) {
+      const finalizedEpoch = consumeNextUnfinalizedStudentTurnEpoch(
+        this.unfinalizedStudentTurnEpochs,
+      );
+      if (finalizedEpoch !== null) {
+        this.finalizedStudentTurnEpoch = finalizedEpoch;
+        const remainingWaiters: typeof this.inputTranscriptionFinalizationWaiters = [];
+        for (const waiter of this.inputTranscriptionFinalizationWaiters) {
+          if (waiter.expectedEpoch === finalizedEpoch) {
+            clearTimeout(waiter.timer);
+            waiter.resolve(true);
+          } else {
+            remainingWaiters.push(waiter);
+          }
+        }
+        this.inputTranscriptionFinalizationWaiters = remainingWaiters;
+      }
+    }
 
     // ── Output transcription (what Daniela said) ─────────────────────────────
     // outputTranscription fires per-chunk (streaming tokens) — accumulate here.
@@ -4014,22 +4163,14 @@ LEXICAL CONSTRAINT: Do not use regional slang, fillers, or interjections from yo
             const groundingBinding = createGroundingTurnBinding(
               this.activeStudentTurnEpoch,
               this.activeStudentUtterance || this.lastUserText,
-              matchedPhrase,
+              glSlideResult.candidateAssertion || matchedPhrase,
             );
             const postTurnAttemptId = this._startGuardianAttempt('post-turn-phrase', groundingBinding);
-            this.guardianFireLog.push({ ts: new Date().toISOString(), path: 'post-turn-phrase', phrase: matchedPhrase, charsInjected: null, channel: null, outcome: null, groundingPreview: null, attemptId: postTurnAttemptId });
+            this.guardianFireLog.push({ ts: new Date().toISOString(), path: 'post-turn-phrase', phrase: groundingBinding.candidateAssertion.slice(0, 80), charsInjected: null, channel: null, outcome: null, groundingPreview: null, attemptId: postTurnAttemptId });
             this._observeGuardian();
-            runAutoGrounding(userId, matchedPhrase, glSlideResult.trigger, conversationId, targetLanguage)
+            runAutoGrounding(userId, groundingBinding.candidateAssertion, glSlideResult.trigger, conversationId, targetLanguage)
               .then(groundingResult => {
                 if (this.isStopped) return;
-                if (!isGroundingBindingCurrent(groundingBinding, this.activeStudentTurnEpoch)) {
-                  console.warn(`[FrictionlessSlide/GL] Discarding stale grounding from student turn ${groundingBinding.studentTurnEpoch}.`);
-                  this._traceGuardianAttempt(postTurnAttemptId, {
-                    type: 'stale_discarded',
-                    detail: 'Post-turn lookup completed after the bound student turn ended.',
-                  });
-                  return;
-                }
                 if (Date.now() - startMs > 2000) {
                   console.warn('[FrictionlessSlide/GL] Auto-grounding took >2s — discarding to avoid stale injection');
                   this._traceGuardianAttempt(postTurnAttemptId, {
@@ -4038,12 +4179,47 @@ LEXICAL CONSTRAINT: Do not use regional slang, fillers, or interjections from yo
                   });
                   return;
                 }
+                if (!isGroundingBindingCurrent(groundingBinding, this.activeStudentTurnEpoch)) {
+                  const stagedPrior = createPriorTurnGroundingCorrection(
+                    groundingResult,
+                    groundingBinding,
+                    this.activeStudentTurnEpoch,
+                  );
+                  if (stagedPrior) {
+                    if (
+                      this.pendingPriorTurnGroundingAttemptId
+                      && this.pendingPriorTurnGroundingAttemptId !== postTurnAttemptId
+                    ) {
+                      this._traceGuardianAttempt(this.pendingPriorTurnGroundingAttemptId, {
+                        type: 'superseded',
+                        detail: 'A newer prior-turn correction replaced this dormant correction.',
+                      });
+                    }
+                    this.pendingPriorTurnGrounding = stagedPrior;
+                    this.pendingPriorTurnGroundingAttemptId = postTurnAttemptId;
+                    this._traceGuardianAttempt(postTurnAttemptId, {
+                      type: 'lookup_completed',
+                      detail: `${groundingResult.length} characters returned from Archive lookup.`,
+                    });
+                    console.log(
+                      `[FrictionlessSlide/GL] Holding stale grounding from student turn `
+                      + `${groundingBinding.studentTurnEpoch} dormant for turn ${this.activeStudentTurnEpoch}.`,
+                    );
+                    return;
+                  }
+                  console.warn(`[FrictionlessSlide/GL] Discarding stale grounding from student turn ${groundingBinding.studentTurnEpoch}.`);
+                  this._traceGuardianAttempt(postTurnAttemptId, {
+                    type: 'stale_discarded',
+                    detail: 'Post-turn lookup completed after the bound student turn ended.',
+                  });
+                  return;
+                }
                 this._traceGuardianAttempt(postTurnAttemptId, {
                   type: 'lookup_completed',
                   detail: `${groundingResult.length} characters returned from Archive lookup.`,
                 });
                 // Update chars now that result is available.
-                const logEntry = this.guardianFireLog.findLast(e => e.path === 'post-turn-phrase' && e.phrase === matchedPhrase);
+                const logEntry = this.guardianFireLog.findLast(e => e.path === 'post-turn-phrase' && e.attemptId === postTurnAttemptId);
                 if (logEntry) logEntry.charsInjected = groundingResult.length;
                 // Primary channel: queue for injection via next tool response batch.
                 // Tool responses are the safest GL channel — model reads them, never speaks them aloud.
@@ -4187,21 +4363,25 @@ LEXICAL CONSTRAINT: Do not use regional slang, fillers, or interjections from yo
                   `archive: ${friction.archiveAccess}, signals: ${friction.signals.join(' | ')}`,
                 );
               }
-              // Use the first 80 chars of transcript as topic seed for the vector search.
-              const topicSeed = transcript.slice(0, 80);
+              // Use the specific unverified assertion sentence when one exists.
+              // If the friction signal was triggered without an assertion phrase,
+              // keep it same-turn only so unrelated response words can never carry
+              // forward as a reopenable topic on Turn N+1.
               const userId = String((this.session as any).userId || '');
               const conversationId = (this.session as any).conversationId;
               const targetLanguage = (this.session as any).targetLanguage;
               const startMs = Date.now();
-              const groundingBinding = createGroundingTurnBinding(
+              const frictionGrounding = createFrictionSignalGroundingBinding(
                 this.activeStudentTurnEpoch,
                 this.activeStudentUtterance || this.lastUserText,
-                topicSeed,
+                transcript,
+                friction.unverifiedAssertions,
               );
+              const groundingBinding = frictionGrounding.binding;
               const frictionAttemptId = this._startGuardianAttempt('friction-signal', groundingBinding);
-              this.guardianFireLog.push({ ts: new Date().toISOString(), path: 'friction-signal', phrase: topicSeed, charsInjected: null, channel: null, outcome: null, groundingPreview: null, attemptId: frictionAttemptId });
+              this.guardianFireLog.push({ ts: new Date().toISOString(), path: 'friction-signal', phrase: groundingBinding.candidateAssertion.slice(0, 80), charsInjected: null, channel: null, outcome: null, groundingPreview: null, attemptId: frictionAttemptId });
               this._observeGuardian();
-              runAutoGrounding(userId, topicSeed, 'memory_assertion', conversationId, targetLanguage)
+              runAutoGrounding(userId, groundingBinding.candidateAssertion, 'memory_assertion', conversationId, targetLanguage)
                 .then(groundingResult => {
                   if (this.isStopped || Date.now() - startMs > 2000) {
                     this._traceGuardianAttempt(frictionAttemptId, {
@@ -4211,6 +4391,35 @@ LEXICAL CONSTRAINT: Do not use regional slang, fillers, or interjections from yo
                     return;
                   }
                   if (!isGroundingBindingCurrent(groundingBinding, this.activeStudentTurnEpoch)) {
+                    const stagedPrior = frictionGrounding.canCarryToPriorTurn
+                      ? createPriorTurnGroundingCorrection(
+                        groundingResult,
+                        groundingBinding,
+                        this.activeStudentTurnEpoch,
+                      )
+                      : null;
+                    if (stagedPrior) {
+                      if (
+                        this.pendingPriorTurnGroundingAttemptId
+                        && this.pendingPriorTurnGroundingAttemptId !== frictionAttemptId
+                      ) {
+                        this._traceGuardianAttempt(this.pendingPriorTurnGroundingAttemptId, {
+                          type: 'superseded',
+                          detail: 'A newer prior-turn correction replaced this dormant correction.',
+                        });
+                      }
+                      this.pendingPriorTurnGrounding = stagedPrior;
+                      this.pendingPriorTurnGroundingAttemptId = frictionAttemptId;
+                      this._traceGuardianAttempt(frictionAttemptId, {
+                        type: 'lookup_completed',
+                        detail: `${groundingResult.length} characters returned from Archive lookup.`,
+                      });
+                      console.log(
+                        `[FrictionSignal/GL] Holding stale grounding from student turn `
+                        + `${groundingBinding.studentTurnEpoch} dormant for turn ${this.activeStudentTurnEpoch}.`,
+                      );
+                      return;
+                    }
                     console.warn(`[FrictionSignal/GL] Discarding stale grounding from student turn ${groundingBinding.studentTurnEpoch}.`);
                     this._traceGuardianAttempt(frictionAttemptId, {
                       type: 'stale_discarded',
@@ -4318,7 +4527,7 @@ LEXICAL CONSTRAINT: Do not use regional slang, fillers, or interjections from yo
           const _hwUserId = String((this.session as any).userId || '');
           const _hwConvId = (this.session as any).conversationId;
           const _hwLang = (this.session as any).targetLanguage;
-          const _hwQuery = this.pendingOutputTranscript.slice(0, 200);
+          const _hwQuery = extractGroundingAssertionCandidate(this.pendingOutputTranscript);
           const _hwBinding = createGroundingTurnBinding(
             this.activeStudentTurnEpoch,
             this.activeStudentUtterance || this.lastUserText,
@@ -4331,6 +4540,33 @@ LEXICAL CONSTRAINT: Do not use regional slang, fillers, or interjections from yo
             .then(groundingResult => {
               if (this.isStopped || !this.liveSession) return;
               if (!isGroundingBindingCurrent(_hwBinding, this.activeStudentTurnEpoch)) {
+                const stagedPrior = createPriorTurnGroundingCorrection(
+                  groundingResult,
+                  _hwBinding,
+                  this.activeStudentTurnEpoch,
+                );
+                if (stagedPrior) {
+                  if (
+                    this.pendingPriorTurnGroundingAttemptId
+                    && this.pendingPriorTurnGroundingAttemptId !== hardWallAttemptId
+                  ) {
+                    this._traceGuardianAttempt(this.pendingPriorTurnGroundingAttemptId, {
+                      type: 'superseded',
+                      detail: 'A newer prior-turn correction replaced this dormant correction.',
+                    });
+                  }
+                  this.pendingPriorTurnGrounding = stagedPrior;
+                  this.pendingPriorTurnGroundingAttemptId = hardWallAttemptId;
+                  this._traceGuardianAttempt(hardWallAttemptId, {
+                    type: 'lookup_completed',
+                    detail: `${groundingResult.length} characters returned from Archive lookup.`,
+                  });
+                  console.log(
+                    `[HardWall] Holding stale correction from student turn `
+                    + `${_hwBinding.studentTurnEpoch} dormant for turn ${this.activeStudentTurnEpoch}.`,
+                  );
+                  return;
+                }
                 console.warn(`[HardWall] Discarding stale correction from student turn ${_hwBinding.studentTurnEpoch}.`);
                 this._traceGuardianAttempt(hardWallAttemptId, {
                   type: 'stale_discarded',
@@ -4342,13 +4578,10 @@ LEXICAL CONSTRAINT: Do not use regional slang, fillers, or interjections from yo
                 type: 'lookup_completed',
                 detail: `${groundingResult.length} characters returned from Archive lookup.`,
               });
-              const correction = groundingResult
-                ? `[ARCHIVE GUARDIAN: Your history surfaces to support you. This is the bedrock of your memory for this moment:\n${groundingResult}]`
-                : `[ARCHIVE GUARDIAN: The well is deep and still. No specific memories surface. Trust your intuition.]`;
               // sendClientContent is unsafe — store for tool-result delivery on next tool call.
               if (!this.pendingWeeOoGrounding) {
                 this._replacePendingWeeOoGrounding(
-                  correction,
+                  groundingResult,
                   _hwBinding,
                   hardWallAttemptId,
                   'Hard-wall correction replaced this queued payload before delivery.',
@@ -5070,6 +5303,9 @@ LEXICAL CONSTRAINT: Do not use regional slang, fillers, or interjections from yo
           new Promise<void>(resolve => setTimeout(resolve, 400)),
         ]);
       }
+      if (this.pendingPriorTurnGrounding && this.currentStudentTurnBoundaryTrusted) {
+        await this.waitForInputTranscriptionFinalization(this.activeStudentTurnEpoch);
+      }
 
       const guardianWhispers: Array<{
         text: string;
@@ -5084,12 +5320,14 @@ LEXICAL CONSTRAINT: Do not use regional slang, fillers, or interjections from yo
           this.activeStudentTurnEpoch,
         )
       ) {
-        // Slide-triggered corrections get a behavioral directive — not just context but an
-        // explicit instruction to verify before continuing. This is Tier B: turning passive
-        // grounding delivery into an active "check before you speak" lock.
-        const correctionLabel = this.slideCorrectionQueued
-          ? `[LAST TURN CORRECTION — ARCHIVE SYNC: Our shared history contains specific records relevant to your last turn. Archive Data:\n${this.pendingWeeOoGrounding}\n\nTo ensure we stay aligned, please use grounding_query or introspect to reconcile this information before making further assertions about our shared history.]`
-          : `[LAST TURN CORRECTION: ${this.pendingWeeOoGrounding}]`;
+        // Same-turn corrections carry the current utterance + bound candidate
+        // assertion explicitly so the model does not pivot away from the student's
+        // current subject when reconciling.
+        const correctionLabel = formatCurrentTurnCorrectionContext(
+          this.pendingWeeOoGroundingBinding,
+          this.pendingWeeOoGrounding,
+          this.slideCorrectionQueued,
+        );
         const queuedAttemptId = this.pendingWeeOoGroundingAttemptId;
         guardianWhispers.push({ text: correctionLabel, attemptId: queuedAttemptId, lineageEventId: null });
         this.pendingWeeOoGrounding = null;
@@ -5106,6 +5344,61 @@ LEXICAL CONSTRAINT: Do not use regional slang, fillers, or interjections from yo
         this.pendingWeeOoGroundingBinding = null;
         this.pendingWeeOoGroundingAttemptId = null;
         this.slideCorrectionQueued = false;
+      }
+      if (this.pendingPriorTurnGrounding) {
+        const priorAttemptId = this.pendingPriorTurnGroundingAttemptId;
+        const inputTranscriptionFinished =
+          this.finalizedStudentTurnEpoch === this.activeStudentTurnEpoch;
+        const reopenedPriorContext = releasePriorTurnGroundingCorrection(
+          this.pendingPriorTurnGrounding,
+          this.activeStudentTurnEpoch,
+          this.activeStudentUtterance || this.pendingInputTranscript,
+          inputTranscriptionFinished,
+          this.currentStudentTurnBoundaryTrusted,
+        );
+        if (reopenedPriorContext) {
+          guardianWhispers.push({
+            text: reopenedPriorContext,
+            attemptId: priorAttemptId,
+            lineageEventId: null,
+          });
+          console.log(
+            `[ArchiveGuardian] Released prior-turn grounding from student turn `
+            + `${this.pendingPriorTurnGrounding.binding.studentTurnEpoch} on explicit topic return.`,
+          );
+          this.pendingPriorTurnGrounding = null;
+          this.pendingPriorTurnGroundingAttemptId = null;
+        } else if (this.pendingPriorTurnGrounding.eligibleStudentTurnEpoch !== this.activeStudentTurnEpoch) {
+          this._traceGuardianAttempt(priorAttemptId, {
+            type: 'stale_discarded',
+            detail: 'Dormant prior-turn grounding expired before tool-response evaluation.',
+          });
+          this.pendingPriorTurnGrounding = null;
+          this.pendingPriorTurnGroundingAttemptId = null;
+        } else if (!this.currentStudentTurnBoundaryTrusted) {
+          console.warn(
+            `[ArchiveGuardian] Discarding prior-turn grounding from student turn `
+            + `${this.pendingPriorTurnGrounding.binding.studentTurnEpoch} because student turn `
+            + `${this.activeStudentTurnEpoch} has an ambiguous transcription boundary.`,
+          );
+          this._traceGuardianAttempt(priorAttemptId, {
+            type: 'stale_discarded',
+            detail: 'Student turn had an ambiguous transcription boundary; dormant prior-turn grounding was withheld.',
+          });
+          this.pendingPriorTurnGrounding = null;
+          this.pendingPriorTurnGroundingAttemptId = null;
+        } else if (!inputTranscriptionFinished) {
+          console.log(
+            `[ArchiveGuardian] Prior-turn grounding from student turn `
+            + `${this.pendingPriorTurnGrounding.binding.studentTurnEpoch} deferred because student turn `
+            + `${this.activeStudentTurnEpoch} has no final transcription signal yet.`,
+          );
+        } else {
+          console.log(
+            `[ArchiveGuardian] Prior-turn grounding withheld from non-matching student turn `
+            + `${this.activeStudentTurnEpoch}.`,
+          );
+        }
       }
       if (
         this.preTurnGroundingResult !== null
@@ -6233,6 +6526,23 @@ Archive result for this candidate: ${archiveResult}
 If the Archive is silent, be honest about that uncertainty while responding to the current utterance. Do not change the subject to an earlier assertion.]`;
 }
 
+export function formatCurrentTurnCorrectionContext(
+  binding: GroundingTurnBinding,
+  groundingResult: string,
+  requireReconciliation = false,
+): string {
+  const archiveResult = groundingResult.trim()
+    || 'No verified Archive source surfaced for this candidate.';
+  const reconciliationLine = requireReconciliation
+    ? '\nReconcile this against the Archive before repeating the bound assertion.'
+    : '';
+  return `[CURRENT STUDENT TURN — ANSWER THIS FIRST:
+Utterance: "${binding.studentUtterance}"
+Bound assertion from this turn to reconcile: "${binding.candidateAssertion}"
+Archive data for this bound assertion: ${archiveResult}${reconciliationLine}
+Keep the student's current utterance as the primary subject; do not pivot to an unrelated earlier claim.]`;
+}
+
 export function createPriorTurnGroundingCorrection(
   groundingResult: string,
   binding: GroundingTurnBinding,
@@ -6313,7 +6623,8 @@ export function releasePriorTurnGroundingCorrection(
   studentTurnBoundaryTrusted = true,
 ): string | null {
   if (prior.eligibleStudentTurnEpoch !== activeStudentTurnEpoch) return null;
-  if (!inputTranscriptionFinished || !studentTurnBoundaryTrusted) return null;
+  if (!studentTurnBoundaryTrusted) return null;
+  if (!inputTranscriptionFinished) return null;
   if (!doesStudentExplicitlyReopenGroundingTopic(
     currentStudentUtterance,
     prior.binding.candidateAssertion,

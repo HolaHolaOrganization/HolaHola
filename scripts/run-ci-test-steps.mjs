@@ -357,6 +357,8 @@ commands.splice(safetyInsertion, 0,
   'npx tsx --test server/scripts/test-shared-spec-guards-ci-wiring.test.ts',
 
   // GL/raw-window/startup-recovery guards.
+  'npx tsx server/scripts/test-current-turn-grounding.ts',
+  'npx tsx server/scripts/test-guardian-attempt-trace.ts',
   'npx tsx server/scripts/test-gl-reconnected-client-recovery.ts',
   'npx tsx server/scripts/test-gl-game-session-detector.ts',
   'npx tsx server/scripts/test-gl-game-session-detector.ts --self-check',

@@ -272,10 +272,15 @@ function normalizeGroundingWords(text: string): string[] {
 }
 
 /**
- * A prior correction may re-enter context only when the student both names a
- * substantive term from the bound subject and explicitly signals a return.
- * Pronouns, generic conversational language, and semantic guesswork are
- * intentionally insufficient: false negatives are safer than topic hijacks.
+ * A prior correction may re-enter context on Turn N+1 when the student
+ * continues or explicitly returns to the bound subject by naming its
+ * substantive topic identifier(s), unless the utterance cancels or negates
+ * returning to that topic. Pronouns, generic conversational language, and
+ * single shared generic nouns from multi-term assertions remain insufficient:
+ * Case (c) same-topic continuation ("Yeah, I've been practicing guitar chords")
+ * and Case (b) explicit return ("Can we go back to the guitar claim?") both
+ * release the correction, while Case (a) topic switch ("Do you remember our
+ * counting game?") stays withheld.
  */
 export function doesStudentExplicitlyReopenGroundingTopic(
   currentUtterance: string,
@@ -291,21 +296,23 @@ export function doesStudentExplicitlyReopenGroundingTopic(
   const returnMatch = EXPLICIT_TOPIC_RETURN_PATTERNS
     .map(pattern => pattern.exec(normalizedCurrent))
     .find((match): match is RegExpExecArray => match !== null);
-  if (!returnMatch) {
-    return false;
-  }
-  // Fail closed when the return construction itself is negated. This catches
-  // "let's not go back", "I don't want to talk about", and "no quiero volver".
-  const beforeReturn = normalizedCurrent.slice(
-    Math.max(0, returnMatch.index - 48),
-    returnMatch.index,
-  );
-  if (/\b(?:not|no|never|don't|dont|do\s+not|nunca)\b/u.test(beforeReturn)) {
-    return false;
+  if (returnMatch) {
+    // Fail closed when the return construction itself is negated. This catches
+    // "let's not go back", "I don't want to talk about", and "no quiero volver".
+    const beforeReturn = normalizedCurrent.slice(
+      Math.max(0, returnMatch.index - 48),
+      returnMatch.index,
+    );
+    if (/\b(?:not|no|never|don't|dont|do\s+not|nunca)\b/u.test(beforeReturn)) {
+      return false;
+    }
   }
 
   const currentWords = new Set(normalizeGroundingWords(normalizedCurrent));
   const boundTopicWords = [...new Set(normalizeGroundingWords(candidateAssertion))];
+  if (boundTopicWords.length === 0) {
+    return false;
+  }
   const matchingTopicWords = boundTopicWords.filter(word => currentWords.has(word));
   // A one-term assertion such as "I played guitar" has one clear identifier.
   // Multi-term assertions require two identifiers so a generic shared noun
