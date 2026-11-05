@@ -238,6 +238,10 @@ const GROUNDING_TOPIC_STOP_WORDS = new Set([
   'has', 'can', 'did', 'get', 'got', 'our', 'his', 'her', 'its',
   'who', 'how', 'why', 'all', 'any', 'one', 'two', 'now', 'out',
   'see', 'saw', 'way', 'day', 'too', 'let', 'yes', 'yeah', 'hey',
+  'yesterday', 'today', 'tonight', 'tomorrow', 'week', 'weeks', 'month',
+  'months', 'year', 'years', 'time', 'times', 'morning', 'afternoon',
+  'evening', 'night', 'always', 'never', 'often', 'sometimes', 'usually',
+  'already', 'still', 'really', 'actually', 'first', 'last', 'next',
   // Common Spanish conversational scaffolding.
   'sobre', 'antes', 'otra', 'nuevo', 'recuerdas', 'recordar',
   'dijiste', 'hablamos', 'contaste', 'mencionaste', 'cosa', 'cosas',
@@ -271,6 +275,12 @@ const GROUNDING_TOPIC_CANONICAL_ALIASES: Record<string, string> = {
   autobus: 'bus',
   guerra: 'war',
 };
+
+const GENERIC_GROUNDING_TOPIC_WORDS = new Set([
+  'school', 'class', 'lesson', 'story', 'place', 'city', 'town', 'country',
+  'book', 'movie', 'song', 'music', 'food', 'work', 'house', 'home',
+  'family', 'friend', 'trip',
+]);
 
 const EXPLICIT_TOPIC_RETURN_PATTERNS = [
   /\b(?:go|get|come)\s+back\s+to\b/u,
@@ -365,11 +375,17 @@ export function doesStudentExplicitlyReopenGroundingTopic(
     return false;
   }
   const matchingTopicWords = boundTopicWords.filter(word => currentWords.has(word));
+  if (matchingTopicWords.length === 0) {
+    return false;
+  }
   // A one-term assertion such as "I played guitar" has one clear identifier.
-  // Multi-term assertions require two identifiers so a generic shared noun
-  // ("school") cannot reopen a different claim ("school in Boston").
-  const requiredMatches = boundTopicWords.length === 1 ? 1 : 2;
-  return matchingTopicWords.length >= requiredMatches;
+  // For multi-term assertions, a generic category noun ("school" in "school in
+  // Boston") requires a second matching identifier, whereas a specific topic
+  // identifier ("guitar" in "played acoustic guitar") is sufficient on its own.
+  if (boundTopicWords.length > 1 && matchingTopicWords.length === 1) {
+    return !GENERIC_GROUNDING_TOPIC_WORDS.has(matchingTopicWords[0]);
+  }
+  return true;
 }
 
 /**

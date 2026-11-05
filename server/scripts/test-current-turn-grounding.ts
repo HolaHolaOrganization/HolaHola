@@ -277,6 +277,13 @@ assert(
   ),
   'Two bound topic identifiers safely reopen a multi-term assertion',
 );
+assert(
+  doesStudentExplicitlyReopenGroundingTopic(
+    guitarContinuationUtterance,
+    'I remember that you played acoustic guitar yesterday.',
+  ),
+  'Specific topic identifier ("guitar") reopens a multi-word assertion without requiring every modifier (Gemini Stage 3)',
+);
 
 const broadHardWallCandidate = extractGroundingAssertionCandidate(
   'Let us count together. I remember that you played guitar yesterday. Now we can continue the game.',

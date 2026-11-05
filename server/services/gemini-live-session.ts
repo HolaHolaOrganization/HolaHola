@@ -599,8 +599,8 @@ export class GeminiLiveSession {
   }
 
   private waitForInputTranscriptionFinalization(expectedEpoch: number, timeoutMs = 150): Promise<boolean> {
-    if (this.finalizedStudentTurnEpoch === expectedEpoch) {
-      return Promise.resolve(true);
+    if (this.finalizedStudentTurnEpoch >= expectedEpoch) {
+      return Promise.resolve(this.finalizedStudentTurnEpoch === expectedEpoch);
     }
     return new Promise<boolean>((resolve) => {
       const waiter = {
@@ -3267,6 +3267,10 @@ LEXICAL CONSTRAINT: Do not use regional slang, fillers, or interjections from yo
         if (startsNewStudentUtterance) {
           this.currentStudentTurnBoundaryTrusted = this.nextStudentTurnBoundaryTrusted;
           this.nextStudentTurnBoundaryTrusted = true;
+          for (const waiter of this.inputTranscriptionFinalizationWaiters.splice(0)) {
+            clearTimeout(waiter.timer);
+            waiter.resolve(false);
+          }
           this.pendingInputTranscript = '';
           this.activeStudentUtterance = '';
           this.activeContextLineageTraceId = this._getContextLineageRecorder()?.beginTrace() ?? null;
@@ -3868,6 +3872,9 @@ LEXICAL CONSTRAINT: Do not use regional slang, fillers, or interjections from yo
           if (waiter.expectedEpoch === finalizedEpoch) {
             clearTimeout(waiter.timer);
             waiter.resolve(true);
+          } else if (waiter.expectedEpoch < finalizedEpoch) {
+            clearTimeout(waiter.timer);
+            waiter.resolve(false);
           } else {
             remainingWaiters.push(waiter);
           }
@@ -4578,10 +4585,13 @@ LEXICAL CONSTRAINT: Do not use regional slang, fillers, or interjections from yo
                 type: 'lookup_completed',
                 detail: `${groundingResult.length} characters returned from Archive lookup.`,
               });
+              const correction = groundingResult
+                ? `[ARCHIVE GUARDIAN: Your history surfaces to support you. This is the bedrock of your memory for this moment:\n${groundingResult}]`
+                : `[ARCHIVE GUARDIAN: The well is deep and still. No specific memories surface. Trust your intuition.]`;
               // sendClientContent is unsafe — store for tool-result delivery on next tool call.
               if (!this.pendingWeeOoGrounding) {
                 this._replacePendingWeeOoGrounding(
-                  groundingResult,
+                  correction,
                   _hwBinding,
                   hardWallAttemptId,
                   'Hard-wall correction replaced this queued payload before delivery.',
@@ -5333,14 +5343,12 @@ LEXICAL CONSTRAINT: Do not use regional slang, fillers, or interjections from yo
           this.activeStudentTurnEpoch,
         )
       ) {
-        // Same-turn corrections carry the current utterance + bound candidate
-        // assertion explicitly so the model does not pivot away from the student's
-        // current subject when reconciling.
-        const correctionLabel = formatCurrentTurnCorrectionContext(
-          this.pendingWeeOoGroundingBinding,
-          this.pendingWeeOoGrounding,
-          this.slideCorrectionQueued,
-        );
+        // Slide-triggered corrections get a behavioral directive — not just context but an
+        // explicit instruction to verify before continuing. This is Tier B: turning passive
+        // grounding delivery into an active "check before you speak" lock.
+        const correctionLabel = this.slideCorrectionQueued
+          ? `[LAST TURN CORRECTION — ARCHIVE SYNC: Our shared history contains specific records relevant to your last turn. Archive Data:\n${this.pendingWeeOoGrounding}\n\nTo ensure we stay aligned, please use grounding_query or introspect to reconcile this information before making further assertions about our shared history.]`
+          : `[LAST TURN CORRECTION: ${this.pendingWeeOoGrounding}]`;
         const queuedAttemptId = this.pendingWeeOoGroundingAttemptId;
         guardianWhispers.push({ text: correctionLabel, attemptId: queuedAttemptId, lineageEventId: null });
         this.pendingWeeOoGrounding = null;
@@ -6537,23 +6545,6 @@ Utterance: "${binding.studentUtterance}"
 Candidate memory assertion under evaluation: "${binding.candidateAssertion}"
 Archive result for this candidate: ${archiveResult}
 If the Archive is silent, be honest about that uncertainty while responding to the current utterance. Do not change the subject to an earlier assertion.]`;
-}
-
-export function formatCurrentTurnCorrectionContext(
-  binding: GroundingTurnBinding,
-  groundingResult: string,
-  requireReconciliation = false,
-): string {
-  const archiveResult = groundingResult.trim()
-    || 'No verified Archive source surfaced for this candidate.';
-  const reconciliationLine = requireReconciliation
-    ? '\nReconcile this against the Archive before repeating the bound assertion.'
-    : '';
-  return `[CURRENT STUDENT TURN — ANSWER THIS FIRST:
-Utterance: "${binding.studentUtterance}"
-Bound assertion from this turn to reconcile: "${binding.candidateAssertion}"
-Archive data for this bound assertion: ${archiveResult}${reconciliationLine}
-Keep the student's current utterance as the primary subject; do not pivot to an unrelated earlier claim.]`;
 }
 
 export function createPriorTurnGroundingCorrection(
