@@ -290,7 +290,54 @@ export class ListenerStore {
       pending: await this.pending(), after: await this.cursor(),
       notificationArming: 'unknown-runtime-owned' };
   }
+  /** Proves the listener is running, not just that a heartbeat file exists: the lock owner's
+   * creation identity must still match a live process, its supervisor must be live, and the
+   * heartbeat must be recent and written by that same owner. Unknown is never reported as live. */
+  async liveness(now = Date.now(), reader = readProcessIdentity, staleAfterMs = 90_000) {
+    await this.assertScope();
+    const reasons: string[] = [];
+    let lock: any = null;
+    try { lock = await this.json('watch.lock'); } catch (e) { if (!missing(e)) throw e; }
+    let heartbeat: any = null;
+    try { heartbeat = await this.json('heartbeat.json'); } catch (e) { if (!missing(e)) throw e; }
+    const ageMs = heartbeat ? now - Date.parse(heartbeat.at) : null;
+    const lockIdentity = lock && validSequence(lock.pid) && lock.pid > 0 && typeof lock.created === 'string' && lock.created
+      ? { pid: lock.pid as number, created: lock.created as string } : null;
+    const parent = lock?.parent && validSequence(lock.parent.pid) && lock.parent.pid > 0 &&
+      typeof lock.parent.created === 'string' && lock.parent.created
+      ? { pid: lock.parent.pid as number, created: lock.parent.created as string } : null;
+    const owner = lockIdentity ? await parentState(lockIdentity, reader) : (lock ? 'unknown' : 'absent');
+    const supervisor = parent ? await parentState(parent, reader) : 'not-recorded';
+    if (!lock) reasons.push('lock-absent');
+    else if (!lockIdentity) reasons.push('lock-identity-unproven');
+    if (owner === 'absent' && lock) reasons.push('owner-process-gone');
+    if (owner === 'unknown') reasons.push('owner-identity-unknown');
+    if (supervisor === 'absent') reasons.push('supervisor-gone');
+    if (supervisor === 'unknown') reasons.push('supervisor-identity-unknown');
+    if (!heartbeat) reasons.push('heartbeat-absent');
+    else {
+      if (ageMs === null || !Number.isFinite(ageMs) || ageMs < 0) reasons.push('heartbeat-time-invalid');
+      else if (ageMs > staleAfterMs) reasons.push('heartbeat-stale');
+      if (lockIdentity && heartbeat.pid !== lockIdentity.pid) reasons.push('heartbeat-from-other-process');
+      if (heartbeat.state === 'stopped') reasons.push('heartbeat-reports-stopped');
+      // One failed poll is routine; three in a row means the listener is not receiving.
+      if (heartbeat.state === 'fetch-failed' && (heartbeat.failures ?? 0) >= 3) reasons.push('inbox-fetch-failing');
+    }
+    const down = ['lock-absent', 'owner-process-gone', 'supervisor-gone', 'heartbeat-reports-stopped'];
+    const unknown = ['lock-identity-unproven', 'owner-identity-unknown', 'supervisor-identity-unknown'];
+    const verdict: keyof typeof LIVENESS_EXIT = reasons.some(r => down.includes(r)) ? 'down'
+      : reasons.some(r => unknown.includes(r)) ? 'unknown'
+      : reasons.length ? 'stale' : 'live';
+    return { verdict, reasons, owner: { pid: lockIdentity?.pid ?? null, state: owner },
+      supervisor: { pid: parent?.pid ?? null, state: supervisor },
+      heartbeat: heartbeat ? { state: heartbeat.state, pid: heartbeat.pid, at: heartbeat.at, ageMs,
+        // heartbeat() merges earlier fields, so a past failure count survives recovery; report it only while failing.
+        failures: heartbeat.state === 'fetch-failed' ? heartbeat.failures ?? 0 : 0 } : null,
+      staleAfterMs, pending: (await this.pending()).filter(r => r.state !== 'observed' && r.sender !== this.scope.actor).length };
+  }
 }
+
+export const LIVENESS_EXIT = { live: 0, down: 75, stale: 76, unknown: 77 } as const;
 
 export interface ListenerOptions {
   store: ListenerStore; mode: 'continuous' | 'once'; initialAfter?: number; resume?: boolean;

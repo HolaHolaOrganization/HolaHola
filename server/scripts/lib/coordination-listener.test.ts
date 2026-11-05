@@ -3,7 +3,7 @@ import test from 'node:test';
 import { mkdtemp, readFile, writeFile, readdir, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { ListenerStore, normalizeScope, pageReceipts, runListener, type InboxPage } from './coordination-listener';
+import { LIVENESS_EXIT, ListenerStore, normalizeScope, pageReceipts, runListener, type InboxPage } from './coordination-listener';
 import { parentState, readProcessIdentity } from './coordination-listener-identity';
 import { listenerErrorCode } from '../coordination-listener';
 import { randomUUID } from 'node:crypto';
@@ -489,3 +489,64 @@ test('migrateScope upgrades legacy {actor, apiUrl} scope in place while preservi
   await assert.rejects(differentRuntimeStore.migrateScope(), /scope_mismatch/);
 });
 
+
+test('liveness proves owner and supervisor identity, heartbeat age and authorship', async t => {
+  const store = await fixture(t);
+  const owner = { pid: process.pid, created: 'owner-created' };
+  const parent = { pid: 424242, created: 'parent-created' };
+  await store.acquire(1, false, owner.created, parent);
+  await store.heartbeat('listening');
+  const identities = new Map<number, any>([[owner.pid, { state: 'present', created: owner.created }],
+    [parent.pid, { state: 'present', created: parent.created }]]);
+  const reader = async (pid: number) => identities.get(pid) ?? { state: 'absent' };
+  const live = await store.liveness(Date.now(), reader);
+  assert.equal(live.verdict, 'live'); assert.deepEqual(live.reasons, []);
+  assert.equal(live.owner.state, 'present'); assert.equal(live.supervisor.state, 'present');
+  assert.equal(LIVENESS_EXIT[live.verdict], 0);
+
+  assert.equal((await store.liveness(Date.now() + 100_000, reader)).verdict, 'stale');
+  assert.deepEqual((await store.liveness(Date.now() + 100_000, reader)).reasons, ['heartbeat-stale']);
+
+  identities.set(owner.pid, { state: 'present', created: 'pid-reused-by-another-process' });
+  const reused = await store.liveness(Date.now(), reader);
+  assert.equal(reused.verdict, 'down'); assert.ok(reused.reasons.includes('owner-process-gone'));
+  identities.set(owner.pid, { state: 'absent' });
+  assert.equal((await store.liveness(Date.now(), reader)).verdict, 'down');
+  identities.set(owner.pid, { state: 'unknown' });
+  const unknown = await store.liveness(Date.now(), reader);
+  assert.equal(unknown.verdict, 'unknown'); assert.equal(LIVENESS_EXIT[unknown.verdict], 77);
+
+  identities.set(owner.pid, { state: 'present', created: owner.created });
+  identities.set(parent.pid, { state: 'absent' });
+  const orphan = await store.liveness(Date.now(), reader);
+  assert.equal(orphan.verdict, 'down'); assert.deepEqual(orphan.reasons, ['supervisor-gone']);
+  assert.equal(LIVENESS_EXIT[orphan.verdict], 75);
+  identities.set(parent.pid, { state: 'present', created: parent.created });
+
+  const beat = JSON.parse(await readFile(join(store.directory, 'heartbeat.json'), 'utf8'));
+  await writeFile(join(store.directory, 'heartbeat.json'), JSON.stringify({ ...beat, pid: owner.pid + 1 }));
+  assert.deepEqual((await store.liveness(Date.now(), reader)).reasons, ['heartbeat-from-other-process']);
+
+  await writeFile(join(store.directory, 'heartbeat.json'), JSON.stringify({ ...beat, state: 'fetch-failed', failures: 1 }));
+  assert.equal((await store.liveness(Date.now(), reader)).verdict, 'live');
+  await writeFile(join(store.directory, 'heartbeat.json'), JSON.stringify({ ...beat, state: 'fetch-failed', failures: 3 }));
+  const failing = await store.liveness(Date.now(), reader);
+  assert.equal(failing.verdict, 'stale'); assert.deepEqual(failing.reasons, ['inbox-fetch-failing']);
+  assert.equal(failing.heartbeat?.failures, 3);
+  await writeFile(join(store.directory, 'heartbeat.json'), JSON.stringify({ ...beat, state: 'listening', failures: 3 }));
+  assert.equal((await store.liveness(Date.now(), reader)).heartbeat?.failures, 0);
+
+  await store.heartbeat('stopped'); await store.release();
+  const stopped = await store.liveness(Date.now(), reader);
+  assert.equal(stopped.verdict, 'down');
+  assert.deepEqual(stopped.reasons, ['lock-absent', 'heartbeat-reports-stopped']);
+});
+test('liveness never reports live without a recorded owner identity or heartbeat', async t => {
+  const store = await fixture(t);
+  await store.acquire(1);
+  const reader = async () => ({ state: 'present', created: 'x' }) as const;
+  const report = await store.liveness(Date.now(), reader);
+  assert.equal(report.verdict, 'unknown');
+  assert.deepEqual(report.reasons, ['lock-identity-unproven', 'owner-identity-unknown', 'heartbeat-absent']);
+  assert.equal(report.supervisor.state, 'not-recorded');
+});
