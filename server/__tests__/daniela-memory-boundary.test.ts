@@ -145,11 +145,12 @@ test("real felt-history reader query excludes legacy [AUTO-GROUNDING] row with n
   );
   assert.deepEqual(explicitSql.params, [testUserId, OPERATIONAL_MEMORY_TAG, kw]);
 
-  // 2. When a live Postgres URL is configured, execute the real Drizzle felt-history
-  //    reader query inside a rolled-back transaction against a legacy [AUTO-GROUNDING]
-  //    row with tags=NULL and a genuine reflection row with tags=NULL.
+  // 2. When explicitly opted in (RUN_LIVE_DB_TESTS=1) and a live Postgres URL is
+  //    configured, execute the real Drizzle felt-history reader query inside a
+  //    rolled-back transaction against a legacy [AUTO-GROUNDING] row with tags=NULL
+  //    and a genuine reflection row with tags=NULL.
   const dbUrl = process.env.NEON_SHARED_DATABASE_URL ?? "";
-  if (dbUrl && !dbUrl.includes("localhost:5432/db")) {
+  if (process.env.RUN_LIVE_DB_TESTS === "1" && dbUrl && !dbUrl.includes("localhost:5432/db")) {
     const pool = new Pool({ connectionString: dbUrl, ssl: { rejectUnauthorized: false }, max: 1 });
     const client = await pool.connect();
     try {
