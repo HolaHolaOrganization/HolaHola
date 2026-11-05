@@ -74,6 +74,8 @@ test('a row that changes or vanishes on the way into the database fails the dril
   const altered = await runRestoreDrill({ store: await backedUp(), prefix: BACKUP_PREFIX_DEFAULT, target: memoryTarget({ mangle: (c) => c.normalize('NFD') }) });
   assert.equal(altered.outcome, 'failed');
   assert.ok(altered.failures.some((f) => f.kind === 'row_mismatch' && f.id === 'ep-1'), 'a Unicode-normalised row is caught');
+  const sameLength = await runRestoreDrill({ store: await backedUp(), prefix: BACKUP_PREFIX_DEFAULT, target: memoryTarget({ mangle: (c) => c.replace('two', 'tw0') }) });
+  assert.deepEqual(sameLength.failures, [{ kind: 'row_mismatch', id: 'ep-2', detail: '11 bytes, expected 11' }], 'a same-length change is caught by the hash, not the length');
   const dropped = await runRestoreDrill({ store: await backedUp(), prefix: BACKUP_PREFIX_DEFAULT, target: memoryTarget({ dropId: 'ep-2' }) });
   assert.deepEqual(dropped.failures, [{ kind: 'row_missing', id: 'ep-2' }]);
 });
