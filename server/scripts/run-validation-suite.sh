@@ -183,6 +183,8 @@ run_check "Live-instruction-document drift guard self-check" npx tsx server/scri
 # add nothing but runtime. Keep it out of run-ci-test-steps.mjs.
 run_check "Live-instruction-document drift guard (live)" npx tsx server/scripts/check-live-instruction-document-drift.ts
 run_check "GL reconnected client recovery" npx tsx server/scripts/test-gl-reconnected-client-recovery.ts
+run_check "Current-turn and prior-turn Archive Guardian grounding guard" npx tsx server/scripts/test-current-turn-grounding.ts
+run_check "Guardian attempt trace hermetic checks" npx tsx server/scripts/test-guardian-attempt-trace.ts
 run_check "GL game-session detector" bash -c 'npx tsx server/scripts/test-gl-game-session-detector.ts && npx tsx server/scripts/test-gl-game-session-detector.ts --self-check'
 run_check "Raw-window capture alignment" npx tsx server/scripts/test-raw-window-capture.ts --self-check
 run_check "Memory-decay startup schema guard" bash -c 'npx tsx server/scripts/test-memory-decay-startup-schema-guard.ts && npx tsx server/scripts/test-memory-decay-startup-schema-guard.ts --self-check'

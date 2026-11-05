@@ -230,10 +230,56 @@ const GROUNDING_TOPIC_STOP_WORDS = new Set([
   'mentioned', 'discussed', 'shared', 'played', 'thing', 'things',
   'this', 'that', 'these', 'those', 'with', 'from', 'have', 'been',
   'were', 'your', 'ours', 'their', 'what', 'when', 'where', 'which',
-  'game',
+  'game', 'will', 'would', 'could', 'should', 'there', 'here', 'some',
+  'more', 'very', 'just', 'like', 'know', 'think', 'want', 'make',
+  'made', 'take', 'took', 'into', 'over', 'after', 'only', 'also',
+  'back', 'went', 'play', 'playing', 'talk', 'talking', 'tell',
+  'for', 'the', 'and', 'but', 'not', 'you', 'are', 'was', 'had',
+  'has', 'can', 'did', 'get', 'got', 'our', 'his', 'her', 'its',
+  'who', 'how', 'why', 'all', 'any', 'one', 'two', 'now', 'out',
+  'see', 'saw', 'way', 'day', 'too', 'let', 'yes', 'yeah', 'hey',
+  'yesterday', 'today', 'tonight', 'tomorrow', 'week', 'weeks', 'month',
+  'months', 'year', 'years', 'time', 'times', 'morning', 'afternoon',
+  'evening', 'night', 'always', 'never', 'often', 'sometimes', 'usually',
+  'already', 'still', 'really', 'actually', 'first', 'last', 'next',
   // Common Spanish conversational scaffolding.
   'sobre', 'antes', 'otra', 'nuevo', 'recuerdas', 'recordar',
   'dijiste', 'hablamos', 'contaste', 'mencionaste', 'cosa', 'cosas',
+  'juego', 'para', 'como', 'pero', 'este', 'esta', 'estos', 'estas',
+  'todo', 'toda', 'todos', 'todas', 'algo', 'nada', 'muy', 'mas',
+  'bien', 'solo', 'aqui', 'alli', 'ayer', 'hoy', 'vez', 'veces',
+  'con', 'por', 'sin', 'del', 'las', 'los', 'una', 'uno', 'unos',
+  'unas', 'que', 'fue', 'era', 'son', 'hay', 'mis', 'tus', 'sus',
+]);
+
+// Canonical cross-language / stem aliases so target-language continuations
+// (e.g. "Sí, toco la guitarra" against "I played guitar") resolve to the same
+// substantive topic identifier without opening fuzzy substring false positives.
+const GROUNDING_TOPIC_CANONICAL_ALIASES: Record<string, string> = {
+  guitarra: 'guitar',
+  guitarras: 'guitar',
+  guitars: 'guitar',
+  chords: 'chord',
+  acordes: 'chord',
+  acorde: 'chord',
+  piano: 'piano',
+  pianos: 'piano',
+  escuela: 'school',
+  colegio: 'school',
+  schools: 'school',
+  boston: 'boston',
+  contar: 'counting',
+  contamos: 'counting',
+  cuento: 'counting',
+  arte: 'art',
+  autobus: 'bus',
+  guerra: 'war',
+};
+
+const GENERIC_GROUNDING_TOPIC_WORDS = new Set([
+  'school', 'class', 'lesson', 'story', 'place', 'city', 'town', 'country',
+  'book', 'movie', 'song', 'music', 'food', 'work', 'house', 'home',
+  'family', 'friend', 'trip',
 ]);
 
 const EXPLICIT_TOPIC_RETURN_PATTERNS = [
@@ -259,7 +305,20 @@ const TOPIC_RETURN_CANCELLATION_PATTERNS = [
   /\bi\s+(?:do\s+not|don't|dont)\s+want\s+to\b/u,
   /\bno\s+(?:quiero|vamos|volvamos|regresemos|retomemos|hablemos)\b/u,
   /\b(?:instead|rather|en\s+cambio|mejor)\b/u,
+  /\b(?:different|another)\b[\p{L}\p{N}\s,'-]{0,24}\bnot\b/u,
+  /\bnot\s+(?:a|an|the)\b/u,
+  /\b(?:bored|tired|sick)\s+of\b/u,
 ];
+
+function canonicalizeGroundingWord(word: string): string {
+  const aliased = GROUNDING_TOPIC_CANONICAL_ALIASES[word];
+  if (aliased) return aliased;
+  if (word.length > 4 && word.endsWith('s') && !word.endsWith('ss')) {
+    const singular = word.slice(0, -1);
+    return GROUNDING_TOPIC_CANONICAL_ALIASES[singular] ?? singular;
+  }
+  return word;
+}
 
 function normalizeGroundingWords(text: string): string[] {
   return text
@@ -267,15 +326,22 @@ function normalizeGroundingWords(text: string): string[] {
     .replace(/\p{M}/gu, '')
     .toLocaleLowerCase()
     .match(/\p{L}[\p{L}\p{N}]*/gu)
-    ?.filter(word => word.length >= 4 && !GROUNDING_TOPIC_STOP_WORDS.has(word))
+    ?.filter(word => word.length >= 3 && !GROUNDING_TOPIC_STOP_WORDS.has(word))
+    .map(canonicalizeGroundingWord)
+    .filter(word => !GROUNDING_TOPIC_STOP_WORDS.has(word))
     ?? [];
 }
 
 /**
- * A prior correction may re-enter context only when the student both names a
- * substantive term from the bound subject and explicitly signals a return.
- * Pronouns, generic conversational language, and semantic guesswork are
- * intentionally insufficient: false negatives are safer than topic hijacks.
+ * A prior correction may re-enter context on Turn N+1 when the student
+ * continues or explicitly returns to the bound subject by naming its
+ * substantive topic identifier(s), unless the utterance cancels or negates
+ * returning to that topic. Pronouns, generic conversational language, and
+ * single shared generic nouns from multi-term assertions remain insufficient:
+ * Case (c) same-topic continuation ("Yeah, I've been practicing guitar chords")
+ * and Case (b) explicit return ("Can we go back to the guitar claim?") both
+ * release the correction, while Case (a) topic switch ("Do you remember our
+ * counting game?") stays withheld.
  */
 export function doesStudentExplicitlyReopenGroundingTopic(
   currentUtterance: string,
@@ -291,27 +357,35 @@ export function doesStudentExplicitlyReopenGroundingTopic(
   const returnMatch = EXPLICIT_TOPIC_RETURN_PATTERNS
     .map(pattern => pattern.exec(normalizedCurrent))
     .find((match): match is RegExpExecArray => match !== null);
-  if (!returnMatch) {
-    return false;
-  }
-  // Fail closed when the return construction itself is negated. This catches
-  // "let's not go back", "I don't want to talk about", and "no quiero volver".
-  const beforeReturn = normalizedCurrent.slice(
-    Math.max(0, returnMatch.index - 48),
-    returnMatch.index,
-  );
-  if (/\b(?:not|no|never|don't|dont|do\s+not|nunca)\b/u.test(beforeReturn)) {
-    return false;
+  if (returnMatch) {
+    // Fail closed when the return construction itself is negated. This catches
+    // "let's not go back", "I don't want to talk about", and "no quiero volver".
+    const beforeReturn = normalizedCurrent.slice(
+      Math.max(0, returnMatch.index - 48),
+      returnMatch.index,
+    );
+    if (/\b(?:not|no|never|don't|dont|do\s+not|nunca)\b/u.test(beforeReturn)) {
+      return false;
+    }
   }
 
   const currentWords = new Set(normalizeGroundingWords(normalizedCurrent));
   const boundTopicWords = [...new Set(normalizeGroundingWords(candidateAssertion))];
+  if (boundTopicWords.length === 0) {
+    return false;
+  }
   const matchingTopicWords = boundTopicWords.filter(word => currentWords.has(word));
+  if (matchingTopicWords.length === 0) {
+    return false;
+  }
   // A one-term assertion such as "I played guitar" has one clear identifier.
-  // Multi-term assertions require two identifiers so a generic shared noun
-  // ("school") cannot reopen a different claim ("school in Boston").
-  const requiredMatches = boundTopicWords.length === 1 ? 1 : 2;
-  return matchingTopicWords.length >= requiredMatches;
+  // For multi-term assertions, a generic category noun ("school" in "school in
+  // Boston") requires a second matching identifier, whereas a specific topic
+  // identifier ("guitar" in "played acoustic guitar") is sufficient on its own.
+  if (boundTopicWords.length > 1 && matchingTopicWords.length === 1) {
+    return !GENERIC_GROUNDING_TOPIC_WORDS.has(matchingTopicWords[0]);
+  }
+  return true;
 }
 
 /**
