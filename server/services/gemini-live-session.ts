@@ -598,7 +598,7 @@ export class GeminiLiveSession {
     });
   }
 
-  private waitForInputTranscriptionFinalization(expectedEpoch: number, timeoutMs = 2_000): Promise<boolean> {
+  private waitForInputTranscriptionFinalization(expectedEpoch: number, timeoutMs = 150): Promise<boolean> {
     if (this.finalizedStudentTurnEpoch === expectedEpoch) {
       return Promise.resolve(true);
     }
@@ -4994,6 +4994,17 @@ LEXICAL CONSTRAINT: Do not use regional slang, fillers, or interjections from yo
 
       // Co-pilot: per-tool start times (parallel execution — measure each separately)
       const toolStartTimes = new Map<string, number>();
+      // Gemini Stage 2 Q4 fix: start the input-transcription finalization check
+      // concurrently with Phase 1 + Phase 2 tool execution (bounded to 150ms) so
+      // it overlaps with tool execution instead of adding a 2s serial wait before
+      // sendToolResponse. If the student is still speaking when tools finish,
+      // pendingPriorTurnGrounding remains deferred for any subsequent tool batch
+      // on the same student turn without stalling the current tool response.
+      const priorTurnFinalizationWaitPromise = (
+        this.pendingPriorTurnGrounding && this.currentStudentTurnBoundaryTrusted
+      )
+        ? this.waitForInputTranscriptionFinalization(this.activeStudentTurnEpoch)
+        : null;
 
       await Promise.allSettled(
         msg.toolCall.functionCalls.map(async (fc, idx) => {
@@ -5303,7 +5314,9 @@ LEXICAL CONSTRAINT: Do not use regional slang, fillers, or interjections from yo
           new Promise<void>(resolve => setTimeout(resolve, 400)),
         ]);
       }
-      if (this.pendingPriorTurnGrounding && this.currentStudentTurnBoundaryTrusted) {
+      if (priorTurnFinalizationWaitPromise) {
+        await priorTurnFinalizationWaitPromise;
+      } else if (this.pendingPriorTurnGrounding && this.currentStudentTurnBoundaryTrusted) {
         await this.waitForInputTranscriptionFinalization(this.activeStudentTurnEpoch);
       }
 

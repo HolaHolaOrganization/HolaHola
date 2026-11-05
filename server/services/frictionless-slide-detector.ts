@@ -230,11 +230,47 @@ const GROUNDING_TOPIC_STOP_WORDS = new Set([
   'mentioned', 'discussed', 'shared', 'played', 'thing', 'things',
   'this', 'that', 'these', 'those', 'with', 'from', 'have', 'been',
   'were', 'your', 'ours', 'their', 'what', 'when', 'where', 'which',
-  'game',
+  'game', 'will', 'would', 'could', 'should', 'there', 'here', 'some',
+  'more', 'very', 'just', 'like', 'know', 'think', 'want', 'make',
+  'made', 'take', 'took', 'into', 'over', 'after', 'only', 'also',
+  'back', 'went', 'play', 'playing', 'talk', 'talking', 'tell',
+  'for', 'the', 'and', 'but', 'not', 'you', 'are', 'was', 'had',
+  'has', 'can', 'did', 'get', 'got', 'our', 'his', 'her', 'its',
+  'who', 'how', 'why', 'all', 'any', 'one', 'two', 'now', 'out',
+  'see', 'saw', 'way', 'day', 'too', 'let', 'yes', 'yeah', 'hey',
   // Common Spanish conversational scaffolding.
   'sobre', 'antes', 'otra', 'nuevo', 'recuerdas', 'recordar',
   'dijiste', 'hablamos', 'contaste', 'mencionaste', 'cosa', 'cosas',
+  'juego', 'para', 'como', 'pero', 'este', 'esta', 'estos', 'estas',
+  'todo', 'toda', 'todos', 'todas', 'algo', 'nada', 'muy', 'mas',
+  'bien', 'solo', 'aqui', 'alli', 'ayer', 'hoy', 'vez', 'veces',
+  'con', 'por', 'sin', 'del', 'las', 'los', 'una', 'uno', 'unos',
+  'unas', 'que', 'fue', 'era', 'son', 'hay', 'mis', 'tus', 'sus',
 ]);
+
+// Canonical cross-language / stem aliases so target-language continuations
+// (e.g. "Sí, toco la guitarra" against "I played guitar") resolve to the same
+// substantive topic identifier without opening fuzzy substring false positives.
+const GROUNDING_TOPIC_CANONICAL_ALIASES: Record<string, string> = {
+  guitarra: 'guitar',
+  guitarras: 'guitar',
+  guitars: 'guitar',
+  chords: 'chord',
+  acordes: 'chord',
+  acorde: 'chord',
+  piano: 'piano',
+  pianos: 'piano',
+  escuela: 'school',
+  colegio: 'school',
+  schools: 'school',
+  boston: 'boston',
+  contar: 'counting',
+  contamos: 'counting',
+  cuento: 'counting',
+  arte: 'art',
+  autobus: 'bus',
+  guerra: 'war',
+};
 
 const EXPLICIT_TOPIC_RETURN_PATTERNS = [
   /\b(?:go|get|come)\s+back\s+to\b/u,
@@ -259,7 +295,20 @@ const TOPIC_RETURN_CANCELLATION_PATTERNS = [
   /\bi\s+(?:do\s+not|don't|dont)\s+want\s+to\b/u,
   /\bno\s+(?:quiero|vamos|volvamos|regresemos|retomemos|hablemos)\b/u,
   /\b(?:instead|rather|en\s+cambio|mejor)\b/u,
+  /\b(?:different|another)\b[\p{L}\p{N}\s,'-]{0,24}\bnot\b/u,
+  /\bnot\s+(?:a|an|the)\b/u,
+  /\b(?:bored|tired|sick)\s+of\b/u,
 ];
+
+function canonicalizeGroundingWord(word: string): string {
+  const aliased = GROUNDING_TOPIC_CANONICAL_ALIASES[word];
+  if (aliased) return aliased;
+  if (word.length > 4 && word.endsWith('s') && !word.endsWith('ss')) {
+    const singular = word.slice(0, -1);
+    return GROUNDING_TOPIC_CANONICAL_ALIASES[singular] ?? singular;
+  }
+  return word;
+}
 
 function normalizeGroundingWords(text: string): string[] {
   return text
@@ -267,7 +316,9 @@ function normalizeGroundingWords(text: string): string[] {
     .replace(/\p{M}/gu, '')
     .toLocaleLowerCase()
     .match(/\p{L}[\p{L}\p{N}]*/gu)
-    ?.filter(word => word.length >= 4 && !GROUNDING_TOPIC_STOP_WORDS.has(word))
+    ?.filter(word => word.length >= 3 && !GROUNDING_TOPIC_STOP_WORDS.has(word))
+    .map(canonicalizeGroundingWord)
+    .filter(word => !GROUNDING_TOPIC_STOP_WORDS.has(word))
     ?? [];
 }
 

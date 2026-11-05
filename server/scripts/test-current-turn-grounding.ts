@@ -167,6 +167,34 @@ assert(
   'Same-topic continuation on Turn N+1 with the bound guitar topic passes the release gate (Gemini Stage 1 Q2)',
 );
 assert(
+  doesStudentExplicitlyReopenGroundingTopic(
+    'Sí, toco la guitarra todos los días.',
+    guitarTurn.candidateAssertion,
+  ),
+  'Target-language continuation ("guitarra" -> "guitar") passes the release gate (Gemini Stage 2 Q2)',
+);
+assert(
+  doesStudentExplicitlyReopenGroundingTopic(
+    'Yeah, I love modern art classes.',
+    'I played art',
+  ),
+  'Three-character substantive nouns ("art", "bus", "war") pass the release gate (Gemini Stage 2 Q2)',
+);
+assert(
+  !doesStudentExplicitlyReopenGroundingTopic(
+    "Let's play a different game, not a counting one.",
+    'You mentioned a counting game',
+  ),
+  'Explicit topic switch ("different game, not a counting one") stays withheld (Gemini Stage 2 Q2)',
+);
+assert(
+  !doesStudentExplicitlyReopenGroundingTopic(
+    "I'm bored of the guitar, let's do math.",
+    guitarTurn.candidateAssertion,
+  ),
+  'Negative topic-rejection ("bored of the guitar") stays withheld (Gemini Stage 2 Q2)',
+);
+assert(
   releasePriorTurnGroundingCorrection(
     createPriorTurnGroundingCorrection('Verified Archive record: David plays piano, not guitar.', guitarTurn, countingTurn.studentTurnEpoch)!,
     countingTurn.studentTurnEpoch,
@@ -476,8 +504,10 @@ assert(
   'Ambiguous delayed transcription text fails closed for prior-turn correction delivery',
 );
 assert(
-  source.includes('await this.waitForInputTranscriptionFinalization(this.activeStudentTurnEpoch)'),
-  'A tool batch arriving before finished waits so the final event can resume safe delivery',
+  source.includes('const priorTurnFinalizationWaitPromise =')
+  && source.includes('private waitForInputTranscriptionFinalization(expectedEpoch: number, timeoutMs = 150)')
+  && source.includes('await this.waitForInputTranscriptionFinalization(this.activeStudentTurnEpoch)'),
+  'A tool batch arriving before finished starts a bounded 150ms finalization check concurrently with tool execution',
 );
 assert(
   source.includes('has no final transcription signal yet'),
