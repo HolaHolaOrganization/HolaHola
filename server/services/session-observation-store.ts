@@ -6,6 +6,7 @@ import {
 } from './context-lineage-service';
 
 const EXPIRY_MS = 4 * 60 * 60 * 1000;
+export const OBSERVED_LINEAGE_EVENT_LIMIT = 100;
 
 export interface ToolCallRecord {
   name: string;
@@ -545,7 +546,7 @@ export function observeContextLineageEvent(
   entry.contextLineage.events = [
     ...entry.contextLineage.events,
     event,
-  ].slice(-100);
+  ].slice(-OBSERVED_LINEAGE_EVENT_LIMIT);
   entry.lastUpdatedMs = now();
 }
 

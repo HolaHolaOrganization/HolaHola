@@ -54,6 +54,7 @@ export function registerLucaObserverRoute({
         getEndedObservation,
         getObservation,
         getContextLineageObservationAvailability,
+        OBSERVED_LINEAGE_EVENT_LIMIT,
       } = await import('../services/session-observation-store');
       const conversationId = req.query.conversationId as string | undefined;
 
@@ -352,6 +353,8 @@ export function registerLucaObserverRoute({
         guardianEvidence,
         recentPipelineEvents,
         observationCoverage: {
+          // The observer can switch sessions within one conversation after a reconnect.
+          scope: 'observer-session',
           pipelineEvents: {
             returned: recentPipelineEvents.length,
             sessionTotal: sessionIds.length ? Number(pipelineResult.rows?.[0]?.session_total ?? 0) : null,
@@ -362,7 +365,7 @@ export function registerLucaObserverRoute({
           },
           lineageEvents: {
             returned: lineage?.events.length ?? 0,
-            retentionLimit: 100,
+            retentionLimit: OBSERVED_LINEAGE_EVENT_LIMIT,
             recordedForActiveTrace: activeTraceId ? Number(lineageCountResult?.rows?.[0]?.recorded_total ?? 0) : null,
           },
         },
