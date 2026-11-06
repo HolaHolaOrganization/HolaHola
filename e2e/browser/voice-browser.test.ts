@@ -149,3 +149,31 @@ test('the session comes back after a network outage, and vision resumes', { time
   await server.waitFor(() => server.messages('video_frame').some(m => m.at > resumedAt), 15_000, 'webcam frames after the reconnect');
   await page.context().close();
 });
+
+test('a retry still in its handshake cannot disturb a session started after End Call', { timeout: 75_000 }, async () => {
+  const page = await connectedPage();
+  server.holdHandshakes(true);
+  try {
+    server.dropClients();
+    // The first retry runs after 200 ms, and now sits unanswered in its handshake.
+    await page.waitForFunction(() => (window as any).harness.state() === 'connecting', null, { timeout: 5_000 });
+    await page.evaluate(() => (window as any).harness.disconnect());
+    await page.waitForFunction(() => (window as any).harness.state() === 'disconnected', null, { timeout: 5_000 });
+  } finally {
+    server.holdHandshakes(false);
+  }
+
+  const startsBefore = server.messages('start_session').length;
+  await page.evaluate(() => (window as any).harness.connect('e2e-second-conversation'));
+  await page.waitForFunction(() => (window as any).harness.state() === 'ready', null, { timeout: 15_000 });
+  const historyBefore: number = await page.evaluate(() => (window as any).harness.stateHistory().length);
+
+  // The old attempt's own timeout is 30 s; outlast it.
+  await new Promise(r => setTimeout(r, 32_000));
+  const after: string[] = await page.evaluate(n => (window as any).harness.stateHistory().slice(n), historyBefore);
+  assert.deepEqual(after, [], 'the new session sees no state changes from the old attempt');
+  assert.equal(await page.evaluate(() => (window as any).harness.state()), 'ready');
+  assert.equal(server.messages('start_session').length - startsBefore, 1, 'one start_session for the one new connection');
+  assert.equal(server.connectedClients(), 1, 'the abandoned attempt left no second connection');
+  await page.context().close();
+});
