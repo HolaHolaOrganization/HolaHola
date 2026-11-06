@@ -23,6 +23,7 @@ let _globalPreTurnFallbackMode: 'interrupt' | 'carry-forward' = 'carry-forward';
 export function setGlobalPreTurnFallbackMode(mode: 'interrupt' | 'carry-forward'): void { _globalPreTurnFallbackMode = mode; }
 export function getGlobalPreTurnFallbackMode(): 'interrupt' | 'carry-forward' { return _globalPreTurnFallbackMode; }
 
+import { watchGoAway } from './gl-go-away';
 import {
   GoogleGenAI,
   Modality,
@@ -973,6 +974,7 @@ export class GeminiLiveSession {
   // "invalid argument" — it is GL completing the graceful disconnect after the
   // goAway grace period. We treat it as retriable in that specific context.
   private lastGoAwayTimestamp = 0;
+  private stopGoAwayWatch: (() => void) | null = null;
   // Stored so reconnect can re-call start() with the same arguments.
   private lastSystemPrompt = '';
   private lastTools: FunctionDeclaration[] = [];
@@ -1468,6 +1470,8 @@ LEXICAL CONSTRAINT: Do not use regional slang, fillers, or interjections from yo
           }
         },
         onclose: async (event: any) => {
+          this.stopGoAwayWatch?.();
+          this.stopGoAwayWatch = null;
           const code = event?.code as number;
           const reason = event?.reason || '(no reason)';
           console.log(`[GeminiLive] Session closed — code: ${code}, reason: ${reason}`);
@@ -1958,6 +1962,11 @@ LEXICAL CONSTRAINT: Do not use regional slang, fillers, or interjections from yo
     if (this.session.conversationId) {
       observeActflUpdate(this.session.conversationId, newLevel ?? null);
     }
+    this.closeForReconnect();
+  }
+
+  /** Close the Gemini connection on purpose; onclose starts the next one from the resumption handle. */
+  private closeForReconnect(): void {
     this.isProactiveReconnecting = true;
     this.isStarted = false;
     this.sendWsMessage(this.session.ws, {
@@ -1967,10 +1976,27 @@ LEXICAL CONSTRAINT: Do not use regional slang, fillers, or interjections from yo
       delayMs: 0,
     });
     try {
-      this.liveSession.close();
+      this.liveSession?.close();
     } catch {
       // Already closed — onclose handler will pick up from here
     }
+  }
+
+  /** Gemini is about to end this connection at its session limit. See gl-go-away.ts. */
+  private handleGoAway(goAway: { timeLeft?: unknown }): void {
+    if (this.stopGoAwayWatch) return;
+    console.log(`[GeminiLive] goAway received — ${String(goAway.timeLeft)} left, reconnecting at the next moment between turns`);
+    this.stopGoAwayWatch = watchGoAway(goAway.timeLeft, {
+      isCurrent: () => !this.isStopped && !!this.liveSession && !this.isProactiveReconnecting,
+      turnState: () => ({
+        tutorSpeaking: this.isTutorGeneratingAudio,
+        generationStarted: this.generationStartedThisTurn,
+        pendingToolCalls: this.pendingFunctionCallIds.length,
+        pendingStudentTranscript: this.pendingInputTranscript,
+      }),
+      reconnect: () => this.closeForReconnect(),
+      log: (outcome, detail) => voiceTelemetry.log(this.session.id, String(this.session.userId ?? ''), 'gl_go_away', { outcome, ...detail }),
+    });
   }
 
   /**
@@ -2750,7 +2776,7 @@ LEXICAL CONSTRAINT: Do not use regional slang, fillers, or interjections from yo
     // after the graceful disconnect window, not a protocol error on our side.
     if ((msg as any).goAway != null) {
       this.lastGoAwayTimestamp = Date.now();
-      console.log('[GeminiLive] goAway received — reconnect expected shortly');
+      this.handleGoAway((msg as any).goAway);
     }
 
     // ── Catch any top-level error from Gemini ────────────────────────────────
