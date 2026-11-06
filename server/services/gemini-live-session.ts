@@ -1085,7 +1085,7 @@ export class GeminiLiveSession {
     const deliver = sendWsMessage;
     this.sendWsMessage = (ws: any, message: any, s?: any) => {
       try { observeOutboundVisuals(this.session.conversationId, message); } catch { /* observation only */ }
-      try { observeAudioSent(this.session.conversationId, this.session.dbSessionId ?? null, message); } catch { /* observation only */ }
+      try { observeAudioSent(this.session.conversationId, this.session.dbSessionId ?? null, this.session.id ?? null, message); } catch { /* observation only */ }
       deliver(ws, message, s);
     };
     this.enrichment = new PostResponseEnrichmentService(storage as unknown as IStorage, this.sendWsMessage);
@@ -4831,7 +4831,7 @@ LEXICAL CONSTRAINT: Do not use regional slang, fillers, or interjections from yo
       this.currentTurnThoughtBuffer = '';
 
       // Playback ledger: short playback of this turn is intended, not a fault.
-      try { observeBargeIn(this.session.conversationId, this.session.dbSessionId ?? null, this.currentTurnId); } catch { /* observation only */ }
+      try { observeBargeIn(this.session.conversationId, this.session.dbSessionId ?? null, this.session.id ?? null, this.currentTurnId); } catch { /* observation only */ }
       // Telemetry: barge-in event so Sofia can track interruption frequency
       const bargePayload = JSON.stringify({
         sessionId: this.session.id,

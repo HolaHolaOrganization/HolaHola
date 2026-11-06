@@ -104,26 +104,40 @@ test('untrusted summaries are validated and clamped', () => {
 
 beforeEach(() => resetPlaybackObservationForTests());
 
-test('server ledger: counts only non-empty audio, resets per dbSession, records summaries idempotently', () => {
-  observeAudioSent('c1', 'db1', { type: 'audio_chunk', turnId: 3, audio: 'AAAA' });
-  observeAudioSent('c1', 'db1', { type: 'audio_chunk', turnId: 3, audio: 'AAAA' });
-  observeAudioSent('c1', 'db1', { type: 'audio_chunk', turnId: 3, audio: '', isLast: true });  // seal marker
-  observeAudioSent('c1', 'db1', { type: 'word_timing', turnId: 3 });
-  const first = observePlaybackSummary('c1', summary({ scheduledChunks: 2, endedChunks: 2 }))!;
+test('server ledger: counts only non-empty audio, resets per session, records summaries idempotently', () => {
+  observeAudioSent('c1', 'db1', 't1', { type: 'audio_chunk', turnId: 3, audio: 'AAAA' });
+  observeAudioSent('c1', 'db1', 't1', { type: 'audio_chunk', turnId: 3, audio: 'AAAA' });
+  observeAudioSent('c1', 'db1', 't1', { type: 'audio_chunk', turnId: 3, audio: '', isLast: true });  // seal marker
+  observeAudioSent('c1', 'db1', 't1', { type: 'word_timing', turnId: 3 });
+  const first = observePlaybackSummary('c1', 't1', summary({ scheduledChunks: 2, endedChunks: 2 }))!;
   assert.deepEqual(first.verdict.flags, []);
   assert.equal(first.duplicate, false);
-  assert.equal(observePlaybackSummary('c1', summary({ scheduledChunks: 2, endedChunks: 2 }))!.duplicate, true);
-  assert.equal(getPlaybackObservation('c1')!.turns[0].summaries, 1, 'a retransmitted summary is not counted twice');
+  assert.equal(observePlaybackSummary('c1', 't1', summary({ scheduledChunks: 2, endedChunks: 2 }))!.duplicate, true);
+  assert.equal(getPlaybackObservation('c1', 'db1')!.turns[0].summaries, 1, 'a retransmitted summary is not counted twice');
 
-  observeBargeIn('c1', 'db1', 4);
-  assert.deepEqual(getPlaybackObservation('c1')!.turns.map(t => [t.turnId, t.sentChunks, t.verdict.flags]),
+  observeBargeIn('c1', 'db1', 't1', 4);
+  assert.deepEqual(getPlaybackObservation('c1', 'db1')!.turns.map(t => [t.turnId, t.sentChunks, t.verdict.flags]),
     [[3, 2, []], [4, 0, ['interrupted_by_barge_in']]]);
 
-  observeAudioSent('c1', 'db2', { type: 'audio_chunk', turnId: 0, audio: 'AAAA' });
-  const fresh = getPlaybackObservation('c1')!;
-  assert.equal(fresh.dbSessionId, 'db2');
-  assert.deepEqual(fresh.turns.map(t => [t.turnId, t.verdict.flags]), [[0, ['unknown']]]);
-  assert.equal(observePlaybackSummary('nobody', summary()), null);
+  observeAudioSent('c1', 'db2', 't2', { type: 'audio_chunk', turnId: 3, audio: 'AAAA' });
+  assert.equal(getPlaybackObservation('c1', 'db1'), null, 'the observer only sees its exact session');
+  const fresh = getPlaybackObservation('c1', 'db2')!;
+  assert.deepEqual(fresh.turns.map(t => [t.turnId, t.verdict.flags]), [[3, ['unknown']]]);
+  assert.equal(observePlaybackSummary('c1', 't1', summary({ instanceId: 'late1' })), null,
+    'a delayed summary from the previous session never lands on the new session\'s reused turn id');
+  assert.equal(observePlaybackSummary('c1', undefined, summary()), null);
+  assert.equal(observePlaybackSummary('nobody', 't1', summary()), null);
+});
+
+test('server ledger: bounded per turn and across conversations', () => {
+  observeAudioSent('c1', 'db1', 't1', { type: 'audio_chunk', turnId: 1, audio: 'A' });
+  for (let i = 0; i < 9; i++) observePlaybackSummary('c1', 't1', summary({ turnId: 1, instanceId: `i${i}` }));
+  assert.equal(getPlaybackObservation('c1', 'db1')!.turns[0].summaries, 5);
+  for (let i = 0; i < 205; i++) observeAudioSent(`conv${i}`, 'db', 't', { type: 'audio_chunk', turnId: 1, audio: 'A' }, 1_000 + i);
+  assert.equal(getPlaybackObservation('conv0', 'db'), null, 'least recently touched conversations are evicted');
+  assert.ok(getPlaybackObservation('conv204', 'db'));
+  observeAudioSent('late', 'db', 't', { type: 'audio_chunk', turnId: 1, audio: 'A' }, 1_000 + 3 * 60 * 60 * 1000);
+  assert.equal(getPlaybackObservation('conv204', 'db'), null, 'idle conversations expire');
 });
 
 test('wiring: GL audio feeds the client ledger; the server taps, judges and exposes it', () => {
@@ -137,12 +151,13 @@ test('wiring: GL audio feeds the client ledger; the server taps, judges and expo
   assert.match(hook, /getPlaybackLedger\(\)\.dropped\(msg\.turnId, 'no_player'\)/);
   assert.match(hook, /sampleRate,\s*msg\.turnId\s*\)/);
   const gl = read('../services/gemini-live-session.ts');
-  assert.match(gl, /observeAudioSent\(this\.session\.conversationId, this\.session\.dbSessionId \?\? null, message\)/);
-  assert.match(gl, /observeBargeIn\(this\.session\.conversationId, this\.session\.dbSessionId \?\? null, this\.currentTurnId\)/);
+  assert.match(gl, /observeAudioSent\(this\.session\.conversationId, this\.session\.dbSessionId \?\? null, this\.session\.id \?\? null, message\)/);
+  assert.match(gl, /observeBargeIn\(this\.session\.conversationId, this\.session\.dbSessionId \?\? null, this\.session\.id \?\? null, this\.currentTurnId\)/);
   const ws = read('../unified-ws-handler.ts');
   assert.match(ws, /'client_playback_summary'/);
   assert.equal((ws.match(/recordPlaybackSummary\(event\);/g) ?? []).length, 2, 'single and batched telemetry');
+  assert.match(ws, /observePlaybackSummary\(conversationId \?\? undefined, event\.sessionId, event\.data\?\.playbackSummary\)/);
   const route = read('../routes/luca-observer-route.ts');
   assert.match(route, /AND event_type <> 'client_playback_summary'/);
-  assert.match(route, /playback: getPlaybackObservation\(convId\)/);
+  assert.match(route, /playback: getPlaybackObservation\(convId, observation\.dbSessionId \?\? null\)/);
 });

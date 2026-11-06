@@ -350,7 +350,7 @@ export function registerLucaObserverRoute({
         recentPipelineEvents,
         // What the player reported for each recent turn versus what the server sent.
         // Flags describe player reports, not audibility; missing reports are `unknown`.
-        playback: getPlaybackObservation(convId),
+        playback: getPlaybackObservation(convId, observation.dbSessionId ?? null),
         // Exact evidence chain for grounding interventions. These are not inferred
         // "heard/missed" labels: each timeline names what the system observed.
         guardianAttemptTimeline: (observation.guardianAttempts ?? []).slice(-10).map(attempt => ({
