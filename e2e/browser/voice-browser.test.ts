@@ -218,6 +218,7 @@ test('images in the Studio and whiteboard panes use the room they have', async (
   assert.match(comparison, /ser/);
   assert.match(comparison, /estar/);
   await context.close();
+});
 
 test('a retry still in its handshake cannot disturb a session started after End Call', { timeout: 75_000 }, async () => {
   const page = await connectedPage();
