@@ -171,3 +171,25 @@ test('wiring: GL audio feeds the client ledger; the server taps, judges and expo
   assert.match(route, /playback: getPlaybackObservation\(convId, observation\.dbSessionId \?\? null, observation\.transientSessionId \?\? null\)/);
   assert.match(ws, /if \(recorded && recorded\.accepted && recorded\.dbSessionId\)/);
 });
+
+test('client ledger: default timers work when the host rejects detached setTimeout (browsers)', async () => {
+  // Browsers throw "Illegal invocation" when setTimeout runs with `this` bound to another
+  // object. Live, that was swallowed by the caller's try/catch, so no summary was ever sent.
+  const realSet = globalThis.setTimeout;
+  const strict = function (this: unknown, fn: () => void, ms?: number) {
+    if (this !== undefined && this !== globalThis) throw new TypeError('Illegal invocation');
+    return realSet(fn, ms);
+  } as unknown as typeof setTimeout;
+  globalThis.setTimeout = strict;
+  try {
+    const sent: PlaybackTurnSummary[] = [];
+    const ledger = new ClientPlaybackLedger(s => sent.push(s));
+    assert.doesNotThrow(() => ledger.scheduled(9, 0, 0, 1, 0.2, 'running', false));
+    ledger.ended(9);
+    ledger.finalizeAll();
+    assert.equal(sent.length, 1);
+    assert.equal(sent[0].endedChunks, 1);
+  } finally {
+    globalThis.setTimeout = realSet;
+  }
+});

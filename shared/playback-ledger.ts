@@ -141,7 +141,7 @@ interface OpenTurn {
   summary: PlaybackTurnSummary;
   seen: Set<string>;
   lastEndCtxSec: number | null;
-  timer: ReturnType<typeof setTimeout> | null;
+  timer: unknown;
 }
 
 /** Client side: one open summary per turn, sent once when the turn is finalized. */
@@ -156,7 +156,12 @@ export class ClientPlaybackLedger {
   constructor(
     private readonly send: (summary: PlaybackTurnSummary) => void,
     private readonly newId: () => string = () => Math.random().toString(36).slice(2, 12),
-    private readonly timers: { set: typeof setTimeout; clear: typeof clearTimeout } = { set: setTimeout, clear: clearTimeout },
+    // Wrapped, not passed bare: browsers throw "Illegal invocation" when setTimeout is called as a
+    // method of another object, and the caller's try/catch would hide it (no summary ever sent).
+    private readonly timers: { set: (fn: () => void, ms: number) => unknown; clear: (handle: any) => void } = {
+      set: (fn, ms) => setTimeout(fn, ms),
+      clear: handle => clearTimeout(handle),
+    },
   ) {}
 
   private turn(turnId: number): OpenTurn | null {
@@ -215,14 +220,14 @@ export class ClientPlaybackLedger {
   }
 
   private armGrace(turnId: number, t: OpenTurn): void {
-    if (t.timer) this.timers.clear(t.timer);
+    if (t.timer !== null) this.timers.clear(t.timer);
     t.timer = this.timers.set(() => this.finalize(turnId, 'grace'), PLAYBACK_THRESHOLDS.finalizeGraceMs);
   }
 
   finalize(turnId: number, by: PlaybackTurnSummary['finalizedBy']): void {
     const t = this.open.get(turnId);
     if (!t) return;
-    if (t.timer) this.timers.clear(t.timer);
+    if (t.timer !== null) this.timers.clear(t.timer);
     this.open.delete(turnId);
     this.finalized.add(turnId);
     if (this.finalized.size > 200) this.finalized.delete(this.finalized.values().next().value!);
