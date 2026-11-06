@@ -603,6 +603,7 @@ export type ClientTelemetryEventType =
   | 'speculative_ptt_confirm'  // Speculative transcript matched final transcript
   | 'speculative_ptt_abort'       // Speculative transcript didn't match, re-triggering
   | 'processing_signal_received'  // Processing signal received from server
+  | 'playback_turn_summary'      // One ledger summary per finalized turn (shared/playback-ledger.ts)
   | 'error';                      // Client-side error occurred
 
 /**

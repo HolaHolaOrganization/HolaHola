@@ -3,6 +3,16 @@ import type { ClientTelemetryEventType } from '../../../shared/streaming-voice-t
 import { getClientTelemetryEmitter } from './streamingVoiceClient';
 import { setGlobalPlaybackState } from './playbackStateStore';
 import { diagMarkMismatchRecovery, diagEvent } from './lockoutDiagnostics';
+import { ClientPlaybackLedger } from '../../../shared/playback-ledger';
+
+// One per page: what the player did with each turn of Daniela's Gemini Live audio,
+// sent as a single summary per finalized turn (design note 135fe51b rev 2).
+const playbackLedger = new ClientPlaybackLedger(summary => {
+  getTelemetryEmitter()?.emit('playback_turn_summary', { playbackSummary: summary });
+});
+export function getPlaybackLedger(): ClientPlaybackLedger {
+  return playbackLedger;
+}
 
 // Wrapper for telemetry emitter
 function getTelemetryEmitter() {
@@ -265,6 +275,7 @@ export interface StreamingAudioChunk {
   audioFormat?: 'mp3' | 'pcm_f32le';  // Audio format (default: 'mp3')
   sampleRate?: number;  // Sample rate for PCM (default: 24000)
   chunkIndex?: number;  // For progressive PCM chunks (hold/release playback)
+  turnId?: number;      // Server turn id, for the playback ledger
 }
 
 export type StreamingPlaybackState = 'idle' | 'buffering' | 'playing' | 'paused';
@@ -418,7 +429,8 @@ export class StreamingAudioPlayer {
           chunk.audio,
           chunk.durationMs,
           chunk.isLast,
-          chunk.sampleRate || 24000
+          chunk.sampleRate || 24000,
+          chunk.turnId
         );
       } else {
         this.enqueue(chunk);
@@ -826,7 +838,8 @@ export class StreamingAudioPlayer {
     audio: ArrayBuffer,
     durationMs: number,
     isLast: boolean,
-    sampleRate: number = 24000
+    sampleRate: number = 24000,
+    turnId?: number
   ): Promise<void> {
     // CRITICAL FIX (Jan 3/9, 2026): Detect new turn BEFORE deduplication check
     // Previously, the order was: check dedup → add to set → detect new turn → clear set
@@ -910,6 +923,7 @@ export class StreamingAudioPlayer {
     // DEDUP CHECK ONLY - don't add to set yet (wait until after empty check)
     if (this.processedChunks.has(chunkKey)) {
       console.log(`[AUDIO PLAYER] DEDUP: Skipping duplicate chunk ${chunkKey}`);
+      playbackLedger.dropped(turnId, 'index_dedup');
       return;
     }
     
@@ -929,6 +943,7 @@ export class StreamingAudioPlayer {
         isLast,
         audioFormat: 'pcm_f32le',
         sampleRate,
+        turnId,
       });
       return;
     }
@@ -1139,6 +1154,7 @@ export class StreamingAudioPlayer {
         w._contentDedupStats.blocked++;
         w._contentDedupStats.details.push({ hash: contentHash, sentence: sentenceIndex, chunk: chunkIndex, time: Date.now() });
       }
+      playbackLedger.dropped(turnId, 'content_hash_dedup');
       return;
     }
     this.scheduledAudioHashes.add(contentHash);
@@ -1161,6 +1177,16 @@ export class StreamingAudioPlayer {
     // Schedule at next available time for gapless playback
     const playTime = this.progressiveScheduledTime;
     source.start(playTime);
+    if (turnId !== undefined) {
+      try {
+        playbackLedger.scheduled(turnId, sentenceIndex, chunkIndex, playTime, chunkDuration, ctx.state,
+          typeof document !== 'undefined' && document.visibilityState === 'hidden');
+        // onended also fires when a source is stopped early (barge-in, reset), so compare
+        // the clock with the chunk's scheduled end to tell played-through from cut short.
+        const scheduledEnd = playTime + chunkDuration;
+        source.onended = () => playbackLedger.ended(turnId, ctx.currentTime >= scheduledEnd - 0.02);
+      } catch { /* observation only */ }
+    }
     this.progressiveScheduledTime += chunkDuration;
     this.progressiveTotalDuration += chunkDuration;
     
