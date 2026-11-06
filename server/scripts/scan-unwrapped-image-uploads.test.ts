@@ -82,6 +82,7 @@ const KNOWN_NON_SCRIPT_ROOTS: Array<{ name: string; reason: string; optional?: b
   { name: 'node_modules',   reason: 'vendor code — not scanned by design' },
   { name: 'dist',           reason: 'compiled output — not a source tree', optional: true },
   { name: 'docs',           reason: 'documentation only' },
+  { name: 'e2e',            reason: 'browser tests against a mock server; no storage or upload calls' },
   { name: 'migrations',     reason: 'SQL migration files only, no .ts upload calls' },
   { name: 'uploads',        reason: 'runtime upload directory, no source .ts files' },
   { name: 'attached_assets',reason: 'static assets, no .ts files' },
