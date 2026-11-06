@@ -6,7 +6,8 @@
  * Covers what unit tests could not see in live test 1:
  * - vision keeps sending frames through a student turn ('processing'), F4;
  * - Gemini Live audio played by the browser is reported in one playback summary
- *   per turn, with every chunk played through (the F1–F2 ledger).
+ *   per turn, with every chunk played through (the F1–F2 ledger);
+ * - the session comes back after a network outage, and vision resumes (live test 2, G1).
  */
 import assert from 'node:assert/strict';
 import { resolve } from 'node:path';
@@ -98,5 +99,34 @@ test('played Gemini Live audio is reported as one playback summary for the turn'
   assert.deepEqual(summary.dropped, {});
   assert.ok(summary.maxGapMs <= 50, `chunks were scheduled back to back (max gap ${summary.maxGapMs} ms)`);
   assert.ok(summary.audioContextStates.includes('running'), `AudioContext states: ${summary.audioContextStates}`);
+  await page.context().close();
+});
+
+test('the session comes back after a network outage, and vision resumes', { timeout: 60_000 }, async () => {
+  const page = await connectedPage();
+  await page.evaluate(() => (window as any).harness.toggleWebcam());
+  await server.waitFor(() => server.messages('video_frame').length >= 1, 15_000, 'first webcam frame');
+  const startsBefore = server.messages('start_session').length;
+  const historyBefore: number = await page.evaluate(() => (window as any).harness.stateHistory().length);
+
+  await page.context().setOffline(true);
+  server.dropClients();
+
+  // Longer than the fast retries, so attempts really do fail while offline.
+  await new Promise(r => setTimeout(r, 6_000));
+  const states: string[] = await page.evaluate(n => (window as any).harness.stateHistory().slice(n), historyBefore);
+  assert.ok(states.includes('reconnecting'), `states during the outage: ${states}`);
+  assert.ok(!states.includes('error') && !states.includes('disconnected'),
+    `a failed attempt is not terminal, and 'error' would release the camera: ${states}`);
+  assert.equal(await page.evaluate(() => (window as any).harness.webcamActive()), true, 'the camera stays on through the outage');
+
+  await page.context().setOffline(false);
+  await server.waitFor(() => server.messages('start_session').length > startsBefore, 35_000, 'a new start_session after the outage');
+  const restart = server.messages('start_session').at(-1)!;
+  assert.equal(restart.body.isReconnect, true, 'it resumes the session rather than starting a new one');
+  await page.waitForFunction(() => (window as any).harness.state() === 'ready', null, { timeout: 10_000 });
+
+  const resumedAt = Date.now();
+  await server.waitFor(() => server.messages('video_frame').some(m => m.at > resumedAt), 15_000, 'webcam frames after the reconnect');
   await page.context().close();
 });

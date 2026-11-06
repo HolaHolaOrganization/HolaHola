@@ -9,9 +9,13 @@ import { useStreamingVoice } from '@/hooks/useStreamingVoice';
 import { useVisionCapture } from '@/hooks/useVisionCapture';
 import { visionSessionPhase } from '@/lib/vision-session-state';
 
+/** Every connection state the UI rendered, so a brief one can't slip past a test's polling. */
+const stateHistory: string[] = [];
+
 function Harness() {
   const voice = useStreamingVoice();
   const phase = visionSessionPhase(voice.state.connectionState);
+  if (stateHistory.at(-1) !== voice.state.connectionState) stateHistory.push(voice.state.connectionState);
   // Exactly the composition in StreamingVoiceChat (guarded there by vision-session-state.test.ts).
   const vision = useVisionCapture(voice.sendVideoFrame, phase !== 'ended');
 
@@ -25,6 +29,7 @@ function Harness() {
     }),
     toggleWebcam: () => vision.toggleWebcam(),
     state: () => voice.state.connectionState,
+    stateHistory: () => [...stateHistory],
     webcamActive: () => vision.webcamActive,
   };
 

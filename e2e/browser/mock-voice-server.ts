@@ -23,6 +23,8 @@ export interface MockVoiceServer {
   /** Client telemetry events of one type (single or batched). */
   telemetry(type: string): any[];
   send(message: Record<string, unknown>): void;
+  /** Cut every client off, as a lost network would. */
+  dropClients(): void;
   waitFor(predicate: () => boolean, timeoutMs: number, label: string): Promise<void>;
   close(): Promise<void>;
 }
@@ -70,6 +72,7 @@ export async function startMockVoiceServer(staticRoot: string, sessionId = 'e2e-
       r.event === 'client_telemetry' ? [r.body] : r.event === 'client_telemetry_batch' ? r.body : [])
       .filter((e: any) => e?.type === type),
     send: message => { for (const socket of sockets) socket.emit('message', { timestamp: Date.now(), ...message }); },
+    dropClients: () => { for (const socket of sockets) socket.disconnect(true); },
     async waitFor(predicate, timeoutMs, label) {
       const deadline = Date.now() + timeoutMs;
       while (!predicate()) {
