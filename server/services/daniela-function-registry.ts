@@ -7533,15 +7533,21 @@ export function isKnownTool(name: string): boolean {
 }
 
 /**
+ * Selectors whose declared required inputs have been checked against both her guidance and the
+ * handler. Only these get the check below. Declarations can't be trusted across the board: some
+ * selectors' guidance teaches other names, and some handlers default a "required" input.
+ */
+const INPUT_CHECKED_SELECTORS = new Set(['compare']);
+
+/**
  * Declared inputs a dispatcher call left out. `params_json` is free-form, so the live API can't
- * check these, and a handler that lacks them does nothing. Spoken text is left out of this: many
- * tools declare it required, but every handler treats it as optional.
+ * check these, and a handler that lacks them does nothing.
  */
 export function missingRequiredParams(name: string, params: Record<string, unknown>): string[] {
+  if (!INPUT_CHECKED_SELECTORS.has(name)) return [];
   const entry = registry.find(e => e.declaration.name === name);
   const schema = entry?.declaration.parametersJsonSchema as { required?: string[] } | undefined;
   return (schema?.required ?? [])
-    .filter(key => key !== 'text' && key !== 'spoken_text')
     .filter(key => params[key] === undefined || params[key] === null || params[key] === '');
 }
 

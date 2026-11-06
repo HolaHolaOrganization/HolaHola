@@ -7,8 +7,6 @@ import { readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
 import {
   compareArgsToVisualCompare,
-  DANIELA_FUNCTION_REGISTRY,
-  DANIELA_GL_FUNCTION_DECLARATIONS,
   missingRequiredParams,
 } from '../services/daniela-function-registry';
 
@@ -29,13 +27,11 @@ describe('missingRequiredParams', () => {
     assert.deepEqual(missingRequiredParams('compare', { item1: '', item2: null }), ['item1', 'item2']);
   });
 
-  it('never requires spoken text, which handlers treat as optional', () => {
-    const declaresText = DANIELA_FUNCTION_REGISTRY.filter(e =>
-      ((e.declaration.parametersJsonSchema as { required?: string[] } | undefined)?.required ?? []).includes('text'));
-    assert.ok(declaresText.length > 0, 'the premise: some tools declare text as required');
-    for (const entry of declaresText) {
-      assert.ok(!missingRequiredParams(entry.declaration.name, {}).includes('text'), entry.declaration.name);
-    }
+  it('leaves selectors alone whose declarations have not been checked', () => {
+    // Her guidance for tone teaches word and tones while it declares syllable and toneNumber, and
+    // flag_for_agent's handler defaults its "required" urgency. Rejecting these would be a regression.
+    assert.deepEqual(missingRequiredParams('tone', { word: 'ma', tones: [1, 2, 3, 4] }), []);
+    assert.deepEqual(missingRequiredParams('flag_for_agent', { topic: 'a', description: 'b' }), []);
   });
 
   it('passes an unknown tool through for the known-tool check to handle', () => {
@@ -96,45 +92,5 @@ describe('dispatcher', () => {
     assert.equal((await dispatch(session, '{"item1":"ser","item2":"estar"}', handled)).status, 'success');
     assert.deepEqual(handled[0].args, { item1: 'ser', item2: 'estar' });
     assert.equal((await dispatch(session, '{"word1":"ser"}', [])).status, 'error', 'the count started again');
-  });
-});
-
-describe('declarations match handlers', () => {
-  it('every required input of a voice selector is one its handler reads', () => {
-    // The dispatcher now rejects calls on these declarations, so one the handler ignores would
-    // reject a call for no reason.
-    const selectors = new Set<string>();
-    for (const declaration of DANIELA_GL_FUNCTION_DECLARATIONS as any[]) {
-      const properties = declaration.parametersJsonSchema?.properties ?? {};
-      if (!properties.params_json) continue;
-      for (const property of Object.values<any>(properties)) {
-        if (Array.isArray(property?.enum)) for (const value of property.enum) selectors.add(value);
-      }
-    }
-    const handlers = readFileSync(new URL('../services/native-fc-handlers.ts', import.meta.url), 'utf8');
-    const unread: string[] = [];
-    let checked = 0;
-    for (const entry of DANIELA_FUNCTION_REGISTRY) {
-      if (!selectors.has(entry.declaration.name)) continue;
-      const at = handlers.indexOf(`case '${entry.legacyType}':`);
-      if (at < 0) continue;
-      const rest = handlers.slice(at + 5);
-      const next = rest.search(/\n\s*case '[A-Z0-9_]+': \{/);
-      let block = next < 0 ? rest : rest.slice(0, next);
-      // COMPARE reads its inputs through this helper.
-      if (block.includes('compareArgsToVisualCompare')) {
-        const registrySource = readFileSync(new URL('../services/daniela-function-registry.ts', import.meta.url), 'utf8');
-        const helper = registrySource.indexOf('export function compareArgsToVisualCompare');
-        assert.ok(helper > 0);
-        block += registrySource.slice(helper, registrySource.indexOf('\n}\n', helper));
-      }
-      const required = (entry.declaration.parametersJsonSchema as { required?: string[] } | undefined)?.required ?? [];
-      checked++;
-      for (const key of required) {
-        if (key !== 'text' && key !== 'spoken_text' && !new RegExp(`\\.${key}\\b`).test(block)) unread.push(`${entry.declaration.name}.${key}`);
-      }
-    }
-    assert.ok(checked > 80, `checked ${checked} selectors`);
-    assert.deepEqual(unread, []);
   });
 });

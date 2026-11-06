@@ -4,7 +4,7 @@ Change: the `compare` selector now shows the working comparison card, its guidan
 
 Result: **"APPROVED — Ship it."** in stage 2.
 
-Gemini's stage 2 raised one risk, declarations drifting from handlers. A test now checks that every required input of a voice selector is read by its handler. It can't catch a handler that starts requiring something undeclared. Gemini's future suggestion, renaming to `word_a`/`word_b`, applies only if she still struggles, so it isn't built.
+Stage 3: LA's code review showed the general check would reject calls that follow her own guidance, so it now applies only to selectors verified against guidance and handler, which today means `compare`. Gemini: "APPROVED — Ship it." The drift test from stage 2 is gone with the general check. Gemini's note that the list is a promise that declaration and handler agree stands. Its future suggestion, renaming to `word_a`/`word_b`, applies only if she still struggles, so it isn't built.
 
 Correction recorded in stage 2: stage 1 wrongly said `visual_compare` was available to her in voice. It is excluded.
 
@@ -152,3 +152,50 @@ Your proposal doesn't "fix" the timing (that's an API/latency issue), but it **e
 The combination of **explicit guidance examples**, **strict dispatcher-level validation**, and **handler consolidation** addresses the root cause while respecting the constraints of the Live API. 
 
 **One minor suggestion for the future:** If you find she still struggles with `item1/item2`, consider renaming them in the registry to `word_a/word_b` to match her natural intuition, but the current fix is more than sufficient to solve the observed failure.
+
+## Stage 3 prompt (the diff followed)
+Stage 3, a follow-up on the change you approved. A peer reviewer found that the general check is wrong, so we are narrowing it. Please tell us if the narrower version loses something you relied on.
+
+## What the review found (read from the code)
+- Her guidance for `tone` teaches `{"word":"ma","tones":[1,2,3,4]}`, but the declaration requires `syllable` and `toneNumber`. Following her own guidance would be rejected.
+- `flag_for_agent`: guidance teaches `subject` and `body`, the declaration requires `topic`, `description` and `urgency`, and the handler defaults `urgency`.
+- `set_right_pane`: guidance teaches `content`, the declaration requires `mode`, and the handler defaults `mode`.
+- `move_in_scene`, `read_my_story`, `show_menu`, `summary`, `spotlight_element` and `set_learning_goal` each declare a required input their handler defaults. `reading` and `show_sentence_table` accept aliases the check would reject.
+
+So a check built on declarations would turn calls that work today into errors, and would contradict what she is taught.
+
+## What we now propose
+Same error text, same abort, same guidance line for `compare`, same routing to the comparison card. The only change: the check runs only for selectors on a short list that have been verified against both guidance and handler. Today that is `compare` alone. Removing the rule for spoken text follows, since `compare` doesn't declare it.
+
+The other mismatches stay as a separate finding. Some are the same bug as the one we started with: `tone` following its guidance probably does nothing while reporting done. Fixing those means changing her guidance selector by selector, each with this review.
+
+## Questions
+1. Is narrowing right, or would you rather fix the declarations first and keep the general check?
+2. Anything in the unchanged parts you'd now reconsider?
+3. Clear verdict: "APPROVED — Ship it." or what you require.
+
+## Diff against what you approved
+```diff
+```
+
+## Stage 3 response
+The peer review was insightful and caught a significant risk. In a complex system like Daniela’s, "correct" code that breaks "working" legacy behavior is a regression.
+
+### 1. Is narrowing right, or should you fix all declarations first?
+**Narrowing is the right move.** 
+
+If you tried to fix all declarations and guidance at once to enable a global check, you would be opening a massive front of testing across 97+ selectors. You would likely introduce "hallucination debt" where Daniela, confused by new parameter names for tools she’s used to, starts failing in new, unpredictable ways.
+
+By using `INPUT_CHECKED_SELECTORS`, you are creating a **"Validated Path."** This allows you to migrate tools to a high-reliability state one by one. It solves the immediate "founder-observed" failure without risking the stability of the rest of the session.
+
+### 2. Anything in the unchanged parts to reconsider?
+Only one minor detail regarding the `missingRequiredParams` function:
+By removing the `.filter(key => key !== 'text' && key !== 'spoken_text')` line, you are assuming that for any selector added to the `INPUT_CHECKED_SELECTORS` list, the declaration will be perfectly accurate. 
+
+If you later add a tool to that list that *does* declare `text` as required (but the handler still treats it as optional), you will re-introduce the bug you just avoided. However, since you are manually verifying each selector before adding it to the list, this is a manageable risk. Just keep in mind that **the list is a promise that the declaration and handler are in perfect sync.**
+
+### 3. Verdict
+
+**APPROVED — Ship it.**
+
+This is a pragmatic, surgical fix. It solves the "silent failure" for the comparison tool—which was the source of the conversational breakdown—while protecting the system from a cascade of "false positive" errors in other tools. It also provides a clear pattern for how to harden the rest of her tools over time.
