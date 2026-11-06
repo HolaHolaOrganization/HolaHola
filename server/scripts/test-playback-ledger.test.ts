@@ -126,6 +126,10 @@ test('server ledger: counts only non-empty audio, resets per session, records su
   assert.equal(observePlaybackSummary('c1', 't1', summary({ instanceId: 'late1' })), null,
     'a delayed summary from the previous session never lands on the new session\'s reused turn id');
   assert.equal(observePlaybackSummary('c1', undefined, summary()), null);
+  for (let i = 100; i < 140; i++) {
+    assert.equal(observePlaybackSummary('c1', 't2', summary({ turnId: i })), null, 'a turn the server never sent is rejected');
+  }
+  assert.deepEqual(getPlaybackObservation('c1', 'db2', 't2')!.turns.map(t => t.turnId), [3], 'and evicts nothing');
   assert.equal(observePlaybackSummary('nobody', 't1', summary()), null);
 });
 

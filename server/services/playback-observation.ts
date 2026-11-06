@@ -120,7 +120,10 @@ export function observePlaybackSummary(conversationId: string | undefined, clien
   const ledger = liveLedger(conversationId, now);
   if (!ledger || ledger.transientSessionId !== clientSessionId) return null;
   ledger.touchedMs = now;
-  const turn = turnFor(ledger, summary.turnId);
+  // Only turns the server itself sent audio for (or barged into). A client-supplied turn id
+  // never creates an entry, so it can neither persist rows nor evict observed turns.
+  const turn = ledger.turns.get(summary.turnId);
+  if (!turn) return null;
   const duplicate = turn.summaries.some(s => s.instanceId === summary.instanceId);
   const accepted = !duplicate && turn.summaries.length < MAX_SUMMARIES_PER_TURN;
   if (accepted) turn.summaries.push(summary);
