@@ -1,5 +1,5 @@
 import { resolve } from 'node:path';
-import { LISTENER_EXIT, ListenerStore, normalizeScope, runListener } from './lib/coordination-listener';
+import { LISTENER_EXIT, LIVENESS_EXIT, ListenerStore, normalizeScope, runListener } from './lib/coordination-listener';
 import { fetchListenerInbox } from './lib/coordination-listener-transport';
 import { isDirectCliInvocation } from './lib/cli-entrypoint';
 import { isSupportedCoordinationActor } from './coordination-cli';
@@ -7,7 +7,7 @@ import { closeProcessIdentityReader, readProcessIdentity } from './lib/coordinat
 
 export async function listenerCli(argv = process.argv.slice(2)) {
   const command = argv.shift();
-  if (!['listen', 'status', 'stop', 'observed', 'processed', 'arming', 'recover-lock', 'recover-guard', 'migrate-scope'].includes(command ?? '')) throw new Error('invalid_command');
+  if (!['listen', 'status', 'liveness', 'stop', 'observed', 'processed', 'arming', 'recover-lock', 'recover-guard', 'migrate-scope'].includes(command ?? '')) throw new Error('invalid_command');
   const options: Record<string, string | boolean> = {};
   const allowed = new Set(['actor', 'url', 'state-dir', 'mode', 'after', 'resume', 'event-id', 'parent-pid', 'state', 'task-id', 'runtime-id', 'transport']);
   while (argv.length) {
@@ -29,6 +29,13 @@ export async function listenerCli(argv = process.argv.slice(2)) {
   if (!isSupportedCoordinationActor(scope.actor)) throw new Error('unsupported_actor');
   const store = new ListenerStore(resolve(required('state-dir')), scope);
   if (command === 'status') return console.log(JSON.stringify(await store.status(), null, 2));
+  if (command === 'liveness') {
+    const report = await store.liveness();
+    console.log(JSON.stringify(report, null, 2));
+    console.log(`LUCAMSG_LIVENESS verdict=${report.verdict} reasons=${report.reasons.join(',') || 'none'}`);
+    process.exitCode = LIVENESS_EXIT[report.verdict];
+    return;
+  }
   if (command === 'recover-guard') {
     await store.recoverGuard();
     return console.log('LUCAMSG_GUARD_RECOVERED confirmed_absent_only=true');
