@@ -177,3 +177,23 @@ test('a retry still in its handshake cannot disturb a session started after End 
   assert.equal(server.connectedClients(), 1, 'the abandoned attempt left no second connection');
   await page.context().close();
 });
+
+test('End Call during a retry stays ended', { timeout: 60_000 }, async () => {
+  const page = await connectedPage();
+  server.holdHandshakes(true);
+  try {
+    server.dropClients();
+    await page.waitForFunction(() => (window as any).harness.state() === 'connecting', null, { timeout: 5_000 });
+    await page.evaluate(() => (window as any).harness.disconnect());
+    await page.waitForFunction(() => (window as any).harness.state() === 'disconnected', null, { timeout: 5_000 });
+    const historyBefore: number = await page.evaluate(() => (window as any).harness.stateHistory().length);
+
+    // The old attempt's own timeout is 30 s; outlast it, with no new call to mask what it does.
+    await new Promise(r => setTimeout(r, 32_000));
+    const after: string[] = await page.evaluate(n => (window as any).harness.stateHistory().slice(n), historyBefore);
+    assert.deepEqual(after, [], 'nothing announces an error or restarts after End Call');
+  } finally {
+    server.holdHandshakes(false);
+  }
+  await page.context().close();
+});
