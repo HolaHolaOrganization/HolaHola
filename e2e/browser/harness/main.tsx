@@ -7,15 +7,19 @@
 import { createRoot } from 'react-dom/client';
 import { useStreamingVoice } from '@/hooks/useStreamingVoice';
 import { useVisionCapture } from '@/hooks/useVisionCapture';
+import { getStreamingVoiceClient } from '@/lib/streamingVoiceClient';
 import { visionSessionPhase } from '@/lib/vision-session-state';
 
-/** Every connection state the UI rendered, so a brief one can't slip past a test's polling. */
+/**
+ * Every state the client announced, as its listeners heard them. Taken from the client, not
+ * from renders, because React batches away a state that lasts only a moment.
+ */
 const stateHistory: string[] = [];
+getStreamingVoiceClient().on('stateChange', (state: unknown) => { stateHistory.push(String(state)); });
 
 function Harness() {
   const voice = useStreamingVoice();
   const phase = visionSessionPhase(voice.state.connectionState);
-  if (stateHistory.at(-1) !== voice.state.connectionState) stateHistory.push(voice.state.connectionState);
   // Exactly the composition in StreamingVoiceChat (guarded there by vision-session-state.test.ts).
   const vision = useVisionCapture(voice.sendVideoFrame, phase !== 'ended');
 

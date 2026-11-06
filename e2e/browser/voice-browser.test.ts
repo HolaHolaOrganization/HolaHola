@@ -104,8 +104,9 @@ test('played Gemini Live audio is reported as one playback summary for the turn'
 
 test('the session comes back after a network outage, and vision resumes', { timeout: 60_000 }, async () => {
   const page = await connectedPage();
+  const framesBefore = server.messages('video_frame').length;
   await page.evaluate(() => (window as any).harness.toggleWebcam());
-  await server.waitFor(() => server.messages('video_frame').length >= 1, 15_000, 'first webcam frame');
+  await server.waitFor(() => server.messages('video_frame').length > framesBefore, 15_000, 'first webcam frame');
   const startsBefore = server.messages('start_session').length;
   const historyBefore: number = await page.evaluate(() => (window as any).harness.stateHistory().length);
 
