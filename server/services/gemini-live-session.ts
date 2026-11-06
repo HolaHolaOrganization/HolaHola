@@ -975,6 +975,7 @@ export class GeminiLiveSession {
   // goAway grace period. We treat it as retriable in that specific context.
   private lastGoAwayTimestamp = 0;
   private stopGoAwayWatch: (() => void) | null = null;
+  private lastReconnectPrompt: string | null = null;
   // Stored so reconnect can re-call start() with the same arguments.
   private lastSystemPrompt = '';
   private lastTools: FunctionDeclaration[] = [];
@@ -1124,7 +1125,7 @@ export class GeminiLiveSession {
     this.isStarted = true;
     this.sessionStartedAt = Date.now();
     // Store for use by auto-reconnect
-    this.lastSystemPrompt = systemPrompt;
+    this.rememberSystemPrompt(systemPrompt);
     this.lastTools = tools;
 
     // Restore assessment state from DB if this is a reconnect into an active placement session.
@@ -1672,10 +1673,7 @@ LEXICAL CONSTRAINT: Do not use regional slang, fillers, or interjections from yo
                 // keep primacy, (b) if the prompt is near the 34K cap, the bridge (recency)
                 // gets trimmed before core persona does, and (c) LLM recency bias naturally
                 // pulls the model toward the recent context even when it's at the end.
-                const contextBridge = this.buildContextBridge();
-                reconnectPrompt = contextBridge
-                  ? `${this.lastSystemPrompt}\n\n${contextBridge}`
-                  : this.lastSystemPrompt;
+                reconnectPrompt = this.buildReconnectPrompt();
                 await this.start(reconnectPrompt, this.lastTools);
                 this.reconnectAttempts = 0; // success — reset counter
                 console.log('[GeminiLive] Reconnected successfully');
@@ -1767,6 +1765,20 @@ LEXICAL CONSTRAINT: Do not use regional slang, fillers, or interjections from yo
    * WebSocket exists. A failed connect has no socket and therefore no onclose,
    * so this bounded continuation owns that otherwise-dead retry branch.
    */
+  /** Her system prompt plus a fresh context bridge for one new connection. */
+  private buildReconnectPrompt(): string {
+    const contextBridge = this.buildContextBridge();
+    this.lastReconnectPrompt = contextBridge
+      ? `${this.lastSystemPrompt}\n\n${contextBridge}`
+      : this.lastSystemPrompt;
+    return this.lastReconnectPrompt;
+  }
+
+  /** Keeps the prompt without any bridge, so bridges don't pile up across reconnects. */
+  private rememberSystemPrompt(systemPrompt: string): void {
+    if (systemPrompt !== this.lastReconnectPrompt) this.lastSystemPrompt = systemPrompt;
+  }
+
   private retryFailedReconnectStart(reconnectPrompt: string): void {
     if (this.isStopped) return;
 
@@ -1916,7 +1928,9 @@ LEXICAL CONSTRAINT: Do not use regional slang, fillers, or interjections from yo
     // Proactive ACTFL reconnect: Daniela's pedagogical heartbeat flagged a tier change.
     // This is the safest moment to reconnect — audio just finished, student hasn't started
     // speaking yet, no in-flight audio or tool calls.
-    if ((this.session as any).pendingActflReconnect && !this.isStopped) {
+    // A one-sentence turn can get here before its transcript is flushed. Closing then would lose
+    // her words from the record, so leave the flag set and take the next playback_ended instead.
+    if ((this.session as any).pendingActflReconnect && !this.isStopped && !this.generationStartedThisTurn) {
       delete (this.session as any).pendingActflReconnect;
       void this.proactiveReconnect();
     }
@@ -2682,10 +2696,7 @@ LEXICAL CONSTRAINT: Do not use regional slang, fillers, or interjections from yo
     });
 
     try {
-      const contextBridge = this.buildContextBridge();
-      const reconnectPrompt = contextBridge
-        ? `${this.lastSystemPrompt}\n\n${contextBridge}`
-        : this.lastSystemPrompt;
+      const reconnectPrompt = this.buildReconnectPrompt();
       await this.start(reconnectPrompt, this.lastTools);
       console.log('[GeminiLive] retryConnection() — GL session re-established successfully');
 

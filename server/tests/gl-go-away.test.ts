@@ -7,6 +7,13 @@ import { readFileSync } from 'node:fs';
 import { afterEach, beforeEach, describe, it, mock } from 'node:test';
 import { isSafeToReconnect, parseGoAwayTimeLeftMs, watchGoAway, type GoAwayTurnState } from '../services/gl-go-away';
 
+// The session module starts housekeeping timers and requires these to load. Nothing connects.
+const realSetInterval = globalThis.setInterval;
+globalThis.setInterval = ((...args: Parameters<typeof setInterval>) => realSetInterval(...args).unref()) as typeof setInterval;
+process.env.NEON_SHARED_DATABASE_URL ??= 'postgresql://unit-test:unit-test@127.0.0.1:1/unit_test_no_db';
+process.env.DEEPGRAM_API_KEY ||= 'unit-test-dummy-deepgram-key';
+const { GeminiLiveSession } = await import('../services/gemini-live-session');
+
 const idle: GoAwayTurnState = { tutorSpeaking: false, generationStarted: false, pendingToolCalls: 0, pendingStudentTranscript: '' };
 
 function harness(initial: Partial<GoAwayTurnState> = {}) {
@@ -141,10 +148,54 @@ describe('session wiring', () => {
     const path = source.slice(at, end);
     assert.match(path, /if \(deliberateClose \|\| \(/);
     const resets = path.indexOf('this.isSetupComplete = false');
-    const bridge = path.indexOf('this.buildContextBridge()');
+    const bridge = path.indexOf('this.buildReconnectPrompt()');
     assert.ok(resets > 0, 'resets setup state, so setupComplete runs on the new connection');
     assert.ok(path.includes('this.transcriptClosed = false'), 'reopens the transcript gate');
     assert.ok(bridge > resets, 'starts with the bridge after resetting');
     assert.doesNotMatch(source, /await this\.start\(this\.lastSystemPrompt, this\.lastTools\)/, 'no thinner path remains');
+  });
+});
+
+describe('real session', () => {
+  const makeSession = () => {
+    const gl: any = new GeminiLiveSession({ id: 's', userId: 'u', conversationId: 'c', ws: {}, currentTurnId: 0 } as any, () => {});
+    gl.closed = 0;
+    gl.liveSession = { close: () => { gl.closed++; }, sendRealtimeInput: () => {} };
+    return gl;
+  };
+
+  it('does not pile up context bridges across reconnects', () => {
+    const gl = makeSession();
+    gl.buildContextBridge = () => 'BRIDGE';
+    gl.rememberSystemPrompt('BASE');
+    const first = gl.buildReconnectPrompt();
+    assert.equal(first, 'BASE\n\nBRIDGE');
+    gl.rememberSystemPrompt(first);
+    assert.equal(gl.buildReconnectPrompt(), 'BASE\n\nBRIDGE', 'one bridge on the second reconnect too');
+  });
+
+  it('a genuinely new prompt still replaces the stored one', () => {
+    const gl = makeSession();
+    gl.buildContextBridge = () => 'BRIDGE';
+    gl.rememberSystemPrompt('BASE');
+    gl.rememberSystemPrompt(gl.buildReconnectPrompt());
+    gl.rememberSystemPrompt('NEW');
+    assert.equal(gl.lastSystemPrompt, 'NEW');
+  });
+
+  it('an ACTFL reconnect waits until the turn has been flushed', () => {
+    const gl = makeSession();
+    gl.session.pendingActflReconnect = true;
+    gl.isGenerationDone = true;
+    gl.isTutorGeneratingAudio = true;
+    gl.generationStartedThisTurn = true;
+    gl.onPlaybackEnded();
+    assert.equal(gl.closed, 0, 'her words are not in the record yet');
+    assert.equal(gl.session.pendingActflReconnect, true, 'still wanted');
+
+    gl.generationStartedThisTurn = false;
+    gl.onPlaybackEnded();
+    assert.equal(gl.closed, 1);
+    assert.equal(gl.session.pendingActflReconnect, undefined);
   });
 });

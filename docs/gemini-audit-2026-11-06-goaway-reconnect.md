@@ -73,3 +73,46 @@ The evidence from 2026-11-06 strongly suggests that the "thin" reconnect (System
 
 ### Minor Implementation Note
 In `handleGoAway`, you check `if (this.stopGoAwayWatch) return;`. Ensure that if a second `goAway` message is received (unlikely, but possible in some proxy setups), the original watcher is either updated or allowed to finish. Your current code correctly prevents multiple watchers from stacking up.
+
+## Follow-up after LA's re-review: one bridge per reconnect; ACTFL waits for the flush
+
+Result: **"APPROVED — Ship it."** Gemini again links the language confusion to the thin reconnect. That is still unproven, and its idea that her base prompt defines her as a Spanish tutor hasn't been checked.
+
+### Prompt (the diff followed)
+A follow-up on the reconnect change you approved. A peer reviewer found two more issues, so we've made two small changes. The bridge text itself doesn't change.
+
+1. **Bridges piled up.** `start()` stored the prompt it was given, including the context bridge, and the next reconnect appended a new bridge to that. So on a second reconnect in a session she'd get the system prompt plus two bridges, the first one stale. The retry path has always done this, but deliberate reconnects make it more common. Now the stored prompt never includes a bridge, so she gets one fresh bridge each time.
+
+2. **An ACTFL reconnect could close before her words were saved.** On a one-sentence turn, playback_ended can run before the transcript is flushed. The retry path then clears the pending transcript, losing her reply from the record. Now the ACTFL reconnect waits until the turn has been flushed, or the next playback_ended if needed. So recalibration can come one turn later.
+
+Questions: anything wrong with either change? Does getting one fresh bridge rather than two change anything for her? Clear verdict: "APPROVED — Ship it." or what you require.
+
+One correction to your last response: you described her as having a "Spanish-only" persona. The session in question was English, and that was the problem: she said she was there for Spanish. If that changes anything in your assessment, say so.
+
+```diff
+```
+
+### Response
+These two refinements are excellent catches. They move the system from "functional but brittle" to "robust."
+
+### Analysis of the Changes
+
+**1. Preventing Bridge Accumulation**
+*   **The Problem:** Storing the "prompt + bridge" back into `lastSystemPrompt` created a recursive context loop. On the third or fourth reconnect, the system prompt would have been bloated with multiple, potentially conflicting "Context Bridges."
+*   **The Fix:** Using `lastReconnectPrompt` as a sentinel to distinguish between a "clean" system prompt update and a "reconnect" prompt is the correct architectural choice.
+*   **Impact:** Getting one fresh bridge is significantly better than two. LLMs are sensitive to "Context Window" pollution. Providing a single, accurate summary of the immediate past prevents the model from getting confused by stale summaries or "hallucinating" that it has already said things it hasn't. It keeps the "Daniela" persona crisp.
+
+**2. The ACTFL Timing Guard**
+*   **The Problem:** The "race to reconnect" was winning against the "save the transcript" logic. If the socket closed before the final transcript was flushed to your database/logs, the student's history would have a hole.
+*   **The Fix:** Checking `!this.generationStartedThisTurn` inside `playback_ended` ensures that the proactive reconnect only triggers when the turn is fully "settled." 
+*   **Impact:** Delaying the recalibration by one turn is a negligible price to pay for data integrity. It ensures the "Context Bridge" built for the *next* connection actually includes the turn that just finished.
+
+### Regarding the Persona Confusion
+The fact that the session was English and she defaulted to Spanish actually **strengthens the case for these changes.** 
+If Daniela's base system prompt defines her as a "Spanish Tutor," but the specific session context is "English Practice," a "thin" reconnect (system prompt only) will cause her to revert to her base "Spanish" identity. The Context Bridge is the only thing that tells her: *"Wait, we are currently speaking English."* By ensuring the bridge is fresh and not buried under old bridges, you ensure she stays in the correct language.
+
+### Verdict
+
+These changes resolve the state-pollution and race-condition issues identified during peer review.
+
+**APPROVED — Ship it.**
