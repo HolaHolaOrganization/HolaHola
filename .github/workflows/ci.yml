@@ -29,7 +29,7 @@ jobs:
       DEEPGRAM_API_KEY: ci-placeholder-not-a-real-key
     services:
       postgres:
-        image: postgres:16
+        image: pgvector/pgvector:pg16
         env:
           POSTGRES_DB: holahola_ci
           POSTGRES_USER: postgres
@@ -130,7 +130,7 @@ jobs:
       DEEPGRAM_API_KEY: ci-placeholder-not-a-real-key
     services:
       postgres:
-        image: postgres:16
+        image: pgvector/pgvector:pg16
         env:
           POSTGRES_DB: holahola_ci
           POSTGRES_USER: postgres
@@ -187,7 +187,7 @@ jobs:
       DEEPGRAM_API_KEY: ci-placeholder-not-a-real-key
     services:
       postgres:
-        image: postgres:16
+        image: pgvector/pgvector:pg16
         env:
           POSTGRES_DB: holahola_ci
           POSTGRES_USER: postgres
