@@ -197,5 +197,10 @@ test('images in the Studio and whiteboard panes use the room they have', async (
   const card = await measure('whiteboard-pane', 'img');
   assert.ok(card.width >= 240, `the vocab image uses the pane's width, got ${card.width}px`);
   assert.equal(card.overflow, 0, 'the card fits its pane');
+
+  // What the compare tool now sends: both words, with no meanings or examples.
+  const comparison = await page.getByTestId('whiteboard-item-comparison-0').innerText();
+  assert.match(comparison, /ser/);
+  assert.match(comparison, /estar/);
   await context.close();
 });

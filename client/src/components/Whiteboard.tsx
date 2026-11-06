@@ -392,7 +392,7 @@ interface ComparisonItemDisplayProps {
   index: number;
 }
 
-const ComparisonItemDisplay = ({ item, index }: ComparisonItemDisplayProps) => {
+export const ComparisonItemDisplay = ({ item, index }: ComparisonItemDisplayProps) => {
   const { data } = item;
   const isRTL = data.language === 'arabic';
   const hasBackground = !!data.imageUrl;
