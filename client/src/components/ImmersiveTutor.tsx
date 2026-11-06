@@ -371,7 +371,7 @@ export function ImmersiveTutor({
     return getTutorAvatar(targetLanguage, tutorGender, avatarState);
   };
   const tutorImageUrl = getTutorImage();
-  const tutorImage = useResilientImageSrc(tutorImageUrl);
+  const tutorImage = useResilientImageSrc(tutorImageUrl, `${targetLanguage}:${tutorGender}`);
   const avatarSet = getTutorAvatarSet(targetLanguage, tutorGender);
   usePreloadImages([avatarSet.listening, avatarSet.talking, avatarSet.thinking]);
   

@@ -24,10 +24,13 @@ getStreamingVoiceClient().on('stateChange', (state: unknown) => { stateHistory.p
 
 /** The avatar's image behaviour, on images a test controls. */
 function AvatarProbe() {
-  const [src, setSrc] = useState('/e2e-image/listening.png');
-  const image = useResilientImageSrc(src);
+  const [{ src, scope }, setImage] = useState({ src: '/e2e-image/listening.png', scope: 'tutor-a' });
+  const image = useResilientImageSrc(src, scope);
   usePreloadImages(['/e2e-image/talking.png']);
-  (window as any).avatar = { setSrc };
+  (window as any).avatar = {
+    setSrc: (next: string) => setImage(current => ({ ...current, src: next })),
+    setTutor: (nextScope: string, next: string) => setImage({ src: next, scope: nextScope }),
+  };
   return <img id="avatar" key={image.key} src={image.src} onLoad={image.onLoad} onError={image.onError} alt="avatar" />;
 }
 
@@ -53,13 +56,14 @@ function Harness() {
   const vision = useVisionCapture(voice.sendVideoFrame, phase !== 'ended');
 
   (window as any).harness = {
-    connect: () => voice.connect({
-      conversationId: 'e2e-conversation',
+    connect: (conversationId = 'e2e-conversation') => voice.connect({
+      conversationId,
       targetLanguage: 'spanish',
       nativeLanguage: 'english',
       difficultyLevel: 'beginner',
       subtitleMode: 'off',
     }),
+    disconnect: () => voice.disconnect(),
     toggleWebcam: () => vision.toggleWebcam(),
     state: () => voice.state.connectionState,
     stateHistory: () => [...stateHistory],

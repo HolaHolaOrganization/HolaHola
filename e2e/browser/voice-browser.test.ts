@@ -172,10 +172,19 @@ test('the avatar never shows a broken image during an outage', { timeout: 40_000
   assert.deepEqual(await showAndSettle('/e2e-image/talking.png'), { src: '/e2e-image/talking.png', width: 1 }, 'a preloaded image still shows offline');
   assert.deepEqual(await showAndSettle('/e2e-image/never-loaded.png'), { src: '/e2e-image/talking.png', width: 1 }, 'an unavailable image keeps the last good one');
 
+  // A different tutor with nothing loaded yet, which is also what a first image failing looks like.
+  await page.evaluate(() => (window as any).avatar.setTutor('tutor-b', '/e2e-image/other-tutor.png'));
+  await new Promise(r => setTimeout(r, 500));
+  const placeholder = await page.evaluate(() => {
+    const image = document.getElementById('avatar') as HTMLImageElement;
+    return { scheme: new URL(image.src).protocol, loaded: image.naturalWidth > 0 };
+  });
+  assert.deepEqual(placeholder, { scheme: 'data:', loaded: true }, "a new tutor gets the placeholder, never the old tutor's face");
+
   await context.setOffline(false);
   await page.waitForFunction(() => {
     const image = document.getElementById('avatar') as HTMLImageElement;
-    return image.src.endsWith('/e2e-image/never-loaded.png') && image.naturalWidth === 1;
+    return image.src.endsWith('/e2e-image/other-tutor.png') && image.naturalWidth === 1;
   }, null, { timeout: 10_000 });
   await context.close();
 });
@@ -187,7 +196,12 @@ test('images in the Studio and whiteboard panes use the room they have', async (
   await page.waitForFunction(() => (document.querySelector('#whiteboard-pane img') as HTMLImageElement | null)?.complete === true, null, { timeout: 15_000 });
   const measure = (pane: string, selector: string) => page.evaluate(([p, s]) => {
     const root = document.getElementById(p)!;
-    return { width: root.querySelector(s)!.getBoundingClientRect().width, overflow: root.scrollWidth - root.clientWidth };
+    const element = root.querySelector(s)!;
+    return {
+      width: element.getBoundingClientRect().width,
+      overflow: root.scrollWidth - root.clientWidth,
+      naturalWidth: (element as HTMLImageElement).naturalWidth,
+    };
   }, [pane, selector]);
 
   const face = await measure('studio-pane', 'svg');
@@ -196,6 +210,7 @@ test('images in the Studio and whiteboard panes use the room they have', async (
 
   const card = await measure('whiteboard-pane', 'img');
   assert.ok(card.width >= 240, `the vocab image uses the pane's width, got ${card.width}px`);
+  assert.ok(card.naturalWidth > 0, 'the vocab image actually loaded');
   assert.equal(card.overflow, 0, 'the card fits its pane');
 
   // What the compare tool now sends: both words, with no meanings or examples.
@@ -203,4 +218,51 @@ test('images in the Studio and whiteboard panes use the room they have', async (
   assert.match(comparison, /ser/);
   assert.match(comparison, /estar/);
   await context.close();
+
+test('a retry still in its handshake cannot disturb a session started after End Call', { timeout: 75_000 }, async () => {
+  const page = await connectedPage();
+  server.holdHandshakes(true);
+  try {
+    server.dropClients();
+    // The first retry runs after 200 ms, and now sits unanswered in its handshake.
+    await page.waitForFunction(() => (window as any).harness.state() === 'connecting', null, { timeout: 5_000 });
+    await page.evaluate(() => (window as any).harness.disconnect());
+    await page.waitForFunction(() => (window as any).harness.state() === 'disconnected', null, { timeout: 5_000 });
+  } finally {
+    server.holdHandshakes(false);
+  }
+
+  const startsBefore = server.messages('start_session').length;
+  await page.evaluate(() => (window as any).harness.connect('e2e-second-conversation'));
+  await page.waitForFunction(() => (window as any).harness.state() === 'ready', null, { timeout: 15_000 });
+  const historyBefore: number = await page.evaluate(() => (window as any).harness.stateHistory().length);
+
+  // The old attempt's own timeout is 30 s; outlast it.
+  await new Promise(r => setTimeout(r, 32_000));
+  const after: string[] = await page.evaluate(n => (window as any).harness.stateHistory().slice(n), historyBefore);
+  assert.deepEqual(after, [], 'the new session sees no state changes from the old attempt');
+  assert.equal(await page.evaluate(() => (window as any).harness.state()), 'ready');
+  assert.equal(server.messages('start_session').length - startsBefore, 1, 'one start_session for the one new connection');
+  assert.equal(server.connectedClients(), 1, 'the abandoned attempt left no second connection');
+  await page.context().close();
+});
+
+test('End Call during a retry stays ended', { timeout: 60_000 }, async () => {
+  const page = await connectedPage();
+  server.holdHandshakes(true);
+  try {
+    server.dropClients();
+    await page.waitForFunction(() => (window as any).harness.state() === 'connecting', null, { timeout: 5_000 });
+    await page.evaluate(() => (window as any).harness.disconnect());
+    await page.waitForFunction(() => (window as any).harness.state() === 'disconnected', null, { timeout: 5_000 });
+    const historyBefore: number = await page.evaluate(() => (window as any).harness.stateHistory().length);
+
+    // The old attempt's own timeout is 30 s; outlast it, with no new call to mask what it does.
+    await new Promise(r => setTimeout(r, 32_000));
+    const after: string[] = await page.evaluate(n => (window as any).harness.stateHistory().slice(n), historyBefore);
+    assert.deepEqual(after, [], 'nothing announces an error or restarts after End Call');
+  } finally {
+    server.holdHandshakes(false);
+  }
+  await page.context().close();
 });
