@@ -213,6 +213,7 @@ test('images in the Studio and whiteboard panes use the room they have', async (
   assert.ok(card.naturalWidth > 0, 'the vocab image actually loaded');
   assert.equal(card.overflow, 0, 'the card fits its pane');
   await context.close();
+});
 
 test('a retry still in its handshake cannot disturb a session started after End Call', { timeout: 75_000 }, async () => {
   const page = await connectedPage();
