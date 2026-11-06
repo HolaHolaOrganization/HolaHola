@@ -52,13 +52,14 @@ function Harness() {
   const vision = useVisionCapture(voice.sendVideoFrame, phase !== 'ended');
 
   (window as any).harness = {
-    connect: () => voice.connect({
-      conversationId: 'e2e-conversation',
+    connect: (conversationId = 'e2e-conversation') => voice.connect({
+      conversationId,
       targetLanguage: 'spanish',
       nativeLanguage: 'english',
       difficultyLevel: 'beginner',
       subtitleMode: 'off',
     }),
+    disconnect: () => voice.disconnect(),
     toggleWebcam: () => vision.toggleWebcam(),
     state: () => voice.state.connectionState,
     stateHistory: () => [...stateHistory],
