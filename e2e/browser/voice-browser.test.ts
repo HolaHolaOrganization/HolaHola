@@ -11,7 +11,7 @@
  */
 import assert from 'node:assert/strict';
 import { resolve } from 'node:path';
-import { after, before, test } from 'node:test';
+import { after, afterEach, before, beforeEach, test } from 'node:test';
 import { chromium, type Browser, type Page } from 'playwright';
 import { startMockVoiceServer, type MockVoiceServer } from './mock-voice-server';
 
@@ -21,6 +21,11 @@ let browser: Browser;
 
 before(async () => {
   server = await startMockVoiceServer(ROOT);
+});
+
+// A browser per test: once one context has used Chromium's fake camera, later contexts in
+// the same browser get NotFoundError from getUserMedia.
+beforeEach(async () => {
   browser = await chromium.launch({
     // Locally, point at an installed Chromium when Playwright's own build is absent.
     ...(process.env.E2E_CHROMIUM_PATH ? { executablePath: process.env.E2E_CHROMIUM_PATH } : {}),
@@ -32,8 +37,11 @@ before(async () => {
   });
 });
 
-after(async () => {
+afterEach(async () => {
   await browser?.close();
+});
+
+after(async () => {
   await server?.close();
 });
 
