@@ -911,6 +911,11 @@ export class GeminiLiveSession {
   // greetingPhaseActive is done, so GL multi-chunk greetings are never suppressed.
   // Prevents spurious second GL generation (unmasked by Bug 1 gate removal July 24 2026).
   private hasStudentInputSinceLastResponse = true;
+  // Tracks whether student input (audio chunk, interrupt, or student text turn) arrived
+  // AFTER the most recent generationComplete, so _doFlushTranscripts() (800ms later)
+  // does not clear hasStudentInputSinceLastResponse if a PTT or open-mic chunk arrived
+  // during the 800ms generationCompleteSealTimer window of a 0-audio turn.
+  private hasStudentInputSinceLastGenerationComplete = false;
   // Ghost-turn tracing: records the most recent mid-session sendClientContent injection
   // (text turn, heartbeat directive, pre-turn guardian, etc.). When a ghost turn is
   // suppressed in _doFlushTranscripts, this identifies WHICH injection triggered the
@@ -1646,6 +1651,7 @@ LEXICAL CONSTRAINT: Do not use regional slang, fillers, or interjections from yo
               this.isGreetingTurn = false;
               this.isTutorGeneratingAudio = false;
               this.hasStudentInputSinceLastResponse = false;
+              this.hasStudentInputSinceLastGenerationComplete = false;
               this.responseFlushedToClient = false;
               if (this.playbackGateSafetyTimeout) {
                 clearTimeout(this.playbackGateSafetyTimeout);
@@ -1844,6 +1850,7 @@ LEXICAL CONSTRAINT: Do not use regional slang, fillers, or interjections from yo
     if (this.isTutorGeneratingAudio) return;
     // Student audio is being sent — confirm input has arrived since last response.
     this.hasStudentInputSinceLastResponse = true;
+    this.hasStudentInputSinceLastGenerationComplete = true;
     const base64Audio = pcm16Buffer.toString('base64');
     this.liveSession.sendRealtimeInput({
       audio: {
@@ -2018,6 +2025,7 @@ LEXICAL CONSTRAINT: Do not use regional slang, fillers, or interjections from yo
     this.resetSubstantialReplayGuard();
     // Student actively interrupted — their audio is arriving, so count it as input.
     this.hasStudentInputSinceLastResponse = true;
+    this.hasStudentInputSinceLastGenerationComplete = true;
     // Reset response-flushed guard so the next generation is not spuriously suppressed.
     this.responseFlushedToClient = false;
     // DOUBLE-AUDIO FIX: Clear suppress flag on interrupt so a stale reconnect-era flag
@@ -2449,6 +2457,7 @@ LEXICAL CONSTRAINT: Do not use regional slang, fillers, or interjections from yo
       // is a ghost turn (audio suppressed + flush skipped).
       if (opts?.isStudentInput) {
         this.hasStudentInputSinceLastResponse = true;
+        this.hasStudentInputSinceLastGenerationComplete = true;
       }
       console.log(`[GeminiLive] Text turn sent (${label}, ${text.length} chars): "${text.slice(0, 80)}"`);
       return true;
@@ -2670,6 +2679,7 @@ LEXICAL CONSTRAINT: Do not use regional slang, fillers, or interjections from yo
     this.greetingPhaseActive = false;
     this.isTutorGeneratingAudio = false;
     this.hasStudentInputSinceLastResponse = false;
+    this.hasStudentInputSinceLastGenerationComplete = false;
     this.responseFlushedToClient = false;
     if (this.playbackGateSafetyTimeout) {
       clearTimeout(this.playbackGateSafetyTimeout);
@@ -3292,11 +3302,18 @@ LEXICAL CONSTRAINT: Do not use regional slang, fillers, or interjections from yo
         // Never merge a previous topic into a newer student turn: it turns an
         // honest archive check into a subject change.
         // G3 guard: only advance student turn epoch / lineage / prior-grounding state
-        // when student input has actually arrived since the last response. Upstream GL
-        // can emit phantom inputTranscription from its internal ring buffer when no
-        // student audio or text turn was sent; those must not start a student turn or
-        // fire Pre-Turn Archive Guardian.
-        const turnBoundary = this.hasStudentInputSinceLastResponse
+        // when student input has arrived since the last response OR while Daniela's
+        // current response is still generating/playing (line 3001 sets
+        // hasStudentInputSinceLastResponse = false on her first audio chunk while setting
+        // isTutorGeneratingAudio = true, so a real student utterance whose
+        // inputTranscription lags behind her first audio chunk arrives with
+        // isTutorGeneratingAudio === true). Upstream GL phantom inputTranscription events
+        // in Live Test 2 (dbSession 151ccc83-50e8-4516-9d88-65d98918f358) arrived at
+        // 20:59:07Z and 21:00:13Z after the 60s safety timeout force-opened the mic gate
+        // at ~20:58:45Z, when both flags were false.
+        const acceptInputTranscriptionForTurn =
+          this.hasStudentInputSinceLastResponse || this.isTutorGeneratingAudio;
+        const turnBoundary = acceptInputTranscriptionForTurn
           ? registerInputTranscriptionChunk(
               this.startNewStudentTurnOnNextInputTranscription,
               this.activeStudentTurnEpoch,
@@ -3483,11 +3500,11 @@ LEXICAL CONSTRAINT: Do not use regional slang, fillers, or interjections from yo
         //   (a) the generic threshold is met (>10 chars for any utterance), OR
         //   (b) an emotional-valence phrase is detected regardless of length — short
         //       disclosures like "I froze" (7 chars) must not be silently skipped.
-        const _emotionalEarlyCheck = !this.preTurnGroundingFired && this.hasStudentInputSinceLastResponse
+        const _emotionalEarlyCheck = !this.preTurnGroundingFired && acceptInputTranscriptionForTurn
           ? detectStudentEmotionalValence(this.pendingInputTranscript)
           : null;
         const _guardianShouldFire = !this.preTurnGroundingFired &&
-          this.hasStudentInputSinceLastResponse && (
+          acceptInputTranscriptionForTurn && (
           this.pendingInputTranscript.trim().length > 10 ||
           (_emotionalEarlyCheck?.detected ?? false)
         );
@@ -4000,6 +4017,7 @@ LEXICAL CONSTRAINT: Do not use regional slang, fillers, or interjections from yo
             this.responseFlushedToClient = false;
           }
         }
+        this.hasStudentInputSinceLastGenerationComplete = false;
         const isPhantomZeroAudioOutput =
           this.currentSentenceIndex === 0 &&
           !this.hadAudioInCurrentSubturn &&
@@ -4108,18 +4126,21 @@ LEXICAL CONSTRAINT: Do not use regional slang, fillers, or interjections from yo
       // resetting the PCM player mid-response, and snapping the avatar to "thinking".
       // 8000ms gives GL ample time for slow inter-sub-turn reasoning gaps.
       //
-      // G4 wire-order timing evidence (Live Test 2, session 9bc4b550):
-      // Across all 22 turns, GL emitted generationComplete FIRST (+1s to +9s into the turn),
-      // while the turn's turnComplete arrived 14–24s after turn start (6–16s AFTER
-      // generationComplete had already sealed and flushed the turn). Unconditionally arming
-      // this 8000ms fallback on a late turnComplete fired a second _doFlushTranscripts()
-      // 8s later on an already-flushed turn. Only arm the fallback when the current response
-      // has NOT already been flushed (!this.responseFlushedToClient) and is NOT currently in
-      // the 800ms generationComplete seal window (!this.generationCompleteSealTimer).
+      // G4 timing evidence (Live Test 2, dbSession 151ccc83-50e8-4516-9d88-65d98918f358):
+      // Across 19 real exchanges, 18 mid-session 0-sentence flushes (11 gl_transcripts_flushed
+      // totalSentences:0 + 7 gl_ghost_turn_suppressed) fired 14–24s after generationComplete.
+      // Wire order inferred from flush timing (not directly observed on the wire): GL emitted
+      // generationComplete first, and turnComplete arrived 6–16s AFTER generationComplete had
+      // already sealed and flushed the turn. Unconditionally arming this 8000ms fallback on a
+      // late turnComplete fired a second _doFlushTranscripts() 8s later on an already-flushed
+      // turn. Only arm the fallback when the current response has NOT already been flushed
+      // (!this.responseFlushedToClient) and is NOT currently in the 800ms generationComplete
+      // seal window (!this.generationCompleteSealTimer).
       if (this.transcriptFlushTimer) {
         clearTimeout(this.transcriptFlushTimer);
         this.transcriptFlushTimer = null;
       }
+      this.hasStudentInputSinceLastGenerationComplete = false;
       if (!this.responseFlushedToClient && !this.generationCompleteSealTimer) {
         this.transcriptFlushTimer = setTimeout(() => {
           this.transcriptFlushTimer = null;
@@ -4172,6 +4193,7 @@ LEXICAL CONSTRAINT: Do not use regional slang, fillers, or interjections from yo
       // of its existing rule-based checks (struggle count, phase duration, ACTFL mismatch).
       // Record generation completion time for heartbeat silence gate.
       this.lastGenerationCompleteTime = Date.now();
+      this.hasStudentInputSinceLastGenerationComplete = false;
 
       if (this.currentTurnThoughtBuffer) {
         const thoughtSnippet = this.currentTurnThoughtBuffer.slice(0, 200);
@@ -4901,6 +4923,7 @@ LEXICAL CONSTRAINT: Do not use regional slang, fillers, or interjections from yo
         clearTimeout(this.transcriptFlushTimer);
         this.transcriptFlushTimer = null;
       }
+      this.hasStudentInputSinceLastGenerationComplete = false;
       this.generationCompleteSealTimer = setTimeout(() => {
         this.generationCompleteSealTimer = null;
         if (!this.isStopped) {
@@ -6447,10 +6470,17 @@ LEXICAL CONSTRAINT: Do not use regional slang, fillers, or interjections from yo
     // On a real 0-audio turn (student provided input via sendAudioChunk, interrupt, or
     // sendTextTurn({ isStudentInput: true }), and GL answered text-only with 0 audio
     // sentences), line 3001 never ran because no audio chunk arrived. Consume
-    // hasStudentInputSinceLastResponse here so a subsequent phantom turn is suppressed.
-    if (totalSentences === 0 && !this.greetingPhaseActive) {
+    // hasStudentInputSinceLastResponse here so a subsequent phantom turn is suppressed,
+    // unless new student input (e.g. a held or tapped PTT key) arrived after
+    // generationComplete during the 800ms seal window.
+    if (
+      totalSentences === 0 &&
+      !this.greetingPhaseActive &&
+      !this.hasStudentInputSinceLastGenerationComplete
+    ) {
       this.hasStudentInputSinceLastResponse = false;
     }
+    this.hasStudentInputSinceLastGenerationComplete = false;
     // DOUBLE-AUDIO FIX: Clear suppress flag at turn complete so a stale reconnect-era
     // flag never carries into the next turn if GL never generated audio post-reconnect.
     this.suppressNextProcessingPending = false;

@@ -122,7 +122,8 @@ test("G4: late turnComplete after turn already flushed does not arm 8s fallback;
     assert.equal(persisted.length, 1, "initial assistant response persisted once");
 
     // Even if client playback_ended arrived and open-mic silence sent a PCM chunk
-    // before the late turnComplete arrived (14–24s after turn start, 6–16s after generationComplete),
+    // before the late turnComplete arrived (inferred 6–16s after generationComplete from
+    // +14–24s flush timing in Live Test 2 dbSession 151ccc83-50e8-4516-9d88-65d98918f358),
     // no new model response has started, so responseFlushedToClient is still true.
     gl.sendAudioChunk(Buffer.alloc(320));
     assert.equal((gl as any).hasStudentInputSinceLastResponse, true);
@@ -391,6 +392,119 @@ test("G3 real-0-audio: student input via sendAudioChunk, interrupt, or sendTextT
     assert.equal(persisted[4]?.role, "assistant");
     assert.equal(persisted[4]?.content, "¿Qué te gustaría pedir del menú?");
     assert.equal((gl as any).hasStudentInputSinceLastResponse, false);
+
+    // Path D: Push-to-talk held-key chunks arriving (1) during the 800ms generationComplete seal
+    // window before _doFlushTranscripts() runs, and (2) after _doFlushTranscripts() resets the flag.
+    gl.sendAudioChunk(Buffer.alloc(320));
+    (gl as any).preTurnGroundingFired = true;
+    (gl as any).transcriptClosed = false;
+    await (gl as any).handleServerMessage({
+      serverContent: {
+        inputTranscription: { text: "Primera parte con PTT.", finished: true },
+        outputTranscription: { text: "Entendido." },
+        generationComplete: true,
+      },
+    });
+    if ((gl as any).generationCompleteSealTimer) {
+      clearTimeout((gl as any).generationCompleteSealTimer);
+      (gl as any).generationCompleteSealTimer = null;
+    }
+    // Student holds PTT key during the 800ms seal window before _doFlushTranscripts() runs:
+    gl.sendAudioChunk(Buffer.alloc(320));
+    await (gl as any)._doFlushTranscripts();
+    assert.equal(
+      (gl as any).hasStudentInputSinceLastResponse,
+      true,
+      "PTT chunk arriving after generationComplete and before _doFlushTranscripts() must keep hasStudentInputSinceLastResponse true",
+    );
+
+    // And if _doFlushTranscripts() resets hasStudentInputSinceLastResponse = false when no chunk
+    // arrived during the seal window, a held PTT key's next 85ms chunk immediately sets it true again:
+    (gl as any).preTurnGroundingFired = true;
+    (gl as any).transcriptClosed = false;
+    await (gl as any).handleServerMessage({
+      serverContent: {
+        inputTranscription: { text: "Segunda parte con PTT.", finished: true },
+        outputTranscription: { text: "Perfecto." },
+        generationComplete: true,
+      },
+    });
+    if ((gl as any).generationCompleteSealTimer) {
+      clearTimeout((gl as any).generationCompleteSealTimer);
+      (gl as any).generationCompleteSealTimer = null;
+    }
+    await (gl as any)._doFlushTranscripts();
+    assert.equal((gl as any).hasStudentInputSinceLastResponse, false);
+    // Next held-key chunk arrives after the flush reset (isTutorGeneratingAudio is false on 0-audio turns):
+    gl.sendAudioChunk(Buffer.alloc(320));
+    assert.equal(
+      (gl as any).hasStudentInputSinceLastResponse,
+      true,
+      "held PTT key chunk arriving after 0-audio flush reset immediately re-opens hasStudentInputSinceLastResponse",
+    );
+  } finally {
+    cleanup();
+  }
+});
+
+test("G3 late inputTranscription: real student transcription arriving after Daniela's first audio chunk still starts student turn and fires Guardian", async () => {
+  const { gl, persisted, cleanup } = createHarness();
+  try {
+    (gl as any).greetingPhaseActive = false;
+    (gl as any).isGreetingTurn = false;
+    (gl as any).isTutorGeneratingAudio = false;
+    (gl as any).hasStudentInputSinceLastResponse = false;
+    (gl as any).startNewStudentTurnOnNextInputTranscription = true;
+    const initialEpoch = (gl as any).activeStudentTurnEpoch;
+
+    // 1. Student speaks short reply; audio chunk reaches GL before inputTranscription arrives.
+    gl.sendAudioChunk(Buffer.alloc(320));
+    assert.equal((gl as any).hasStudentInputSinceLastResponse, true);
+
+    // 2. Daniela's first audio chunk arrives BEFORE the student's inputTranscription chunk.
+    // Line 3001 sets hasStudentInputSinceLastResponse = false and isTutorGeneratingAudio = true.
+    const pcmBase64 = Buffer.alloc(640).toString("base64");
+    await (gl as any).handleServerMessage({
+      serverContent: {
+        modelTurn: {
+          parts: [{ inlineData: { mimeType: "audio/pcm;rate=24000", data: pcmBase64 } }],
+        },
+      },
+    });
+    assert.equal((gl as any).isTutorGeneratingAudio, true, "first audio chunk sets isTutorGeneratingAudio = true");
+    assert.equal(
+      (gl as any).hasStudentInputSinceLastResponse,
+      false,
+      "first audio chunk resets hasStudentInputSinceLastResponse = false at line 3001",
+    );
+
+    // 3. Now the student's lagging inputTranscription arrives while Daniela's audio is generating
+    // (short emotional disclosure "I froze" = 7 chars, plus a second chunk pushing >10 chars).
+    await (gl as any).handleServerMessage({
+      serverContent: {
+        inputTranscription: { text: "I froze when speaking", finished: true },
+        outputTranscription: { text: "It is completely normal to freeze up at first." },
+      },
+    });
+
+    assert.equal(
+      (gl as any).activeStudentTurnEpoch,
+      initialEpoch + 1,
+      "late inputTranscription while isTutorGeneratingAudio is true must still start the student turn",
+    );
+    assert.equal(
+      (gl as any).preTurnGroundingFired,
+      true,
+      "late inputTranscription while isTutorGeneratingAudio is true must still fire Pre-Turn Archive Guardian",
+    );
+
+    // 4. Flush the turn and verify both the late student transcript and assistant response persist.
+    (gl as any).sealCurrentAudioSubturn("test-seal", false);
+    await (gl as any)._doFlushTranscripts();
+    assert.equal(persisted.length, 2, "late student transcript and assistant response must both persist");
+    assert.equal(persisted[0]?.role, "user");
+    assert.equal(persisted[0]?.content, "I froze when speaking");
+    assert.equal(persisted[1]?.role, "assistant");
   } finally {
     cleanup();
   }
