@@ -1469,6 +1469,14 @@ LEXICAL CONSTRAINT: Do not use regional slang, fillers, or interjections from yo
           const code = event?.code as number;
           const reason = event?.reason || '(no reason)';
           console.log(`[GeminiLive] Session closed — code: ${code}, reason: ${reason}`);
+          // F3: persist the close so a mid-session drop has a recorded cause.
+          voiceTelemetry.log(this.session.id, String(this.session.userId ?? ''), 'gl_session_closed', {
+            code: Number.isFinite(code) ? code : null,
+            reason: String(event?.reason ?? '').slice(0, 200) || null,
+            isStopped: this.isStopped,
+            reconnectAttempts: this.reconnectAttempts,
+            retriableCode: this.RETRIABLE_CLOSE_CODES.has(code),
+          });
 
           // ── Auto-reconnect ─────────────────────────────────────────────────
           // Retriable codes are transient (network hiccup, GL service restart).
