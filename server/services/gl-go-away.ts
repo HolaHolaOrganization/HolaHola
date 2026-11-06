@@ -58,6 +58,7 @@ export function watchGoAway(timeLeft: unknown, deps: GoAwayWatchDeps): () => voi
     timer = null;
   };
   const check = () => {
+    if (finished) return;
     if (!deps.isCurrent()) {
       stop();
     } else if (isSafeToReconnect(deps.turnState())) {
