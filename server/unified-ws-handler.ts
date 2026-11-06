@@ -1440,7 +1440,7 @@ export function setupSocketIOHandler(io: SocketIOServer) {
       if (event?.type !== 'playback_turn_summary') return;
       try {
         const recorded = observePlaybackSummary(conversationId ?? undefined, event.sessionId, event.data?.playbackSummary);
-        if (recorded && !recorded.duplicate && recorded.dbSessionId) {
+        if (recorded && recorded.accepted && recorded.dbSessionId) {
           voiceTelemetry.log(recorded.dbSessionId, '', 'client_playback_summary', {
             ...recorded.summary,
             flags: recorded.verdict.flags,

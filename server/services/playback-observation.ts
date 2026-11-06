@@ -87,7 +87,24 @@ export function observeBargeIn(conversationId: string | undefined, dbSessionId: 
   turnFor(ledgerFor(conversationId, dbSessionId, transientSessionId, now), turnId).bargeIn = true;
 }
 
-export interface RecordedSummary { summary: PlaybackTurnSummary; verdict: PlaybackVerdict; dbSessionId: string | null; duplicate: boolean }
+export interface RecordedSummary {
+  summary: PlaybackTurnSummary;
+  verdict: PlaybackVerdict;
+  dbSessionId: string | null;
+  duplicate: boolean;
+  /** Newly kept: the only case a caller may persist (false for duplicates and for overflow past the per-turn cap). */
+  accepted: boolean;
+}
+
+/** The live ledger for a conversation, or undefined once it has idled past its TTL. */
+function liveLedger(conversationId: string, now: number): ConversationLedger | undefined {
+  const ledger = ledgers.get(conversationId);
+  if (ledger && now - ledger.touchedMs > IDLE_TTL_MS) {
+    ledgers.delete(conversationId);
+    return undefined;
+  }
+  return ledger;
+}
 
 /**
  * Record one client summary. It must carry the server session id the client was given;
@@ -100,17 +117,19 @@ export function observePlaybackSummary(conversationId: string | undefined, clien
   raw: unknown, now = Date.now()): RecordedSummary | null {
   const summary = sanitizePlaybackSummary(raw);
   if (!conversationId || !summary || typeof clientSessionId !== 'string') return null;
-  const ledger = ledgers.get(conversationId);
+  const ledger = liveLedger(conversationId, now);
   if (!ledger || ledger.transientSessionId !== clientSessionId) return null;
   ledger.touchedMs = now;
   const turn = turnFor(ledger, summary.turnId);
   const duplicate = turn.summaries.some(s => s.instanceId === summary.instanceId);
-  if (!duplicate && turn.summaries.length < MAX_SUMMARIES_PER_TURN) turn.summaries.push(summary);
+  const accepted = !duplicate && turn.summaries.length < MAX_SUMMARIES_PER_TURN;
+  if (accepted) turn.summaries.push(summary);
   return {
     summary,
     verdict: playbackVerdict({ chunks: turn.sentChunks, bargeIn: turn.bargeIn }, turn.summaries),
     dbSessionId: ledger.dbSessionId,
     duplicate,
+    accepted,
   };
 }
 
@@ -120,10 +139,11 @@ export interface PlaybackObservation {
   turns: Array<{ turnId: number; sentChunks: number; bargeIn: boolean; summaries: number; verdict: PlaybackVerdict }>;
 }
 
-/** Only for the exact session the observer is showing; a mismatch returns null. */
-export function getPlaybackObservation(conversationId: string, dbSessionId: string | null): PlaybackObservation | null {
-  const ledger = ledgers.get(conversationId);
-  if (!ledger || ledger.dbSessionId !== dbSessionId) return null;
+/** Only for the exact session the observer is showing (both ids); a mismatch returns null. */
+export function getPlaybackObservation(conversationId: string, dbSessionId: string | null,
+  transientSessionId: string | null, now = Date.now()): PlaybackObservation | null {
+  const ledger = liveLedger(conversationId, now);
+  if (!ledger || ledger.dbSessionId !== dbSessionId || ledger.transientSessionId !== transientSessionId) return null;
   const turns = [...ledger.turns.values()].map(turn => ({
     turnId: turn.turnId,
     sentChunks: turn.sentChunks,

@@ -113,15 +113,15 @@ test('server ledger: counts only non-empty audio, resets per session, records su
   assert.deepEqual(first.verdict.flags, []);
   assert.equal(first.duplicate, false);
   assert.equal(observePlaybackSummary('c1', 't1', summary({ scheduledChunks: 2, endedChunks: 2 }))!.duplicate, true);
-  assert.equal(getPlaybackObservation('c1', 'db1')!.turns[0].summaries, 1, 'a retransmitted summary is not counted twice');
+  assert.equal(getPlaybackObservation('c1', 'db1', 't1')!.turns[0].summaries, 1, 'a retransmitted summary is not counted twice');
 
   observeBargeIn('c1', 'db1', 't1', 4);
-  assert.deepEqual(getPlaybackObservation('c1', 'db1')!.turns.map(t => [t.turnId, t.sentChunks, t.verdict.flags]),
+  assert.deepEqual(getPlaybackObservation('c1', 'db1', 't1')!.turns.map(t => [t.turnId, t.sentChunks, t.verdict.flags]),
     [[3, 2, []], [4, 0, ['interrupted_by_barge_in']]]);
 
   observeAudioSent('c1', 'db2', 't2', { type: 'audio_chunk', turnId: 3, audio: 'AAAA' });
-  assert.equal(getPlaybackObservation('c1', 'db1'), null, 'the observer only sees its exact session');
-  const fresh = getPlaybackObservation('c1', 'db2')!;
+  assert.equal(getPlaybackObservation('c1', 'db1', 't1'), null, 'the observer only sees its exact session');
+  const fresh = getPlaybackObservation('c1', 'db2', 't2')!;
   assert.deepEqual(fresh.turns.map(t => [t.turnId, t.verdict.flags]), [[3, ['unknown']]]);
   assert.equal(observePlaybackSummary('c1', 't1', summary({ instanceId: 'late1' })), null,
     'a delayed summary from the previous session never lands on the new session\'s reused turn id');
@@ -131,13 +131,18 @@ test('server ledger: counts only non-empty audio, resets per session, records su
 
 test('server ledger: bounded per turn and across conversations', () => {
   observeAudioSent('c1', 'db1', 't1', { type: 'audio_chunk', turnId: 1, audio: 'A' });
-  for (let i = 0; i < 9; i++) observePlaybackSummary('c1', 't1', summary({ turnId: 1, instanceId: `i${i}` }));
-  assert.equal(getPlaybackObservation('c1', 'db1')!.turns[0].summaries, 5);
+  const results = [...Array(9)].map((_, i) => observePlaybackSummary('c1', 't1', summary({ turnId: 1, instanceId: `i${i}` }))!);
+  assert.deepEqual(results.map(r => r.accepted), [true, true, true, true, true, false, false, false, false],
+    'overflow past the cap is not accepted, so the caller never persists it');
+  assert.equal(observePlaybackSummary('c1', 't1', summary({ turnId: 1, instanceId: 'i0' }))!.accepted, false, 'duplicates are not accepted');
+  assert.equal(getPlaybackObservation('c1', 'db1', 't1')!.turns[0].summaries, 5);
   for (let i = 0; i < 205; i++) observeAudioSent(`conv${i}`, 'db', 't', { type: 'audio_chunk', turnId: 1, audio: 'A' }, 1_000 + i);
-  assert.equal(getPlaybackObservation('conv0', 'db'), null, 'least recently touched conversations are evicted');
-  assert.ok(getPlaybackObservation('conv204', 'db'));
-  observeAudioSent('late', 'db', 't', { type: 'audio_chunk', turnId: 1, audio: 'A' }, 1_000 + 3 * 60 * 60 * 1000);
-  assert.equal(getPlaybackObservation('conv204', 'db'), null, 'idle conversations expire');
+  assert.equal(getPlaybackObservation('conv0', 'db', 't', 2_000), null, 'least recently touched conversations are evicted');
+  assert.ok(getPlaybackObservation('conv204', 'db', 't', 2_000));
+  assert.equal(getPlaybackObservation('conv204', 'db', 'other', 2_000), null, 'both ids must match');
+  const later = 1_000 + 3 * 60 * 60 * 1000;
+  assert.equal(getPlaybackObservation('conv204', 'db', 't', later), null, 'an idle ledger has expired at read time');
+  assert.equal(observePlaybackSummary('conv203', 't', summary({ turnId: 1 }), later), null, 'and at summary time');
 });
 
 test('wiring: GL audio feeds the client ledger; the server taps, judges and exposes it', () => {
@@ -159,5 +164,6 @@ test('wiring: GL audio feeds the client ledger; the server taps, judges and expo
   assert.match(ws, /observePlaybackSummary\(conversationId \?\? undefined, event\.sessionId, event\.data\?\.playbackSummary\)/);
   const route = read('../routes/luca-observer-route.ts');
   assert.match(route, /AND event_type <> 'client_playback_summary'/);
-  assert.match(route, /playback: getPlaybackObservation\(convId, observation\.dbSessionId \?\? null\)/);
+  assert.match(route, /playback: getPlaybackObservation\(convId, observation\.dbSessionId \?\? null, observation\.transientSessionId \?\? null\)/);
+  assert.match(ws, /if \(recorded && recorded\.accepted && recorded\.dbSessionId\)/);
 });
