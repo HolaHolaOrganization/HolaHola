@@ -29,6 +29,8 @@ export interface MockVoiceServer {
   dropClients(): void;
   /** While on, new connections wait unanswered in the handshake. */
   holdHandshakes(hold: boolean): void;
+  /** While on, new connections are refused at once. */
+  refuseHandshakes(refuse: boolean): void;
   /** Clients connected right now. */
   connectedClients(): number;
   waitFor(predicate: () => boolean, timeoutMs: number, label: string): Promise<void>;
@@ -39,6 +41,7 @@ export async function startMockVoiceServer(staticRoot: string, sessionId = 'e2e-
   const received: ReceivedMessage[] = [];
   const sockets = new Set<Socket>();
   let holding = false;
+  let refusing = false;
   let held: Array<() => void> = [];
 
   const http: HttpServer = createServer(async (req, res) => {
@@ -68,7 +71,8 @@ export async function startMockVoiceServer(staticRoot: string, sessionId = 'e2e-
 
   const io = new SocketServer(http, { transports: ['websocket'], maxHttpBufferSize: 10e6 });
   io.of('/voice').use((_socket, next) => {
-    if (holding) held.push(next);
+    if (refusing) next(new Error('refused'));
+    else if (holding) held.push(next);
     else next();
   });
   io.of('/voice').on('connection', socket => {
@@ -101,6 +105,7 @@ export async function startMockVoiceServer(staticRoot: string, sessionId = 'e2e-
       holding = hold;
       if (!hold) { for (const next of held) next(); held = []; }
     },
+    refuseHandshakes: refuse => { refusing = refuse; },
     connectedClients: () => sockets.size,
     async waitFor(predicate, timeoutMs, label) {
       const deadline = Date.now() + timeoutMs;
