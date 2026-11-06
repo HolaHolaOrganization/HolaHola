@@ -5,7 +5,7 @@
  */
 import { createServer, type Server as HttpServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
-import { extname, join, normalize } from 'node:path';
+import { extname, isAbsolute, join, normalize, relative } from 'node:path';
 import { Server as SocketServer, type Socket } from 'socket.io';
 
 const TYPES: Record<string, string> = {
@@ -36,14 +36,21 @@ export async function startMockVoiceServer(staticRoot: string, sessionId = 'e2e-
   const sockets = new Set<Socket>();
 
   const http: HttpServer = createServer(async (req, res) => {
-    const path = normalize(decodeURIComponent((req.url ?? '/').split('?')[0]));
+    let path: string;
+    try {
+      path = normalize(decodeURIComponent((req.url ?? '/').split('?')[0]));
+    } catch {
+      res.writeHead(400).end(); // Malformed percent-encoding.
+      return;
+    }
     // A small image with production's cache headers, under any name a test asks for.
     if (path.replaceAll('\\', '/').startsWith('/e2e-image/')) {
       res.writeHead(200, { 'content-type': 'image/png', 'cache-control': 'public, max-age=0' }).end(ONE_PIXEL_PNG);
       return;
     }
     const file = join(staticRoot, path === '/' || path === '\\' ? 'index.html' : path);
-    if (!file.startsWith(staticRoot)) { res.writeHead(403).end(); return; }
+    const inside = relative(staticRoot, file);
+    if (inside.startsWith('..') || isAbsolute(inside)) { res.writeHead(403).end(); return; }
     try {
       const body = await readFile(file);
       res.writeHead(200, { 'content-type': TYPES[extname(file)] ?? 'application/octet-stream' }).end(body);

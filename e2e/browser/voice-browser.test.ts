@@ -85,18 +85,21 @@ test('vision keeps sending frames while the student turn is processing', async (
   await page.context().close();
 });
 
-test('played Gemini Live audio is reported as one playback summary for the turn', async () => {
+test('played Gemini Live audio is reported as one playback summary for the turn', { timeout: 60_000 }, async () => {
   const page = await connectedPage();
   const turnId = 1;
   const chunkSamples = 4_800; // 200 ms at 24 kHz
-  for (let chunk = 0; chunk < 3; chunk++) {
-    server.send({
-      type: 'audio_chunk', turnId, sentenceIndex: 0, chunkIndex: chunk, isLast: false,
-      durationMs: 200, audioFormat: 'pcm_f32le', sampleRate: 24_000, audio: pcmChunk(chunkSamples, chunk * chunkSamples),
-    });
-  }
-  server.send({ type: 'audio_chunk', turnId, sentenceIndex: 0, chunkIndex: 3, isLast: true, durationMs: 0, audioFormat: 'pcm_f32le', audio: '' });
-  server.send({ type: 'response_complete', turnId, totalSentences: 1 });
+  const sendTurn = (id: number) => {
+    for (let chunk = 0; chunk < 3; chunk++) {
+      server.send({
+        type: 'audio_chunk', turnId: id, sentenceIndex: 0, chunkIndex: chunk, isLast: false,
+        durationMs: 200, audioFormat: 'pcm_f32le', sampleRate: 24_000, audio: pcmChunk(chunkSamples, (id * 10 + chunk) * chunkSamples),
+      });
+    }
+    server.send({ type: 'audio_chunk', turnId: id, sentenceIndex: 0, chunkIndex: 3, isLast: true, durationMs: 0, audioFormat: 'pcm_f32le', audio: '' });
+    server.send({ type: 'response_complete', turnId: id, totalSentences: 1 });
+  };
+  sendTurn(turnId);
 
   // 0.6 s of audio, then the ledger's 5 s finalize grace.
   await server.waitFor(() => server.telemetry('playback_turn_summary').length > 0, 15_000, 'a playback_turn_summary');
@@ -109,6 +112,13 @@ test('played Gemini Live audio is reported as one playback summary for the turn'
   assert.deepEqual(summary.dropped, {});
   assert.ok(summary.maxGapMs <= 50, `chunks were scheduled back to back (max gap ${summary.maxGapMs} ms)`);
   assert.ok(summary.audioContextStates.includes('running'), `AudioContext states: ${summary.audioContextStates}`);
+
+  // A newer turn is a second finalize trigger: once its own summary arrives, the first turn
+  // must still have exactly one.
+  sendTurn(turnId + 1);
+  const summariesFor = (id: number) => server.telemetry('playback_turn_summary').filter(e => e.data.playbackSummary.turnId === id);
+  await server.waitFor(() => summariesFor(turnId + 1).length > 0, 15_000, 'a summary for the newer turn');
+  assert.equal(summariesFor(turnId).length, 1, 'finalizing is once per turn');
   await page.context().close();
 });
 
