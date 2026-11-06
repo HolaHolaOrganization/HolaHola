@@ -1543,30 +1543,15 @@ LEXICAL CONSTRAINT: Do not use regional slang, fillers, or interjections from yo
             });
             return;
           }
-          // Proactive ACTFL reconnect: triggered by proactiveReconnect() method. Skip the
-          // exponential backoff and retriable-code check — call start() immediately using
-          // stored params. Resumption handle (if available) preserves conversation context.
-          if (this.isProactiveReconnecting && !this.isStopped) {
-            this.isProactiveReconnecting = false;
-            this.reconnectAttempts = 0;
-            console.log('[GeminiLive] Proactive reconnect onclose — calling start() immediately with updated ACTFL tier');
-            try {
-              await this.start(this.lastSystemPrompt, this.lastTools);
-              this.sendWsMessage(this.session.ws, { type: 'gl_reconnected' });
-            } catch (err: any) {
-              console.error('[GeminiLive] Proactive reconnect start() failed:', err?.message);
-              this.sendWsMessage(this.session.ws, {
-                type: 'voice_error',
-                code: 'RECONNECT_FAILED',
-                message: 'Session recalibration failed. Please try again.',
-                recoverable: true,
-              });
-            }
-            return;
-          }
-          if (!this.isStopped && this.RETRIABLE_CLOSE_CODES.has(code) && this.reconnectAttempts < this.MAX_RECONNECT_ATTEMPTS) {
+          // A close we asked for (ACTFL recalibration, GoAway) takes the same reconnect path as
+          // an unexpected one, with no backoff: it needs the same per-connection resets and the
+          // same context bridge. The retry count only tracks unexpected closes.
+          const deliberateClose = this.isProactiveReconnecting && !this.isStopped;
+          this.isProactiveReconnecting = false;
+          if (deliberateClose) this.reconnectAttempts = 0;
+          if (deliberateClose || (!this.isStopped && this.RETRIABLE_CLOSE_CODES.has(code) && this.reconnectAttempts < this.MAX_RECONNECT_ATTEMPTS)) {
             this.reconnectAttempts++;
-            const delayMs = 1000 * Math.pow(2, this.reconnectAttempts - 1); // 1 s, 2 s, 4 s
+            const delayMs = deliberateClose ? 0 : 1000 * Math.pow(2, this.reconnectAttempts - 1); // 1 s, 2 s, 4 s
             console.log(`[GeminiLive] Scheduling reconnect ${this.reconnectAttempts}/${this.MAX_RECONNECT_ATTEMPTS} in ${delayMs} ms`);
 
             this.sendWsMessage(this.session.ws, {

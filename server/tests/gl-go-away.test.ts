@@ -133,4 +133,18 @@ describe('session wiring', () => {
     assert.ok(at > 0);
     assert.match(source.slice(at, at + 200), /this\.isProactiveReconnecting = true/);
   });
+
+  it('a deliberate close gets the same resets and context bridge as an unexpected one', () => {
+    const at = source.indexOf('const deliberateClose = ');
+    assert.ok(at > 0);
+    const end = source.indexOf('private ', at);
+    const path = source.slice(at, end);
+    assert.match(path, /if \(deliberateClose \|\| \(/);
+    const resets = path.indexOf('this.isSetupComplete = false');
+    const bridge = path.indexOf('this.buildContextBridge()');
+    assert.ok(resets > 0, 'resets setup state, so setupComplete runs on the new connection');
+    assert.ok(path.includes('this.transcriptClosed = false'), 'reopens the transcript gate');
+    assert.ok(bridge > resets, 'starts with the bridge after resetting');
+    assert.doesNotMatch(source, /await this\.start\(this\.lastSystemPrompt, this\.lastTools\)/, 'no thinner path remains');
+  });
 });
