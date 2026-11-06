@@ -57,6 +57,7 @@ import { shouldRunPlacementAfterSession, completePlacementAssessment } from './s
 import { sessionCompassService, COMPASS_ENABLED } from './services/session-compass-service';
 import { architectVoiceService } from './services/architect-voice-service';
 import { voiceTelemetry } from './services/voice-pipeline-telemetry';
+import { observePlaybackSummary } from './services/playback-observation';
 import { updateToolEventEngagement, mapWhiteboardTypeToToolType } from './services/pedagogical-insights-service';
 import { buildNeuralNetworkPromptSection } from './services/neural-network-retrieval';
 import { buildEvelynSystemPrompt, buildGeneSystemPrompt, EVELYN_NAME, GENE_NAME, EVELYN_VOICE_CONFIG, GENE_VOICE_CONFIG, isBiologySession } from './services/biology-persona';
@@ -1433,8 +1434,26 @@ export function setupSocketIOHandler(io: SocketIOServer) {
       socket.emit('heartbeat_ack');
     });
     
+    // One playback-ledger summary per finalized turn: judged against what the server sent,
+    // kept for the observer, and persisted once (retransmissions are recognized, not re-counted).
+    const recordPlaybackSummary = (event: any) => {
+      if (event?.type !== 'playback_turn_summary') return;
+      try {
+        const recorded = observePlaybackSummary(conversationId ?? undefined, event.data?.playbackSummary);
+        if (recorded && !recorded.duplicate && recorded.dbSessionId) {
+          voiceTelemetry.log(recorded.dbSessionId, '', 'client_playback_summary', {
+            ...recorded.summary,
+            flags: recorded.verdict.flags,
+            thresholdVersion: recorded.verdict.thresholdVersion,
+            evidence: recorded.verdict.evidence,
+          });
+        }
+      } catch { /* observation only */ }
+    };
+
     socket.on('client_telemetry', (event: any) => {
       handleClientTelemetry(socket.id, event);
+      recordPlaybackSummary(event);
       // When client finishes playing Daniela's audio, open the echo-suppression mic gate.
       // glPlaybackEndedCallbacks bridges this telemetry scope to the GL session scope where
       // geminiLiveSession lives (handleStreamingVoiceConnectionWithAdapter).
@@ -1446,6 +1465,7 @@ export function setupSocketIOHandler(io: SocketIOServer) {
     socket.on('client_telemetry_batch', (events: any[]) => {
       events.forEach(event => {
         handleClientTelemetry(socket.id, event);
+        recordPlaybackSummary(event);
         if (event.type === 'playback_ended') {
           glPlaybackEndedCallbacks.get(socket.id)?.();
         }

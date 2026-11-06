@@ -9,7 +9,7 @@
 
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { getStreamingVoiceClient, StreamingVoiceClient } from '../lib/streamingVoiceClient';
-import { getStreamingAudioPlayer, StreamingAudioPlayer, StreamingAudioChunk, StreamingPlaybackState, isVerboseLoggingEnabled } from '../lib/audioUtils';
+import { getStreamingAudioPlayer, StreamingAudioPlayer, StreamingAudioChunk, StreamingPlaybackState, isVerboseLoggingEnabled, getPlaybackLedger } from '../lib/audioUtils';
 import { useStreamingSubtitles, UseStreamingSubtitlesReturn } from './useStreamingSubtitles';
 import { logAudioChunkReceived, updateDebugTimingState, trackWsMessage } from '../lib/debugTimingState';
 import { setGlobalPlaybackState, getGlobalPlaybackState } from '../lib/playbackStateStore';
@@ -864,6 +864,7 @@ export function useStreamingVoice(): UseStreamingVoiceReturn {
     
     if (!playerRef.current) {
       console.warn('[StreamingVoice] Audio chunk received but no player - DROPPING AUDIO');
+      if (msg.audioFormat === 'pcm_f32le') getPlaybackLedger().dropped(msg.turnId, 'no_player');
       return;
     }
 
@@ -902,7 +903,8 @@ export function useStreamingVoice(): UseStreamingVoiceReturn {
         bytes.buffer,
         msg.durationMs,
         msg.isLast,
-        sampleRate
+        sampleRate,
+        msg.turnId
       );
       return;
     }

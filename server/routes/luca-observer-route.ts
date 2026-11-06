@@ -75,6 +75,7 @@ export function registerLucaObserverRoute({
       const { sql: rawSql } = await import('drizzle-orm');
       const obsDb = getSharedDb();
       const { deriveGuardianObserverEvidence } = await import('../services/guardian-observer-evidence');
+      const { getPlaybackObservation } = await import('../services/playback-observation');
       const projectGuardianEvidence = (rows: any[], sessionRow: any | null) =>
         deriveGuardianObserverEvidence(
           rows.map(row => ({
@@ -238,6 +239,9 @@ export function registerLucaObserverRoute({
             SELECT id, event_type, event_data, created_at
             FROM voice_pipeline_events
             WHERE session_id IN (SELECT value FROM jsonb_array_elements_text(${JSON.stringify(sessionIds)}::jsonb) AS value)
+              -- Per-turn playback summaries have their own bounded section below; keep them
+              -- from crowding the general snapshot.
+              AND event_type <> 'client_playback_summary'
             ORDER BY created_at DESC
             LIMIT 40`)
         : { rows: [] };
@@ -344,6 +348,9 @@ export function registerLucaObserverRoute({
         },
         guardianEvidence,
         recentPipelineEvents,
+        // What the player reported for each recent turn versus what the server sent.
+        // Flags describe player reports, not audibility; missing reports are `unknown`.
+        playback: getPlaybackObservation(convId),
         // Exact evidence chain for grounding interventions. These are not inferred
         // "heard/missed" labels: each timeline names what the system observed.
         guardianAttemptTimeline: (observation.guardianAttempts ?? []).slice(-10).map(attempt => ({
