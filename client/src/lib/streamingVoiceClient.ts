@@ -478,6 +478,10 @@ export class StreamingVoiceClient {
   private abandonReconnectAttempt(): void {
     this.reconnectOwnership++;
     this.reconnectAttemptInFlight = false;
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
   }
 
   /**

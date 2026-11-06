@@ -178,6 +178,29 @@ test('a retry still in its handshake cannot disturb a session started after End 
   await page.context().close();
 });
 
+test('a retry waiting on its backoff does not act on a conversation warmed up since', { timeout: 60_000 }, async () => {
+  const page = await connectedPage();
+  server.refuseHandshakes(true);
+  try {
+    server.dropClients();
+    // Three fast attempts fail within about 3 s, which leaves the fourth waiting 15 s.
+    await new Promise(r => setTimeout(r, 5_000));
+    assert.equal(await page.evaluate(() => (window as any).harness.state()), 'reconnecting');
+  } finally {
+    server.refuseHandshakes(false);
+  }
+
+  const startsBefore = server.messages('start_session').length;
+  await page.evaluate(() => (window as any).harness.warmUp('e2e-warmed-conversation'));
+  await server.waitFor(() => server.connectedClients() === 1, 5_000, 'the warm-up connection');
+
+  // Outlast the backoff that was already waiting.
+  await new Promise(r => setTimeout(r, 17_000));
+  assert.equal(server.messages('start_session').length, startsBefore, 'a warm-up starts nothing until asked');
+  assert.equal(server.connectedClients(), 1, 'the warm-up connection was not replaced');
+  await page.context().close();
+});
+
 test('End Call during a retry stays ended', { timeout: 60_000 }, async () => {
   const page = await connectedPage();
   server.holdHandshakes(true);
