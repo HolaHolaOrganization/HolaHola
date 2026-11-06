@@ -1471,6 +1471,14 @@ LEXICAL CONSTRAINT: Do not use regional slang, fillers, or interjections from yo
           const code = event?.code as number;
           const reason = event?.reason || '(no reason)';
           console.log(`[GeminiLive] Session closed — code: ${code}, reason: ${reason}`);
+          // F3: persist the close so a mid-session drop has a recorded cause.
+          voiceTelemetry.log(this.session.id, String(this.session.userId ?? ''), 'gl_session_closed', {
+            code: Number.isFinite(code) ? code : null,
+            reason: String(event?.reason ?? '').slice(0, 200) || null,
+            isStopped: this.isStopped,
+            reconnectAttempts: this.reconnectAttempts,
+            retriableCode: this.RETRIABLE_CLOSE_CODES.has(code),
+          });
 
           // ── Auto-reconnect ─────────────────────────────────────────────────
           // Retriable codes are transient (network hiccup, GL service restart).
@@ -1627,7 +1635,10 @@ LEXICAL CONSTRAINT: Do not use regional slang, fillers, or interjections from yo
               this.isStarted = false;
               this.isSetupComplete = false;
               this.liveSession = null;
-              this.currentTurnId = 0;
+              // Advance, never reset: the client discards response_complete for any turnId below the
+              // highest it has seen, and in-flight tool handlers from the old connection must see
+              // their turn superseded (the call-ID guard compares against currentTurnId).
+              this.session.currentTurnId = ++this.currentTurnId;
               this.resetSubstantialReplayGuard();
               this.currentSentenceIndex = 0;
               this.currentChunkIndex = 0;
@@ -2616,7 +2627,8 @@ LEXICAL CONSTRAINT: Do not use regional slang, fillers, or interjections from yo
     this.isStarted = false;
     this.isSetupComplete = false;
     this.liveSession = null;
-    this.currentTurnId = 0;
+    // Advance, never reset (see the auto-reconnect path above).
+    this.session.currentTurnId = ++this.currentTurnId;
     this.resetSubstantialReplayGuard();
     this.currentSentenceIndex = 0;
     this.currentChunkIndex = 0;

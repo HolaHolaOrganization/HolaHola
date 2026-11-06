@@ -58,6 +58,7 @@ import { sessionCompassService, COMPASS_ENABLED } from './services/session-compa
 import { architectVoiceService } from './services/architect-voice-service';
 import { voiceTelemetry } from './services/voice-pipeline-telemetry';
 import { observePlaybackSummary } from './services/playback-observation';
+import { describeDisconnect, type DisconnectCause } from './services/voice-disconnect-cause';
 import { updateToolEventEngagement, mapWhiteboardTypeToToolType } from './services/pedagogical-insights-service';
 import { buildNeuralNetworkPromptSection } from './services/neural-network-retrieval';
 import { buildEvelynSystemPrompt, buildGeneSystemPrompt, EVELYN_NAME, GENE_NAME, EVELYN_VOICE_CONFIG, GENE_VOICE_CONFIG, isBiologySession } from './services/biology-persona';
@@ -805,6 +806,10 @@ class SocketIOWebSocketAdapter implements VoiceWSConnection {
   private errorHandlers: Array<(error: Error) => void> = [];
   private pongHandlers: Array<() => void> = [];
   private _conversationId: string | null = null;
+  // Why this connection ended (F3): the server's own close(code, reason), else Socket.io's
+  // disconnect reason ('transport close', 'ping timeout', 'client namespace disconnect', ...).
+  private serverClose: { code: number | null; reason: string | null } | null = null;
+  private socketDisconnectReason: string | null = null;
 
   /** The underlying Socket.io socket ID — used to bridge telemetry events to the GL session. */
   get socketId(): string { return this.socket.id; }
@@ -824,7 +829,8 @@ class SocketIOWebSocketAdapter implements VoiceWSConnection {
       this.messageHandlers.forEach(h => h(data));
     });
     
-    socket.on('disconnect', () => {
+    socket.on('disconnect', (reason: string) => {
+      this.socketDisconnectReason = typeof reason === 'string' ? reason : null;
       this.closeHandlers.forEach(h => h());
     });
     
@@ -987,7 +993,13 @@ class SocketIOWebSocketAdapter implements VoiceWSConnection {
   }
   
   close(code?: number, reason?: string): void {
+    this.serverClose = { code: code ?? null, reason: reason ?? null };
     this.socket.disconnect(true);
+  }
+
+  /** Who ended the connection and why; reasons are bounded, never payloads. */
+  get disconnectCause(): DisconnectCause {
+    return describeDisconnect(this.serverClose, this.socketDisconnectReason);
   }
   
   terminate(): void {
@@ -5406,6 +5418,17 @@ ${lastNote.tutorNotes}`);
 
   ws.on('close', (closeCode: number, closeReason: Buffer) => {
     console.log(`[Streaming Voice] Socket.io connection closed (code: ${closeCode})`);
+
+    // F3: record why this connection ended, next to the session's other pipeline events.
+    const cause: DisconnectCause = (ws as any).disconnectCause ?? describeDisconnect(null, null);
+    if (usageSession?.id) {
+      voiceTelemetry.log(usageSession.id, String(userId ?? ''), 'client_socket_disconnected', {
+        ...cause,
+        conversationId: conversationId ?? null,
+        hadGlSession: !!geminiLiveSession,
+        durationSeconds: sessionStartTime > 0 ? Math.round((Date.now() - sessionStartTime) / 1000) : null,
+      });
+    }
 
     if (conversationId && duplicateReplacedCallbacks.get(conversationId)) {
       duplicateReplacedCallbacks.delete(conversationId);

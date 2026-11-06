@@ -229,6 +229,9 @@ export function useStreamingVoice(): UseStreamingVoiceReturn {
   const [voiceSessionId, setVoiceSessionId] = useState<string | null>(null);
   const handleSessionStart = useCallback((event: { sessionId: string; voiceSessionId: string | null }) => {
     setVoiceSessionId(event.voiceSessionId);
+    // A new server session numbers its turns from 0 again. Without this reset, every
+    // response_complete of the new session looked stale until its turnId caught up.
+    currentTurnIdRef.current = 0;
   }, []);
   const [playbackState, setPlaybackState] = useState<StreamingPlaybackState>('idle');
   const [isProcessing, setIsProcessing] = useState(false);
