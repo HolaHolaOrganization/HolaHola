@@ -29,6 +29,7 @@ import { queryClient, apiRequest } from "@/lib/queryClient";
 import { VoiceChatViewManager } from "@/components/VoiceChatViewManager";
 import { useStreamingVoice } from "@/hooks/useStreamingVoice";
 import { useVisionCapture } from "@/hooks/useVisionCapture";
+import { visionSessionPhase } from "@/lib/vision-session-state";
 import { usePlaybackState, getGlobalPlaybackState, setGlobalPlaybackState } from "@/lib/playbackStateStore";
 import { useUser } from "@/lib/auth";
 import { useLearningFilter } from "@/contexts/LearningFilterContext";
@@ -441,10 +442,9 @@ export function StreamingVoiceChat({
   const globalPlaybackState = usePlaybackState(); // Global store - reliable during HMR
 
   // Vision capture — opt-in webcam + screen share sent to Daniela's GL session
-  const visionIsConnected = (['connected', 'ready', 'streaming'] as const).includes(
-    streamingVoice.state.connectionState as any
-  );
-  const vision = useVisionCapture(streamingVoice.sendVideoFrame, visionIsConnected);
+  // Vision stays on through every turn and across a reconnect; it is released only when the session ends.
+  const visionPhase = visionSessionPhase(streamingVoice.state.connectionState);
+  const vision = useVisionCapture(streamingVoice.sendVideoFrame, visionPhase !== 'ended');
   const streamingConnectedRef = useRef(false);
   const useStreamingMode = ENABLE_STREAMING_MODE && streamingVoice.isSupported();
   // Keep connectionStateRef in sync (must be after streamingVoice is defined)
@@ -4456,7 +4456,8 @@ export function StreamingVoiceChat({
         )}
 
         {/* Vision toggles — opt-in webcam + screen share for Daniela */}
-        {useStreamingMode && visionIsConnected && vision.isVisionSupported && (
+        {useStreamingMode && vision.isVisionSupported &&
+          (visionPhase === 'live' || vision.webcamActive || vision.screenActive) && (
           <div className="absolute bottom-24 right-3 z-50 flex flex-col gap-1.5 items-end">
             <Button
               size="icon"
