@@ -1625,7 +1625,10 @@ LEXICAL CONSTRAINT: Do not use regional slang, fillers, or interjections from yo
               this.isStarted = false;
               this.isSetupComplete = false;
               this.liveSession = null;
-              this.currentTurnId = 0;
+              // Advance, never reset: the client discards response_complete for any turnId below the
+              // highest it has seen, and in-flight tool handlers from the old connection must see
+              // their turn superseded (the call-ID guard compares against currentTurnId).
+              this.session.currentTurnId = ++this.currentTurnId;
               this.resetSubstantialReplayGuard();
               this.currentSentenceIndex = 0;
               this.currentChunkIndex = 0;
@@ -2614,7 +2617,8 @@ LEXICAL CONSTRAINT: Do not use regional slang, fillers, or interjections from yo
     this.isStarted = false;
     this.isSetupComplete = false;
     this.liveSession = null;
-    this.currentTurnId = 0;
+    // Advance, never reset (see the auto-reconnect path above).
+    this.session.currentTurnId = ++this.currentTurnId;
     this.resetSubstantialReplayGuard();
     this.currentSentenceIndex = 0;
     this.currentChunkIndex = 0;
