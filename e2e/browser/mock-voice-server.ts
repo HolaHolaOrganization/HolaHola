@@ -5,7 +5,7 @@
  */
 import { createServer, type Server as HttpServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
-import { extname, join, normalize } from 'node:path';
+import { extname, isAbsolute, join, normalize, relative } from 'node:path';
 import { Server as SocketServer, type Socket } from 'socket.io';
 
 const TYPES: Record<string, string> = {
@@ -34,9 +34,16 @@ export async function startMockVoiceServer(staticRoot: string, sessionId = 'e2e-
   const sockets = new Set<Socket>();
 
   const http: HttpServer = createServer(async (req, res) => {
-    const path = normalize(decodeURIComponent((req.url ?? '/').split('?')[0]));
+    let path: string;
+    try {
+      path = normalize(decodeURIComponent((req.url ?? '/').split('?')[0]));
+    } catch {
+      res.writeHead(400).end(); // Malformed percent-encoding.
+      return;
+    }
     const file = join(staticRoot, path === '/' || path === '\\' ? 'index.html' : path);
-    if (!file.startsWith(staticRoot)) { res.writeHead(403).end(); return; }
+    const inside = relative(staticRoot, file);
+    if (inside.startsWith('..') || isAbsolute(inside)) { res.writeHead(403).end(); return; }
     try {
       const body = await readFile(file);
       res.writeHead(200, { 'content-type': TYPES[extname(file)] ?? 'application/octet-stream' }).end(body);
