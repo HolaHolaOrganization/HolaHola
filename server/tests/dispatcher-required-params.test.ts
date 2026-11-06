@@ -120,7 +120,14 @@ describe('declarations match handlers', () => {
       if (at < 0) continue;
       const rest = handlers.slice(at + 5);
       const next = rest.search(/\n\s*case '[A-Z0-9_]+': \{/);
-      const block = next < 0 ? rest : rest.slice(0, next);
+      let block = next < 0 ? rest : rest.slice(0, next);
+      // COMPARE reads its inputs through this helper.
+      if (block.includes('compareArgsToVisualCompare')) {
+        const registrySource = readFileSync(new URL('../services/daniela-function-registry.ts', import.meta.url), 'utf8');
+        const helper = registrySource.indexOf('export function compareArgsToVisualCompare');
+        assert.ok(helper > 0);
+        block += registrySource.slice(helper, registrySource.indexOf('\n}\n', helper));
+      }
       const required = (entry.declaration.parametersJsonSchema as { required?: string[] } | undefined)?.required ?? [];
       checked++;
       for (const key of required) {
