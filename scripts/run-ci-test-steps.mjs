@@ -110,6 +110,10 @@ commands.splice(safetyInsertion, 0,
   'npx tsx --test server/services/canonical-attribution.test.ts',
   'npx tsx --test server/scripts/test-agent-voice-turn-endsession-tags.test.ts',
   'npx tsx --test server/scripts/test-drizzle-array-param-queries.test.ts',
+  // Real Chromium with fake camera and mic against a mock voice server: no secrets, no database.
+  // Installed here rather than in ci.yml because agent Apps deliberately cannot edit workflows.
+  'npx playwright install --with-deps chromium',
+  'npm run test:browser',
   'npx tsx --test server/scripts/test-playback-ledger.test.ts',
   'npx tsx --test server/scripts/test-voice-disconnect-cause.test.ts',
   'npx tsx --test server/scripts/test-memory-embedding-vec-postgres.test.ts',

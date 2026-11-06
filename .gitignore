@@ -1,5 +1,6 @@
 node_modules
 dist
+dist-e2e
 .DS_Store
 
 # Coordinator V2 host-installed runtime generations and retry staging
