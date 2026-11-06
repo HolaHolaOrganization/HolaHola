@@ -7,7 +7,9 @@
  * - vision keeps sending frames through a student turn ('processing'), F4;
  * - Gemini Live audio played by the browser is reported in one playback summary
  *   per turn, with every chunk played through (the F1–F2 ledger);
- * - the session comes back after a network outage, and vision resumes (live test 2, G1).
+ * - the session comes back after a network outage, and vision resumes (live test 2, G1);
+ * - the avatar never shows a broken image during an outage (G7);
+ * - images in the Studio and whiteboard panes use the room they have (G12).
  */
 import assert from 'node:assert/strict';
 import { resolve } from 'node:path';
@@ -138,4 +140,52 @@ test('the session comes back after a network outage, and vision resumes', { time
   const resumedAt = Date.now();
   await server.waitFor(() => server.messages('video_frame').some(m => m.at > resumedAt), 15_000, 'webcam frames after the reconnect');
   await page.context().close();
+});
+
+test('the avatar never shows a broken image during an outage', { timeout: 40_000 }, async () => {
+  const context = await browser.newContext();
+  const page = await context.newPage();
+  await page.goto(server.url);
+  await page.waitForFunction(() => (document.getElementById('avatar') as HTMLImageElement | null)?.naturalWidth === 1, null, { timeout: 15_000 });
+  await page.waitForFunction(() => performance.getEntriesByName(new URL('/e2e-image/talking.png', location.href).href).length > 0, null, { timeout: 5_000 });
+  const showing = () => page.evaluate(() => {
+    const image = document.getElementById('avatar') as HTMLImageElement;
+    return { src: new URL(image.src).pathname, width: image.naturalWidth };
+  });
+  const showAndSettle = async (src: string) => {
+    await page.evaluate(s => (window as any).avatar.setSrc(s), src);
+    await new Promise(r => setTimeout(r, 500));
+    return showing();
+  };
+
+  await context.setOffline(true);
+  assert.deepEqual(await showAndSettle('/e2e-image/talking.png'), { src: '/e2e-image/talking.png', width: 1 }, 'a preloaded image still shows offline');
+  assert.deepEqual(await showAndSettle('/e2e-image/never-loaded.png'), { src: '/e2e-image/talking.png', width: 1 }, 'an unavailable image keeps the last good one');
+
+  await context.setOffline(false);
+  await page.waitForFunction(() => {
+    const image = document.getElementById('avatar') as HTMLImageElement;
+    return image.src.endsWith('/e2e-image/never-loaded.png') && image.naturalWidth === 1;
+  }, null, { timeout: 10_000 });
+  await context.close();
+});
+
+test('images in the Studio and whiteboard panes use the room they have', async () => {
+  const context = await browser.newContext({ viewport: { width: 1400, height: 1000 } });
+  const page = await context.newPage();
+  await page.goto(server.url);
+  await page.waitForFunction(() => (document.querySelector('#whiteboard-pane img') as HTMLImageElement | null)?.complete === true, null, { timeout: 15_000 });
+  const measure = (pane: string, selector: string) => page.evaluate(([p, s]) => {
+    const root = document.getElementById(p)!;
+    return { width: root.querySelector(s)!.getBoundingClientRect().width, overflow: root.scrollWidth - root.clientWidth };
+  }, [pane, selector]);
+
+  const face = await measure('studio-pane', 'svg');
+  assert.ok(face.width >= 120, `a lone emotion face has room to be large, got ${face.width}px`);
+  assert.equal(face.overflow, 0, 'the face fits the 280px Studio panel');
+
+  const card = await measure('whiteboard-pane', 'img');
+  assert.ok(card.width >= 240, `the vocab image uses the pane's width, got ${card.width}px`);
+  assert.equal(card.overflow, 0, 'the card fits its pane');
+  await context.close();
 });

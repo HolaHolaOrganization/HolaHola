@@ -32,7 +32,8 @@ import { VoiceLabPanel, type VoiceOverride } from "./VoiceLabPanel";
 import type { WhiteboardItem, SubtitleMode } from "@shared/whiteboard-types";
 import type { StreamingSubtitleState } from "../hooks/useStreamingSubtitles";
 import type { VoiceInputMode, OpenMicState } from "@shared/streaming-voice-types";
-import { getTutorAvatar, type TutorState } from "@/lib/tutor-avatars";
+import { getTutorAvatar, getTutorAvatarSet, type TutorState } from "@/lib/tutor-avatars";
+import { usePreloadImages, useResilientImageSrc } from "@/hooks/useResilientImageSrc";
 import { usePlaybackState } from "@/lib/playbackStateStore";
 
 // Types for hive channel collaboration
@@ -370,6 +371,9 @@ export function ImmersiveTutor({
     return getTutorAvatar(targetLanguage, tutorGender, avatarState);
   };
   const tutorImageUrl = getTutorImage();
+  const tutorImage = useResilientImageSrc(tutorImageUrl);
+  const avatarSet = getTutorAvatarSet(targetLanguage, tutorGender);
+  usePreloadImages([avatarSet.listening, avatarSet.talking, avatarSet.thinking]);
   
   // Get the current avatar state for test IDs and animation
   const getAvatarState = (): "idle" | "listening" | "speaking" | "thinking" => {
@@ -692,7 +696,10 @@ export function ImmersiveTutor({
         />
         
         <img
-          src={tutorImageUrl}
+          key={tutorImage.key}
+          src={tutorImage.src}
+          onLoad={tutorImage.onLoad}
+          onError={tutorImage.onError}
           alt="Language Tutor"
           className="max-w-full max-h-full object-contain"
           data-testid={`avatar-state-${getAvatarState()}`}

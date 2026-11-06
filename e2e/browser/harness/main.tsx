@@ -4,7 +4,12 @@
  * phase and useVisionCapture — and exposes a small control surface on window for
  * Playwright. A mock voice server stands in for the real one; no secrets, no Gemini.
  */
+import { useState } from 'react';
 import { createRoot } from 'react-dom/client';
+import '@/index.css';
+import { SceneCanvas } from '@/components/SceneCanvas';
+import { VocabCardItemDisplay } from '@/components/Whiteboard';
+import { usePreloadImages, useResilientImageSrc } from '@/hooks/useResilientImageSrc';
 import { useStreamingVoice } from '@/hooks/useStreamingVoice';
 import { useVisionCapture } from '@/hooks/useVisionCapture';
 import { getStreamingVoiceClient } from '@/lib/streamingVoiceClient';
@@ -16,6 +21,29 @@ import { visionSessionPhase } from '@/lib/vision-session-state';
  */
 const stateHistory: string[] = [];
 getStreamingVoiceClient().on('stateChange', (state: unknown) => { stateHistory.push(String(state)); });
+
+/** The avatar's image behaviour, on images a test controls. */
+function AvatarProbe() {
+  const [src, setSrc] = useState('/e2e-image/listening.png');
+  const image = useResilientImageSrc(src);
+  usePreloadImages(['/e2e-image/talking.png']);
+  (window as any).avatar = { setSrc };
+  return <img id="avatar" key={image.key} src={image.src} onLoad={image.onLoad} onError={image.onError} alt="avatar" />;
+}
+
+/** The two panes David saw poorly sized, at their real widths. */
+function Panes() {
+  return (
+    <>
+      <div id="studio-pane" style={{ width: 280 }}>
+        <SceneCanvas data={{ environment: '', props: [], emotionData: { emotion: 'excited' } } as any} />
+      </div>
+      <div id="whiteboard-pane" style={{ width: 280 }}>
+        <VocabCardItemDisplay index={0} item={{ type: 'vocab_card', content: 'gato', data: { word: 'gato', definition: 'cat', imageUrl: '/e2e-image/gato.png' } } as any} />
+      </div>
+    </>
+  );
+}
 
 function Harness() {
   const voice = useStreamingVoice();
@@ -42,6 +70,8 @@ function Harness() {
       <div id="connection-state">{voice.state.connectionState}</div>
       <div id="vision-phase">{phase}</div>
       <div id="webcam-active">{String(vision.webcamActive)}</div>
+      <AvatarProbe />
+      <Panes />
     </div>
   );
 }

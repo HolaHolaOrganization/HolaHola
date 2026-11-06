@@ -4011,7 +4011,7 @@ function TextbookSearchItemDisplay({ item, index }: { item: TextbookSearchItem; 
 
 // ─── Vocab Card ───────────────────────────────────────────────────────────────
 
-function VocabCardItemDisplay({ item, index }: { item: VocabCardItem; index: number }) {
+export function VocabCardItemDisplay({ item, index }: { item: VocabCardItem; index: number }) {
   const { data } = item;
   return (
     <div
@@ -4027,12 +4027,12 @@ function VocabCardItemDisplay({ item, index }: { item: VocabCardItem; index: num
           <span className="ml-auto text-xs text-muted-foreground uppercase">{data.language}</span>
         )}
       </div>
-      <div className="flex items-start gap-3">
+      <div className="space-y-2">
         {data.imageUrl && (
           <img
             src={data.imageUrl}
             alt={data.word}
-            className="w-16 h-16 object-cover rounded-md shrink-0"
+            className="w-full max-h-72 object-contain rounded-md"
           />
         )}
         <div className="space-y-1 min-w-0">
