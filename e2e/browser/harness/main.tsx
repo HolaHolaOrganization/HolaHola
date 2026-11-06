@@ -64,6 +64,7 @@ function Harness() {
       subtitleMode: 'off',
     }),
     disconnect: () => voice.disconnect(),
+    warmUp: (conversationId: string) => getStreamingVoiceClient().warmUp(conversationId),
     toggleWebcam: () => vision.toggleWebcam(),
     state: () => voice.state.connectionState,
     stateHistory: () => [...stateHistory],
