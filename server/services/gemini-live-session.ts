@@ -911,6 +911,11 @@ export class GeminiLiveSession {
   // greetingPhaseActive is done, so GL multi-chunk greetings are never suppressed.
   // Prevents spurious second GL generation (unmasked by Bug 1 gate removal July 24 2026).
   private hasStudentInputSinceLastResponse = true;
+  // Tracks whether student input (audio chunk, interrupt, or student text turn) arrived
+  // AFTER the most recent generationComplete, so _doFlushTranscripts() (800ms later)
+  // does not clear hasStudentInputSinceLastResponse if a PTT or open-mic chunk arrived
+  // during the 800ms generationCompleteSealTimer window of a 0-audio turn.
+  private hasStudentInputSinceLastGenerationComplete = false;
   // Ghost-turn tracing: records the most recent mid-session sendClientContent injection
   // (text turn, heartbeat directive, pre-turn guardian, etc.). When a ghost turn is
   // suppressed in _doFlushTranscripts, this identifies WHICH injection triggered the
@@ -1646,6 +1651,7 @@ LEXICAL CONSTRAINT: Do not use regional slang, fillers, or interjections from yo
               this.isGreetingTurn = false;
               this.isTutorGeneratingAudio = false;
               this.hasStudentInputSinceLastResponse = false;
+              this.hasStudentInputSinceLastGenerationComplete = false;
               this.responseFlushedToClient = false;
               if (this.playbackGateSafetyTimeout) {
                 clearTimeout(this.playbackGateSafetyTimeout);
@@ -1844,6 +1850,7 @@ LEXICAL CONSTRAINT: Do not use regional slang, fillers, or interjections from yo
     if (this.isTutorGeneratingAudio) return;
     // Student audio is being sent — confirm input has arrived since last response.
     this.hasStudentInputSinceLastResponse = true;
+    this.hasStudentInputSinceLastGenerationComplete = true;
     const base64Audio = pcm16Buffer.toString('base64');
     this.liveSession.sendRealtimeInput({
       audio: {
@@ -2018,6 +2025,7 @@ LEXICAL CONSTRAINT: Do not use regional slang, fillers, or interjections from yo
     this.resetSubstantialReplayGuard();
     // Student actively interrupted — their audio is arriving, so count it as input.
     this.hasStudentInputSinceLastResponse = true;
+    this.hasStudentInputSinceLastGenerationComplete = true;
     // Reset response-flushed guard so the next generation is not spuriously suppressed.
     this.responseFlushedToClient = false;
     // DOUBLE-AUDIO FIX: Clear suppress flag on interrupt so a stale reconnect-era flag
@@ -2449,6 +2457,7 @@ LEXICAL CONSTRAINT: Do not use regional slang, fillers, or interjections from yo
       // is a ghost turn (audio suppressed + flush skipped).
       if (opts?.isStudentInput) {
         this.hasStudentInputSinceLastResponse = true;
+        this.hasStudentInputSinceLastGenerationComplete = true;
       }
       console.log(`[GeminiLive] Text turn sent (${label}, ${text.length} chars): "${text.slice(0, 80)}"`);
       return true;
@@ -2670,6 +2679,7 @@ LEXICAL CONSTRAINT: Do not use regional slang, fillers, or interjections from yo
     this.greetingPhaseActive = false;
     this.isTutorGeneratingAudio = false;
     this.hasStudentInputSinceLastResponse = false;
+    this.hasStudentInputSinceLastGenerationComplete = false;
     this.responseFlushedToClient = false;
     if (this.playbackGateSafetyTimeout) {
       clearTimeout(this.playbackGateSafetyTimeout);
@@ -3291,11 +3301,30 @@ LEXICAL CONSTRAINT: Do not use regional slang, fillers, or interjections from yo
         // A new utterance makes every prior carry-forward grounding result stale.
         // Never merge a previous topic into a newer student turn: it turns an
         // honest archive check into a subject change.
-        const turnBoundary = registerInputTranscriptionChunk(
-          this.startNewStudentTurnOnNextInputTranscription,
-          this.activeStudentTurnEpoch,
-          this.unfinalizedStudentTurnEpochs,
-        );
+        // G3 guard: only advance student turn epoch / lineage / prior-grounding state
+        // when student input has arrived since the last response OR while Daniela's
+        // current response is still generating/playing (line 3001 sets
+        // hasStudentInputSinceLastResponse = false on her first audio chunk while setting
+        // isTutorGeneratingAudio = true, so a real student utterance whose
+        // inputTranscription lags behind her first audio chunk arrives with
+        // isTutorGeneratingAudio === true). Upstream GL phantom inputTranscription events
+        // in Live Test 2 (dbSession 151ccc83-50e8-4516-9d88-65d98918f358) arrived at
+        // 20:59:07Z and 21:00:13Z after the 60s safety timeout force-opened the mic gate
+        // at ~20:58:45Z, when both flags were false.
+        const acceptInputTranscriptionForTurn =
+          this.hasStudentInputSinceLastResponse || this.isTutorGeneratingAudio;
+        const turnBoundary = acceptInputTranscriptionForTurn
+          ? registerInputTranscriptionChunk(
+              this.startNewStudentTurnOnNextInputTranscription,
+              this.activeStudentTurnEpoch,
+              this.unfinalizedStudentTurnEpochs,
+            )
+          : {
+              activeStudentTurnEpoch: this.activeStudentTurnEpoch,
+              startNewStudentTurnOnNextInputTranscription:
+                this.startNewStudentTurnOnNextInputTranscription,
+              startedNewStudentUtterance: false,
+            };
         this.activeStudentTurnEpoch = turnBoundary.activeStudentTurnEpoch;
         this.startNewStudentTurnOnNextInputTranscription =
           turnBoundary.startNewStudentTurnOnNextInputTranscription;
@@ -3471,10 +3500,11 @@ LEXICAL CONSTRAINT: Do not use regional slang, fillers, or interjections from yo
         //   (a) the generic threshold is met (>10 chars for any utterance), OR
         //   (b) an emotional-valence phrase is detected regardless of length — short
         //       disclosures like "I froze" (7 chars) must not be silently skipped.
-        const _emotionalEarlyCheck = !this.preTurnGroundingFired
+        const _emotionalEarlyCheck = !this.preTurnGroundingFired && acceptInputTranscriptionForTurn
           ? detectStudentEmotionalValence(this.pendingInputTranscript)
           : null;
-        const _guardianShouldFire = !this.preTurnGroundingFired && (
+        const _guardianShouldFire = !this.preTurnGroundingFired &&
+          acceptInputTranscriptionForTurn && (
           this.pendingInputTranscript.trim().length > 10 ||
           (_emotionalEarlyCheck?.detected ?? false)
         );
@@ -3979,7 +4009,21 @@ LEXICAL CONSTRAINT: Do not use regional slang, fillers, or interjections from yo
           }
           this.pendingOutputTranscript = '';
           this.usingOutputTranscription = true;
+          // G4: When a genuine new response starts via outputTranscription (including real
+          // 0-audio turns where no audio chunk cleared responseFlushedToClient at line 3007),
+          // clear responseFlushedToClient so a dropped generationComplete is still protected
+          // by the 8s turnComplete fallback timer.
+          if (this.hasStudentInputSinceLastResponse || this.greetingPhaseActive) {
+            this.responseFlushedToClient = false;
+          }
         }
+        this.hasStudentInputSinceLastGenerationComplete = false;
+        const isPhantomZeroAudioOutput =
+          this.currentSentenceIndex === 0 &&
+          !this.hadAudioInCurrentSubturn &&
+          !this.isTutorGeneratingAudio &&
+          !this.hasStudentInputSinceLastResponse &&
+          !this.greetingPhaseActive;
         const acceptedText = this.appendOutputTranscriptChunk(isFirstOutputChunk ? text.trimStart() : text);
         // Use the accepted text for client subtitles and downstream hard-wall
         // checks; the factual stream callback above remains untouched.
@@ -3987,7 +4031,7 @@ LEXICAL CONSTRAINT: Do not use regional slang, fillers, or interjections from yo
         if (acceptedTranscriptText) {
         // Hard wall: watch for memory assertion phrases without Archive access mid-output.
         // Flag for post-turn correction injection at generationComplete.
-        if (!this.hardWallTriggered && this.pendingOutputTranscript.length > 20) {
+        if (!this.hardWallTriggered && !isPhantomZeroAudioOutput && this.pendingOutputTranscript.length > 20) {
           const lowerOut = this.pendingOutputTranscript.toLowerCase();
           const HW_PHRASES = ['i remember', 'i recall', 'you told me', 'you mentioned', 'we discussed', 'as we discussed', 'you shared', 'last time we'];
           const hwMatch = HW_PHRASES.find(p => lowerOut.includes(p));
@@ -4001,7 +4045,7 @@ LEXICAL CONSTRAINT: Do not use regional slang, fillers, or interjections from yo
             }
           }
         }
-        if (isFirstOutputChunk && !this.firstAudioSentThisTurn && !this.processingPendingSentThisTurn) {
+        if (isFirstOutputChunk && !isPhantomZeroAudioOutput && !this.firstAudioSentThisTurn && !this.processingPendingSentThisTurn) {
           this.processingPendingSentThisTurn = true;
           console.log('[GeminiLive] Firing processing_pending (transcription first, before audio)');
           voiceTelemetry.log(this.session.id, String(this.session.userId ?? ''), 'gl_processing_pending_fired', {
@@ -4081,12 +4125,35 @@ LEXICAL CONSTRAINT: Do not use regional slang, fillers, or interjections from yo
       // making sub-turn 2 look like a brand-new turn — firing processing_pending again,
       // resetting the PCM player mid-response, and snapping the avatar to "thinking".
       // 8000ms gives GL ample time for slow inter-sub-turn reasoning gaps.
-      if (this.transcriptFlushTimer) clearTimeout(this.transcriptFlushTimer);
-      this.transcriptFlushTimer = setTimeout(() => {
-        this.flushTranscripts().catch(err =>
-          console.warn('[GeminiLive] Transcript flush error:', err.message)
+      //
+      // G4 timing evidence (Live Test 2, dbSession 151ccc83-50e8-4516-9d88-65d98918f358):
+      // Across 19 real exchanges, 18 mid-session 0-sentence flushes (11 gl_transcripts_flushed
+      // totalSentences:0 + 7 gl_ghost_turn_suppressed) fired 14–24s after generationComplete.
+      // Wire order inferred from flush timing (not directly observed on the wire): GL emitted
+      // generationComplete first, and turnComplete arrived 6–16s AFTER generationComplete had
+      // already sealed and flushed the turn. Unconditionally arming this 8000ms fallback on a
+      // late turnComplete fired a second _doFlushTranscripts() 8s later on an already-flushed
+      // turn. Only arm the fallback when the current response has NOT already been flushed
+      // (!this.responseFlushedToClient) and is NOT currently in the 800ms generationComplete
+      // seal window (!this.generationCompleteSealTimer).
+      if (this.transcriptFlushTimer) {
+        clearTimeout(this.transcriptFlushTimer);
+        this.transcriptFlushTimer = null;
+      }
+      this.hasStudentInputSinceLastGenerationComplete = false;
+      if (!this.responseFlushedToClient && !this.generationCompleteSealTimer) {
+        this.transcriptFlushTimer = setTimeout(() => {
+          this.transcriptFlushTimer = null;
+          this.flushTranscripts().catch(err =>
+            console.warn('[GeminiLive] Transcript flush error:', err.message)
+          );
+        }, 8000);
+      } else {
+        console.log(
+          `[GeminiLive] turnComplete fallback timer skipped — turn already flushed or sealing ` +
+          `(turnId: ${this.currentTurnId}, flushed: ${this.responseFlushedToClient}, sealing: ${Boolean(this.generationCompleteSealTimer)})`
         );
-      }, 8000);
+      }
     }
 
     // ── Generation complete (GL uses this instead of turnComplete) ───────────
@@ -4126,6 +4193,7 @@ LEXICAL CONSTRAINT: Do not use regional slang, fillers, or interjections from yo
       // of its existing rule-based checks (struggle count, phase duration, ACTFL mismatch).
       // Record generation completion time for heartbeat silence gate.
       this.lastGenerationCompleteTime = Date.now();
+      this.hasStudentInputSinceLastGenerationComplete = false;
 
       if (this.currentTurnThoughtBuffer) {
         const thoughtSnippet = this.currentTurnThoughtBuffer.slice(0, 200);
@@ -4169,7 +4237,23 @@ LEXICAL CONSTRAINT: Do not use regional slang, fillers, or interjections from yo
       // Runs at generationComplete — by this point pendingOutputTranscript holds the
       // full text of Daniela's turn and currentTurnToolCalls holds every tool name
       // she called in this turn. Detection checks for memory assertions without Archive access.
-      {
+      // G3 guard: skip post-turn Guardian / friction / hard-wall checks on phantom 0-audio
+      // turns where no student input arrived since the last response.
+      const isPhantomZeroAudioTurn =
+        this.currentSentenceIndex === 0 &&
+        !this.hadAudioInCurrentSubturn &&
+        !this.hasStudentInputSinceLastResponse &&
+        !this.greetingPhaseActive;
+      if (isPhantomZeroAudioTurn) {
+        this.currentTurnToolCalls = [];
+        this.preTurnGroundingFired = false;
+        this.preTurnIsNamedRecord = false;
+        this.preTurnGroundingResult = null;
+        this.preTurnGroundingPromise = null;
+        this.preTurnGroundingBinding = null;
+        this.preTurnGroundingIsEmotional = false;
+        this.hardWallTriggered = false;
+      } else {
         const glSlideResult = detectFrictionlessSlide(
           this.pendingOutputTranscript.trim(),
           this.currentTurnToolCalls,
@@ -4839,6 +4923,7 @@ LEXICAL CONSTRAINT: Do not use regional slang, fillers, or interjections from yo
         clearTimeout(this.transcriptFlushTimer);
         this.transcriptFlushTimer = null;
       }
+      this.hasStudentInputSinceLastGenerationComplete = false;
       this.generationCompleteSealTimer = setTimeout(() => {
         this.generationCompleteSealTimer = null;
         if (!this.isStopped) {
@@ -6137,33 +6222,45 @@ LEXICAL CONSTRAINT: Do not use regional slang, fillers, or interjections from yo
   private async _doFlushTranscripts(): Promise<void> {
     // ── GHOST TURN GUARD ─────────────────────────────────────────────────────
     // A generation cycle that produced 0 audio sentences with NO student input since
-    // the last response is a spurious second GL generation — typically triggered by a
-    // mid-session sendClientContent injection (pedagogical/tension directive, heartbeat)
-    // arriving after the real turn completed. The double-generation audio guard already
-    // suppressed its audio; without this guard the flush still fired, emitting a
-    // 0-sentence response_complete and bumping the turnId (the "ghost Daniela response").
-    // Skip the flush entirely: no response_complete, no turnId bump, no exchange count.
-    // Real 0-audio turns (student spoke but GL answered text-only / audio failed) pass
-    // through because hasStudentInputSinceLastResponse or pendingInputTranscript is set.
+    // the last response is a spurious GL generation — triggered either by a mid-session
+    // sendClientContent injection (pedagogical/tension directive, heartbeat) or by
+    // upstream GL re-transcribing its internal audio ring buffer when no new student
+    // input arrived (G3). Even when pendingInputTranscript is non-empty, if
+    // !this.hasStudentInputSinceLastResponse && !this.greetingPhaseActive && 0 sentences
+    // were produced, nothing may be persisted: discard both transcripts and log the
+    // discarded lengths so the observer can see them.
+    // Real 0-audio turns (student spoke via sendAudioChunk/interrupt or sent text via
+    // sendTextTurn({ isStudentInput: true }), and GL answered text-only / audio failed)
+    // pass through because hasStudentInputSinceLastResponse is true.
     if (
       this.currentSentenceIndex === 0 &&
       !this.hasStudentInputSinceLastResponse &&
-      !this.pendingInputTranscript.trim() &&
       !this.greetingPhaseActive
     ) {
+      const discardedInputChars = this.pendingInputTranscript.trim().length;
+      const discardedOutputChars = this.pendingOutputTranscript.trim().length;
       const inj = this.lastClientContentInjection;
       const injNote = inj ? `"${inj.label}" ${Date.now() - inj.at}ms ago` : 'none recorded';
-      console.warn(`[GeminiLive] GHOST TURN suppressed — 0 sentences, no student input (turnId: ${this.currentTurnId}); likely trigger injection: ${injNote}`);
+      console.warn(
+        `[GeminiLive] GHOST TURN suppressed — 0 sentences, no student input (turnId: ${this.currentTurnId}, ` +
+        `discardedInputChars: ${discardedInputChars}, discardedOutputChars: ${discardedOutputChars}); ` +
+        `likely trigger injection: ${injNote}`
+      );
       voiceTelemetry.log(this.session.dbSessionId ?? this.session.id, String(this.session.userId ?? ''), 'gl_ghost_turn_suppressed', {
         turnId: this.currentTurnId,
         injectionLabel: inj?.label ?? null,
         injectionAgeMs: inj ? Date.now() - inj.at : null,
+        discardedInputChars,
+        discardedOutputChars,
       });
-      // Discard the ghost's transcript so it can't bleed into the next real turn,
-      // and reset per-generation state without advancing the turn.
+      // Discard the ghost's input + output transcripts so they can't persist or bleed
+      // into the next real turn, and reset per-generation state without advancing the turn.
+      this.pendingInputTranscript = '';
+      this.pendingInputSaved = false;
       this.pendingOutputTranscript = '';
       this.usingOutputTranscription = false;
       this.generationStartedThisTurn = false;
+      this._currentTurnThoughtContent = null;
       return;
     }
 
@@ -6321,16 +6418,10 @@ LEXICAL CONSTRAINT: Do not use regional slang, fillers, or interjections from yo
           daniela: assistantText.trim(),
         });
 
-        setImmediate(async () => {
-          try {
-            const { safeWriteTrigger, getRollingEpisodeName } = await import('./chat-episode-hook');
-            const episodeName = await getRollingEpisodeName();
-            if (!episodeName) return;
-            await safeWriteTrigger(exchange, episodeName);
-            console.log(`[GeminiLive] Episode capture: GL exchange appended to ${episodeName} (${exchange.length} chars)`);
-          } catch (err: any) {
+        setImmediate(() => {
+          this.appendExchangeToRollingEpisode(exchange).catch((err: any) => {
             console.warn('[GeminiLive] Episode capture failed (non-fatal):', err?.message);
-          }
+          });
         });
       }
     }
@@ -6376,6 +6467,20 @@ LEXICAL CONSTRAINT: Do not use regional slang, fillers, or interjections from yo
     this.firstAudioSentThisTurn = false;
     this.processingPendingSentThisTurn = false;
     this.generationStartedThisTurn = false;
+    // On a real 0-audio turn (student provided input via sendAudioChunk, interrupt, or
+    // sendTextTurn({ isStudentInput: true }), and GL answered text-only with 0 audio
+    // sentences), line 3001 never ran because no audio chunk arrived. Consume
+    // hasStudentInputSinceLastResponse here so a subsequent phantom turn is suppressed,
+    // unless new student input (e.g. a held or tapped PTT key) arrived after
+    // generationComplete during the 800ms seal window.
+    if (
+      totalSentences === 0 &&
+      !this.greetingPhaseActive &&
+      !this.hasStudentInputSinceLastGenerationComplete
+    ) {
+      this.hasStudentInputSinceLastResponse = false;
+    }
+    this.hasStudentInputSinceLastGenerationComplete = false;
     // DOUBLE-AUDIO FIX: Clear suppress flag at turn complete so a stale reconnect-era
     // flag never carries into the next turn if GL never generated audio post-reconnect.
     this.suppressNextProcessingPending = false;
@@ -6399,6 +6504,14 @@ LEXICAL CONSTRAINT: Do not use regional slang, fillers, or interjections from yo
     this.responseFlushedToClient = true;
 
     console.log(`[GeminiLive] Transcripts flushed & response_complete sent — sentences: ${totalSentences}, old turnId: ${flushTurnId}, new turnId: ${this.currentTurnId}`);
+  }
+
+  private async appendExchangeToRollingEpisode(exchange: string): Promise<void> {
+    const { safeWriteTrigger, getRollingEpisodeName } = await import('./chat-episode-hook');
+    const episodeName = await getRollingEpisodeName();
+    if (!episodeName) return;
+    await safeWriteTrigger(exchange, episodeName);
+    console.log(`[GeminiLive] Episode capture: GL exchange appended to ${episodeName} (${exchange.length} chars)`);
   }
 
   /**
