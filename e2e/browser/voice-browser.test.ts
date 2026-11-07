@@ -271,6 +271,60 @@ test('a retry waiting on its backoff does not act on a conversation warmed up si
   await page.context().close();
 });
 
+test('only speech from the reconnect gap is replayed, never older audio', { timeout: 60_000 }, async () => {
+  const page = await connectedPage();
+  const sent = () => server.messages('stream_audio_chunk').map(m => m.body.sequenceId);
+  const already = sent().length;
+  const newSince = () => sent().slice(already);
+  await page.evaluate(() => (window as any).harness.setInputMode('open-mic'));
+
+  // While she speaks the client sends nothing. That's her voice in his mic, not his speech.
+  await page.evaluate(() => {
+    const h = (window as any).harness;
+    h.forceState('streaming');
+    h.micChunk(1);
+    h.forceState('ready');
+  });
+
+  // The socket drops. A chunk captured in the gap is his speech, and should arrive.
+  const startsBefore = server.messages('start_session').length;
+  server.refuseHandshakes(true);
+  server.dropClients();
+  await page.waitForFunction(() => ['reconnecting', 'connecting'].includes((window as any).harness.state()), null, { timeout: 5_000 });
+  await page.evaluate(() => (window as any).harness.micChunk(2));
+  server.refuseHandshakes(false);
+  await server.waitFor(() => server.messages('start_session').length > startsBefore, 35_000, 'the reconnect');
+  await server.waitFor(() => newSince().includes(2), 5_000, 'the chunk from the gap');
+  assert.deepEqual(newSince(), [2], 'the chunk from her speech is not replayed');
+  await page.waitForFunction(() => (window as any).harness.state() === 'ready', null, { timeout: 10_000 });
+
+  // A reconnect of Gemini alone: the socket stays up, and speech in that gap is kept too.
+  server.send({ type: 'gl_reconnecting', attempt: 1, maxAttempts: 3, delayMs: 1000 });
+  await page.waitForFunction(() => (window as any).harness.state() === 'reconnecting', null, { timeout: 5_000 });
+  await page.evaluate(() => (window as any).harness.micChunk(3));
+  await new Promise(r => setTimeout(r, 300));
+  assert.ok(!newSince().includes(3), 'held during the gap');
+  server.send({ type: 'gl_reconnected' });
+  await server.waitFor(() => newSince().includes(3), 5_000, 'the chunk from the Gemini reconnect gap');
+  assert.deepEqual(newSince(), [2, 3], 'each chunk once, in order');
+  await page.context().close();
+});
+
+test('a long gap keeps only the most recent speech', { timeout: 60_000 }, async () => {
+  const page = await connectedPage();
+  const already = server.messages('stream_audio_chunk').length;
+  await page.evaluate(() => (window as any).harness.setInputMode('open-mic'));
+  server.send({ type: 'gl_reconnecting', attempt: 1, maxAttempts: 3, delayMs: 1000 });
+  await page.waitForFunction(() => (window as any).harness.state() === 'reconnecting', null, { timeout: 5_000 });
+  await page.evaluate(() => { for (let i = 0; i < 100; i++) (window as any).harness.micChunk(i); });
+  server.send({ type: 'gl_reconnected' });
+  await server.waitFor(() => server.messages('stream_audio_chunk').some(m => m.body.sequenceId === 99), 5_000, 'the newest chunk');
+  const replayed = server.messages('stream_audio_chunk').slice(already).map(m => m.body.sequenceId);
+  assert.equal(replayed.length, 40, 'about 10 s of audio at most');
+  assert.equal(replayed[0], 60, 'the oldest are the ones dropped');
+  await page.context().close();
+});
+
 test('End Call during a retry stays ended', { timeout: 60_000 }, async () => {
   const page = await connectedPage();
   server.holdHandshakes(true);
