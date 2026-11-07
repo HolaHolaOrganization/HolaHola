@@ -6,11 +6,12 @@
  * Covers what unit tests could not see in live test 1:
  * - vision keeps sending frames through a student turn ('processing'), F4;
  * - Gemini Live audio played by the browser is reported in one playback summary
- *   per turn, with every chunk played through (the F1–F2 ledger).
+ *   per turn, with every chunk played through (the F1–F2 ledger);
+ * - the session comes back after a network outage, and vision resumes (live test 2, G1).
  */
 import assert from 'node:assert/strict';
 import { resolve } from 'node:path';
-import { after, before, test } from 'node:test';
+import { after, afterEach, before, beforeEach, test } from 'node:test';
 import { chromium, type Browser, type Page } from 'playwright';
 import { startMockVoiceServer, type MockVoiceServer } from './mock-voice-server';
 
@@ -20,6 +21,11 @@ let browser: Browser;
 
 before(async () => {
   server = await startMockVoiceServer(ROOT);
+});
+
+// A browser per test: once one context has used Chromium's fake camera, later contexts in
+// the same browser get NotFoundError from getUserMedia.
+beforeEach(async () => {
   browser = await chromium.launch({
     // Locally, point at an installed Chromium when Playwright's own build is absent.
     ...(process.env.E2E_CHROMIUM_PATH ? { executablePath: process.env.E2E_CHROMIUM_PATH } : {}),
@@ -31,8 +37,11 @@ before(async () => {
   });
 });
 
-after(async () => {
+afterEach(async () => {
   await browser?.close();
+});
+
+after(async () => {
   await server?.close();
 });
 
@@ -108,5 +117,106 @@ test('played Gemini Live audio is reported as one playback summary for the turn'
   const summariesFor = (id: number) => server.telemetry('playback_turn_summary').filter(e => e.data.playbackSummary.turnId === id);
   await server.waitFor(() => summariesFor(turnId + 1).length > 0, 15_000, 'a summary for the newer turn');
   assert.equal(summariesFor(turnId).length, 1, 'finalizing is once per turn');
+  await page.context().close();
+});
+
+test('the session comes back after a network outage, and vision resumes', { timeout: 60_000 }, async () => {
+  const page = await connectedPage();
+  const framesBefore = server.messages('video_frame').length;
+  await page.evaluate(() => (window as any).harness.toggleWebcam());
+  await server.waitFor(() => server.messages('video_frame').length > framesBefore, 15_000, 'first webcam frame');
+  const startsBefore = server.messages('start_session').length;
+  const historyBefore: number = await page.evaluate(() => (window as any).harness.stateHistory().length);
+
+  await page.context().setOffline(true);
+  server.dropClients();
+
+  // Longer than the fast retries, so attempts really do fail while offline.
+  await new Promise(r => setTimeout(r, 6_000));
+  const states: string[] = await page.evaluate(n => (window as any).harness.stateHistory().slice(n), historyBefore);
+  assert.ok(states.includes('reconnecting'), `states during the outage: ${states}`);
+  assert.ok(!states.includes('error') && !states.includes('disconnected'),
+    `a failed attempt is not terminal, and 'error' would release the camera: ${states}`);
+  assert.equal(await page.evaluate(() => (window as any).harness.webcamActive()), true, 'the camera stays on through the outage');
+
+  await page.context().setOffline(false);
+  await server.waitFor(() => server.messages('start_session').length > startsBefore, 35_000, 'a new start_session after the outage');
+  const restart = server.messages('start_session').at(-1)!;
+  assert.equal(restart.body.isReconnect, true, 'it resumes the session rather than starting a new one');
+  await page.waitForFunction(() => (window as any).harness.state() === 'ready', null, { timeout: 10_000 });
+
+  const resumedAt = Date.now();
+  await server.waitFor(() => server.messages('video_frame').some(m => m.at > resumedAt), 15_000, 'webcam frames after the reconnect');
+  await page.context().close();
+});
+
+test('a retry still in its handshake cannot disturb a session started after End Call', { timeout: 75_000 }, async () => {
+  const page = await connectedPage();
+  server.holdHandshakes(true);
+  try {
+    server.dropClients();
+    // The first retry runs after 200 ms, and now sits unanswered in its handshake.
+    await page.waitForFunction(() => (window as any).harness.state() === 'connecting', null, { timeout: 5_000 });
+    await page.evaluate(() => (window as any).harness.disconnect());
+    await page.waitForFunction(() => (window as any).harness.state() === 'disconnected', null, { timeout: 5_000 });
+  } finally {
+    server.holdHandshakes(false);
+  }
+
+  const startsBefore = server.messages('start_session').length;
+  await page.evaluate(() => (window as any).harness.connect('e2e-second-conversation'));
+  await page.waitForFunction(() => (window as any).harness.state() === 'ready', null, { timeout: 15_000 });
+  const historyBefore: number = await page.evaluate(() => (window as any).harness.stateHistory().length);
+
+  // The old attempt's own timeout is 30 s; outlast it.
+  await new Promise(r => setTimeout(r, 32_000));
+  const after: string[] = await page.evaluate(n => (window as any).harness.stateHistory().slice(n), historyBefore);
+  assert.deepEqual(after, [], 'the new session sees no state changes from the old attempt');
+  assert.equal(await page.evaluate(() => (window as any).harness.state()), 'ready');
+  assert.equal(server.messages('start_session').length - startsBefore, 1, 'one start_session for the one new connection');
+  assert.equal(server.connectedClients(), 1, 'the abandoned attempt left no second connection');
+  await page.context().close();
+});
+
+test('a retry waiting on its backoff does not act on a conversation warmed up since', { timeout: 60_000 }, async () => {
+  const page = await connectedPage();
+  server.refuseHandshakes(true);
+  try {
+    server.dropClients();
+    // Three fast attempts fail within about 3 s, which leaves the fourth waiting 15 s.
+    await new Promise(r => setTimeout(r, 5_000));
+    assert.equal(await page.evaluate(() => (window as any).harness.state()), 'reconnecting');
+  } finally {
+    server.refuseHandshakes(false);
+  }
+
+  const startsBefore = server.messages('start_session').length;
+  await page.evaluate(() => (window as any).harness.warmUp('e2e-warmed-conversation'));
+  await server.waitFor(() => server.connectedClients() === 1, 5_000, 'the warm-up connection');
+
+  // Outlast the backoff that was already waiting.
+  await new Promise(r => setTimeout(r, 17_000));
+  assert.equal(server.messages('start_session').length, startsBefore, 'a warm-up starts nothing until asked');
+  assert.equal(server.connectedClients(), 1, 'the warm-up connection was not replaced');
+  await page.context().close();
+});
+
+test('End Call during a retry stays ended', { timeout: 60_000 }, async () => {
+  const page = await connectedPage();
+  server.holdHandshakes(true);
+  try {
+    server.dropClients();
+    await page.waitForFunction(() => (window as any).harness.state() === 'connecting', null, { timeout: 5_000 });
+    await page.evaluate(() => (window as any).harness.disconnect());
+    await page.waitForFunction(() => (window as any).harness.state() === 'disconnected', null, { timeout: 5_000 });
+    const historyBefore: number = await page.evaluate(() => (window as any).harness.stateHistory().length);
+
+    // The old attempt's own timeout is 30 s; outlast it, with no new call to mask what it does.
+    await new Promise(r => setTimeout(r, 32_000));
+    const after: string[] = await page.evaluate(n => (window as any).harness.stateHistory().slice(n), historyBefore);
+    assert.deepEqual(after, [], 'nothing announces an error or restarts after End Call');
+  } finally {
+    server.holdHandshakes(false);
+  }
   await page.context().close();
 });

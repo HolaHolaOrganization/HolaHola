@@ -23,6 +23,14 @@ export interface MockVoiceServer {
   /** Client telemetry events of one type (single or batched). */
   telemetry(type: string): any[];
   send(message: Record<string, unknown>): void;
+  /** Cut every client off, as a lost network would. */
+  dropClients(): void;
+  /** While on, new connections wait unanswered in the handshake. */
+  holdHandshakes(hold: boolean): void;
+  /** While on, new connections are refused at once. */
+  refuseHandshakes(refuse: boolean): void;
+  /** Clients connected right now. */
+  connectedClients(): number;
   waitFor(predicate: () => boolean, timeoutMs: number, label: string): Promise<void>;
   close(): Promise<void>;
 }
@@ -30,6 +38,9 @@ export interface MockVoiceServer {
 export async function startMockVoiceServer(staticRoot: string, sessionId = 'e2e-session-1'): Promise<MockVoiceServer> {
   const received: ReceivedMessage[] = [];
   const sockets = new Set<Socket>();
+  let holding = false;
+  let refusing = false;
+  let held: Array<() => void> = [];
 
   const http: HttpServer = createServer(async (req, res) => {
     let path: string;
@@ -52,6 +63,11 @@ export async function startMockVoiceServer(staticRoot: string, sessionId = 'e2e-
   });
 
   const io = new SocketServer(http, { transports: ['websocket'], maxHttpBufferSize: 10e6 });
+  io.of('/voice').use((_socket, next) => {
+    if (refusing) next(new Error('refused'));
+    else if (holding) held.push(next);
+    else next();
+  });
   io.of('/voice').on('connection', socket => {
     sockets.add(socket);
     socket.on('disconnect', () => sockets.delete(socket));
@@ -77,6 +93,13 @@ export async function startMockVoiceServer(staticRoot: string, sessionId = 'e2e-
       r.event === 'client_telemetry' ? [r.body] : r.event === 'client_telemetry_batch' ? r.body : [])
       .filter((e: any) => e?.type === type),
     send: message => { for (const socket of sockets) socket.emit('message', { timestamp: Date.now(), ...message }); },
+    dropClients: () => { for (const socket of sockets) socket.disconnect(true); },
+    holdHandshakes: hold => {
+      holding = hold;
+      if (!hold) { for (const next of held) next(); held = []; }
+    },
+    refuseHandshakes: refuse => { refusing = refuse; },
+    connectedClients: () => sockets.size,
     async waitFor(predicate, timeoutMs, label) {
       const deadline = Date.now() + timeoutMs;
       while (!predicate()) {

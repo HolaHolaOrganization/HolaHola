@@ -284,6 +284,10 @@ export class StreamingVoiceClient {
   private lastConversationId: string | null = null;
   private lastSessionConfig: StreamingSessionConfig | null = null;  // Store for reconnect
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private reconnectAttemptInFlight = false;  // A failed attempt is not terminal: the retry loop owns the state
+  // Bumped whenever something other than the retry loop takes over the connection (End Call, a new
+  // connect or warm-up), so a retry still in flight knows it no longer owns anything.
+  private reconnectOwnership = 0;
   private intentionalDisconnect = false;  // Track if disconnect was user-initiated
   private consecutiveSessionErrors = 0;
   private readonly MAX_SESSION_ERRORS = 5;
@@ -312,7 +316,10 @@ export class StreamingVoiceClient {
   private isWarmedUp = false;  // Socket connected but no session started
   
   constructor() {
-    // Initialization complete
+    // Timers keep retrying during an outage; this only cuts the wait once the network is back.
+    if (typeof window !== 'undefined') {
+      window.addEventListener('online', () => this.retryNowIfWaiting());
+    }
   }
   
   /**
@@ -425,6 +432,7 @@ export class StreamingVoiceClient {
       this.stopHeartbeat();
     }
     
+    this.abandonReconnectAttempt();
     this.lastConversationId = conversationId;
     this.intentionalDisconnect = false;
     this.isWarmedUp = false;
@@ -447,28 +455,47 @@ export class StreamingVoiceClient {
     if (this.socket?.connected && this.lastConversationId === conversationId) {
       return;
     }
-    
+    this.abandonReconnectAttempt();
+    await this.connectForConversation(conversationId);
+  }
+
+  private async connectForConversation(conversationId: string): Promise<void> {
     this.lastConversationId = conversationId;
     this.intentionalDisconnect = false;
-    
+
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
     }
-    
+
     if (!this.socket?.connected) {
       await this.connectSocket(conversationId);
     }
-    
+
     this.isWarmedUp = false;
   }
-  
+
+  private abandonReconnectAttempt(): void {
+    this.reconnectOwnership++;
+    this.reconnectAttemptInFlight = false;
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+  }
+
   /**
    * Internal: establish Socket.io connection (shared by warmUp and connect)
    */
   private async connectSocket(conversationId: string): Promise<void> {
     this.connectionId++;
     const currentConnectionId = this.connectionId;
+    // An earlier attempt may still be in its handshake. It must not connect after this one.
+    if (this.socket && !this.socket.connected) {
+      this.socket.removeAllListeners();
+      this.socket.disconnect();
+      this.socket = null;
+    }
     
     this.setState('connecting');
     
@@ -615,7 +642,18 @@ export class StreamingVoiceClient {
       if (isVerboseLoggingEnabled()) {
         console.error('[StreamingVoiceClient] Connection failed:', error);
       }
-      this.setState('error');
+      // Superseded by End Call or a newer connection: nothing here is ours to change.
+      if (this.connectionId !== currentConnectionId) throw error;
+      // A socket that never connected must not linger: it could still connect later,
+      // after this attempt was given up on.
+      if (this.socket) {
+        this.socket.removeAllListeners();
+        this.socket.disconnect();
+        this.socket = null;
+      }
+      if (!this.reconnectAttemptInFlight) {
+        this.setState('error');
+      }
       throw error;
     }
   }
@@ -1075,6 +1113,8 @@ export class StreamingVoiceClient {
    * Disconnect and cleanup (user-initiated)
    */
   disconnect(): void {
+    this.abandonReconnectAttempt();
+    this.connectionId++;  // Events and failures from the current socket no longer count.
     this.intentionalDisconnect = true;
     this.reconnectAttempts = 0;
     this.isWarmedUp = false;
@@ -1941,40 +1981,7 @@ export class StreamingVoiceClient {
         recoverable: true 
       });
       
-      this.reconnectTimer = setTimeout(async () => {
-        this.reconnectTimer = null;
-        try {
-          await this.connect(this.lastConversationId!);
-          this.reconnectAttempts = 0;
-          this.consecutiveSessionErrors = 0;
-          this.intentionalDisconnect = false;
-          
-          // CRITICAL: Reinitialize the server-side session after reconnection
-          // Without this, audio chunks are rejected with "Session not ready for streaming"
-          // Mark as reconnect so server skips greeting and avoids duplicate audio streams
-          if (this.lastSessionConfig) {
-            console.log('[StreamingVoice] Reconnected - reinitializing session (isReconnect=true)');
-            this._isReconnectedSession = true;
-            this.startSession({ ...this.lastSessionConfig, isReconnect: true });
-            
-            // RECONNECT FIX: Restore input mode immediately after start_session.
-            // The server always defaults to push-to-talk on a new WS connection.
-            // set_input_mode requires no auth so it takes effect before session creation
-            // completes — ensuring open-mic audio chunks route to the correct handler.
-            if (this._lastKnownInputMode === 'open-mic') {
-              console.log('[StreamingVoice] Restoring open-mic mode after reconnect');
-              this.socket!.emit('message', { type: 'set_input_mode', inputMode: 'open-mic' });
-              // Replay any audio chunks buffered during the reconnect gap so the
-              // student's in-flight utterance reaches the server instead of being silently dropped.
-              this._flushPendingChunks();
-            }
-          }
-
-          this.emit('reconnected', { timestamp: Date.now() });
-        } catch (err) {
-          // handleDisconnect will be called again, triggering next attempt
-        }
-      }, delay);
+      this.reconnectTimer = setTimeout(() => this.runReconnectAttempt(), delay);
     } else {
       this.reconnectAttempts = 0;
       this.setState('disconnected');
@@ -1985,6 +1992,60 @@ export class StreamingVoiceClient {
         message: 'Connection lost. Please restart the voice chat.',
         recoverable: false 
       });
+    }
+  }
+
+  /** The network is back: run the attempt now rather than waiting out the backoff. */
+  private retryNowIfWaiting(): void {
+    if (!this.reconnectTimer) return;
+    clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = null;
+    void this.runReconnectAttempt();
+  }
+
+  private async runReconnectAttempt(): Promise<void> {
+    this.reconnectTimer = null;
+    this.reconnectAttemptInFlight = true;
+    const ownership = ++this.reconnectOwnership;
+    const stillOwned = () => ownership === this.reconnectOwnership;
+    try {
+      await this.connectForConversation(this.lastConversationId!);
+      if (!stillOwned()) return;
+      this.reconnectAttempts = 0;
+      this.consecutiveSessionErrors = 0;
+      this.intentionalDisconnect = false;
+
+      // CRITICAL: Reinitialize the server-side session after reconnection
+      // Without this, audio chunks are rejected with "Session not ready for streaming"
+      // Mark as reconnect so server skips greeting and avoids duplicate audio streams
+      if (this.lastSessionConfig) {
+        console.log('[StreamingVoice] Reconnected - reinitializing session (isReconnect=true)');
+        this._isReconnectedSession = true;
+        this.startSession({ ...this.lastSessionConfig, isReconnect: true });
+
+        // RECONNECT FIX: Restore input mode immediately after start_session.
+        // The server always defaults to push-to-talk on a new WS connection.
+        // set_input_mode requires no auth so it takes effect before session creation
+        // completes — ensuring open-mic audio chunks route to the correct handler.
+        if (this._lastKnownInputMode === 'open-mic') {
+          console.log('[StreamingVoice] Restoring open-mic mode after reconnect');
+          this.socket!.emit('message', { type: 'set_input_mode', inputMode: 'open-mic' });
+          // Replay any audio chunks buffered during the reconnect gap so the
+          // student's in-flight utterance reaches the server instead of being silently dropped.
+          this._flushPendingChunks();
+        }
+      }
+
+      this.emit('reconnected', { timestamp: Date.now() });
+    } catch (err) {
+      // A socket that drops after connecting fires 'disconnect', which already scheduled the
+      // next attempt or gave up. One that never connected (no network) fires only
+      // 'connect_error', so nothing else will continue the loop: it must continue here.
+      if (stillOwned() && !this.reconnectTimer && this.state !== 'disconnected') {
+        this.handleDisconnect();
+      }
+    } finally {
+      if (stillOwned()) this.reconnectAttemptInFlight = false;
     }
   }
 }

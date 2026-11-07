@@ -7,7 +7,15 @@
 import { createRoot } from 'react-dom/client';
 import { useStreamingVoice } from '@/hooks/useStreamingVoice';
 import { useVisionCapture } from '@/hooks/useVisionCapture';
+import { getStreamingVoiceClient } from '@/lib/streamingVoiceClient';
 import { visionSessionPhase } from '@/lib/vision-session-state';
+
+/**
+ * Every state the client announced, as its listeners heard them. Taken from the client, not
+ * from renders, because React batches away a state that lasts only a moment.
+ */
+const stateHistory: string[] = [];
+getStreamingVoiceClient().on('stateChange', (state: unknown) => { stateHistory.push(String(state)); });
 
 function Harness() {
   const voice = useStreamingVoice();
@@ -16,15 +24,18 @@ function Harness() {
   const vision = useVisionCapture(voice.sendVideoFrame, phase !== 'ended');
 
   (window as any).harness = {
-    connect: () => voice.connect({
-      conversationId: 'e2e-conversation',
+    connect: (conversationId = 'e2e-conversation') => voice.connect({
+      conversationId,
       targetLanguage: 'spanish',
       nativeLanguage: 'english',
       difficultyLevel: 'beginner',
       subtitleMode: 'off',
     }),
+    disconnect: () => voice.disconnect(),
+    warmUp: (conversationId: string) => getStreamingVoiceClient().warmUp(conversationId),
     toggleWebcam: () => vision.toggleWebcam(),
     state: () => voice.state.connectionState,
+    stateHistory: () => [...stateHistory],
     webcamActive: () => vision.webcamActive,
   };
 
