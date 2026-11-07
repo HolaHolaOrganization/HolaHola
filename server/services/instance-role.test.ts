@@ -333,6 +333,7 @@ const BOOT_TIMER_INVENTORY: Record<string, TimerClass> = {
   'server/services/founder-chat-sync.ts::notifyConversationUpdated::setTimeout': 'on-demand', // message-save debounce (request path)
   'server/services/founder-chat-sync.ts::notifyAldenConversationUpdated::setTimeout': 'on-demand', // Alden message-save debounce (request path)
   'server/services/founder-chat-sync.ts::startFounderChatSyncWorker::setTimeout': 'gated-starter',
+  'server/services/gl-go-away.ts::watchGoAway::setInterval': 'on-demand', // only after Gemini's goAway; stops within the time it gives
   'server/services/history-backfill-service.ts::startConversationCurator::setTimeout': 'gated-starter',
   'server/services/history-backfill-service.ts::startConversationCurator::setInterval': 'gated-starter',
   'server/services/luca-observer.ts::startLucaObserver::setInterval': 'gated-starter',

@@ -23,6 +23,7 @@ let _globalPreTurnFallbackMode: 'interrupt' | 'carry-forward' = 'carry-forward';
 export function setGlobalPreTurnFallbackMode(mode: 'interrupt' | 'carry-forward'): void { _globalPreTurnFallbackMode = mode; }
 export function getGlobalPreTurnFallbackMode(): 'interrupt' | 'carry-forward' { return _globalPreTurnFallbackMode; }
 
+import { watchGoAway } from './gl-go-away';
 import {
   GoogleGenAI,
   Modality,
@@ -973,6 +974,8 @@ export class GeminiLiveSession {
   // "invalid argument" — it is GL completing the graceful disconnect after the
   // goAway grace period. We treat it as retriable in that specific context.
   private lastGoAwayTimestamp = 0;
+  private stopGoAwayWatch: (() => void) | null = null;
+  private lastReconnectPrompt: string | null = null;
   // Stored so reconnect can re-call start() with the same arguments.
   private lastSystemPrompt = '';
   private lastTools: FunctionDeclaration[] = [];
@@ -1122,7 +1125,7 @@ export class GeminiLiveSession {
     this.isStarted = true;
     this.sessionStartedAt = Date.now();
     // Store for use by auto-reconnect
-    this.lastSystemPrompt = systemPrompt;
+    this.rememberSystemPrompt(systemPrompt);
     this.lastTools = tools;
 
     // Restore assessment state from DB if this is a reconnect into an active placement session.
@@ -1468,6 +1471,8 @@ LEXICAL CONSTRAINT: Do not use regional slang, fillers, or interjections from yo
           }
         },
         onclose: async (event: any) => {
+          this.stopGoAwayWatch?.();
+          this.stopGoAwayWatch = null;
           const code = event?.code as number;
           const reason = event?.reason || '(no reason)';
           console.log(`[GeminiLive] Session closed — code: ${code}, reason: ${reason}`);
@@ -1539,30 +1544,15 @@ LEXICAL CONSTRAINT: Do not use regional slang, fillers, or interjections from yo
             });
             return;
           }
-          // Proactive ACTFL reconnect: triggered by proactiveReconnect() method. Skip the
-          // exponential backoff and retriable-code check — call start() immediately using
-          // stored params. Resumption handle (if available) preserves conversation context.
-          if (this.isProactiveReconnecting && !this.isStopped) {
-            this.isProactiveReconnecting = false;
-            this.reconnectAttempts = 0;
-            console.log('[GeminiLive] Proactive reconnect onclose — calling start() immediately with updated ACTFL tier');
-            try {
-              await this.start(this.lastSystemPrompt, this.lastTools);
-              this.sendWsMessage(this.session.ws, { type: 'gl_reconnected' });
-            } catch (err: any) {
-              console.error('[GeminiLive] Proactive reconnect start() failed:', err?.message);
-              this.sendWsMessage(this.session.ws, {
-                type: 'voice_error',
-                code: 'RECONNECT_FAILED',
-                message: 'Session recalibration failed. Please try again.',
-                recoverable: true,
-              });
-            }
-            return;
-          }
-          if (!this.isStopped && this.RETRIABLE_CLOSE_CODES.has(code) && this.reconnectAttempts < this.MAX_RECONNECT_ATTEMPTS) {
+          // A close we asked for (ACTFL recalibration, GoAway) takes the same reconnect path as
+          // an unexpected one, with no backoff: it needs the same per-connection resets and the
+          // same context bridge. The retry count only tracks unexpected closes.
+          const deliberateClose = this.isProactiveReconnecting && !this.isStopped;
+          this.isProactiveReconnecting = false;
+          if (deliberateClose) this.reconnectAttempts = 0;
+          if (deliberateClose || (!this.isStopped && this.RETRIABLE_CLOSE_CODES.has(code) && this.reconnectAttempts < this.MAX_RECONNECT_ATTEMPTS)) {
             this.reconnectAttempts++;
-            const delayMs = 1000 * Math.pow(2, this.reconnectAttempts - 1); // 1 s, 2 s, 4 s
+            const delayMs = deliberateClose ? 0 : 1000 * Math.pow(2, this.reconnectAttempts - 1); // 1 s, 2 s, 4 s
             console.log(`[GeminiLive] Scheduling reconnect ${this.reconnectAttempts}/${this.MAX_RECONNECT_ATTEMPTS} in ${delayMs} ms`);
 
             this.sendWsMessage(this.session.ws, {
@@ -1683,10 +1673,7 @@ LEXICAL CONSTRAINT: Do not use regional slang, fillers, or interjections from yo
                 // keep primacy, (b) if the prompt is near the 34K cap, the bridge (recency)
                 // gets trimmed before core persona does, and (c) LLM recency bias naturally
                 // pulls the model toward the recent context even when it's at the end.
-                const contextBridge = this.buildContextBridge();
-                reconnectPrompt = contextBridge
-                  ? `${this.lastSystemPrompt}\n\n${contextBridge}`
-                  : this.lastSystemPrompt;
+                reconnectPrompt = this.buildReconnectPrompt();
                 await this.start(reconnectPrompt, this.lastTools);
                 this.reconnectAttempts = 0; // success — reset counter
                 console.log('[GeminiLive] Reconnected successfully');
@@ -1778,6 +1765,20 @@ LEXICAL CONSTRAINT: Do not use regional slang, fillers, or interjections from yo
    * WebSocket exists. A failed connect has no socket and therefore no onclose,
    * so this bounded continuation owns that otherwise-dead retry branch.
    */
+  /** Her system prompt plus a fresh context bridge for one new connection. */
+  private buildReconnectPrompt(): string {
+    const contextBridge = this.buildContextBridge();
+    this.lastReconnectPrompt = contextBridge
+      ? `${this.lastSystemPrompt}\n\n${contextBridge}`
+      : this.lastSystemPrompt;
+    return this.lastReconnectPrompt;
+  }
+
+  /** Keeps the prompt without any bridge, so bridges don't pile up across reconnects. */
+  private rememberSystemPrompt(systemPrompt: string): void {
+    if (systemPrompt !== this.lastReconnectPrompt) this.lastSystemPrompt = systemPrompt;
+  }
+
   private retryFailedReconnectStart(reconnectPrompt: string): void {
     if (this.isStopped) return;
 
@@ -1927,7 +1928,9 @@ LEXICAL CONSTRAINT: Do not use regional slang, fillers, or interjections from yo
     // Proactive ACTFL reconnect: Daniela's pedagogical heartbeat flagged a tier change.
     // This is the safest moment to reconnect — audio just finished, student hasn't started
     // speaking yet, no in-flight audio or tool calls.
-    if ((this.session as any).pendingActflReconnect && !this.isStopped) {
+    // A one-sentence turn can get here before its transcript is flushed. Closing then would lose
+    // her words from the record, so leave the flag set and take the next playback_ended instead.
+    if ((this.session as any).pendingActflReconnect && !this.isStopped && !this.generationStartedThisTurn) {
       delete (this.session as any).pendingActflReconnect;
       void this.proactiveReconnect();
     }
@@ -1958,6 +1961,11 @@ LEXICAL CONSTRAINT: Do not use regional slang, fillers, or interjections from yo
     if (this.session.conversationId) {
       observeActflUpdate(this.session.conversationId, newLevel ?? null);
     }
+    this.closeForReconnect();
+  }
+
+  /** Close the Gemini connection on purpose; onclose starts the next one from the resumption handle. */
+  private closeForReconnect(): void {
     this.isProactiveReconnecting = true;
     this.isStarted = false;
     this.sendWsMessage(this.session.ws, {
@@ -1967,10 +1975,27 @@ LEXICAL CONSTRAINT: Do not use regional slang, fillers, or interjections from yo
       delayMs: 0,
     });
     try {
-      this.liveSession.close();
+      this.liveSession?.close();
     } catch {
       // Already closed — onclose handler will pick up from here
     }
+  }
+
+  /** Gemini is about to end this connection at its session limit. See gl-go-away.ts. */
+  private handleGoAway(goAway: { timeLeft?: unknown }): void {
+    if (this.stopGoAwayWatch) return;
+    console.log(`[GeminiLive] goAway received — ${String(goAway.timeLeft)} left, reconnecting at the next moment between turns`);
+    this.stopGoAwayWatch = watchGoAway(goAway.timeLeft, {
+      isCurrent: () => !this.isStopped && !!this.liveSession && !this.isProactiveReconnecting,
+      turnState: () => ({
+        tutorSpeaking: this.isTutorGeneratingAudio,
+        generationStarted: this.generationStartedThisTurn,
+        pendingToolCalls: this.pendingFunctionCallIds.length,
+        pendingStudentTranscript: this.pendingInputTranscript,
+      }),
+      reconnect: () => this.closeForReconnect(),
+      log: (outcome, detail) => voiceTelemetry.log(this.session.id, String(this.session.userId ?? ''), 'gl_go_away', { outcome, ...detail }),
+    });
   }
 
   /**
@@ -2671,10 +2696,7 @@ LEXICAL CONSTRAINT: Do not use regional slang, fillers, or interjections from yo
     });
 
     try {
-      const contextBridge = this.buildContextBridge();
-      const reconnectPrompt = contextBridge
-        ? `${this.lastSystemPrompt}\n\n${contextBridge}`
-        : this.lastSystemPrompt;
+      const reconnectPrompt = this.buildReconnectPrompt();
       await this.start(reconnectPrompt, this.lastTools);
       console.log('[GeminiLive] retryConnection() — GL session re-established successfully');
 
@@ -2750,7 +2772,7 @@ LEXICAL CONSTRAINT: Do not use regional slang, fillers, or interjections from yo
     // after the graceful disconnect window, not a protocol error on our side.
     if ((msg as any).goAway != null) {
       this.lastGoAwayTimestamp = Date.now();
-      console.log('[GeminiLive] goAway received — reconnect expected shortly');
+      this.handleGoAway((msg as any).goAway);
     }
 
     // ── Catch any top-level error from Gemini ────────────────────────────────
