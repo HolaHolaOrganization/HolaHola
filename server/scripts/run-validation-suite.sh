@@ -157,6 +157,7 @@ run_check "Alden dual-engine self-report guard" bash -c 'npx tsx server/scripts/
 run_check "Linked-outcome messaging architecture" npx tsx server/scripts/test-linked-outcome-static-guard.ts
 run_check "Failed lookup felt-history boundary" npx tsx --test server/__tests__/daniela-memory-boundary.test.ts
 run_check "Live exchange accounting lifecycle" npx tsx --test server/__tests__/voice-exchange-accounting.test.ts
+run_check "Gemini Live late flush and phantom 0-audio turn guards" npx tsx --test server/__tests__/gemini-live-late-flush-and-phantom-rows.test.ts
 run_check "Live voice provider routing" npx tsx --test server/__tests__/live-voice-routing.test.ts
 run_check "Inner-life no-episode-row guard" npx tsx server/scripts/test-inner-life-no-episode-row.ts
 run_check "Agent-memory round-trip gate isolation" npx tsx --test server/scripts/test-agent-memory-round-trip-gate-isolation.test.ts
