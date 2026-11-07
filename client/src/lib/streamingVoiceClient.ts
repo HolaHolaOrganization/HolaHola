@@ -297,7 +297,7 @@ export class StreamingVoiceClient {
   private startupGreetingRequested = false;
   private _lastKnownInputMode: 'push-to-talk' | 'open-mic' = 'push-to-talk';  // Restored on reconnect
   private _pendingChunks: Array<{audioData: ArrayBuffer, sequenceId: number}> = [];  // Buffer for reconnect gap
-  private readonly _PENDING_CHUNK_MAX = 100;  // ~1s of audio at 10ms chunks; prevents unbounded growth
+  private readonly _PENDING_CHUNK_MAX = 40;  // About 10 s at 256 ms a chunk; the newest are kept
   
   // Heartbeat state for fast drop detection
   private heartbeatInterval: ReturnType<typeof setInterval> | null = null;
@@ -808,10 +808,12 @@ export class StreamingVoiceClient {
    */
   sendStreamingChunk(audioData: ArrayBuffer, sequenceId: number): boolean {
     if (!this.isReady()) {
-      // Buffer chunks during reconnect gap so they can be replayed after reconnect.
-      // Cap at _PENDING_CHUNK_MAX to prevent unbounded memory growth during long outages.
-      if (this._pendingChunks.length < this._PENDING_CHUNK_MAX) {
+      // Keep chunks only during a reconnect gap, so an in-flight utterance survives it. Other
+      // non-ready states mustn't buffer: while she speaks ('streaming') this is her voice in the
+      // student's mic, and replaying it later would reach Gemini as student speech.
+      if (this.state === 'reconnecting' || this.state === 'connecting') {
         this._pendingChunks.push({ audioData: audioData.slice(0), sequenceId });
+        if (this._pendingChunks.length > this._PENDING_CHUNK_MAX) this._pendingChunks.shift();
       }
       return false;
     }
@@ -1396,6 +1398,7 @@ export class StreamingVoiceClient {
         case 'gl_reconnecting':
           // GL API WebSocket to Google closed unexpectedly; server is auto-reconnecting
           console.log(`[WS CLIENT] GL reconnecting (attempt ${(message as any).attempt}/${(message as any).maxAttempts})`);
+          this._pendingChunks = [];  // A new gap starts here
           this.setState('reconnecting');
           this.emit('glReconnecting', message as { type: string; attempt: number; maxAttempts: number; delayMs: number });
           break;
@@ -1404,6 +1407,8 @@ export class StreamingVoiceClient {
           // GL API WebSocket successfully re-established
           console.log('[WS CLIENT] GL reconnected');
           this.setState('ready');
+          if (this._lastKnownInputMode === 'open-mic') this._flushPendingChunks();
+          this._pendingChunks = [];
           this.emit('glReconnected', message);
           break;
 
@@ -1959,6 +1964,7 @@ export class StreamingVoiceClient {
     // Phase 1 (attempts 1-3): Fast — covers brief drops / tab backgrounding (200ms, 1s, 2s)
     // Phase 2 (attempts 4-12): Slow — covers server restarts / deployments (10s, 15s, 20s … 30s)
     if (this.reconnectAttempts < this.maxReconnectAttempts) {
+      if (this.reconnectAttempts === 0) this._pendingChunks = [];  // A new gap starts here
       this.reconnectAttempts++;
       const isServerRestartPhase = this.reconnectAttempts > 3;
       const delay = this.reconnectAttempts === 1
