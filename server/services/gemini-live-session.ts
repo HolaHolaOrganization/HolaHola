@@ -23,6 +23,7 @@ let _globalPreTurnFallbackMode: 'interrupt' | 'carry-forward' = 'carry-forward';
 export function setGlobalPreTurnFallbackMode(mode: 'interrupt' | 'carry-forward'): void { _globalPreTurnFallbackMode = mode; }
 export function getGlobalPreTurnFallbackMode(): 'interrupt' | 'carry-forward' { return _globalPreTurnFallbackMode; }
 
+import { MicFlow, pcm16Peak, type MicChunkOutcome } from './gl-mic-flow';
 import { watchGoAway } from './gl-go-away';
 import {
   GoogleGenAI,
@@ -979,6 +980,7 @@ export class GeminiLiveSession {
   // "invalid argument" — it is GL completing the graceful disconnect after the
   // goAway grace period. We treat it as retriable in that specific context.
   private lastGoAwayTimestamp = 0;
+  private micFlow = new MicFlow();
   private stopGoAwayWatch: (() => void) | null = null;
   private lastReconnectPrompt: string | null = null;
   // Stored so reconnect can re-call start() with the same arguments.
@@ -1837,17 +1839,32 @@ LEXICAL CONSTRAINT: Do not use regional slang, fillers, or interjections from yo
    * The client already captures PCM16 at 16 kHz via its AudioContext
    * and sends it via stream_audio_chunk WS messages. No transcoding needed.
    */
+  private noteMicChunk(outcome: MicChunkOutcome, pcm16Buffer: Buffer): void {
+    const report = this.micFlow.noteChunk(outcome, pcm16Peak(pcm16Buffer), Date.now());
+    if (report) voiceTelemetry.log(this.session.dbSessionId ?? this.session.id, String(this.session.userId ?? ''), 'gl_mic_flow', { ...report });
+  }
+
   sendAudioChunk(pcm16Buffer: Buffer): void {
-    if (!this.liveSession || this.isStopped) return;
+    if (!this.liveSession || this.isStopped) {
+      this.noteMicChunk('droppedNoSession', pcm16Buffer);
+      return;
+    }
     // Gate 1 — greeting phase: GL is generating the opening response.
     // Drop mic audio until the first audio chunk from GL arrives.
-    if (this.greetingPhaseActive) return;
+    if (this.greetingPhaseActive) {
+      this.noteMicChunk('droppedGreeting', pcm16Buffer);
+      return;
+    }
     // Gate 2 — turn gate: GL is generating audio for any subsequent turn.
     // Daniela's audio plays through the speaker; the mic would pick it up and
     // send it back to GL as "user speech," causing GL to produce a zero-sentence
     // echo response on the next turn (alternating silence bug).
     // Gate stays closed from first audio chunk until generationComplete fires.
-    if (this.isTutorGeneratingAudio) return;
+    if (this.isTutorGeneratingAudio) {
+      this.noteMicChunk('droppedTutorAudio', pcm16Buffer);
+      return;
+    }
+    this.noteMicChunk('forwarded', pcm16Buffer);
     // Student audio is being sent — confirm input has arrived since last response.
     this.hasStudentInputSinceLastResponse = true;
     this.hasStudentInputSinceLastGenerationComplete = true;
@@ -3297,6 +3314,7 @@ LEXICAL CONSTRAINT: Do not use regional slang, fillers, or interjections from yo
     // avoiding word-by-word rows in the messages table.
     if ((msg.serverContent as any)?.inputTranscription?.text) {
       const text = (msg.serverContent as any).inputTranscription.text as string;
+      this.micFlow.noteInputTranscript(Date.now());
       if (text.trim()) {
         // A new utterance makes every prior carry-forward grounding result stale.
         // Never merge a previous topic into a newer student turn: it turns an
