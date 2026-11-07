@@ -4,10 +4,8 @@
  * the stored-vector scorer the Archive Guardian uses (ranking and the same
  * ownership guard as the jsonb path). Vectors are synthetic; no provider calls.
  *
- * Skipped outside verified CI, and skipped with a printed reason where the CI
- * Postgres image lacks pgvector (migration 0077 is conditional on it). Set
- * REQUIRE_PGVECTOR=1 once the CI image provides pgvector so a regression to a
- * plain image fails instead of skipping.
+ * Skipped outside verified CI. In CI it refuses to skip: since the CI Postgres moved to
+ * the pgvector image, losing pgvector fails here instead of quietly skipping.
  */
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
@@ -25,11 +23,7 @@ import {
 } from '../services/semantic-memory-service';
 
 const ciUrl = getVerifiedCiDatabaseUrl();
-let pgvectorReady = false;
-const databaseTest = (name: string, fn: () => Promise<void>) => (ciUrl ? test : test.skip)(name, async t => {
-  if (!pgvectorReady) return t.skip('CI Postgres has no pgvector; migration 0077 skipped the column');
-  await fn();
-});
+const databaseTest = ciUrl ? test : test.skip;
 const OWNER = `vec-owner-${randomUUID()}`;
 const OTHER = `vec-other-${randomUUID()}`;
 const tag = randomUUID().slice(0, 8);
@@ -57,12 +51,7 @@ async function storedVec(memoryId: string): Promise<string | null> {
 before(async () => {
   if (!ciUrl) return;
   const available: any = await getSharedDb().execute(sql`SELECT 1 FROM pg_available_extensions WHERE name = 'vector'`);
-  if ((available.rows ?? available).length === 0) {
-    assert.notEqual(process.env.REQUIRE_PGVECTOR, '1', 'REQUIRE_PGVECTOR=1 but CI Postgres has no pgvector');
-    console.log('[embedding-vec] pgvector unavailable in this Postgres — database cases skip');
-    return;
-  }
-  pgvectorReady = true;
+  assert.equal((available.rows ?? available).length, 1, 'CI Postgres must provide pgvector (pgvector/pgvector image)');
   const column: any = await getSharedDb().execute(sql`SELECT 1 FROM information_schema.columns
     WHERE table_name = 'memory_embeddings' AND column_name = 'embedding_vec'`);
   assert.equal((column.rows ?? column).length, 1, 'migration 0077 must have added embedding_vec');

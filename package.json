@@ -14,6 +14,7 @@
     "test:github-release-safety": "npx tsx server/scripts/test-github-release-safety.ts",
     "test:package-lock-registry": "node scripts/validate-package-lock-registry.mjs",
     "test:playwright-browser": "npx tsx server/scripts/test-playwright-browser-path.ts",
+    "test:browser": "npx vite build --config e2e/browser/vite.config.ts && npx tsx --test e2e/browser/voice-browser.test.ts",
     "test:source-bridge": "npx tsx server/scripts/test-source-control-service.ts && npx tsx server/scripts/test-source-control-mutation-boundary.ts",
     "test:source-reconciliation": "npx tsx server/scripts/test-projection-receipts.ts && npx tsx server/scripts/test-projection-writer-coverage.ts && npx tsx server/scripts/test-source-reconciliation-service.ts && npx tsx server/scripts/test-source-reconciliation-inspection.ts",
     "test:task-ownership": "npx tsx server/scripts/test-task-ownership-service.ts",
