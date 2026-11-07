@@ -8,7 +8,7 @@ import { useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import '@/index.css';
 import { SceneCanvas } from '@/components/SceneCanvas';
-import { VocabCardItemDisplay } from '@/components/Whiteboard';
+import { ComparisonItemDisplay, VocabCardItemDisplay } from '@/components/Whiteboard';
 import { usePreloadImages, useResilientImageSrc } from '@/hooks/useResilientImageSrc';
 import { useStreamingVoice } from '@/hooks/useStreamingVoice';
 import { useVisionCapture } from '@/hooks/useVisionCapture';
@@ -43,6 +43,7 @@ function Panes() {
       </div>
       <div id="whiteboard-pane" style={{ width: 280 }}>
         <VocabCardItemDisplay index={0} item={{ type: 'vocab_card', content: 'gato', data: { word: 'gato', definition: 'cat', imageUrl: '/e2e-image/gato.png' } } as any} />
+        <ComparisonItemDisplay index={0} item={{ type: 'comparison', content: 'ser vs estar', data: { concept_a: 'ser', concept_b: 'estar' } } as any} />
       </div>
     </>
   );

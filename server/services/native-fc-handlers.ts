@@ -30,7 +30,7 @@ import { WhiteboardItem, WordMapItem, isWordMapItem, SelfSurgeryItemData } from 
 import { StreamingWhiteboardMessage } from "@shared/streaming-voice-types";
 import { WebSocket as WS } from "ws";
 import type { IStorage } from "../storage";
-import { lookupLegacyType, isKnownTool } from "./daniela-function-registry";
+import { compareArgsToVisualCompare, lookupLegacyType, isKnownTool, missingRequiredParams } from "./daniela-function-registry";
 import { generateReflectionNow } from "./session-reflection-worker";
 
 // ─── Lesson Arc Context ────────────────────────────────────────────────────────
@@ -194,6 +194,26 @@ export class NativeFunctionCallHandler {
           status: 'error',
           error: parseResult.error,
           hint: parseResult.hint,
+        };
+      }
+      return;
+    }
+
+    // A handler given none of the inputs it needs does nothing, so saying "done" would be untrue.
+    const missing = missingRequiredParams(selector, parseResult.params);
+    if (missing.length > 0) {
+      failures[dispatcherName] = (failures[dispatcherName] ?? 0) + 1;
+      const received = Object.keys(parseResult.params).join(', ') || 'nothing';
+      console.warn(`[Dispatcher] ${dispatcherName} → ${selector} missing ${missing.join(', ')} (received ${received}), failure #${failures[dispatcherName]}`);
+      if (failures[dispatcherName] >= 2) {
+        failures[dispatcherName] = 0;
+        (session as any)._lastDispatch = { selector, status: 'abort' };
+      } else {
+        (session as any)._lastDispatch = {
+          selector,
+          status: 'error',
+          error: `Nothing was shown. "${selector}" needs ${missing.join(' and ')} in params_json, and received ${received}.`,
+          hint: JSON.stringify(Object.fromEntries(missing.map(key => [key, '...']))),
         };
       }
       return;
@@ -6267,20 +6287,14 @@ export class NativeFunctionCallHandler {
         break;
       }
       
-      case 'COMPARE': {
-        const item1 = fn.args.item1 as string | undefined;
-        const item2 = fn.args.item2 as string | undefined;
-        
-        if (item1 && item2) {
-          console.log(`[Native Function→Compare] "${item1}" vs "${item2}"`);
-          this.sendMessage(session.ws, {
-            type: 'whiteboard_update',
-            timestamp: Date.now(),
-            items: [{ type: 'compare', content: `${item1} vs ${item2}` }],
-          });
-        }
-        break;
-      }
+      case 'COMPARE':
+        // The whiteboard's comparison card is the VISUAL_COMPARE item; this used to send a type
+        // nothing renders.
+        return this.handle(sessionId, session, {
+          name: 'visual_compare',
+          legacyType: 'VISUAL_COMPARE',
+          args: compareArgsToVisualCompare(fn.args),
+        });
       
       case 'WORD_MAP': {
         const center = fn.args.center as string | undefined;

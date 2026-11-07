@@ -3555,12 +3555,16 @@ This is the only tool for contacting Sophia or any support agent. Do not attempt
     legacyType: 'COMPARE',
     declaration: {
       name: "compare",
-      description: "Show a side-by-side comparison of two items.",
+      description: "Show a side-by-side comparison of two items on the whiteboard.",
       parametersJsonSchema: {
         type: "object",
         properties: {
           item1: { type: "string", description: "First item to compare" },
           item2: { type: "string", description: "Second item to compare" },
+          item1_meaning: { type: "string", description: "What the first item means or is used for" },
+          item2_meaning: { type: "string", description: "What the second item means or is used for" },
+          item1_example: { type: "string", description: "An example sentence using the first item" },
+          item2_example: { type: "string", description: "An example sentence using the second item" },
         },
         required: ["item1", "item2"],
       },
@@ -7041,7 +7045,7 @@ exercise_language — script, phonetics, and comparison exercises.
   type: "stroke" → Kanji/CJK stroke order. params_json: {"character":"水","language":"Japanese"}
   type: "tone" → tone mark display. params_json: {"word":"ma","tones":[1,2,3,4]}
   type: "pronunciation_tag" → pronunciation annotation.
-  type: "compare" → word comparison.
+  type: "compare" → side-by-side comparison on the whiteboard. params_json: {"item1":"ser","item2":"estar","item1_meaning":"identity, origin","item2_meaning":"location, states"}
   type: "word_map" → word relationship map.
   type: "play_audio" → audio clip playback.
 
@@ -7526,6 +7530,38 @@ export function lookupLegacyType(name: string): string {
 /** Returns true if the tool name is registered in the function registry. */
 export function isKnownTool(name: string): boolean {
   return registry.some(e => e.declaration.name === name);
+}
+
+/**
+ * Selectors whose declared required inputs have been checked against both her guidance and the
+ * handler. Only these get the check below. Declarations can't be trusted across the board: some
+ * selectors' guidance teaches other names, and some handlers default a "required" input.
+ */
+const INPUT_CHECKED_SELECTORS = new Set(['compare']);
+
+/**
+ * Declared inputs a dispatcher call left out. `params_json` is free-form, so the live API can't
+ * check these, and a handler that lacks them does nothing.
+ */
+export function missingRequiredParams(name: string, params: Record<string, unknown>): string[] {
+  if (!INPUT_CHECKED_SELECTORS.has(name)) return [];
+  const entry = registry.find(e => e.declaration.name === name);
+  const schema = entry?.declaration.parametersJsonSchema as { required?: string[] } | undefined;
+  return (schema?.required ?? [])
+    .filter(key => params[key] === undefined || params[key] === null || params[key] === '');
+}
+
+/** The `compare` selector shows the same comparison card as visual_compare. */
+export function compareArgsToVisualCompare(args: Record<string, unknown>): Record<string, unknown> {
+  return {
+    text: args.text,
+    concept_a: args.item1,
+    concept_b: args.item2,
+    a_meaning: args.item1_meaning,
+    b_meaning: args.item2_meaning,
+    a_example: args.item1_example,
+    b_example: args.item2_example,
+  };
 }
 
 /** Shape stored on session._lastDispatch by dispatcher handlers for buildContinuationResponse. */
