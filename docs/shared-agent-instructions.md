@@ -154,6 +154,21 @@ rules. Keep this file free of secrets, credentials, and private user data.
   went in, but nothing was reliably read back out before acting. The value
   of a shared memory is in the reading, not just the writing.
 
+### Read before touching Daniela
+
+Much of what a new hat gets wrong about Daniela is already written down in `.agents/memory/`, and it only helps if it gets read. Before changing anything she reads, how she remembers, or how a voice turn runs, read the files that apply:
+
+- **Her prompts and identity:** `daniela-personality-arch.md` (character lives in the data layer, not in prompts) and `identity-block-framing.md` (write a doorway, not a list of facts).
+- **Her memory and confabulation:** `daniela-archive-vs-muse.md`, `topic-match-memory-fabrication.md` (a real topic with a fake detail is the worst case, so test that one) and `named-record-lock.md` (a stated performance reason can outrank an honesty rule).
+- **Reading her signals:** `friction-signal-inverted-threshold.md` (low friction on a memory turn can mean she slid straight through).
+- **Live voice injection:** `gl-sdk-turncomplete-default.md` (an injection without `turnComplete:false` triggers an extra generation).
+- **The record:** `verbatim-archive-principle.md` and `always-on-honest-record.md`.
+- **Approval:** `gemini-review-and-approval-process.md` and `docs/GEMINI_REQUIRED.md`.
+
+These are point-in-time notes, so check them against the current code before relying on a specific claim. Also, a tool result of `done` doesn't prove something happened on a student's screen, so don't take her word or the result for it: check `shownVisuals` or the record.
+
+Added 2026-11-07, at the founder's request, from Luca [Replit]'s note fa3d53b8 written as part of weaning off Replit: this knowledge was recorded but hats weren't reading it.
+
 ## Engineering Handoff
 
 - Update `.local/engineering-handoff.md` when completing a meaningful build.
