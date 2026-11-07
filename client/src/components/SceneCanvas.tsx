@@ -489,9 +489,10 @@ export const EMOTION_CONFIG: Record<string, {
   eyeWide: boolean;
   browLeft: string;
   browRight: string;
+  mouthOpen?: boolean; // A filled, open mouth rather than a line.
 }> = {
   happy:    { faceColor: '#facc15', mouth: 'M 40 75 Q 60 92 80 75', eyeClose: false, eyeWide: false, browLeft: 'M 35 48 Q 45 44 55 48', browRight: 'M 65 48 Q 75 44 85 48' },
-  excited:  { faceColor: '#fb923c', mouth: 'M 35 72 Q 60 98 85 72', eyeClose: false, eyeWide: true,  browLeft: 'M 33 44 Q 44 38 55 44', browRight: 'M 65 44 Q 76 38 87 44' },
+  excited:  { faceColor: '#fb923c', mouth: 'M 35 70 Q 60 108 85 70 Z', mouthOpen: true, eyeClose: false, eyeWide: true,  browLeft: 'M 33 42 Q 44 34 55 42', browRight: 'M 65 42 Q 76 34 87 42' },
   sad:      { faceColor: '#60a5fa', mouth: 'M 40 82 Q 60 68 80 82', eyeClose: false, eyeWide: false, browLeft: 'M 35 50 Q 45 46 55 52', browRight: 'M 65 52 Q 75 46 85 50' },
   angry:    { faceColor: '#f87171', mouth: 'M 40 82 Q 60 72 80 82', eyeClose: true,  eyeWide: false, browLeft: 'M 35 46 Q 45 52 55 48', browRight: 'M 65 48 Q 75 52 85 46' },
   surprised:{ faceColor: '#c084fc', mouth: 'M 52 72 Q 60 88 68 72', eyeClose: false, eyeWide: true,  browLeft: 'M 33 44 Q 44 38 55 44', browRight: 'M 65 44 Q 76 38 87 44' },
@@ -516,7 +517,7 @@ function EmotionFaceCanvas({ data, compact }: { data: EmotionData; compact?: boo
       <ellipse cx="44" cy="58" rx="7" ry={eyeRy} fill="rgba(0,0,0,0.75)" />
       <ellipse cx="76" cy="58" rx="7" ry={eyeRy} fill="rgba(0,0,0,0.75)" />
       {!cfg.eyeClose && !cfg.eyeWide && (<><circle cx="46" cy="55" r="2" fill="white" /><circle cx="78" cy="55" r="2" fill="white" /></>)}
-      <path d={cfg.mouth} fill="none" stroke="rgba(0,0,0,0.7)" strokeWidth="4" strokeLinecap="round" />
+      <path d={cfg.mouth} fill={cfg.mouthOpen ? 'rgba(0,0,0,0.7)' : 'none'} stroke="rgba(0,0,0,0.7)" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 
@@ -542,28 +543,11 @@ function EmotionFaceCanvas({ data, compact }: { data: EmotionData; compact?: boo
       transition={{ duration: 0.45, type: 'spring', stiffness: 160, damping: 14 }}
       className="flex flex-col items-center gap-3 p-6"
     >
-      <svg viewBox="0 0 120 130" className="w-32 sm:w-44" aria-label={`Emotion: ${data.emotion}`}>
-        {/* Face */}
-        <circle cx="60" cy="60" r="52" fill={cfg.faceColor} />
-        <circle cx="60" cy="60" r="52" fill="none" stroke="rgba(0,0,0,0.12)" strokeWidth="2" />
-        {/* Eyebrows */}
-        <path d={cfg.browLeft}  fill="none" stroke="rgba(0,0,0,0.55)" strokeWidth="3.5" strokeLinecap="round" />
-        <path d={cfg.browRight} fill="none" stroke="rgba(0,0,0,0.55)" strokeWidth="3.5" strokeLinecap="round" />
-        {/* Eyes */}
-        <ellipse cx="44" cy="58" rx="7" ry={eyeRy} fill="rgba(0,0,0,0.75)" />
-        <ellipse cx="76" cy="58" rx="7" ry={eyeRy} fill="rgba(0,0,0,0.75)" />
-        {!cfg.eyeClose && !cfg.eyeWide && (
-          <>
-            <circle cx="46" cy="55" r="2" fill="white" />
-            <circle cx="78" cy="55" r="2" fill="white" />
-          </>
-        )}
-        {/* Mouth */}
-        <path d={cfg.mouth} fill="none" stroke="rgba(0,0,0,0.7)" strokeWidth="4" strokeLinecap="round" />
-      </svg>
-      {data.label && (
-        <span className="text-xl font-semibold tracking-wide">{data.label}</span>
-      )}
+      <FaceSvg className="w-32 sm:w-44" />
+      {data.label
+        ? <span className="text-xl font-semibold tracking-wide">{data.label}</span>
+        : <span className="text-base text-muted-foreground capitalize">{data.emotion}</span>
+      }
     </motion.div>
   );
 }
@@ -1246,7 +1230,8 @@ export function SceneCanvas({ data, "data-testid": testId }: SceneCanvasProps) {
 
     const smallWidgets = [
       hasThermometer && <ThermometerCanvas key="therm" data={data.thermometerData!} compact={useCompact} />,
-      hasEmotion && <EmotionFaceCanvas key="emotion" data={data.emotionData!} compact={useCompact} />,
+      // Alone in the Studio panel, the face has room for its full size (it fits within 280px).
+      hasEmotion && <EmotionFaceCanvas key="emotion" data={data.emotionData!} compact={activeSmallCount >= 2} />,
       hasWeather && <WeatherCanvas key="weather" data={data.weatherData!} compact={useCompact} hideTemp={hasThermometer} />,
       hasClock && <ClockOnlyCanvas key="clock" time={data.clockTime!} label={data.clockLabel} showLabel={data.clockShowLabel} compact={useCompact} />,
     ].filter(Boolean) as React.ReactNode[];

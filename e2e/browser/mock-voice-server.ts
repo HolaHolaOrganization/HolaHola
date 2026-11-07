@@ -13,6 +13,8 @@ const TYPES: Record<string, string> = {
   '.svg': 'image/svg+xml', '.png': 'image/png', '.mp3': 'audio/mpeg', '.wav': 'audio/wav',
 };
 
+const ONE_PIXEL_PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M/wHwAEBgIApD5fRAAAAABJRU5ErkJggg==', 'base64');
+
 export interface ReceivedMessage { at: number; event: string; body: any }
 
 export interface MockVoiceServer {
@@ -48,6 +50,11 @@ export async function startMockVoiceServer(staticRoot: string, sessionId = 'e2e-
       path = normalize(decodeURIComponent((req.url ?? '/').split('?')[0]));
     } catch {
       res.writeHead(400).end(); // Malformed percent-encoding.
+      return;
+    }
+    // A small image with production's cache headers, under any name a test asks for.
+    if (path.replaceAll('\\', '/').startsWith('/e2e-image/')) {
+      res.writeHead(200, { 'content-type': 'image/png', 'cache-control': 'public, max-age=0' }).end(ONE_PIXEL_PNG);
       return;
     }
     const file = join(staticRoot, path === '/' || path === '\\' ? 'index.html' : path);
