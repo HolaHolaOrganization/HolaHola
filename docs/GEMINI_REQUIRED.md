@@ -85,5 +85,6 @@ If a task agent cannot run the loop (no direct API access), the task description
 | 2026-08-08 | `episode_order` column + arc traversal ordering + Arm 5 title-match sort (daniela-function-registry.ts, native-fc-handlers.ts, shared/schema.ts) | `docs/gemini-audit-2026-08-08.md` | Approved unconditionally (one round). Traversal logic, tool description, and title sort all cleared. |
 | 2026-08-19 | GL game-memory naming prompt + fail-closed metadata replacement (gl-game-session-detector.ts, gemini-live-session.ts) | `docs/gemini-audit-2026-08-19-game-memory-naming.md` | Approved unconditionally. Metadata-only pre-flight gap corrected; final code received “APPROVED — Ship it.” |
 | 2026-11-06 | `compare` selector shows the comparison card; guidance gives its parameters; dispatcher returns an error for missing required inputs, for `compare` only (daniela-function-registry.ts, native-fc-handlers.ts) | `docs/gemini-audit-2026-11-06-compare-tool.md` | Approved unconditionally (stage 3). |
+| 2026-11-06 | Deliberate reconnects (ACTFL, goAway) take the retry path with the context bridge (gemini-live-session.ts, gl-go-away.ts) | `docs/gemini-audit-2026-11-06-goaway-reconnect.md` | Approved unconditionally. |
 
 _Add a row for every approved change going forward._
